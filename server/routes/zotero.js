@@ -23,13 +23,13 @@ router.post('/connect', async (req, res) => {
 
   try {
     // Verify the key by fetching user info from Zotero
-    const resp = await fetch(`${ZOTERO_API}/keys/${apiKey}`);
+    const resp = await fetch(`${ZOTERO_API}/keys/${apiKey}`, { signal: AbortSignal.timeout(10000) });
     if (!resp.ok) {
       return res.status(400).json({ error: 'Invalid Zotero API key. Check it at zotero.org/settings/keys' });
     }
     const keyInfo = await resp.json();
     const zoteroUserId = String(keyInfo.userID);
-    logger.info({ keyInfo }, 'Zotero key info');
+    logger.debug({ zoteroUserId }, 'Zotero account connected');
     const displayName = keyInfo.displayName || keyInfo.username || 'Zotero User';
 
     const encryptedKey = encrypt(apiKey);
@@ -66,6 +66,7 @@ async function zoteroFetch(path, apiKey, query = {}) {
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   const resp = await fetch(url.toString(), {
     headers: { 'Zotero-API-Key': apiKey, 'Zotero-API-Version': '3' },
+    signal: AbortSignal.timeout(10000),
   });
   if (!resp.ok) throw new Error(`Zotero API error: ${resp.status}`);
   const totalResults = resp.headers.get('Total-Results');
@@ -158,6 +159,7 @@ router.get('/export', async (req, res) => {
 
     const resp = await fetch(url.toString(), {
       headers: { 'Zotero-API-Key': auth.apiKey, 'Zotero-API-Version': '3' },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!resp.ok) throw new Error(`Zotero API error: ${resp.status}`);

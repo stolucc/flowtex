@@ -26,8 +26,9 @@ function getInitials(name) {
 export { getColor };
 
 export default function Avatar({ name, size = 32 }) {
-  const color = getColor(name);
-  const initials = getInitials(name);
+  const safeName = name || '?';
+  const color = getColor(safeName);
+  const initials = getInitials(safeName);
 
   return (
     <div

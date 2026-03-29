@@ -29,7 +29,10 @@ export function encrypt(text) {
 }
 
 export function decrypt(data) {
-  const [ivHex, tagHex, encrypted] = data.split(':');
+  if (typeof data !== 'string') throw new Error('Invalid encrypted data');
+  const parts = data.split(':');
+  if (parts.length !== 3) throw new Error('Malformed encrypted data');
+  const [ivHex, tagHex, encrypted] = parts;
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const decipher = crypto.createDecipheriv(ALGORITHM, key(), iv);

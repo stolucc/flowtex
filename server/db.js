@@ -3,8 +3,13 @@ import pg from 'pg';
 const pool = new pg.Pool({
   database: process.env.PGDATABASE || 'flowtex',
   host: process.env.PGHOST || 'localhost',
-  port: parseInt(process.env.PGPORT || '5432'),
+  port: parseInt(process.env.PGPORT || '5432', 10),
   max: 20,
+});
+
+// Prevent unhandled errors from idle clients crashing the process
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err.message);
 });
 
 // Convenience wrappers matching the old sync API shape but async

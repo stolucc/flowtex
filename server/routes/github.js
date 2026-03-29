@@ -299,7 +299,9 @@ async function getProjectLink(projectId) {
 
 // Push to GitHub
 router.post('/push/:projectId', async (req, res) => {
-  if (!(await requireMembership(req.params.projectId, req.session.userId, res))) return;
+  const member = await requireMembership(req.params.projectId, req.session.userId, res);
+  if (!member) return;
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot push to GitHub' });
 
   const token = await getUserToken(req.session.userId);
   if (!token) return res.status(400).json({ error: 'No GitHub token configured. Add one in the GitHub sync settings.' });
@@ -329,7 +331,9 @@ router.post('/push/:projectId', async (req, res) => {
 
 // Pull from GitHub
 router.post('/pull/:projectId', async (req, res) => {
-  if (!(await requireMembership(req.params.projectId, req.session.userId, res))) return;
+  const member = await requireMembership(req.params.projectId, req.session.userId, res);
+  if (!member) return;
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot pull from GitHub' });
 
   const token = await getUserToken(req.session.userId);
   if (!token) return res.status(400).json({ error: 'No GitHub token configured.' });

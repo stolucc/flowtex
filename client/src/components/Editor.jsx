@@ -2375,14 +2375,15 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
               }, 1000);
             }
 
-            // Debounced spellcheck
+            // Debounced spellcheck — reuse doc string from lint timeout if both fire
             clearTimeout(spellTimeout.current);
             spellTimeout.current = setTimeout(async () => {
               const v = viewRef.current;
               if (!v) return;
               if (!dictRef.current) dictRef.current = await getDictionary();
               if (!dictRef.current) return;
-              const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
+              const docStr = v.state.doc.toString();
+              const misspelled = spellcheckText(docStr, dictRef.current);
               applySpellcheck(v, misspelled);
             }, 1500);
           }
@@ -2586,6 +2587,12 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
     return () => {
       view.scrollDOM.removeEventListener('scroll', handleScroll);
       clearTimeout(saveTimeout.current);
+      clearTimeout(lintTimeout.current);
+      clearTimeout(spellTimeout.current);
+      clearTimeout(errorHighlightTimer.current);
+      clearTimeout(tcDebounceTimer.current);
+      clearTimeout(tcDelTimer.current);
+      clearTimeout(tableBuilderUpdateTimeout.current);
       view.destroy();
     };
   }, [file?.id]);

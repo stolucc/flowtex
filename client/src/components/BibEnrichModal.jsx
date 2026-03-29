@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { post } from '../api.js';
 
 const ALL_FIELDS = [
@@ -123,8 +123,8 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     return parsed.sort((a, b) => a.key.localeCompare(b.key));
   }, [file?.content]);
 
-  // Initialize selectedEntries on first render
-  useMemo(() => {
+  // Initialize selectedEntries when entries change
+  useEffect(() => {
     if (selectedEntries === null) {
       setSelectedEntries(new Set(entries.map((e) => e.key)));
     }

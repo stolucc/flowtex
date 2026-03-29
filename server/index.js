@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import session from 'express-session';
 import pgSession from 'connect-pg-simple';
@@ -80,6 +81,7 @@ app.use(cors({
   credentials: true,
 }));
 
+app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
@@ -189,65 +191,76 @@ app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 
 // ── Chat history ────────────────────────────────────────────────────────
 app.get('/api/chat/:projectId', requireAuth, async (req, res) => {
-  const { projectId } = req.params;
-  if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
-  const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
-  if (!member) return res.status(403).json({ error: 'Not a member' });
-  const messages = await db.all(
-    'SELECT id, user_id as "userId", user_name as "userName", text, created_at FROM chat_messages WHERE project_id = $1 ORDER BY created_at ASC LIMIT 500',
-    [projectId]
-  );
-  res.json(messages);
+  try {
+    const { projectId } = req.params;
+    if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+    const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
+    const messages = await db.all(
+      'SELECT id, user_id as "userId", user_name as "userName", text, created_at FROM chat_messages WHERE project_id = $1 ORDER BY created_at DESC LIMIT 500',
+      [projectId]
+    );
+    messages.reverse();
+    res.json(messages);
+  } catch (err) {
+    logger.error({ err }, 'Chat history error');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ── Global search across project files ────────────────────────────────
 app.get('/api/projects/:projectId/search', requireAuth, async (req, res) => {
-  const { projectId } = req.params;
-  if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
-  const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
-  if (!member) return res.status(403).json({ error: 'Not a member' });
+  try {
+    const { projectId } = req.params;
+    if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+    const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
 
-  const q = (req.query.q || '').trim();
-  const scope = req.query.scope || 'all'; // 'tex' or 'all'
-  const cs = req.query.cs === '1'; // case sensitive
-  if (!q) return res.json([]);
+    const q = (req.query.q || '').trim();
+    const scope = req.query.scope || 'all'; // 'tex' or 'all'
+    const cs = req.query.cs === '1'; // case sensitive
+    if (!q) return res.json([]);
 
-  const files = await db.all(
-    'SELECT id, path, content FROM files WHERE project_id = $1 AND is_folder = false',
-    [projectId]
-  );
+    const files = await db.all(
+      'SELECT id, path, content FROM files WHERE project_id = $1 AND is_folder = false',
+      [projectId]
+    );
 
-  const results = [];
-  const searchStr = cs ? q : q.toLowerCase();
+    const results = [];
+    const searchStr = cs ? q : q.toLowerCase();
 
-  for (const file of files) {
-    if (scope === 'tex' && !file.path.endsWith('.tex')) continue;
-    if (!file.content) continue;
+    for (const file of files) {
+      if (scope === 'tex' && !file.path.endsWith('.tex')) continue;
+      if (!file.content) continue;
 
-    const lines = file.content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const haystack = cs ? line : line.toLowerCase();
-      let pos = 0;
-      while (pos < haystack.length) {
-        const idx = haystack.indexOf(searchStr, pos);
-        if (idx === -1) break;
-        results.push({
-          fileId: file.id,
-          filePath: file.path,
-          line: i + 1,
-          col: idx,
-          text: line.trim(),
-        });
-        pos = idx + 1;
+      const lines = file.content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const haystack = cs ? line : line.toLowerCase();
+        let pos = 0;
+        while (pos < haystack.length) {
+          const idx = haystack.indexOf(searchStr, pos);
+          if (idx === -1) break;
+          results.push({
+            fileId: file.id,
+            filePath: file.path,
+            line: i + 1,
+            col: idx,
+            text: line.trim(),
+          });
+          pos = idx + 1;
+          if (results.length >= 500) break;
+        }
         if (results.length >= 500) break;
       }
       if (results.length >= 500) break;
     }
-    if (results.length >= 500) break;
-  }
 
-  res.json(results);
+    res.json(results);
+  } catch (err) {
+    logger.error({ err }, 'Project search error');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
@@ -303,8 +316,13 @@ if (process.env.REDIS_URL) {
       for (const client of room) {
         if (client.ws.readyState === 1) client.ws.send(data);
       }
-    } catch {}
+    } catch (err) {
+      logger.warn({ err }, 'Redis message handler error');
+    }
   });
+
+  redisPub.on('error', (err) => logger.error({ err }, 'Redis pub error'));
+  redisSub.on('error', (err) => logger.error({ err }, 'Redis sub error'));
 
   logger.info('Redis pub/sub enabled for WebSocket scaling');
 }
@@ -528,6 +546,17 @@ wss.on('connection', async (ws, req) => {
 
     if (msg.type === 'join') {
       if (typeof msg.projectId !== 'string' || !UUID_RE.test(msg.projectId)) return;
+
+      // Leave previous room if re-joining a different project
+      if (projectId && clientEntry) {
+        const oldRoom = projectRooms.get(projectId);
+        if (oldRoom) {
+          oldRoom.delete(clientEntry);
+          if (oldRoom.size === 0) projectRooms.delete(projectId);
+          broadcastPresence(projectId);
+        }
+      }
+
       projectId = msg.projectId;
 
       // Verify project membership and role using authenticated session user
@@ -628,6 +657,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'comment-edit') {
+      if (typeof msg.text !== 'string' || msg.text.length > 10000) return;
       broadcastToRoom(projectId, {
         type: 'comment-edit',
         commentId: msg.commentId,
@@ -644,6 +674,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'tracked-change-resolve') {
+      if (!['accepted', 'rejected'].includes(msg.status)) return;
       broadcastToRoom(projectId, {
         type: 'tracked-change-resolve',
         changeId: msg.changeId,
@@ -693,6 +724,12 @@ process.on('uncaughtException', (err) => {
 // ── Graceful shutdown ────────────────────────────────────────────────────
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully`);
+
+  // Force exit after 10 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    logger.warn('Shutdown timeout — forcing exit');
+    process.exit(1);
+  }, 10000).unref();
 
   // 1. Stop accepting new connections
   server.close(() => logger.info('HTTP server closed'));

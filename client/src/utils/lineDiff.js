@@ -24,7 +24,7 @@ export default function lineDiff(oldText, newText) {
 
 function lcsLineDiff(oldLines, newLines, m, n) {
   const w = n + 1;
-  const dp = new Uint16Array((m + 1) * (n + 1));
+  const dp = new Uint32Array((m + 1) * (n + 1));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
       if (oldLines[i] === newLines[j]) {

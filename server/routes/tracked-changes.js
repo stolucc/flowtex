@@ -42,9 +42,9 @@ router.post('/:fileId', async (req, res) => {
   }
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
   if (!file) return res.status(404).json({ error: 'File not found' });
-  if (!(await isProjectMember(file.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(file.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
 
   const user = await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]);
   const id = uuid();
@@ -62,9 +62,9 @@ router.post('/:fileId', async (req, res) => {
 router.post('/:changeId/accept', async (req, res) => {
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
   if (!change) return res.status(404).json({ error: 'Change not found' });
-  if (!(await isProjectMember(change.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(change.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
   await db.run(
@@ -79,9 +79,9 @@ router.post('/:changeId/accept', async (req, res) => {
 router.post('/:changeId/reject', async (req, res) => {
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
   if (!change) return res.status(404).json({ error: 'Change not found' });
-  if (!(await isProjectMember(change.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(change.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
   await db.run(
@@ -96,9 +96,9 @@ router.post('/:changeId/reject', async (req, res) => {
 router.patch('/:changeId', async (req, res) => {
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
   if (!change) return res.status(404).json({ error: 'Change not found' });
-  if (!(await isProjectMember(change.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(change.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
   const { from_pos, to_pos, inserted_text, deleted_text } = req.body;
@@ -114,9 +114,9 @@ router.patch('/:changeId', async (req, res) => {
 router.delete('/:changeId', async (req, res) => {
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
   if (!change) return res.status(404).json({ error: 'Change not found' });
-  if (!(await isProjectMember(change.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(change.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
   await db.run('DELETE FROM tracked_changes WHERE id = $1', [change.id]);
   res.json({ ok: true });
 });
@@ -125,9 +125,9 @@ router.delete('/:changeId', async (req, res) => {
 router.post('/file/:fileId/accept-all', async (req, res) => {
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
   if (!file) return res.status(404).json({ error: 'File not found' });
-  if (!(await isProjectMember(file.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(file.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
 
   await db.run(
     "UPDATE tracked_changes SET status = 'accepted', resolved_by = $1 WHERE file_id = $2 AND status = 'pending'",
@@ -140,9 +140,9 @@ router.post('/file/:fileId/accept-all', async (req, res) => {
 router.post('/file/:fileId/reject-all', async (req, res) => {
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
   if (!file) return res.status(404).json({ error: 'File not found' });
-  if (!(await isProjectMember(file.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(file.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
 
   await db.run(
     "UPDATE tracked_changes SET status = 'rejected', resolved_by = $1 WHERE file_id = $2 AND status = 'pending'",
@@ -159,9 +159,9 @@ router.post('/file/:fileId/adjust-positions', async (req, res) => {
   }
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
   if (!file) return res.status(404).json({ error: 'File not found' });
-  if (!(await isProjectMember(file.project_id, req.session.userId))) {
-    return res.status(403).json({ error: 'No access' });
-  }
+  const member = await isProjectMember(file.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
 
   await db.run(
     `UPDATE tracked_changes SET from_pos = from_pos + $1, to_pos = to_pos + $1

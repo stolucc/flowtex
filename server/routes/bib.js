@@ -22,6 +22,7 @@ async function lookupCrossRef(title, author) {
         'User-Agent': 'FlowTex/1.0 (mailto:flowtex@example.com)',
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
     const data = await res.json();

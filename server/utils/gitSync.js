@@ -197,29 +197,32 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
     const repoDir = getRepoDir(projectId);
     await configureRemote(git, repo, token);
 
-    await writeProjectFilesToDisk(projectId, repoDir);
+    try {
+      await writeProjectFilesToDisk(projectId, repoDir);
 
-    await git.add('-A');
-    const status = await git.status();
-    if (status.files.length > 0) {
-      await git.commit(commitMessage || 'Update from FlowTex');
-    }
-
-    // Ensure we're on the right branch
-    const branchList = await git.branchLocal();
-    if (branchList.current !== branch) {
-      if (branchList.all.includes(branch)) {
-        await git.checkout(branch);
-      } else {
-        await git.checkoutLocalBranch(branch);
+      await git.add('-A');
+      const status = await git.status();
+      if (status.files.length > 0) {
+        await git.commit(commitMessage || 'Update from FlowTex');
       }
+
+      // Ensure we're on the right branch
+      const branchList = await git.branchLocal();
+      if (branchList.current !== branch) {
+        if (branchList.all.includes(branch)) {
+          await git.checkout(branch);
+        } else {
+          await git.checkoutLocalBranch(branch);
+        }
+      }
+
+      await git.push('origin', branch, ['--set-upstream']);
+
+      const log = await git.log({ maxCount: 1 });
+      return { commit: log.latest?.hash || null };
+    } finally {
+      await clearRemoteAuth(git);
     }
-
-    await git.push('origin', branch, ['--set-upstream']);
-    await clearRemoteAuth(git);
-
-    const log = await git.log({ maxCount: 1 });
-    return { commit: log.latest?.hash || null };
   });
 }
 
@@ -229,21 +232,24 @@ export async function pullFromGitHub(projectId, token, repo, branch) {
     const repoDir = getRepoDir(projectId);
     await configureRemote(git, repo, token);
 
-    const branchList = await git.branchLocal();
-    if (branchList.all.length === 0) {
-      // Fresh repo — fetch and checkout remote branch
-      await git.fetch('origin');
-      await git.checkout(['-b', branch, `origin/${branch}`]);
-    } else {
-      if (branchList.current !== branch) {
-        try { await git.checkout(branch); } catch { await git.checkoutLocalBranch(branch); }
+    try {
+      const branchList = await git.branchLocal();
+      if (branchList.all.length === 0) {
+        // Fresh repo — fetch and checkout remote branch
+        await git.fetch('origin');
+        await git.checkout(['-b', branch, `origin/${branch}`]);
+      } else {
+        if (branchList.current !== branch) {
+          try { await git.checkout(branch); } catch { await git.checkoutLocalBranch(branch); }
+        }
+        await git.pull('origin', branch, { '--strategy-option': 'theirs' });
       }
-      await git.pull('origin', branch, { '--strategy-option': 'theirs' });
-    }
 
-    await clearRemoteAuth(git);
-    const files = await readDiskFilesToProject(projectId, repoDir);
-    const log = await git.log({ maxCount: 1 });
-    return { files, commit: log.latest?.hash || null };
+      const files = await readDiskFilesToProject(projectId, repoDir);
+      const log = await git.log({ maxCount: 1 });
+      return { files, commit: log.latest?.hash || null };
+    } finally {
+      await clearRemoteAuth(git);
+    }
   });
 }

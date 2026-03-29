@@ -96,7 +96,7 @@ router.post('/:projectId', async (req, res) => {
 router.get('/:projectId/compile-stream', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
-  if (!checkCompileRate(projectId)) {
+  if (!checkCompileRate(projectId, req.session.userId)) {
     return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
   }
 

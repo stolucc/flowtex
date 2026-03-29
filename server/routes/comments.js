@@ -5,8 +5,8 @@ import { isProjectMember } from '../middleware/auth.js';
 
 const router = Router();
 
-async function requireFileAccess(fileId, userId, res) {
-  const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
+async function requireFileAccess(fileId, userId, res, { requireEditor = false } = {}) {
+  const file = await db.get('SELECT id, project_id, path FROM files WHERE id = $1', [fileId]);
   if (!file) {
     res.status(404).json({ error: 'File not found' });
     return null;
@@ -16,16 +16,20 @@ async function requireFileAccess(fileId, userId, res) {
     res.status(403).json({ error: 'No access to this project' });
     return null;
   }
+  if (requireEditor && member.role === 'viewer') {
+    res.status(403).json({ error: 'Viewers cannot modify comments' });
+    return null;
+  }
   return file;
 }
 
-async function requireCommentAccess(commentId, userId, res) {
-  const comment = await db.get('SELECT * FROM comments WHERE id = $1', [commentId]);
+async function requireCommentAccess(commentId, userId, res, opts = {}) {
+  const comment = await db.get('SELECT id, file_id, author_id FROM comments WHERE id = $1', [commentId]);
   if (!comment) {
     res.status(404).json({ error: 'Comment not found' });
     return null;
   }
-  const file = await requireFileAccess(comment.file_id, userId, res);
+  const file = await requireFileAccess(comment.file_id, userId, res, opts);
   if (!file) return null;
   return comment;
 }
@@ -64,7 +68,7 @@ router.get('/:fileId', async (req, res) => {
 
 // Add a comment
 router.post('/:fileId', async (req, res) => {
-  if (!(await requireFileAccess(req.params.fileId, req.session.userId, res))) return;
+  if (!(await requireFileAccess(req.params.fileId, req.session.userId, res, { requireEditor: true }))) return;
 
   const { from_pos, to_pos, text } = req.body;
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
@@ -89,7 +93,7 @@ router.post('/:fileId', async (req, res) => {
 
 // Resolve/unresolve a comment
 router.patch('/:commentId/resolve', async (req, res) => {
-  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res))) return;
+  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
 
   const { resolved } = req.body;
   await db.run('UPDATE comments SET resolved = $1 WHERE id = $2', [!!resolved, req.params.commentId]);
@@ -112,7 +116,7 @@ router.patch('/:commentId', async (req, res) => {
 
 // Add a reply to a comment
 router.post('/:commentId/reply', async (req, res) => {
-  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res))) return;
+  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
 
   const { text } = req.body;
   if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 10000) {

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { post } from '../api.js';
 
 export default function AuthPage({ onAuth }) {
-  const [mode, setMode] = useState('login'); // login | register | forgot | reset
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get('token');
+  const [mode, setMode] = useState(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -13,13 +15,6 @@ export default function AuthPage({ onAuth }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Check for reset token in URL
-  const urlParams = new URLSearchParams(window.location.search);
-  const resetToken = urlParams.get('token');
-  if (resetToken && mode !== 'reset') {
-    setMode('reset');
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();

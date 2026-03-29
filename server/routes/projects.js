@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import AdmZip from 'adm-zip';
 import multer from 'multer';
 import db from '../db.js';
+import logger from '../logger.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
 
@@ -228,7 +229,7 @@ router.post('/from-zip', upload.single('file'), async (req, res) => {
 
     res.json({ id: projectId, name: projectName });
   } catch (err) {
-    console.error('ZIP project creation error:', err);
+    logger.error({ err }, 'ZIP project creation error');
     res.status(400).json({ error: 'Failed to create project from ZIP file' });
   }
 });
@@ -545,7 +546,7 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
     const files = await db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [req.params.id]);
     res.json({ ok: true, files, created: created.length });
   } catch (err) {
-    console.error('ZIP upload error:', err);
+    logger.error({ err }, 'ZIP upload error');
     res.status(400).json({ error: 'Failed to extract ZIP file' });
   }
 });
