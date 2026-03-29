@@ -20,7 +20,7 @@ function formatRelativeTime(dateStr) {
   return date.toLocaleDateString();
 }
 
-const TAG_COLORS = ['#89b4fa', '#a6e3a1', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#94e2d5', '#f2cdcd'];
+const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
 export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin }) {
   const [projects, setProjects] = useState([]);
@@ -28,12 +28,20 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [tags, setTags] = useState([]);
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [showMfa, setShowMfa] = useState(false);
+  const [showMfa, setShowMfa] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('github') === 'connected';
+  });
+  const [settingsInitialTab, setSettingsInitialTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('github') === 'connected' ? 'github' : null;
+  });
   const [filter, setFilter] = useState('all');
   const [selectedTag, setSelectedTag] = useState(null);
   const [newTagName, setNewTagName] = useState('');
   const [creatingTag, setCreatingTag] = useState(false);
   const [search, setSearch] = useState('');
+  useEffect(() => { setSelected(new Set()); }, [filter, selectedTag]);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, project }
   const contextMenuRef = useRef(null);
   const [sortCol, setSortCol] = useState('updated_at');
@@ -44,6 +52,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newMenuRef = useRef(null);
   const zipInputRef = useRef(null);
+  const [showGitHubImport, setShowGitHubImport] = useState(false);
+  const [ghImportRepo, setGhImportRepo] = useState('');
+  const [ghImportBranch, setGhImportBranch] = useState('');
+  const [ghImportLoading, setGhImportLoading] = useState(false);
+  const [ghImportError, setGhImportError] = useState('');
+  const [ghRepos, setGhRepos] = useState(null);
+  const [ghReposLoading, setGhReposLoading] = useState(false);
+  const [ghRepoSearch, setGhRepoSearch] = useState('');
 
   useEffect(() => {
     get('/api/projects').then((r) => r.json()).then(setProjects);
@@ -57,6 +73,49 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     const project = await res.json();
     setName('');
     onSelect(project);
+  };
+
+  const handleGitHubImport = async () => {
+    if (!ghImportRepo.trim()) return;
+    setGhImportLoading(true);
+    setGhImportError('');
+    try {
+      const res = await post('/api/github/import', { repo: ghImportRepo.trim(), branch: ghImportBranch.trim() || undefined });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Import failed');
+      }
+      const project = await res.json();
+      setShowGitHubImport(false);
+      setGhImportRepo('');
+      setGhImportBranch('');
+      onSelect(project);
+    } catch (err) {
+      setGhImportError(err.message);
+    } finally {
+      setGhImportLoading(false);
+    }
+  };
+
+  const openGitHubImport = async () => {
+    setShowNewMenu(false);
+    setShowGitHubImport(true);
+    setGhImportError('');
+    setGhImportRepo('');
+    setGhImportBranch('');
+    setGhRepoSearch('');
+    if (!ghRepos) {
+      setGhReposLoading(true);
+      try {
+        const res = await get('/api/github/repos');
+        if (res.ok) setGhRepos(await res.json());
+        else setGhRepos([]);
+      } catch {
+        setGhRepos([]);
+      } finally {
+        setGhReposLoading(false);
+      }
+    }
   };
 
   const handleUploadZip = async (file) => {
@@ -104,6 +163,17 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, archived: 0 } : p));
   };
 
+  const handleCopy = async (e, project) => {
+    e.stopPropagation();
+    try {
+      const res = await post(`/api/projects/${project.id}/copy`);
+      if (res.ok) {
+        const copied = await res.json();
+        setProjects((ps) => [copied, ...ps]);
+      }
+    } catch {}
+  };
+
   const confirmDeleteProject = (e, project) => {
     e.stopPropagation();
     setConfirmDelete({
@@ -141,10 +211,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
-  const handleDeleteTag = async (tagId) => {
-    await del(`/api/tags/${tagId}`);
-    setTags((t) => t.filter((tg) => tg.id !== tagId));
-    if (selectedTag === tagId) { setSelectedTag(null); setFilter('all'); }
+  const handleDeleteTag = (tagId) => {
+    const tag = tags.find((t) => t.id === tagId);
+    setConfirmDelete({
+      message: `Delete tag "${tag?.name || ''}"? It will be removed from all projects.`,
+      onConfirm: async () => {
+        await del(`/api/tags/${tagId}`);
+        setTags((t) => t.filter((tg) => tg.id !== tagId));
+        setProjects((ps) => ps.map((p) => ({ ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) })));
+        if (selectedTag === tagId) { setSelectedTag(null); setFilter('all'); }
+        setConfirmDelete(null);
+      },
+    });
   };
 
   const handleToggleProjectTag = async (e, projectId, tagId) => {
@@ -237,6 +315,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     else if (sortCol === 'owner') { aVal = (a.owner_id === user?.id ? '' : (a.owner_name || '')).toLowerCase(); bVal = (b.owner_id === user?.id ? '' : (b.owner_name || '')).toLowerCase(); }
     else if (sortCol === 'updated_at') { aVal = a.updated_at || ''; bVal = b.updated_at || ''; }
     else if (sortCol === 'last_editor') { aVal = (a.last_editor || '').toLowerCase(); bVal = (b.last_editor || '').toLowerCase(); }
+    else if (sortCol === 'member_count') { aVal = parseInt(a.member_count) || 1; bVal = parseInt(b.member_count) || 1; }
     else return 0;
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
@@ -315,6 +394,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
                 Upload ZIP
+              </button>
+              <button onClick={openGitHubImport}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                Import from GitHub
               </button>
             </div>
           )}
@@ -464,12 +549,20 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               </button>
             )}
             {filter === 'deleted' ? (
+              <>
               <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/restore`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 0 } : p)); setSelected(new Set()); }} title="Restore">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                 </svg>
                 Restore
               </button>
+              <button className="bulk-action-btn bulk-action-danger" onClick={() => setConfirmDelete({ message: `Permanently delete ${selected.size} project(s)? This cannot be undone.`, onConfirm: async () => { for (const id of selected) await del(`/api/projects/${id}`); setProjects((ps) => ps.filter((p) => !selected.has(p.id))); setSelected(new Set()); setConfirmDelete(null); } })} title="Delete permanently">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+                </svg>
+                Delete permanently
+              </button>
+              </>
             ) : (
               <button className="bulk-action-btn bulk-action-danger" onClick={() => setConfirmDelete({ message: `Are you sure you want to delete ${selected.size} project(s)?`, onConfirm: async () => { for (const id of selected) await post(`/api/projects/${id}/trash`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 1 } : p)); setSelected(new Set()); setConfirmDelete(null); } })} title="Delete">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -522,6 +615,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 </th>
                 <th className="project-table-sortable" onClick={() => handleSort('name')}>Title <SortIcon col="name" /></th>
                 <th className="project-table-sortable" onClick={() => handleSort('owner')}>Owner <SortIcon col="owner" /></th>
+                <th className="project-table-sortable" onClick={() => handleSort('member_count')}>Members <SortIcon col="member_count" /></th>
                 <th className="project-table-sortable" onClick={() => handleSort('updated_at')}>Last Modified <SortIcon col="updated_at" /></th>
                 <th className="project-table-sortable" onClick={() => handleSort('last_editor')}>Modified By <SortIcon col="last_editor" /></th>
                 <th className="project-table-actions-col">Actions</th>
@@ -538,7 +632,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     />
                   </td>
                   <td className="project-table-title">
-                    <span className="project-table-name">{p.name}</span>
+                    <span className="project-table-name">
+                      {p.name}
+                      {p.github_repo && (
+                        <svg className="project-github-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" title={p.github_repo}>
+                          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                        </svg>
+                      )}
+                    </span>
                     {(p.tags || []).length > 0 && (
                       <span className="project-table-tags">
                         {p.tags.map((t) => (
@@ -548,6 +649,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     )}
                   </td>
                   <td className="project-table-cell">{p.owner_id === user?.id ? 'You' : (p.owner_name || '')}</td>
+                  <td className="project-table-cell">{p.member_count || 1}</td>
                   <td className="project-table-cell">{formatRelativeTime(p.updated_at)}</td>
                   <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : (p.last_editor || '')}</td>
                   <td className="project-table-cell project-table-actions" onClick={(e) => e.stopPropagation()}>
@@ -566,6 +668,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       </>
                     ) : (
                       <>
+                        <button className="project-action-btn" onClick={(e) => handleCopy(e, p)} title="Copy">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
                         <button className="project-action-btn" onClick={(e) => { e.stopPropagation(); window.location.href = `/api/projects/${p.id}/zip`; }} title="Download ZIP">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
@@ -636,10 +743,70 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       {showMfa && (
         <MfaSetupModal
           user={user}
-          onClose={() => setShowMfa(false)}
+          onClose={() => { setShowMfa(false); setSettingsInitialTab(null); }}
           onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
           onAccountDeleted={onLogout}
+          initialTab={settingsInitialTab}
         />
+      )}
+      {showGitHubImport && (
+        <div className="modal-overlay" onClick={() => setShowGitHubImport(false)}>
+          <div className="modal-card github-import-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Import from GitHub</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {ghImportError && <div style={{ padding: '8px 12px', background: 'rgba(243,139,168,0.15)', color: '#f38ba8', borderRadius: 'var(--radius)', fontSize: 13 }}>{ghImportError}</div>}
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Repository</label>
+              <input
+                type="text"
+                className="auth-input"
+                placeholder="owner/repo"
+                value={ghImportRepo}
+                onChange={(e) => setGhImportRepo(e.target.value)}
+              />
+              {ghReposLoading && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading your repos...</div>}
+              {ghRepos && ghRepos.length > 0 && (
+                <>
+                  <input
+                    type="text"
+                    className="auth-input"
+                    placeholder="Search your repos..."
+                    value={ghRepoSearch}
+                    onChange={(e) => setGhRepoSearch(e.target.value)}
+                  />
+                  <div className="github-import-repo-list">
+                    {ghRepos
+                      .filter(r => !ghRepoSearch || r.fullName.toLowerCase().includes(ghRepoSearch.toLowerCase()))
+                      .slice(0, 50)
+                      .map(r => (
+                        <button
+                          key={r.fullName}
+                          className={`github-import-repo-item ${ghImportRepo === r.fullName ? 'active' : ''}`}
+                          onClick={() => { setGhImportRepo(r.fullName); setGhImportBranch(r.defaultBranch || 'main'); }}
+                        >
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fullName}</span>
+                          {r.private && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>private</span>}
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Branch</label>
+              <input
+                type="text"
+                className="auth-input"
+                placeholder="main"
+                value={ghImportBranch}
+                onChange={(e) => setGhImportBranch(e.target.value)}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                <button className="auth-button" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }} onClick={() => setShowGitHubImport(false)}>Cancel</button>
+                <button className="auth-button" onClick={handleGitHubImport} disabled={!ghImportRepo.trim() || ghImportLoading}>
+                  {ghImportLoading ? 'Importing...' : 'Import'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

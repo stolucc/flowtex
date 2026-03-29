@@ -8,6 +8,7 @@ import db from '../db.js';
 import logger from '../logger.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
+import { sendProjectInvitationEmail } from '../utils/email.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const MAX_ZIP_ENTRIES = 500;
@@ -81,6 +82,8 @@ router.get('/', async (req, res) => {
     `SELECT p.*, pm.role,
        owner_u.name AS owner_name,
        owner_pm.user_id AS owner_id,
+       pgl.github_repo,
+       (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) AS member_count,
        (SELECT ps.author_name FROM project_snapshots ps
         WHERE ps.project_id = p.id
         ORDER BY ps.created_at DESC LIMIT 1) AS last_editor
@@ -88,6 +91,7 @@ router.get('/', async (req, res) => {
      JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $1
      LEFT JOIN project_members owner_pm ON owner_pm.project_id = p.id AND owner_pm.role = 'owner'
      LEFT JOIN users owner_u ON owner_u.id = owner_pm.user_id
+     LEFT JOIN project_github_links pgl ON pgl.project_id = p.id
      ORDER BY p.updated_at DESC`,
     [req.session.userId]
   );
@@ -139,7 +143,8 @@ Hello from FlowTex!
 `;
 
   await db.transaction(async (tx) => {
-    await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, name || 'Untitled']);
+    const safeName = (name || 'Untitled').slice(0, 500);
+    await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, safeName]);
     await tx.run(
       'INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)',
       [fileId, id, 'main.tex', defaultContent]
@@ -392,6 +397,21 @@ router.post('/:id/members', async (req, res) => {
     'INSERT INTO project_invitations (id, project_id, email, role, inviter_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (project_id, email) DO UPDATE SET role = $4, inviter_id = $5, status = \'pending\'',
     [id, req.params.id, email, assignedRole, req.session.userId]
   );
+
+  // Send invitation email
+  try {
+    const inviter = await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]);
+    const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    await sendProjectInvitationEmail(email, {
+      inviterName: inviter?.name || 'Someone',
+      projectName: project?.name || 'a project',
+      baseUrl,
+    });
+  } catch (err) {
+    logger.warn({ err, email }, 'Failed to send invitation email');
+  }
+
   res.json({ id, email, role: assignedRole, status: 'pending' });
 });
 
@@ -437,6 +457,8 @@ router.delete('/:id/members/:userId', async (req, res) => {
     'DELETE FROM project_members WHERE project_id = $1 AND user_id = $2',
     [req.params.id, req.params.userId]
   );
+  // Immediately disconnect the removed user's WebSocket
+  req.app.locals.disconnectUserFromProject?.(req.params.id, req.params.userId);
   await auditLog(req.session.userId, 'member_remove', { targetType: 'project', targetId: req.params.id, detail: req.params.userId, ip: req.ip });
   res.json({ ok: true });
 });
@@ -715,6 +737,34 @@ router.post('/:id/restore', async (req, res) => {
   if (!(await requireOwnership(req.params.id, req.session.userId, res))) return;
   await db.run('UPDATE projects SET trashed = FALSE WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+});
+
+// Copy a project
+router.post('/:id/copy', async (req, res) => {
+  const member = await requireMembership(req.params.id, req.session.userId, res);
+  if (!member) return;
+
+  const source = await db.get('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+  if (!source) return res.status(404).json({ error: 'Project not found' });
+
+  const newId = uuid();
+  const newName = (req.body.name || source.name + ' (Copy)').slice(0, 200);
+
+  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [req.params.id]);
+
+  await db.transaction(async (tx) => {
+    await tx.run('INSERT INTO projects (id, name, main_file) VALUES ($1, $2, $3)', [newId, newName, source.main_file]);
+    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [newId, req.session.userId, 'owner']);
+    for (const file of files) {
+      await tx.run(
+        'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)',
+        [uuid(), newId, file.path, file.content, file.is_binary]
+      );
+    }
+  });
+
+  const project = await db.get('SELECT * FROM projects WHERE id = $1', [newId]);
+  res.json(project);
 });
 
 // Tag a project

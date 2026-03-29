@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { post } from '../api.js';
+import React, { useState, useEffect } from 'react';
+import { get, post, put, del } from '../api.js';
 
-export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted }) {
-  const [tab, setTab] = useState('mfa');
+export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
+  const [tab, setTab] = useState(initialTab || 'mfa');
 
   // ── MFA state ──────────────────────────────────────────────────────
   const [step, setStep] = useState(user.totpEnabled ? 'disable' : 'start');
@@ -12,6 +12,21 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [mfaPassword, setMfaPassword] = useState('');
   const [mfaError, setMfaError] = useState('');
   const [mfaLoading, setMfaLoading] = useState(false);
+
+  // ── Change email state ─────────────────────────────────────────────
+  const [emailNewVal, setEmailNewVal] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailSuccess, setEmailSuccess] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+
+  // ── Change password state ──────────────────────────────────────────
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const [pwLoading, setPwLoading] = useState(false);
 
   // ── Delete account state ───────────────────────────────────────────
   const [deletePassword, setDeletePassword] = useState('');
@@ -77,6 +92,123 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     setMfaLoading(false);
   };
 
+  // ── GitHub connection state ───────────────────────────────────────
+  const [ghHasToken, setGhHasToken] = useState(false);
+  const [ghUsername, setGhUsername] = useState(null);
+  const [ghOauthAvailable, setGhOauthAvailable] = useState(false);
+  const [ghTokenInput, setGhTokenInput] = useState('');
+  const [ghShowTokenInput, setGhShowTokenInput] = useState(false);
+  const [ghConnecting, setGhConnecting] = useState(false);
+  const [ghError, setGhError] = useState('');
+  const [ghSuccess, setGhSuccess] = useState('');
+  const [ghLoading, setGhLoading] = useState(true);
+
+  useEffect(() => {
+    if (tab === 'github') {
+      setGhLoading(true);
+      Promise.all([
+        get('/api/github/token').then(r => r.json()).catch(() => ({ hasToken: false })),
+        get('/api/github/oauth/available').then(r => r.json()).catch(() => ({ available: false })),
+      ]).then(([tokenData, oauthData]) => {
+        setGhHasToken(tokenData.hasToken);
+        setGhUsername(tokenData.username || null);
+        setGhOauthAvailable(oauthData.available);
+        setGhLoading(false);
+      });
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('github') === 'connected') {
+      setTab('github');
+      setGhHasToken(true);
+      setGhSuccess('GitHub account connected successfully');
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setGhSuccess(''), 3000);
+    }
+  }, []);
+
+  const ghConnectOAuth = () => {
+    setGhConnecting(true);
+    const returnTo = window.location.pathname;
+    window.location.href = `/api/github/oauth/authorize?returnTo=${encodeURIComponent(returnTo)}`;
+  };
+
+  const ghSaveToken = async () => {
+    if (!ghTokenInput.trim()) return;
+    setGhError('');
+    const res = await put('/api/github/token', { token: ghTokenInput.trim() });
+    if (res.ok) {
+      setGhHasToken(true);
+      setGhShowTokenInput(false);
+      setGhTokenInput('');
+      setGhSuccess('Token saved');
+      setTimeout(() => setGhSuccess(''), 2000);
+    } else {
+      const d = await res.json();
+      setGhError(d.error);
+    }
+  };
+
+  const ghDisconnect = async () => {
+    await del('/api/github/token');
+    setGhHasToken(false);
+    setGhShowTokenInput(false);
+    setGhSuccess('GitHub disconnected');
+    setTimeout(() => setGhSuccess(''), 2000);
+  };
+
+  // ── Change email handler ───────────────────────────────────────────
+  const handleChangeEmail = async (e) => {
+    e.preventDefault();
+    setEmailError('');
+    setEmailSuccess('');
+    setEmailLoading(true);
+    try {
+      const res = await post('/api/auth/change-email', { password: emailPassword, newEmail: emailNewVal });
+      const data = await res.json();
+      if (!res.ok) {
+        setEmailError(data.error);
+      } else {
+        setEmailSuccess('Email changed successfully');
+        onUpdate({ ...user, email: data.email });
+        setEmailNewVal('');
+        setEmailPassword('');
+      }
+    } catch (err) {
+      setEmailError(err.message);
+    }
+    setEmailLoading(false);
+  };
+
+  // ── Change password handler ────────────────────────────────────────
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError('');
+    setPwSuccess('');
+    if (newPw !== confirmPw) {
+      setPwError('New passwords do not match');
+      return;
+    }
+    setPwLoading(true);
+    try {
+      const res = await post('/api/auth/change-password', { currentPassword: currentPw, newPassword: newPw });
+      const data = await res.json();
+      if (!res.ok) {
+        setPwError(data.error);
+      } else {
+        setPwSuccess('Password changed successfully');
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmPw('');
+      }
+    } catch (err) {
+      setPwError(err.message);
+    }
+    setPwLoading(false);
+  };
+
   // ── Delete account handler ─────────────────────────────────────────
   const handleDeleteAccount = async (e) => {
     e.preventDefault();
@@ -111,7 +243,25 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             className={`settings-tab ${tab === 'mfa' ? 'active' : ''}`}
             onClick={() => setTab('mfa')}
           >
-            Two-Factor Auth
+            2FA
+          </button>
+          <button
+            className={`settings-tab ${tab === 'email' ? 'active' : ''}`}
+            onClick={() => setTab('email')}
+          >
+            Email
+          </button>
+          <button
+            className={`settings-tab ${tab === 'password' ? 'active' : ''}`}
+            onClick={() => setTab('password')}
+          >
+            Password
+          </button>
+          <button
+            className={`settings-tab ${tab === 'github' ? 'active' : ''}`}
+            onClick={() => setTab('github')}
+          >
+            GitHub
           </button>
           <button
             className={`settings-tab ${tab === 'delete' ? 'active' : ''}`}
@@ -197,6 +347,142 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
           </div>
         )}
 
+        {tab === 'email' && (
+          <div className="settings-section">
+            <p className="mfa-description">Current email: <strong>{user.email}</strong></p>
+            <form onSubmit={handleChangeEmail} className="auth-form">
+              <input
+                type="email"
+                placeholder="New email address"
+                value={emailNewVal}
+                onChange={(e) => setEmailNewVal(e.target.value)}
+                required
+                className="auth-input"
+                autoComplete="email"
+              />
+              <input
+                type="password"
+                placeholder="Your password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                required
+                className="auth-input"
+                autoComplete="current-password"
+              />
+              {emailError && <div className="auth-error">{emailError}</div>}
+              {emailSuccess && <div className="mfa-success">{emailSuccess}</div>}
+              <button
+                type="submit"
+                className="auth-button"
+                disabled={emailLoading || !emailNewVal || !emailPassword}
+              >
+                {emailLoading ? 'Changing...' : 'Change Email'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {tab === 'password' && (
+          <div className="settings-section">
+            <p className="mfa-description">Change your account password.</p>
+            <form onSubmit={handleChangePassword} className="auth-form">
+              <input
+                type="password"
+                placeholder="Current password"
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                required
+                className="auth-input"
+                autoComplete="current-password"
+              />
+              <input
+                type="password"
+                placeholder="New password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                required
+                className="auth-input"
+                autoComplete="new-password"
+              />
+              <input
+                type="password"
+                placeholder="Confirm new password"
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                required
+                className="auth-input"
+                autoComplete="new-password"
+              />
+              {pwError && <div className="auth-error">{pwError}</div>}
+              {pwSuccess && <div className="mfa-success">{pwSuccess}</div>}
+              <button
+                type="submit"
+                className="auth-button"
+                disabled={pwLoading || !currentPw || !newPw || !confirmPw}
+              >
+                {pwLoading ? 'Changing...' : 'Change Password'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {tab === 'github' && (
+          <div className="settings-section">
+            {ghError && <div className="auth-error">{ghError}</div>}
+            {ghSuccess && <div className="mfa-success">{ghSuccess}</div>}
+            {ghLoading ? (
+              <p className="mfa-description">Loading...</p>
+            ) : ghHasToken ? (
+              <>
+                <p className="mfa-description">
+                  Your GitHub account is <strong>connected</strong>{ghUsername && <> as <strong>{ghUsername}</strong></>}. You can link individual projects to GitHub repositories from within each project.
+                </p>
+                <button className="auth-button mfa-disable-btn" onClick={ghDisconnect}>
+                  Disconnect GitHub
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="mfa-description">
+                  Connect your GitHub account to push and pull projects to/from GitHub repositories.
+                </p>
+                {ghOauthAvailable ? (
+                  <>
+                    <button className="auth-button" onClick={ghConnectOAuth} disabled={ghConnecting}>
+                      {ghConnecting ? 'Connecting...' : 'Connect to GitHub'}
+                    </button>
+                    <p className="mfa-description" style={{ marginTop: 12, fontSize: 12 }}>
+                      Or{' '}
+                      <button className="github-sync-link-btn" onClick={() => setGhShowTokenInput(true)} style={{ fontSize: 12 }}>
+                        use a Personal Access Token
+                      </button>{' '}
+                      instead.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mfa-description">
+                    Create a token at GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens (needs <code>repo</code> scope).
+                  </p>
+                )}
+                {(ghShowTokenInput || !ghOauthAvailable) && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <input
+                      type="password"
+                      className="auth-input"
+                      placeholder="ghp_..."
+                      value={ghTokenInput}
+                      onChange={(e) => setGhTokenInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') ghSaveToken(); }}
+                      style={{ flex: 1 }}
+                    />
+                    <button className="auth-button" onClick={ghSaveToken} disabled={!ghTokenInput.trim()} style={{ whiteSpace: 'nowrap' }}>Save</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {tab === 'delete' && (
           <div className="settings-section">
             <div className="delete-account-warning">
@@ -240,7 +526,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
           </div>
         )}
 
-        <button className="modal-close-btn" onClick={onClose}>Cancel</button>
+        <button className="modal-close-btn" onClick={onClose}>Close</button>
       </div>
     </div>
   );

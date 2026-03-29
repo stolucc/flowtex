@@ -8,9 +8,20 @@ import db from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
 import { sendPasswordResetEmail } from '../utils/email.js';
+import { encrypt, decrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
 
 const router = Router();
+
+function decryptTotpSecret(encrypted) {
+  if (!encrypted) return null;
+  try {
+    return decrypt(encrypted);
+  } catch {
+    // Legacy plaintext secret — return as-is, will be re-encrypted on next setup
+    return encrypted;
+  }
+}
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_WINDOW_MINUTES = 15;
@@ -140,7 +151,7 @@ router.post('/register', async (req, res) => {
   req.session.userId = id;
   await regenerateSession(req, res);
   await auditLog(id, 'register', { ip: req.ip });
-  res.json({ id, email: normalizedEmail, name: name.trim() });
+  res.json({ id, email: normalizedEmail, name: name.trim(), totpEnabled: false, isAdmin: false });
 });
 
 // Login
@@ -158,7 +169,7 @@ router.post('/login', async (req, res) => {
   }
 
   const user = await db.get(
-    'SELECT id, email, name, password_hash, totp_enabled, totp_secret FROM users WHERE email = $1',
+    'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin FROM users WHERE email = $1',
     [normalizedEmail]
   );
   if (!user) {
@@ -193,7 +204,7 @@ router.post('/login', async (req, res) => {
       }
 
       const totp = new OTPAuth.TOTP({
-        secret: OTPAuth.Secret.fromBase32(user.totp_secret),
+        secret: OTPAuth.Secret.fromBase32(decryptTotpSecret(user.totp_secret)),
         algorithm: 'SHA1',
         digits: 6,
         period: 30,
@@ -239,7 +250,7 @@ router.post('/login', async (req, res) => {
   req.session.userId = user.id;
   await regenerateSession(req, res);
   await auditLog(user.id, 'login', { ip: req.ip });
-  res.json({ id: user.id, email: user.email, name: user.name });
+  res.json({ id: user.id, email: user.email, name: user.name, totpEnabled: !!user.totp_enabled, isAdmin: !!user.is_admin });
 });
 
 // Logout
@@ -283,7 +294,7 @@ router.post('/totp/setup', requireAuth, async (req, res) => {
   const otpauthUrl = totp.toString();
   const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-  await db.run('UPDATE users SET totp_secret = $1 WHERE id = $2', [secret.base32, user.id]);
+  await db.run('UPDATE users SET totp_secret = $1 WHERE id = $2', [encrypt(secret.base32), user.id]);
 
   res.json({
     secret: secret.base32,
@@ -435,6 +446,65 @@ router.post('/reset-password', async (req, res) => {
   await db.run('DELETE FROM trusted_devices WHERE user_id = $1', [resetToken.user_id]);
 
   await auditLog(resetToken.user_id, 'password_reset', { ip: req.ip });
+  res.json({ ok: true });
+});
+
+// ── Change email ─────────────────────────────────────────────────────
+router.post('/change-email', requireAuth, async (req, res) => {
+  const { password, newEmail } = req.body;
+  if (!password || !newEmail) {
+    return res.status(400).json({ error: 'Password and new email are required' });
+  }
+
+  const normalizedEmail = newEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  const user = await db.get('SELECT id, email, password_hash FROM users WHERE id = $1', [req.session.userId]);
+  if (!user) return res.status(401).json({ error: 'User not found' });
+
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+
+  if (normalizedEmail === user.email) {
+    return res.status(400).json({ error: 'New email is the same as your current email' });
+  }
+
+  const existing = await db.get('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
+  if (existing) {
+    return res.status(409).json({ error: 'An account with this email already exists' });
+  }
+
+  await db.run('UPDATE users SET email = $1 WHERE id = $2', [normalizedEmail, user.id]);
+  await auditLog(user.id, 'email_changed', { ip: req.ip, oldEmail: user.email, newEmail: normalizedEmail });
+  res.json({ ok: true, email: normalizedEmail });
+});
+
+// ── Change password ───────────────────────────────────────────────────
+router.post('/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+
+  const user = await db.get('SELECT id, password_hash FROM users WHERE id = $1', [req.session.userId]);
+  if (!user) return res.status(401).json({ error: 'User not found' });
+
+  const valid = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: 'New password must be different from your current password' });
+  }
+
+  const pwError = validatePassword(newPassword);
+  if (pwError) return res.status(400).json({ error: pwError });
+
+  const newHash = await bcrypt.hash(newPassword, 12);
+  await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
+
+  await auditLog(user.id, 'password_changed', { ip: req.ip });
   res.json({ ok: true });
 });
 

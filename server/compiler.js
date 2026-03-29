@@ -1,11 +1,29 @@
 import { execFile, execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
+import db from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
+
+// Compile timeout in ms — cached from DB, refreshed every 30s
+let _compileTimeoutMs = 120000;
+let _lastTimeoutFetch = 0;
+
+async function getCompileTimeout() {
+  const now = Date.now();
+  if (now - _lastTimeoutFetch > 30000) {
+    try {
+      const row = await db.get("SELECT value FROM settings WHERE key = 'compile_timeout'");
+      if (row) _compileTimeoutMs = parseInt(row.value) * 1000 || 120000;
+    } catch { /* use cached value */ }
+    _lastTimeoutFetch = now;
+  }
+  return _compileTimeoutMs;
+}
 
 // Build a PATH that includes common TeX Live locations
 export const TEX_PATHS = [
@@ -75,12 +93,14 @@ export async function compileProject(projectId, mainFile = 'main.tex', onOutput,
     await onBeforeCompile();
   }
 
+  const timeoutMs = await getCompileTimeout();
+
   // Each user gets a unique jobname so concurrent compilations don't collide
   const userSuffix = userId ? '_' + userId.slice(0, 8) : '';
-  return _doCompile(projectId, mainFile, onOutput, userSuffix);
+  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs);
 }
 
-function _doCompile(projectId, mainFile, onOutput, userSuffix = '') {
+function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const projectDir = path.join(PROJECTS_DIR, projectId);
 
@@ -105,7 +125,13 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '') {
     const baseName = mainFile.replace(/\.tex$/, '');
     const jobName = baseName + userSuffix;
 
-    const env = { ...process.env, PATH: TEX_PATHS + ':' + (process.env.PATH || '') };
+    const env = {
+      ...process.env,
+      PATH: TEX_PATHS + ':' + (process.env.PATH || ''),
+      // Restrict LaTeX file I/O to prevent reading arbitrary server files
+      openin_any: 'p',   // only open files in the current directory or below
+      openout_any: 'p',  // only write files in the current directory or below
+    };
 
     let resolveExit;
     const exitPromise = new Promise((r) => { resolveExit = r; });
@@ -120,11 +146,12 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '') {
         '-synctex=1',
         '-interaction=nonstopmode',
         '-f',
+        '--shell-restricted',
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
-        texFile,
+        mainFile,
       ],
-      { cwd: projectDir, timeout: 120000, env },
+      { cwd: projectDir, timeout: timeoutMs, env },
       (error, stdout, stderr) => {
         activeCompilations.delete(projectId);
         compileMetrics.active--;
@@ -239,21 +266,40 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
   }
 }
 
-// Async file sync — writes files in parallel without blocking event loop
+// Cache of content hashes to skip unchanged file writes
+// Key: "projectId:path" → md5 hex digest
+const fileHashCache = new Map();
+
+function contentHash(content) {
+  return createHash('md5').update(content).digest('hex');
+}
+
+/** Clear cached hashes for a project (e.g. after git pull overwrites files on disk). */
+export function invalidateFileCache(projectId) {
+  for (const key of fileHashCache.keys()) {
+    if (key.startsWith(projectId + ':')) fileHashCache.delete(key);
+  }
+}
+
+// Async file sync — only writes files whose content has changed
 export async function syncFilesToDisk(projectId, files) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   await fsp.mkdir(projectDir, { recursive: true });
 
   const writes = files.map(async (file) => {
-    // Validate path
     const filePath = safePath(projectDir, file.path);
+    const buf = file.is_binary && file.content
+      ? Buffer.from(file.content, 'base64')
+      : file.content;
+    const hash = contentHash(typeof buf === 'string' ? buf : buf || '');
+    const cacheKey = projectId + ':' + file.path;
+
+    if (fileHashCache.get(cacheKey) === hash) return; // unchanged
+
     const dir = path.dirname(filePath);
     await fsp.mkdir(dir, { recursive: true });
-    if (file.is_binary && file.content) {
-      await fsp.writeFile(filePath, Buffer.from(file.content, 'base64'));
-    } else {
-      await fsp.writeFile(filePath, file.content);
-    }
+    await fsp.writeFile(filePath, buf);
+    fileHashCache.set(cacheKey, hash);
   });
 
   await Promise.all(writes);

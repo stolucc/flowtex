@@ -182,7 +182,11 @@ app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/compile', requireAuth, compileRouter);
 app.use('/api/comments', requireAuth, commentsRouter);
 app.use('/api/history', requireAuth, historyRouter);
-app.use('/api/github', requireAuth, githubRouter);
+app.use('/api/github', (req, res, next) => {
+  // OAuth callback must bypass auth — user returns from GitHub redirect with a valid session
+  if (req.path === '/oauth/callback') return next();
+  requireAuth(req, res, next);
+}, githubRouter);
 app.use('/api/tags', requireAuth, tagsRouter);
 app.use('/api/tracked-changes', requireAuth, trackedChangesRouter);
 app.use('/api/bib', requireAuth, bibRouter);
@@ -222,7 +226,7 @@ app.get('/api/projects/:projectId/search', requireAuth, async (req, res) => {
     if (!q) return res.json([]);
 
     const files = await db.all(
-      'SELECT id, path, content FROM files WHERE project_id = $1 AND is_folder = false',
+      'SELECT id, path, content FROM files WHERE project_id = $1 AND is_binary = false',
       [projectId]
     );
 
@@ -382,6 +386,17 @@ function broadcastToRoom(projectId, message, excludeWs) {
 }
 
 app.locals.broadcastToRoom = broadcastToRoom;
+
+// Disconnect a specific user from a project's WebSocket room
+app.locals.disconnectUserFromProject = function(projectId, userId) {
+  const room = projectRooms.get(projectId);
+  if (!room) return;
+  for (const client of room) {
+    if (client.userId === userId) {
+      client.ws.close(4003, 'Removed from project');
+    }
+  }
+};
 
 function broadcastPresence(projectId) {
   const room = projectRooms.get(projectId);
@@ -626,6 +641,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'comment') {
+      if (!msg.comment || JSON.stringify(msg.comment).length > 10000) return;
       broadcastToRoom(projectId, {
         type: 'comment',
         fileId: msg.fileId,
@@ -634,6 +650,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'comment-reply') {
+      if (!msg.reply || JSON.stringify(msg.reply).length > 10000) return;
       broadcastToRoom(projectId, {
         type: 'comment-reply',
         commentId: msg.commentId,
@@ -642,6 +659,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'comment-resolve') {
+      if (typeof msg.resolved !== 'boolean') return;
       broadcastToRoom(projectId, {
         type: 'comment-resolve',
         commentId: msg.commentId,
@@ -650,6 +668,7 @@ wss.on('connection', async (ws, req) => {
     }
 
     if (msg.type === 'comment-delete') {
+      if (!msg.commentId) return;
       broadcastToRoom(projectId, {
         type: 'comment-delete',
         commentId: msg.commentId,

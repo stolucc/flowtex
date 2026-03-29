@@ -10,6 +10,8 @@ const DEFAULT_SCALE = 1.5;
 const ZOOM_STEP = 0.25;
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 4.0;
+const OBSERVER_MARGIN = 1500; // px buffer for pre-rendering pages near viewport
+const DESTROY_PAGES_BEYOND = 5; // destroy canvases beyond this many pages from viewport
 
 function extractLineNumber(text) {
   const match = text.match(/\bl\.(\d+)\b/) || text.match(/lines?\s+(\d+)/i) || text.match(/at lines?\s+(\d+)/i);
@@ -123,7 +125,7 @@ function ConsolePanel({ output, compiling }) {
       {output ? (
         <pre className="pdf-console-output">{output}</pre>
       ) : (
-        <div className="pdf-console-empty">{compiling ? 'Starting compilation...' : 'No output yet. Click "Recompile" to compile.'}</div>
+        <div className="pdf-console-empty">{compiling ? 'Starting compilation...' : 'No output yet. Click "Build PDF" to compile.'}</div>
       )}
       {compiling && <div className="pdf-console-spinner">&#9679; Running...</div>}
     </div>
@@ -220,6 +222,13 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
   const [showCompileMenu, setShowCompileMenu] = useState(false);
   const compileMenuRef = useRef(null);
 
+  // Virtualization refs
+  const pageProxyRef = useRef([]);           // per-page data: { pdfPage, viewport, pageScale, wrapper, canvas, textLayerDiv }
+  const renderedPagesRef = useRef(new Set()); // indices of pages with active canvases
+  const renderingPagesRef = useRef(new Set()); // indices of pages currently being rendered (to avoid duplicates)
+  const observerRef = useRef(null);
+  const renderPageRef = useRef(null);         // stable ref to renderPageCanvas for use in scrollToPosition
+
   const { errors, warnings } = useMemo(() => parseLog(compileLog), [compileLog]);
   const lintErrors = useMemo(() => (lintDiagnostics || []).filter(d => d.severity === 'error'), [lintDiagnostics]);
   const lintWarnings = useMemo(() => (lintDiagnostics || []).filter(d => d.severity === 'warning'), [lintDiagnostics]);
@@ -228,6 +237,8 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
     scrollToPosition(page, yPt) {
       const info = pageInfoRef.current[page - 1];
       if (!info || !containerRef.current) return;
+      // Eagerly render the target page so it's visible immediately after scroll
+      renderPageRef.current?.(page - 1);
       const container = containerRef.current;
       const pageHeightPt = info.viewport.viewBox[3];
       const yFromTop = pageHeightPt - yPt;
@@ -271,7 +282,9 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
     return () => { cancelled = true; };
   }, [url]);
 
-  // Render pages when URL changes (render once at base resolution)
+  // Render pages with virtualization: create all placeholder wrappers, but only
+  // render canvases for pages near the viewport. IntersectionObserver triggers
+  // on-demand rendering; far-off-screen canvases are destroyed on scroll.
   const baseScaleRef = useRef(DEFAULT_SCALE);
 
   useEffect(() => {
@@ -282,7 +295,6 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
     const container = containerRef.current;
 
     // Capture scroll position relative to current page before re-render
-    const isZoomOnly = prevUrlRef.current === url;
     let savedPage = 1;
     let savedFraction = 0;
     if (pageInfoRef.current.length > 0) {
@@ -300,29 +312,113 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
     }
     prevUrlRef.current = url;
 
+    // Clean up previous state
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    renderedPagesRef.current.clear();
+    renderingPagesRef.current.clear();
     container.innerHTML = '';
     pageInfoRef.current = [];
+    pageProxyRef.current = [];
     baseScaleRef.current = scale;
 
-    const renderPages = async () => {
+    const dpr = window.devicePixelRatio || 1;
+
+    // Render a single page's canvas and text layer on demand
+    async function renderPageCanvas(idx) {
+      if (cancelled) return;
+      if (renderedPagesRef.current.has(idx)) return;
+      if (renderingPagesRef.current.has(idx)) return;
+      renderingPagesRef.current.add(idx);
+
+      try {
+        const proxy = pageProxyRef.current[idx];
+        if (!proxy) return;
+
+        const { pdfPage, viewport, pageScale, wrapper } = proxy;
+        const pxWidth = Math.floor(viewport.width);
+        const pxHeight = Math.floor(viewport.height);
+
+        // Create canvas
+        const canvas = document.createElement('canvas');
+        canvas.className = 'pdf-page';
+        canvas.width = Math.floor(pxWidth * dpr);
+        canvas.height = Math.floor(pxHeight * dpr);
+        canvas.style.width = `${pxWidth}px`;
+        canvas.style.height = `${pxHeight}px`;
+        wrapper.appendChild(canvas);
+
+        // Create text layer
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'textLayer';
+        textLayerDiv.style.position = 'absolute';
+        textLayerDiv.style.left = '0';
+        textLayerDiv.style.top = '0';
+        textLayerDiv.style.width = `${pxWidth}px`;
+        textLayerDiv.style.height = `${pxHeight}px`;
+        wrapper.appendChild(textLayerDiv);
+
+        proxy.canvas = canvas;
+        proxy.textLayerDiv = textLayerDiv;
+
+        // Render canvas
+        const ctx = canvas.getContext('2d');
+        const renderViewport = pdfPage.getViewport({ scale: pageScale * dpr });
+        await pdfPage.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+        if (cancelled) return;
+
+        // Render text layer
+        const textContent = await pdfPage.getTextContent();
+        if (cancelled) return;
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: textContent,
+          container: textLayerDiv,
+          viewport: viewport,
+        });
+        await textLayer.render();
+
+        renderedPagesRef.current.add(idx);
+      } catch (err) {
+        if (!cancelled) console.warn('Page render error:', err);
+      } finally {
+        renderingPagesRef.current.delete(idx);
+      }
+    }
+
+    // Store in ref so scrollToPosition can call it
+    renderPageRef.current = renderPageCanvas;
+
+    // Destroy a page's canvas and text layer, returning it to placeholder
+    function destroyPageCanvas(idx) {
+      if (!renderedPagesRef.current.has(idx)) return;
+      const proxy = pageProxyRef.current[idx];
+      if (!proxy) return;
+      if (proxy.canvas) {
+        proxy.canvas.width = 0; // free GPU memory
+        proxy.canvas.remove();
+        proxy.canvas = null;
+      }
+      if (proxy.textLayerDiv) {
+        proxy.textLayerDiv.remove();
+        proxy.textLayerDiv = null;
+      }
+      renderedPagesRef.current.delete(idx);
+    }
+
+    const layoutPages = async () => {
       try {
         let pdf = pdfDocRef.current;
         if (!pdf) pdf = await pdfjsLib.getDocument(url).promise;
         if (cancelled) return;
         pdfDocRef.current = pdf;
         setNumPages(pdf.numPages);
-        // currentPage is set in the scroll restore block below
 
-        const dpr = window.devicePixelRatio || 1;
-
-        // Get reference width from first page
+        // Get reference width from first page for consistent scaling
         const firstPage = await pdf.getPage(1);
         if (cancelled) return;
         const refWidth = firstPage.getViewport({ scale: 1 }).width;
 
-        // Phase 1: Create all page wrappers and canvases at the correct size upfront
-        // This ensures all pages are consistently sized before any async rendering
-        const pageData = [];
+        // Phase 1: Create all placeholder wrappers (no canvases yet)
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = i === 1 ? firstPage : await pdf.getPage(i);
           if (cancelled) return;
@@ -338,30 +434,14 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
           wrapper.style.position = 'relative';
           wrapper.style.width = `${pxWidth}px`;
           wrapper.style.height = `${pxHeight}px`;
-
-          const canvas = document.createElement('canvas');
-          canvas.className = 'pdf-page';
-          canvas.width = Math.floor(pxWidth * dpr);
-          canvas.height = Math.floor(pxHeight * dpr);
-          canvas.style.width = `${pxWidth}px`;
-          canvas.style.height = `${pxHeight}px`;
-          wrapper.appendChild(canvas);
-
-          const textLayerDiv = document.createElement('div');
-          textLayerDiv.className = 'textLayer';
-          textLayerDiv.style.position = 'absolute';
-          textLayerDiv.style.left = '0';
-          textLayerDiv.style.top = '0';
-          textLayerDiv.style.width = `${pxWidth}px`;
-          textLayerDiv.style.height = `${pxHeight}px`;
-          wrapper.appendChild(textLayerDiv);
+          wrapper.dataset.pageIndex = String(i - 1);
 
           const vp = viewport;
           wrapper.addEventListener('click', (e) => handlePageClick(i, vp, e));
           container.appendChild(wrapper);
-          pageInfoRef.current.push({ wrapper, viewport, pageNum: i });
 
-          pageData.push({ page, pageScale, viewport, canvas, textLayerDiv, pxWidth, pxHeight });
+          pageInfoRef.current.push({ wrapper, viewport, pageNum: i });
+          pageProxyRef.current.push({ pdfPage: page, viewport, pageScale, wrapper, canvas: null, textLayerDiv: null });
         }
 
         // Restore scroll position now that all wrappers are in the DOM
@@ -371,22 +451,25 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
           setCurrentPage(savedPage);
         }
 
-        // Phase 2: Render canvas content (can be async without affecting layout)
-        for (const pd of pageData) {
-          if (cancelled) return;
-          const ctx = pd.canvas.getContext('2d');
-          const renderViewport = pd.page.getViewport({ scale: pd.pageScale * dpr });
-          await pd.page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-          if (cancelled) return;
+        // Phase 2: Set up IntersectionObserver to render visible pages on demand
+        if (cancelled) return;
+        observerRef.current = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                const idx = Number(entry.target.dataset.pageIndex);
+                renderPageCanvas(idx);
+              }
+            }
+          },
+          {
+            root: container,
+            rootMargin: `${OBSERVER_MARGIN}px 0px ${OBSERVER_MARGIN}px 0px`,
+          }
+        );
 
-          const textContent = await pd.page.getTextContent();
-          if (cancelled) return;
-          const textLayer = new pdfjsLib.TextLayer({
-            textContentSource: textContent,
-            container: pd.textLayerDiv,
-            viewport: pd.viewport,
-          });
-          await textLayer.render();
+        for (const proxy of pageProxyRef.current) {
+          observerRef.current.observe(proxy.wrapper);
         }
       } catch (err) {
         if (!cancelled) {
@@ -396,11 +479,20 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
       }
     };
 
-    renderPages();
-    return () => { cancelled = true; };
+    layoutPages();
+
+    return () => {
+      cancelled = true;
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      renderedPagesRef.current.clear();
+      renderingPagesRef.current.clear();
+      pageProxyRef.current = [];
+      renderPageRef.current = null;
+    };
   }, [url, scale, handlePageClick]);
 
-  // Track current page from scroll position
+  // Track current page from scroll position + clean up far-off-screen canvases
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -411,10 +503,38 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
       for (let i = pages.length - 1; i >= 0; i--) {
         if (pages[i].wrapper.offsetTop <= scrollTop) {
           setCurrentPage(i + 1);
-          return;
+          break;
+        }
+        if (i === 0) setCurrentPage(1);
+      }
+
+      // Destroy canvases for pages far from the viewport to free memory
+      const visibleTop = container.scrollTop;
+      const visibleBottom = visibleTop + container.clientHeight;
+      const toDestroy = [];
+      for (const idx of renderedPagesRef.current) {
+        const proxy = pageProxyRef.current[idx];
+        if (!proxy) continue;
+        const top = proxy.wrapper.offsetTop;
+        const bottom = top + proxy.wrapper.offsetHeight;
+        const bufferPx = DESTROY_PAGES_BEYOND * proxy.wrapper.offsetHeight;
+        if (bottom < visibleTop - bufferPx || top > visibleBottom + bufferPx) {
+          toDestroy.push(idx);
         }
       }
-      setCurrentPage(1);
+      for (const idx of toDestroy) {
+        const proxy = pageProxyRef.current[idx];
+        if (proxy?.canvas) {
+          proxy.canvas.width = 0;
+          proxy.canvas.remove();
+          proxy.canvas = null;
+        }
+        if (proxy?.textLayerDiv) {
+          proxy.textLayerDiv.remove();
+          proxy.textLayerDiv = null;
+        }
+        renderedPagesRef.current.delete(idx);
+      }
     };
     container.addEventListener('scroll', handleScroll);
 
@@ -507,7 +627,7 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
                 <svg className="compile-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2a10 10 0 0 1 10 10" /></svg>
                 Compiling...
               </>
-            ) : 'Recompile'}
+            ) : 'Build PDF'}
           </button>
           <button
             className="compile-menu-toggle"
@@ -521,13 +641,13 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
-                Recompile
+                Build PDF
               </button>
               <button onClick={() => { setShowCompileMenu(false); onCleanCompile?.(); }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
-                Recompile from scratch
+                Build PDF from scratch
               </button>
               <div className="compile-dropdown-separator" />
               <button onClick={() => { setShowCompileMenu(false); onCleanFiles?.(); }}>
@@ -689,7 +809,7 @@ const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onS
       {showPanel === 'console' && (
         <ConsolePanel output={consoleOutput} compiling={compiling} />
       )}
-      {!url && !compiling && <div className="pdf-placeholder">Click "Recompile" to generate PDF</div>}
+      {!url && !compiling && <div className="pdf-placeholder">Click "Build PDF" to generate PDF</div>}
       {error && <div className="pdf-error">{error}</div>}
       <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />
     </div>

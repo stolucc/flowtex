@@ -113,6 +113,11 @@ router.get('/items', async (req, res) => {
   };
   if (q) params.q = q;
 
+  // Validate collection key format to prevent path traversal
+  if (collection && !/^[A-Za-z0-9]+$/.test(collection)) {
+    return res.status(400).json({ error: 'Invalid collection key' });
+  }
+
   try {
     const path = collection
       ? `/users/${auth.zoteroUserId}/collections/${collection}/items/top`

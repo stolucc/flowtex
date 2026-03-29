@@ -5,6 +5,9 @@ const pool = new pg.Pool({
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432', 10),
   max: 20,
+  ssl: process.env.PGSSLMODE === 'require' || process.env.PGSSLMODE === 'verify-full'
+    ? { rejectUnauthorized: process.env.PGSSLMODE === 'verify-full' }
+    : false,
 });
 
 // Prevent unhandled errors from idle clients crashing the process
@@ -306,6 +309,14 @@ async function initSchema() {
       expires_at TIMESTAMPTZ NOT NULL,
       PRIMARY KEY (user_id, code)
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    INSERT INTO settings (key, value) VALUES ('compile_timeout', '120')
+      ON CONFLICT (key) DO NOTHING;
 
     -- Admin dashboard indexes
     CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at);

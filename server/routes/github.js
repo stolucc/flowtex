@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { pushToGitHub, pullFromGitHub } from '../utils/gitSync.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GIT_REPOS_DIR = path.join(__dirname, '..', '..', 'git-repos');
 
 const router = Router();
 
@@ -25,6 +32,11 @@ router.get('/oauth/authorize', (req, res) => {
 
   const state = crypto.randomBytes(16).toString('hex');
   req.session.githubOAuthState = state;
+  // Remember where the user came from so we can redirect back after OAuth
+  let returnTo = req.query.returnTo || '/';
+  // Prevent open redirect — only allow relative paths
+  if (!returnTo.startsWith('/') || returnTo.startsWith('//')) returnTo = '/';
+  req.session.githubOAuthReturnTo = returnTo;
   req.session.save(() => {
     const params = new URLSearchParams({
       client_id: GITHUB_CLIENT_ID,
@@ -71,8 +83,11 @@ router.get('/oauth/callback', async (req, res) => {
         [req.session.userId, encryptedToken]);
     }
 
-    // Redirect back to the app
-    res.redirect('/?github=connected');
+    // Redirect back to where the user was
+    const returnTo = req.session.githubOAuthReturnTo || '/';
+    delete req.session.githubOAuthReturnTo;
+    const sep = returnTo.includes('?') ? '&' : '?';
+    res.redirect(`${returnTo}${sep}github=connected`);
   } catch (err) {
     logger.error({ err }, 'GitHub OAuth error');
     res.status(500).send('GitHub authorization failed. <a href="/">Go back</a>');
@@ -102,10 +117,42 @@ router.put('/token', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Check if user has a token
+async function getUserToken(userId) {
+  const row = await db.get('SELECT token FROM github_tokens WHERE user_id = $1', [userId]);
+  if (!row?.token) return null;
+  try {
+    return decrypt(row.token);
+  } catch {
+    // Legacy unencrypted token — auto-encrypt it now
+    logger.warn({ userId }, 'Found unencrypted GitHub token — encrypting in place');
+    const encryptedToken = encrypt(row.token);
+    await db.run('UPDATE github_tokens SET token = $1, updated_at = NOW() WHERE user_id = $2',
+      [encryptedToken, userId]);
+    return row.token;
+  }
+}
+
+// Check if user has a token (and fetch GitHub username if connected)
 router.get('/token', async (req, res) => {
-  const row = await db.get('SELECT 1 FROM github_tokens WHERE user_id = $1', [req.session.userId]);
-  res.json({ hasToken: !!row });
+  const row = await db.get('SELECT token FROM github_tokens WHERE user_id = $1', [req.session.userId]);
+  if (!row) return res.json({ hasToken: false });
+
+  // Try to fetch GitHub username
+  let ghUsername = null;
+  try {
+    const token = await getUserToken(req.session.userId);
+    if (token) {
+      const ghRes = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      });
+      if (ghRes.ok) {
+        const ghData = await ghRes.json();
+        ghUsername = ghData.login;
+      }
+    }
+  } catch { /* ignore — just won't show username */ }
+
+  res.json({ hasToken: true, username: ghUsername });
 });
 
 // Remove token
@@ -133,6 +180,9 @@ router.put('/link/:projectId', async (req, res) => {
 
   const { repo, branch } = req.body;
   if (!repo || !repo.includes('/')) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+  if (branch && (!/^[a-zA-Z0-9._\/-]+$/.test(branch) || branch.startsWith('-'))) {
+    return res.status(400).json({ error: 'Invalid branch name' });
+  }
 
   const existing = await db.get('SELECT 1 FROM project_github_links WHERE project_id = $1', [req.params.projectId]);
   if (existing) {
@@ -265,7 +315,10 @@ router.post('/repos', async (req, res) => {
     });
     const data = await ghRes.json();
     if (!ghRes.ok) {
-      return res.status(ghRes.status).json({ error: data.message || 'Failed to create repository' });
+      // GitHub puts the real reason in errors[].message (e.g. "name already exists on this account")
+      const detail = data.errors?.[0]?.message;
+      const msg = detail ? `${data.message} ${detail}` : (data.message || 'Failed to create repository');
+      return res.status(ghRes.status).json({ error: msg });
     }
     res.json({
       fullName: data.full_name,
@@ -280,18 +333,6 @@ router.post('/repos', async (req, res) => {
 });
 
 // --- Sync Operations ---
-
-async function getUserToken(userId) {
-  const row = await db.get('SELECT token FROM github_tokens WHERE user_id = $1', [userId]);
-  if (!row?.token) return null;
-  try {
-    return decrypt(row.token);
-  } catch {
-    // Legacy unencrypted token — log warning and return as-is
-    logger.warn({ userId }, 'Found unencrypted GitHub token — re-save to encrypt');
-    return row.token;
-  }
-}
 
 async function getProjectLink(projectId) {
   return await db.get('SELECT * FROM project_github_links WHERE project_id = $1', [projectId]);
@@ -312,7 +353,7 @@ router.post('/push/:projectId', async (req, res) => {
   try {
     const { commit } = await pushToGitHub(
       req.params.projectId, token, link.github_repo, link.default_branch,
-      req.body.message || 'Update from FlowTex'
+      (req.body.message || 'Update from FlowTex').slice(0, 5000)
     );
 
     await db.run(
@@ -354,6 +395,75 @@ router.post('/pull/:projectId', async (req, res) => {
     res.json({ ok: true, files, commit });
   } catch (err) {
     logger.error({ err }, 'GitHub pull error');
+    const safeMsg = (err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@');
+    res.status(500).json({ error: safeMsg });
+  }
+});
+
+// --- Import from GitHub (create new project from a repo) ---
+
+router.post('/import', async (req, res) => {
+  const token = await getUserToken(req.session.userId);
+  if (!token) return res.status(400).json({ error: 'No GitHub token configured.' });
+
+  const { repo, branch } = req.body;
+  if (!repo || !repo.includes('/')) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+
+  const repoName = repo.split('/').pop();
+
+  try {
+    // Always resolve the default branch from GitHub
+    const ghRes = await fetch(`https://api.github.com/repos/${repo.trim()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (!ghRes.ok) {
+      return res.status(ghRes.status).json({ error: `Repository "${repo}" not found or not accessible.` });
+    }
+    const ghData = await ghRes.json();
+    // Use the GitHub-reported default branch unless the user explicitly specified one that exists
+    const branchName = ghData.default_branch || 'main';
+
+    // Create a new project
+    const projectId = uuid();
+    await db.run(
+      'INSERT INTO projects (id, name) VALUES ($1, $2)',
+      [projectId, repoName]
+    );
+    await db.run(
+      'INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)',
+      [projectId, req.session.userId, 'owner']
+    );
+
+    // Link it to the GitHub repo
+    await db.run(
+      'INSERT INTO project_github_links (project_id, github_repo, default_branch, linked_by) VALUES ($1, $2, $3, $4)',
+      [projectId, repo.trim(), branchName, req.session.userId]
+    );
+
+    // Pull the files
+    try {
+      const { files, commit } = await pullFromGitHub(projectId, token, repo.trim(), branchName);
+
+      await db.run(
+        'UPDATE project_github_links SET last_sync_at = NOW(), last_sync_commit = $1 WHERE project_id = $2',
+        [commit, projectId]
+      );
+    } catch (pullErr) {
+      // Roll back: remove the project, link, and git-repo dir on pull failure
+      await db.run('DELETE FROM project_github_links WHERE project_id = $1', [projectId]);
+      await db.run('DELETE FROM files WHERE project_id = $1', [projectId]);
+      await db.run('DELETE FROM project_members WHERE project_id = $1', [projectId]);
+      await db.run('DELETE FROM projects WHERE id = $1', [projectId]);
+      const repoDir = path.join(GIT_REPOS_DIR, projectId);
+      fs.rmSync(repoDir, { recursive: true, force: true });
+      throw pullErr;
+    }
+
+    // Return the project so the client can navigate to it
+    const project = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
+    res.json(project);
+  } catch (err) {
+    logger.error({ err }, 'GitHub import error');
     const safeMsg = (err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@');
     res.status(500).json({ error: safeMsg });
   }

@@ -4,6 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import { invalidateFileCache } from '../compiler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GIT_REPOS_DIR = path.join(__dirname, '..', '..', 'git-repos');
@@ -44,11 +45,13 @@ async function ensureRepo(projectId) {
     fs.mkdirSync(repoDir, { recursive: true });
   }
   const git = simpleGit(repoDir);
-  const isRepo = await git.checkIsRepo().catch(() => false);
+  // Must check for .git directly — checkIsRepo() walks up parent dirs
+  const isRepo = fs.existsSync(path.join(repoDir, '.git'));
   if (!isRepo) {
     await git.init();
     await git.addConfig('user.email', 'flowtex@localhost');
     await git.addConfig('user.name', 'FlowTex');
+    await git.addConfig('pull.rebase', 'false');
   }
   return git;
 }
@@ -65,14 +68,14 @@ async function configureRemote(git, repo, token) {
   } else {
     await git.addRemote('origin', url);
   }
-  // Use extraheader to pass token at runtime instead of embedding in URL
+  // Force-set (not append) the auth header
   const authHeader = `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
-  await git.addConfig('http.https://github.com/.extraheader', authHeader, false, 'local');
+  await git.raw(['config', '--local', '--replace-all', 'http.https://github.com/.extraheader', authHeader]);
 }
 
 async function clearRemoteAuth(git) {
   try {
-    await git.raw(['config', '--local', '--unset', 'http.https://github.com/.extraheader']);
+    await git.raw(['config', '--local', '--unset-all', 'http.https://github.com/.extraheader']);
   } catch {
     // Config key may not exist; ignore
   }
@@ -198,22 +201,38 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
     await configureRemote(git, repo, token);
 
     try {
+      // Fetch remote history first so we can build on top of it
+      await git.fetch('origin').catch(() => {});
+      const remoteRefs = await git.raw(['branch', '-r']).catch(() => '');
+      const hasRemoteBranch = remoteRefs.split('\n').some(l => l.trim().startsWith(`origin/${branch}`));
+
+      const hasLocalCommits = await git.raw(['rev-parse', 'HEAD']).then(() => true).catch(() => false);
+      if (hasRemoteBranch && !hasLocalCommits) {
+        // Fresh local repo — start from remote branch
+        await git.checkout(['-b', branch, `origin/${branch}`]);
+      } else if (hasRemoteBranch && hasLocalCommits) {
+        // Ensure we're on the right branch
+        const branchList = await git.branchLocal();
+        if (branchList.current !== branch) {
+          if (branchList.all.includes(branch)) {
+            await git.checkout(branch);
+          } else {
+            await git.checkout(['-b', branch, `origin/${branch}`]);
+          }
+        }
+        // Merge remote changes before pushing
+        await git.raw(['pull', 'origin', branch, '--no-rebase', '--strategy-option=theirs', '--allow-unrelated-histories']);
+      } else if (!hasLocalCommits) {
+        // No remote, no local — just create the branch
+        await git.checkoutLocalBranch(branch);
+      }
+
       await writeProjectFilesToDisk(projectId, repoDir);
 
       await git.add('-A');
       const status = await git.status();
       if (status.files.length > 0) {
         await git.commit(commitMessage || 'Update from FlowTex');
-      }
-
-      // Ensure we're on the right branch
-      const branchList = await git.branchLocal();
-      if (branchList.current !== branch) {
-        if (branchList.all.includes(branch)) {
-          await git.checkout(branch);
-        } else {
-          await git.checkoutLocalBranch(branch);
-        }
       }
 
       await git.push('origin', branch, ['--set-upstream']);
@@ -233,19 +252,39 @@ export async function pullFromGitHub(projectId, token, repo, branch) {
     await configureRemote(git, repo, token);
 
     try {
-      const branchList = await git.branchLocal();
-      if (branchList.all.length === 0) {
-        // Fresh repo — fetch and checkout remote branch
-        await git.fetch('origin');
+      await git.fetch('origin');
+
+      // Check if the remote has any branches at all (empty repo check)
+      const remoteRefs = await git.raw(['branch', '-r']).catch(() => '');
+      const remoteBranches = remoteRefs.split('\n').map(l => l.trim()).filter(l => l.startsWith('origin/'));
+      if (remoteBranches.length === 0) {
+        throw new Error('This GitHub repository is empty (no commits yet). Push some content to it first, or use "Create & Link" to start from your FlowTex project.');
+      }
+
+      const hasRemoteBranch = remoteBranches.some(l => l === `origin/${branch}` || l.startsWith(`origin/${branch} `));
+      if (!hasRemoteBranch) {
+        const available = remoteBranches.map(l => l.replace('origin/', ''));
+        throw new Error(`Branch "${branch}" not found on remote. Available: ${available.join(', ')}`);
+      }
+
+      // Check if the local repo has any commits (HEAD must exist)
+      const hasLocalCommits = await git.raw(['rev-parse', 'HEAD']).then(() => true).catch(() => false);
+      if (!hasLocalCommits) {
         await git.checkout(['-b', branch, `origin/${branch}`]);
       } else {
+        const branchList = await git.branchLocal();
         if (branchList.current !== branch) {
-          try { await git.checkout(branch); } catch { await git.checkoutLocalBranch(branch); }
+          if (branchList.all.includes(branch)) {
+            await git.checkout(branch);
+          } else {
+            await git.checkout(['-b', branch, `origin/${branch}`]);
+          }
         }
-        await git.pull('origin', branch, { '--strategy-option': 'theirs' });
+        await git.raw(['pull', 'origin', branch, '--no-rebase', '--strategy-option=theirs', '--allow-unrelated-histories']);
       }
 
       const files = await readDiskFilesToProject(projectId, repoDir);
+      invalidateFileCache(projectId);
       const log = await git.log({ maxCount: 1 });
       return { files, commit: log.latest?.hash || null };
     } finally {

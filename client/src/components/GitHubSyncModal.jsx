@@ -3,11 +3,7 @@ import { get, post, put, patch, del } from '../api.js';
 
 export default function GitHubSyncModal({ projectId, projectName, onClose, onFilesUpdated, onLinkChanged }) {
   const [hasToken, setHasToken] = useState(false);
-  const [oauthAvailable, setOauthAvailable] = useState(false);
-  const [tokenInput, setTokenInput] = useState('');
-  const [showTokenInput, setShowTokenInput] = useState(false);
   const [link, setLink] = useState(null);
-  const [showAutoSavePrompt, setShowAutoSavePrompt] = useState(false);
   const [repoMode, setRepoMode] = useState('create'); // 'create' | 'existing'
   const [newRepoName, setNewRepoName] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
@@ -17,10 +13,10 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
   const [loading, setLoading] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const overlayRef = useRef(null);
 
   useEffect(() => {
-    // Suggest a repo name from the project name
     if (projectName) {
       setNewRepoName(projectName.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''));
     }
@@ -29,23 +25,12 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
   useEffect(() => {
     get('/api/github/token').then((r) => r.json()).then((d) => {
       setHasToken(d.hasToken);
-    });
-    get('/api/github/oauth/available').then((r) => r.json()).then((d) => {
-      setOauthAvailable(d.available);
-    });
-    get(`/api/github/link/${projectId}`).then((r) => r.json()).then(setLink);
-
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('github') === 'connected') {
-      setHasToken(true);
-      setSuccess('GitHub connected successfully');
-      window.history.replaceState({}, '', window.location.pathname);
-      setTimeout(() => setSuccess(''), 3000);
-    }
+    }).catch(() => {});
+    get(`/api/github/link/${projectId}`).then((r) => r.json()).then(setLink).catch(() => {});
   }, [projectId]);
 
-  const fetchRepos = () => {
-    if (repos !== null) return; // already loaded
+  const fetchRepos = (force) => {
+    if (repos !== null && !force) return;
     setRepos([]);
     get('/api/github/repos').then((r) => r.json()).then((data) => {
       if (Array.isArray(data)) setRepos(data);
@@ -56,45 +41,25 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     if (e.target === overlayRef.current) onClose();
   };
 
-  const connectWithOAuth = () => {
-    window.location.href = '/api/github/oauth/authorize';
-  };
-
-  const saveToken = async () => {
-    if (!tokenInput.trim()) return;
-    setError('');
-    const res = await put('/api/github/token', { token: tokenInput.trim() });
-    if (res.ok) {
-      setHasToken(true);
-      setShowTokenInput(false);
-      setTokenInput('');
-      setSuccess('Token saved');
-      setTimeout(() => setSuccess(''), 2000);
-    } else {
-      const d = await res.json();
-      setError(d.error);
-    }
-  };
-
-  const removeToken = async () => {
-    await del('/api/github/token');
-    setHasToken(false);
-    setShowTokenInput(false);
-    setRepos(null);
-  };
-
   const createAndLink = async () => {
     if (!newRepoName.trim()) return;
     setError('');
     setLoading('create');
     try {
       const createRes = await post('/api/github/repos', { name: newRepoName.trim(), isPrivate });
-      const repo = await createRes.json();
-      if (!createRes.ok) throw new Error(repo.error);
+      const repoData = await createRes.json();
+
+      if (!createRes.ok) {
+        const errMsg = repoData.error || 'Failed to create repository';
+        if (errMsg.toLowerCase().includes('already exists') || errMsg.toLowerCase().includes('name already exists')) {
+          throw new Error(`A repository named "${newRepoName}" already exists on your GitHub account. Use "Link existing repo" to connect to it.`);
+        }
+        throw new Error(errMsg);
+      }
 
       const linkRes = await put(`/api/github/link/${projectId}`, {
-        repo: repo.fullName,
-        branch: repo.defaultBranch || 'main',
+        repo: repoData.fullName,
+        branch: repoData.defaultBranch || 'main',
       });
       if (!linkRes.ok) {
         const d = await linkRes.json();
@@ -104,8 +69,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       const freshData = await freshLink.json();
       setLink(freshData);
       onLinkChanged?.(freshData);
-      setSuccess(`Created and linked ${repo.fullName}`);
-      setShowAutoSavePrompt(true);
+      setSuccess(`Created and linked ${repoData.fullName}`);
     } catch (err) {
       setError(err.message);
     }
@@ -129,7 +93,6 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       setLink(freshData);
       onLinkChanged?.(freshData);
       setSuccess('Repository linked');
-      setShowAutoSavePrompt(true);
     } catch (err) {
       setError(err.message);
     }
@@ -141,7 +104,6 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     const unlinked = { linked: false };
     setLink(unlinked);
     onLinkChanged?.(unlinked);
-    setShowAutoSavePrompt(false);
   };
 
   const handlePush = async () => {
@@ -195,44 +157,13 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
         {error && <div className="github-sync-msg error">{error}</div>}
         {success && <div className="github-sync-msg success">{success}</div>}
 
-        {/* Step 1: Connect to GitHub */}
+        {/* Not connected — direct to Account Settings */}
         {!hasToken && (
           <div className="github-sync-section">
-            <div className="github-sync-connect">
-              {oauthAvailable ? (
-                <>
-                  <button className="github-sync-btn oauth" onClick={connectWithOAuth}>
-                    Connect to GitHub
-                  </button>
-                  <p className="github-sync-hint">
-                    Or{' '}
-                    <button className="github-sync-link-btn" onClick={() => setShowTokenInput(true)}>
-                      use a Personal Access Token
-                    </button>{' '}
-                    instead.
-                  </p>
-                </>
-              ) : (
-                <p className="github-sync-hint">
-                  Create a token at GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens. Needs <code>repo</code> scope.
-                </p>
-              )}
-              {(showTokenInput || !oauthAvailable) && (
-                <div className="github-sync-input-row">
-                  <input
-                    type="password"
-                    placeholder="ghp_..."
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') saveToken(); }}
-                  />
-                  <button onClick={saveToken} disabled={!tokenInput.trim()}>Save</button>
-                  {oauthAvailable && (
-                    <button onClick={() => setShowTokenInput(false)}>Cancel</button>
-                  )}
-                </div>
-              )}
-            </div>
+            <p className="github-sync-hint">
+              Connect your GitHub account first in <strong>Account Settings</strong> (gear icon on the dashboard sidebar), then come back here to link a repository.
+            </p>
+            <button className="github-sync-btn oauth" onClick={onClose}>Close</button>
           </div>
         )}
 
@@ -259,16 +190,19 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                     autoFocus
                   />
                   <button onClick={createAndLink} disabled={!newRepoName.trim() || !!loading}>
-                    {loading === 'create' ? 'Creating...' : 'Create & Link'}
+                    {loading === 'create' ? 'Linking...' : 'Create & Link'}
                   </button>
                 </div>
-                <label className="github-sync-private-label">
-                  <input
-                    type="checkbox"
-                    checked={isPrivate}
-                    onChange={(e) => setIsPrivate(e.target.checked)}
-                  />
-                  Private repository
+                <label className="github-sync-autosave-toggle">
+                  <span className="github-sync-toggle-label">Private repository</span>
+                  <span className={`github-sync-switch ${isPrivate ? 'on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={isPrivate}
+                      onChange={(e) => setIsPrivate(e.target.checked)}
+                    />
+                    <span className="github-sync-switch-slider" />
+                  </span>
                 </label>
               </div>
             )}
@@ -311,37 +245,15 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
               </>
             )}
 
-            <div className="github-sync-disconnect-row">
-              <button className="github-sync-link-btn danger" onClick={removeToken}>Disconnect GitHub</button>
-            </div>
           </div>
         )}
 
         {/* Step 3: Sync */}
-        {hasToken && link?.linked && (
-          <div className="github-sync-section">
-            {showAutoSavePrompt && !link.autoPush && (
-              <div className="github-sync-autosave-prompt">
-                <p>Would you like to enable auto-save? Your project will be automatically saved to GitHub every 5 minutes.</p>
-                <div className="github-sync-autosave-prompt-buttons">
-                  <button className="github-sync-btn push" onClick={async () => {
-                    await patch(`/api/github/link/${projectId}/auto-push`, { enabled: true });
-                    const freshLink = await get(`/api/github/link/${projectId}`);
-                    const freshData = await freshLink.json();
-                    setLink(freshData);
-                    onLinkChanged?.(freshData);
-                    setShowAutoSavePrompt(false);
-                    setSuccess('Auto-save enabled');
-                    setTimeout(() => setSuccess(''), 3000);
-                  }}>Enable auto-save</button>
-                  <button className="github-sync-link-btn" onClick={() => setShowAutoSavePrompt(false)}>Not now</button>
-                </div>
-              </div>
-            )}
-            <div className="github-sync-row">
+        {hasToken && link?.linked && !confirmDisconnect && (
+          <div className="github-sync-section github-sync-linked">
+            <div className="github-sync-repo-info">
               <span className="github-sync-status-dot green" />
-              <span><strong>{link.repo}</strong> ({link.branch})</span>
-              <button className="github-sync-link-btn danger" onClick={unlinkRepo}>Unlink</button>
+              <span style={{ wordBreak: 'break-all' }}><strong>{link.repo}</strong> ({link.branch})</span>
             </div>
             {link.lastSyncAt && (
               <div className="github-sync-hint">
@@ -349,39 +261,64 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 {link.lastSyncCommit && ` — ${link.lastSyncCommit.substring(0, 7)}`}
               </div>
             )}
-            <div className="github-sync-actions">
-              <div className="github-sync-push">
+            <label className="github-sync-autosave-toggle">
+              <span className="github-sync-toggle-label">
+                <span className={`github-sync-status-dot ${link.autoPush ? 'green' : 'red'}`} />
+                Auto-save to GitHub every 5 minutes
+              </span>
+              <span className={`github-sync-switch ${link.autoPush ? 'on' : ''}`}>
                 <input
-                  placeholder="Commit message (optional)"
-                  value={commitMsg}
-                  onChange={(e) => setCommitMsg(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handlePush(); }}
+                  type="checkbox"
+                  checked={!!link.autoPush}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    await patch(`/api/github/link/${projectId}/auto-push`, { enabled });
+                    const freshLink = await get(`/api/github/link/${projectId}`);
+                    const freshData = await freshLink.json();
+                    setLink(freshData);
+                    onLinkChanged?.(freshData);
+                  }}
                 />
-                <button className="github-sync-btn push" onClick={handlePush} disabled={!!loading}>
-                  {loading === 'push' ? 'Pushing...' : 'Push to GitHub'}
-                </button>
-              </div>
+                <span className="github-sync-switch-slider" />
+              </span>
+            </label>
+            <div className="github-sync-push">
+              <input
+                placeholder="Commit message (optional)"
+                value={commitMsg}
+                onChange={(e) => setCommitMsg(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handlePush(); }}
+              />
+              <button className="github-sync-btn push" onClick={handlePush} disabled={!!loading}>
+                {loading === 'push' ? 'Pushing...' : 'Push to GitHub'}
+              </button>
+            </div>
+            <div className="github-sync-bottom-row">
+              <button className="github-sync-link-btn danger" onClick={() => setConfirmDisconnect(true)}>Disconnect from GitHub repository</button>
               <button className="github-sync-btn pull" onClick={handlePull} disabled={!!loading}>
                 {loading === 'pull' ? 'Pulling...' : 'Pull from GitHub'}
               </button>
             </div>
-            <label className="github-sync-autosave-toggle">
-              <input
-                type="checkbox"
-                checked={!!link.autoPush}
-                onChange={async (e) => {
-                  const enabled = e.target.checked;
-                  await patch(`/api/github/link/${projectId}/auto-push`, { enabled });
-                  const freshLink = await get(`/api/github/link/${projectId}`);
-                  const freshData = await freshLink.json();
-                  setLink(freshData);
-                  onLinkChanged?.(freshData);
-                }}
-              />
-              Auto-save to GitHub every 5 minutes
-            </label>
           </div>
         )}
+
+        {/* Disconnect confirmation */}
+        {hasToken && link?.linked && confirmDisconnect && (
+          <div className="github-sync-section github-sync-linked">
+            <p className="github-sync-confirm-text">
+              Disconnect this project from <strong style={{ wordBreak: 'break-all' }}>{link.repo}</strong>?
+            </p>
+            <p className="github-sync-hint">This will only unlink the project. Your GitHub repository will not be affected.</p>
+            <div className="github-sync-confirm-buttons">
+              <button className="github-sync-link-btn danger" onClick={() => { setConfirmDisconnect(false); unlinkRepo(); }}>Yes, disconnect</button>
+              <button className="github-sync-link-btn" onClick={() => setConfirmDisconnect(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        <div className="github-sync-footer">
+          <button className="github-sync-btn" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );

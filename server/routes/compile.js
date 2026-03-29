@@ -88,7 +88,9 @@ router.post('/:projectId', async (req, res) => {
 
     res.json({ success: true, log });
   } catch (err) {
-    res.status(400).json({ success: false, log: err.message });
+    // Strip internal paths from error messages
+    const safeMsg = (err.message || 'Compilation failed').replace(/\/[^\s:]+\//g, '');
+    res.status(400).json({ success: false, log: safeMsg });
   }
 });
 
@@ -115,8 +117,9 @@ router.get('/:projectId/compile-stream', async (req, res) => {
     const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
     const mainFile = project?.main_file || 'main.tex';
 
+    const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
     const { pdfPath, log } = await compileProject(projectId, mainFile, (chunk) => {
-      send('output', { text: chunk });
+      send('output', { text: stripPaths(chunk) });
     }, {
       files,
       userId: req.session.userId,
@@ -125,9 +128,9 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       },
     });
 
-    send('done', { success: true, log });
+    send('done', { success: true, log: stripPaths(log) });
   } catch (err) {
-    send('done', { success: false, log: err.message });
+    send('done', { success: false, log: stripPaths(err.message) });
   }
 
   res.end();
@@ -256,6 +259,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     Connection: 'keep-alive',
   });
 
+  const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
   const send = (event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
@@ -279,9 +283,9 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     try {
       diffOutput = await latexDiff(oldFile.content || '', newFile.content || '', { workDir: projectDir });
     } catch (diffErr) {
-      send('output', { text: `Diff error: ${diffErr.message}\n` });
-      if (diffErr.stderr) send('output', { text: diffErr.stderr + '\n' });
-      send('done', { success: false, log: diffErr.message });
+      send('output', { text: `Diff error: ${stripPaths(diffErr.message)}\n` });
+      if (diffErr.stderr) send('output', { text: stripPaths(diffErr.stderr) + '\n' });
+      send('done', { success: false, log: stripPaths(diffErr.message) });
       res.end();
       return;
     }
@@ -293,7 +297,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     send('output', { text: 'Compiling diff...\n' });
     try {
       const { pdfPath, log } = await compileProject(projectId, '__diff__.tex', (chunk) => {
-        send('output', { text: chunk });
+        send('output', { text: stripPaths(chunk) });
       }, {
         files,
         userId: req.session.userId,
@@ -303,24 +307,24 @@ router.get('/:projectId/diff-stream', async (req, res) => {
           send('output', { text: `Wrote __diff__.tex (${diffOutput.length} bytes)\n` });
         },
       });
-      send('done', { success: true, log });
+      send('done', { success: true, log: stripPaths(log) });
     } catch (compileErr) {
       // Read the log file and stream it to the console
       const diffLogPath = path.join(projectDir, diffJobName + '.log');
       if (fs.existsSync(diffLogPath)) {
         const logContents = fs.readFileSync(diffLogPath, 'utf-8');
-        send('output', { text: '\n--- diff log ---\n' + logContents + '\n' });
+        send('output', { text: stripPaths('\n--- diff log ---\n' + logContents + '\n') });
       }
       // Check if PDF was produced anyway
       const diffPdfPath = path.join(projectDir, diffJobName + '.pdf');
       if (fs.existsSync(diffPdfPath)) {
-        send('done', { success: true, log: compileErr.message });
+        send('done', { success: true, log: stripPaths(compileErr.message) });
       } else {
-        send('done', { success: false, log: compileErr.message });
+        send('done', { success: false, log: stripPaths(compileErr.message) });
       }
     }
   } catch (err) {
-    send('done', { success: false, log: err.message });
+    send('done', { success: false, log: stripPaths(err.message) });
   }
 
   res.end();
@@ -386,6 +390,13 @@ router.get('/:projectId/generated-file', async (req, res) => {
     return res.status(400).json({ error: 'Invalid file name' });
   }
 
+  // Only allow access to the requesting user's generated files
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const baseName = fileName.split('.')[0];
+  if (!baseName.endsWith(userSuffix)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
   const filePath = path.join(PROJECTS_DIR, projectId, fileName);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'File not found' });
@@ -409,12 +420,16 @@ router.post('/:projectId/clean', async (req, res) => {
     '.cb', '.cb2', '.bcf', '.run.xml', '.xdv',
   ]);
 
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
   let deleted = 0;
   const entries = fs.readdirSync(projectDir);
   for (const entry of entries) {
     const ext = entry.includes('.') ? '.' + entry.split('.').slice(1).join('.') : '';
     const lowerExt = ext.toLowerCase();
     if (generatedExts.has(lowerExt) || lowerExt === '.synctex.gz') {
+      // Only delete files generated by the requesting user
+      const baseName = entry.split('.')[0];
+      if (!baseName.endsWith(userSuffix)) continue;
       try {
         fs.unlinkSync(path.join(projectDir, entry));
         deleted++;

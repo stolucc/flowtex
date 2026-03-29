@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { get } from '../api.js';
+import { get, put } from '../api.js';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -134,6 +134,8 @@ export default function AdminDashboard({ onBack }) {
   const [auditLog, setAuditLog] = useState({ entries: [], total: 0, page: 1, pages: 1 });
   const [auditPage, setAuditPage] = useState(1);
   const [tab, setTab] = useState('overview');
+  const [adminSettings, setAdminSettings] = useState({});
+  const [settingsMsg, setSettingsMsg] = useState('');
   const [live, setLive] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [system, setSystem] = useState(null);
@@ -188,6 +190,12 @@ export default function AdminDashboard({ onBack }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  useEffect(() => {
+    if (tab === 'settings') {
+      get('/api/admin/settings').then(r => r.json()).then(setAdminSettings).catch(() => {});
+    }
+  }, [tab]);
+
   // Live auto-refresh: system stats every 2s, full data every 10s
   useEffect(() => {
     if (!live) return;
@@ -227,6 +235,7 @@ export default function AdminDashboard({ onBack }) {
 
   return (
     <div className="admin-dashboard">
+      <h1 className="admin-title">Admin Dashboard</h1>
       <div className="admin-header">
         <button className="admin-back" onClick={onBack}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -234,7 +243,6 @@ export default function AdminDashboard({ onBack }) {
           </svg>
           Back
         </button>
-        <h1>Admin Dashboard</h1>
         <button className={`admin-live-btn ${live ? 'active' : ''}`} onClick={() => setLive(l => !l)}>
           <span className={`admin-live-dot ${live ? 'pulse' : ''}`} />
           {live ? 'Live' : 'Live'}
@@ -256,7 +264,7 @@ export default function AdminDashboard({ onBack }) {
       </div>
 
       <div className="admin-tabs">
-        {['overview', 'system', 'projects', 'users', 'audit'].map(t => (
+        {['overview', 'system', 'projects', 'users', 'audit', 'settings'].map(t => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -340,6 +348,47 @@ export default function AdminDashboard({ onBack }) {
               <button disabled={auditPage >= auditLog.pages} onClick={() => setAuditPage(p => p + 1)}>Next</button>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="admin-section">
+          <h2>Settings</h2>
+          {settingsMsg && <div style={{ color: 'var(--green)', marginBottom: 12, fontSize: 13 }}>{settingsMsg}</div>}
+          <div className="admin-setting-row">
+            <label className="admin-setting-label">
+              Maximum compile time (seconds)
+              <span className="admin-setting-hint">How long a LaTeX compilation can run before being terminated (10–600)</span>
+            </label>
+            <div className="admin-setting-input">
+              <input
+                type="number"
+                min="10"
+                max="600"
+                value={adminSettings.compile_timeout || '120'}
+                onChange={(e) => setAdminSettings(s => ({ ...s, compile_timeout: e.target.value }))}
+                className="auth-input"
+                style={{ width: 100 }}
+              />
+              <button
+                className="auth-button"
+                style={{ marginLeft: 8 }}
+                onClick={async () => {
+                  setSettingsMsg('');
+                  const res = await put('/api/admin/settings', { key: 'compile_timeout', value: adminSettings.compile_timeout });
+                  const d = await res.json();
+                  if (res.ok) {
+                    setSettingsMsg('Saved');
+                    setTimeout(() => setSettingsMsg(''), 2000);
+                  } else {
+                    setSettingsMsg(d.error || 'Failed');
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

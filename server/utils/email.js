@@ -46,6 +46,22 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
+export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl }) {
+  const safeProject = escapeHtml(projectName);
+  const safeInviter = escapeHtml(inviterName);
+  const safeUrl = escapeHtml(baseUrl);
+  return sendEmail({
+    to: email,
+    subject: `${inviterName} invited you to "${projectName}" on FlowTex`,
+    text: `${inviterName} has invited you to collaborate on "${projectName}".\n\nLog in to FlowTex to accept the invitation:\n${baseUrl}\n\nIf you were not expecting this invitation, you can safely ignore this email.\n`,
+    html: `
+      <p><strong>${safeInviter}</strong> has invited you to collaborate on <strong>${safeProject}</strong>.</p>
+      <p><a href="${safeUrl}">Log in to FlowTex</a> to accept the invitation.</p>
+      <p>If you were not expecting this invitation, you can safely ignore this email.</p>
+    `,
+  });
+}
+
 export async function sendPasswordResetEmail(email, resetUrl) {
   const safeUrl = escapeHtml(resetUrl);
   return sendEmail({

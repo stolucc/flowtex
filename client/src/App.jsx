@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import ProjectList from './components/ProjectList.jsx';
 import Editor from './components/Editor.jsx';
 import PdfViewer from './components/PdfViewer.jsx';
@@ -9,13 +9,15 @@ import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
 import AuthPage from './components/AuthPage.jsx';
 import ShareModal from './components/ShareModal.jsx';
-import HistoryPanel from './components/HistoryPanel.jsx';
-import GitHubSyncModal from './components/GitHubSyncModal.jsx';
-import BibEnrichModal from './components/BibEnrichModal.jsx';
-import ZoteroModal from './components/ZoteroModal.jsx';
 import CompareFilesModal from './components/CompareFilesModal.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
-import AdminDashboard from './components/AdminDashboard.jsx';
+
+// Lazy-loaded modals (only fetched when opened)
+const HistoryPanel = lazy(() => import('./components/HistoryPanel.jsx'));
+const GitHubSyncModal = lazy(() => import('./components/GitHubSyncModal.jsx'));
+const BibEnrichModal = lazy(() => import('./components/BibEnrichModal.jsx'));
+const ZoteroModal = lazy(() => import('./components/ZoteroModal.jsx'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
 import { get, post, put, patch, del } from './api.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage } from './utils/spellcheck.js';
@@ -1058,7 +1060,7 @@ export default function App() {
   }
 
   if (showAdmin && user.isAdmin) {
-    return <AdminDashboard onBack={() => { setShowAdmin(false); window.history.pushState(null, '', '/'); }} />;
+    return <Suspense fallback={<div className="loading-spinner" />}><AdminDashboard onBack={() => { setShowAdmin(false); window.history.pushState(null, '', '/'); }} /></Suspense>;
   }
 
   if (!project) {
@@ -1189,16 +1191,16 @@ export default function App() {
         />
       )}
       {showGitHubSync && (
-        <GitHubSyncModal
+        <Suspense fallback={null}><GitHubSyncModal
           projectId={project.id}
           projectName={project.name}
           onClose={() => setShowGitHubSync(false)}
           onFilesUpdated={(files) => setFiles(files)}
           onLinkChanged={(linkData) => setGithubLink(linkData)}
-        />
+        /></Suspense>
       )}
       {showBibEnrich && activeFile?.path?.endsWith('.bib') && (
-        <BibEnrichModal
+        <Suspense fallback={null}><BibEnrichModal
           file={activeFile}
           onClose={() => setShowBibEnrich(false)}
           onApply={(newContent) => {
@@ -1208,10 +1210,10 @@ export default function App() {
             ));
             setActiveFile((prev) => prev ? { ...prev, content: newContent } : prev);
           }}
-        />
+        /></Suspense>
       )}
       {showZotero && (
-        <ZoteroModal
+        <Suspense fallback={null}><ZoteroModal
           onClose={() => setShowZotero(false)}
           bibFileExists={files.some(f => f.path.endsWith('.bib'))}
           onInsert={async (bibtex) => {
@@ -1238,7 +1240,7 @@ export default function App() {
             // Save to server
             await put(`/api/projects/files/${bibFile.id}`, { content: newContent });
           }}
-        />
+        /></Suspense>
       )}
       <div className="main-layout">
         {showHistory && (
@@ -1263,7 +1265,7 @@ export default function App() {
               ))}
             </div>
           </div>
-          <HistoryPanel
+          <Suspense fallback={null}><HistoryPanel
             projectId={project.id}
             currentUserName={user?.name}
             historyFileId={historySelectedFile?.id}
@@ -1319,7 +1321,7 @@ export default function App() {
                 setHistoryFiles(null);
               }
             }}
-          />
+          /></Suspense>
           </>
         )}
         {!showHistory && (

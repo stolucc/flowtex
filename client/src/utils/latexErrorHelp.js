@@ -160,7 +160,7 @@ const ERROR_RULES = [
     tips: [
       'Check the citation key in your .bib file for exact spelling',
       'Make sure \\bibliography{file} or \\addbibresource{file.bib} is present',
-      'Recompile twice — LaTeX needs multiple passes for citations',
+      'Build twice — LaTeX needs multiple passes for citations',
       'Run BibTeX/Biber between compilations if needed',
     ],
   },
@@ -172,7 +172,7 @@ const ERROR_RULES = [
     tips: [
       'Make sure \\label{name} exists for the referenced item',
       'Place \\label after \\caption in figures/tables',
-      'Recompile twice for cross-references to resolve',
+      'Build twice for cross-references to resolve',
       'Labels are case-sensitive',
     ],
   },
@@ -182,7 +182,7 @@ const ERROR_RULES = [
     suggestion: () => 'Some \\ref or \\cite commands could not be resolved. Try recompiling — LaTeX often needs two passes for cross-references. If it persists, check your \\label and \\cite keys.',
     searchQuery: () => 'undefined references latex recompile',
     tips: [
-      'Recompile the document twice',
+      'Build the document twice',
       'Check all \\ref{} and \\cite{} keys for typos',
       'Make sure .bib files are properly included',
     ],

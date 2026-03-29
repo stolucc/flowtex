@@ -20,6 +20,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const { name, color } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+  if (name.length > 100) return res.status(400).json({ error: 'Tag name too long' });
   const id = uuid();
   try {
     const safeColor = validColor(color) ? color : '#89b4fa';

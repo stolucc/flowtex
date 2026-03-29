@@ -254,4 +254,35 @@ router.get('/stats/system', async (req, res) => {
   });
 });
 
+// ── Settings ─────────────────────────────────────────────────────────
+
+router.get('/settings', async (req, res) => {
+  const rows = await db.all('SELECT key, value FROM settings');
+  const settings = {};
+  for (const r of rows) settings[r.key] = r.value;
+  res.json(settings);
+});
+
+router.put('/settings', async (req, res) => {
+  const { key, value } = req.body;
+  if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' });
+
+  const ALLOWED_KEYS = ['compile_timeout'];
+  if (!ALLOWED_KEYS.includes(key)) return res.status(400).json({ error: 'Unknown setting' });
+
+  // Validate
+  if (key === 'compile_timeout') {
+    const num = parseInt(value);
+    if (isNaN(num) || num < 10 || num > 600) {
+      return res.status(400).json({ error: 'Compile timeout must be between 10 and 600 seconds' });
+    }
+  }
+
+  await db.run(
+    'INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()',
+    [key, String(value)]
+  );
+  res.json({ ok: true });
+});
+
 export default router;
