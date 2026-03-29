@@ -1,0 +1,49 @@
+%% This file includes individual chapters only. 
+%% Chapter files may or may not be further divided 
+%% into smaller chunks (e.g. sections), but they are 
+%% not handled here. Chapter files are dealt with here, only.
+
+%TC:ignore
+\listoffigures
+\listoftables 
+
+
+
+{
+  \sffamily 
+  %%% Bit of a HACK to get the page numbers also in \sffamily: set the default font to \sffamily, and restore to \rmdefault.
+  %%% But seemingly not other easy way that doesns't take a day to figure out.
+  \renewcommand\familydefault{\sfdefault}
+  \tcblistof[\chapter*]{thm}{List of Actions}\label{listofactions}
+ %% \tcblistof[\chapter*]{lis}{List of Listings}
+  \renewcommand\familydefault{\rmdefault}
+}
+\addcontentsline{toc}{chapter}{List of Actions}
+
+%% Ensure the TOC contains the right page number for Terms & Abbreviations.
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{List of Terms and Abbreviations}
+{
+  \footnotesize 
+  \printacronyms[include=A,name=List of Terms and Abbreviations]
+}
+
+
+
+\mainmatter
+
+%% Do NOT set these before the main page is made, because logos don't get aligned.
+\widowpenalty10000
+\clubpenalty10000
+%TC:endignore
+
+
+\include{1_introduction}
+
+\include{2_assessment}
+
+\include{3_actionplan}
+
+
+

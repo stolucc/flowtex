@@ -1,0 +1,646 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { get, post, del } from '../api.js';
+import Avatar from './Avatar.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
+import MfaSetupModal from './MfaSetupModal.jsx';
+
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+  const now = new Date();
+  const date = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return date.toLocaleDateString();
+}
+
+const TAG_COLORS = ['#89b4fa', '#a6e3a1', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#94e2d5', '#f2cdcd'];
+
+export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin }) {
+  const [projects, setProjects] = useState([]);
+  const [invitations, setInvitations] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [name, setName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [showMfa, setShowMfa] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [selectedTag, setSelectedTag] = useState(null);
+  const [newTagName, setNewTagName] = useState('');
+  const [creatingTag, setCreatingTag] = useState(false);
+  const [search, setSearch] = useState('');
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, project }
+  const contextMenuRef = useRef(null);
+  const [sortCol, setSortCol] = useState('updated_at');
+  const [sortDir, setSortDir] = useState('desc');
+  const [selected, setSelected] = useState(new Set());
+  const [showBulkTagMenu, setShowBulkTagMenu] = useState(false);
+  const bulkTagRef = useRef(null);
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const newMenuRef = useRef(null);
+  const zipInputRef = useRef(null);
+
+  useEffect(() => {
+    get('/api/projects').then((r) => r.json()).then(setProjects);
+    get('/api/projects/invitations/mine').then((r) => r.json()).then(setInvitations).catch(() => {});
+    get('/api/tags').then((r) => r.json()).then(setTags).catch(() => {});
+  }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    const res = await post('/api/projects', { name: name || 'Untitled' });
+    const project = await res.json();
+    setName('');
+    onSelect(project);
+  };
+
+  const handleUploadZip = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const csrfToken = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/)?.[1] || '';
+    const res = await fetch('/api/projects/from-zip', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+      headers: { 'X-CSRF-Token': csrfToken },
+    });
+    if (res.ok) {
+      const project = await res.json();
+      onSelect(project);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    await del(`/api/projects/${id}`);
+    setProjects((ps) => ps.filter((p) => p.id !== id));
+  };
+
+  const handleTrash = async (e, project) => {
+    e.stopPropagation();
+    await post(`/api/projects/${project.id}/trash`);
+    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, trashed: 1 } : p));
+  };
+
+  const handleRestore = async (e, project) => {
+    e.stopPropagation();
+    await post(`/api/projects/${project.id}/restore`);
+    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, trashed: 0 } : p));
+  };
+
+  const handleArchive = async (e, project) => {
+    e.stopPropagation();
+    await post(`/api/projects/${project.id}/archive`);
+    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, archived: 1 } : p));
+  };
+
+  const handleUnarchive = async (e, project) => {
+    e.stopPropagation();
+    await post(`/api/projects/${project.id}/unarchive`);
+    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, archived: 0 } : p));
+  };
+
+  const confirmDeleteProject = (e, project) => {
+    e.stopPropagation();
+    setConfirmDelete({
+      message: `Are you sure you want to permanently delete "${project.name}"?`,
+      onConfirm: () => { handleDelete(project.id); setConfirmDelete(null); },
+    });
+  };
+
+  const handleAcceptInvite = async (inviteId) => {
+    const res = await post(`/api/projects/invitations/${inviteId}/accept`);
+    if (res.ok) {
+      setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+      const projRes = await get('/api/projects');
+      setProjects(await projRes.json());
+    }
+  };
+
+  const handleDeclineInvite = async (inviteId) => {
+    const res = await post(`/api/projects/invitations/${inviteId}/decline`);
+    if (res.ok) {
+      setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+    }
+  };
+
+  const handleCreateTag = async (e) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    const color = TAG_COLORS[tags.length % TAG_COLORS.length];
+    const res = await post('/api/tags', { name: newTagName.trim(), color });
+    if (res.ok) {
+      const tag = await res.json();
+      setTags((t) => [...t, tag]);
+      setNewTagName('');
+      setCreatingTag(false);
+    }
+  };
+
+  const handleDeleteTag = async (tagId) => {
+    await del(`/api/tags/${tagId}`);
+    setTags((t) => t.filter((tg) => tg.id !== tagId));
+    if (selectedTag === tagId) { setSelectedTag(null); setFilter('all'); }
+  };
+
+  const handleToggleProjectTag = async (e, projectId, tagId) => {
+    e.stopPropagation();
+    const project = projects.find((p) => p.id === projectId);
+    const hasTag = project?.tags?.some((t) => t.id === tagId);
+    if (hasTag) {
+      await del(`/api/projects/${projectId}/tags/${tagId}`);
+      setProjects((ps) => ps.map((p) => p.id === projectId ? { ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) } : p));
+    } else {
+      await post(`/api/projects/${projectId}/tags/${tagId}`);
+      const tag = tags.find((t) => t.id === tagId);
+      setProjects((ps) => ps.map((p) => p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p));
+    }
+  };
+
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [contextMenu]);
+
+  // Close bulk tag menu on click outside
+  useEffect(() => {
+    if (!showBulkTagMenu) return;
+    const handler = (e) => {
+      if (bulkTagRef.current && !bulkTagRef.current.contains(e.target)) {
+        setShowBulkTagMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showBulkTagMenu]);
+
+  // Close new project menu on click outside
+  useEffect(() => {
+    if (!showNewMenu) return;
+    const handler = (e) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target)) {
+        setShowNewMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNewMenu]);
+
+  const handleBulkTag = async (tagId) => {
+    const tag = tags.find((t) => t.id === tagId);
+    for (const id of selected) {
+      const project = projects.find((p) => p.id === id);
+      if (project && !(project.tags || []).some((t) => t.id === tagId)) {
+        await post(`/api/projects/${id}/tags/${tagId}`);
+      }
+    }
+    setProjects((ps) => ps.map((p) => {
+      if (!selected.has(p.id)) return p;
+      if ((p.tags || []).some((t) => t.id === tagId)) return p;
+      return { ...p, tags: [...(p.tags || []), tag] };
+    }));
+    setShowBulkTagMenu(false);
+  };
+
+  // Filter projects
+  const filteredProjects = projects.filter((p) => {
+    if (filter === 'all' && !p.trashed) { /* ok */ }
+    else if (filter === 'yours' && !p.trashed && !p.archived && p.owner_id === user?.id) { /* ok */ }
+    else if (filter === 'shared' && !p.trashed && !p.archived && p.owner_id !== user?.id) { /* ok */ }
+    else if (filter === 'archived' && p.archived && !p.trashed) { /* ok */ }
+    else if (filter === 'deleted' && p.trashed) { /* ok */ }
+    else if (filter === 'tag' && !p.trashed && (p.tags || []).some((t) => t.id === selectedTag)) { /* ok */ }
+    else return false;
+    // Apply search filter
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return p.name.toLowerCase().includes(q) || (p.owner_name || '').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  // Sort
+  const sortedProjects = [...filteredProjects].sort((a, b) => {
+    let aVal, bVal;
+    if (sortCol === 'name') { aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); }
+    else if (sortCol === 'owner') { aVal = (a.owner_id === user?.id ? '' : (a.owner_name || '')).toLowerCase(); bVal = (b.owner_id === user?.id ? '' : (b.owner_name || '')).toLowerCase(); }
+    else if (sortCol === 'updated_at') { aVal = a.updated_at || ''; bVal = b.updated_at || ''; }
+    else if (sortCol === 'last_editor') { aVal = (a.last_editor || '').toLowerCase(); bVal = (b.last_editor || '').toLowerCase(); }
+    else return 0;
+    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handleSort = (col) => {
+    if (sortCol === col) { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); }
+    else { setSortCol(col); setSortDir(col === 'updated_at' ? 'desc' : 'asc'); }
+  };
+
+  const SortIcon = ({ col }) => {
+    if (sortCol !== col) return <span className="sort-icon inactive">&lsaquo;</span>;
+    return <span className="sort-icon">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>;
+  };
+
+  const categories = [
+    { id: 'all', label: 'All Projects', icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+      </svg>
+    )},
+    { id: 'yours', label: 'Your Projects', icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+      </svg>
+    )},
+    { id: 'shared', label: 'Shared with You', icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )},
+    { id: 'archived', label: 'Archived Projects', icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+      </svg>
+    )},
+    { id: 'deleted', label: 'Deleted Projects', icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      </svg>
+    )},
+  ];
+
+  return (
+    <div className="dashboard">
+      <div className="dashboard-sidebar">
+        <div className="dashboard-logo">
+          <h1>FlowTex</h1>
+          <p>An online LaTeX editor</p>
+        </div>
+
+        <div className="new-project-btn-group" ref={newMenuRef}>
+          <button className="sidebar-new-project-btn" onClick={() => handleCreate({ preventDefault: () => {} })}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            New Project
+          </button>
+          <button
+            className="new-project-menu-toggle"
+            onClick={() => setShowNewMenu(!showNewMenu)}
+          >
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 4 3-4z" /></svg>
+          </button>
+          {showNewMenu && (
+            <div className="new-project-dropdown-menu">
+              <button onClick={() => { setShowNewMenu(false); handleCreate({ preventDefault: () => {} }); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                </svg>
+                Blank Project
+              </button>
+              <button onClick={() => { setShowNewMenu(false); zipInputRef.current?.click(); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Upload ZIP
+              </button>
+            </div>
+          )}
+          <input
+            ref={zipInputRef}
+            type="file"
+            accept=".zip"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadZip(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
+
+        <div className="sidebar-categories">
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              className={`sidebar-category ${filter === cat.id && !selectedTag ? 'active' : ''}`}
+              onClick={() => { setFilter(cat.id); setSelectedTag(null); }}
+            >
+              {cat.icon}
+              <span>{cat.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="sidebar-tags-section">
+          <div className="sidebar-tags-header">
+            <span className="sidebar-section-label">Tags</span>
+            <button className="sidebar-add-tag-btn" onClick={() => setCreatingTag(!creatingTag)} title="Create tag">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          </div>
+          {creatingTag && (
+            <form className="sidebar-new-tag-form" onSubmit={handleCreateTag}>
+              <input
+                type="text"
+                placeholder="Tag name..."
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                autoFocus
+                onBlur={() => { if (!newTagName.trim()) setCreatingTag(false); }}
+              />
+            </form>
+          )}
+          <div className="sidebar-tags-list">
+            {tags.map((tag) => (
+              <button
+                key={tag.id}
+                className={`sidebar-tag ${filter === 'tag' && selectedTag === tag.id ? 'active' : ''}`}
+                onClick={() => { setFilter('tag'); setSelectedTag(tag.id); }}
+              >
+                <span className="sidebar-tag-dot" style={{ background: tag.color }} />
+                <span className="sidebar-tag-name">{tag.name} ({projects.filter(p => !p.trashed && (p.tags || []).some(t => t.id === tag.id)).length})</span>
+                <span className="sidebar-tag-delete" onClick={(e) => { e.stopPropagation(); handleDeleteTag(tag.id); }} title="Delete tag">&times;</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {user && (
+          <div className="sidebar-user">
+            <Avatar name={user.name} size={28} />
+            <span className="sidebar-user-name">{user.name}</span>
+            {user.isAdmin && onAdmin && (
+              <button className="sidebar-icon-btn" onClick={onAdmin} title="Admin Dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20V10" /><path d="M18 20V4" /><path d="M6 20v-4" />
+                </svg>
+              </button>
+            )}
+            <button className="sidebar-icon-btn" onClick={() => setShowMfa(true)} title="Settings">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+            <button className="sidebar-icon-btn" onClick={onLogout} title="Log out">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="dashboard-main">
+        <div className="dashboard-topbar">
+          <h2 className="dashboard-view-title">
+            {filter === 'tag' && selectedTag ? tags.find((t) => t.id === selectedTag)?.name || 'Tag' : categories.find((c) => c.id === filter)?.label || 'All Projects'}
+          </h2>
+        </div>
+        <div className="project-search-bar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        {selected.size > 0 && (
+          <div className="bulk-actions-bar">
+            <span className="bulk-actions-count">{selected.size} selected</span>
+            <button className="bulk-action-btn" onClick={() => { selected.forEach((id) => window.open(`/api/projects/${id}/zip`, '_blank')); }} title="Download">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Download
+            </button>
+            <div className="bulk-tag-wrapper" ref={bulkTagRef}>
+              <button className="bulk-action-btn" onClick={() => setShowBulkTagMenu((v) => !v)} title="Assign tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" />
+                </svg>
+                Tag
+              </button>
+              {showBulkTagMenu && (
+                <div className="bulk-tag-dropdown">
+                  {tags.length === 0 ? (
+                    <div className="bulk-tag-empty">No tags yet</div>
+                  ) : tags.map((tag) => (
+                    <button key={tag.id} className="bulk-tag-option" onClick={() => handleBulkTag(tag.id)}>
+                      <span className="sidebar-tag-dot" style={{ background: tag.color }} />
+                      {tag.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {filter !== 'archived' && filter !== 'deleted' && (
+              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/archive`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, archived: 1 } : p)); setSelected(new Set()); }} title="Archive">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                </svg>
+                Archive
+              </button>
+            )}
+            {filter === 'archived' && (
+              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/unarchive`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, archived: 0 } : p)); setSelected(new Set()); }} title="Unarchive">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                </svg>
+                Unarchive
+              </button>
+            )}
+            {filter === 'deleted' ? (
+              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/restore`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 0 } : p)); setSelected(new Set()); }} title="Restore">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                Restore
+              </button>
+            ) : (
+              <button className="bulk-action-btn bulk-action-danger" onClick={() => setConfirmDelete({ message: `Are you sure you want to delete ${selected.size} project(s)?`, onConfirm: async () => { for (const id of selected) await post(`/api/projects/${id}/trash`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 1 } : p)); setSelected(new Set()); setConfirmDelete(null); } })} title="Delete">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+                </svg>
+                Delete
+              </button>
+            )}
+            <button className="bulk-action-btn-clear" onClick={() => setSelected(new Set())}>Clear</button>
+          </div>
+        )}
+
+        {invitations.length > 0 && filter === 'all' && (
+          <div className="invitations-section">
+            <h3 className="invitations-title">Pending Invitations</h3>
+            <div className="invitations-list">
+              {invitations.map((inv) => (
+                <div key={inv.id} className="invitation-card">
+                  <div className="invitation-info">
+                    <span className="invitation-project-name">{inv.project_name}</span>
+                    <span className="invitation-meta">
+                      Invited by {inv.inviter_name} as {inv.role} &middot; {formatRelativeTime(inv.created_at)}
+                    </span>
+                  </div>
+                  <div className="invitation-actions">
+                    <button className="invitation-accept-btn" onClick={() => handleAcceptInvite(inv.id)}>Accept</button>
+                    <button className="invitation-decline-btn" onClick={() => handleDeclineInvite(inv.id)}>Decline</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sortedProjects.length === 0 ? (
+          <div className="project-table-empty">No projects in this view.</div>
+        ) : (
+          <table className="project-table">
+            <thead>
+              <tr>
+                <th className="project-table-check-col">
+                  <input
+                    type="checkbox"
+                    checked={sortedProjects.length > 0 && sortedProjects.every((p) => selected.has(p.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelected(new Set(sortedProjects.map((p) => p.id)));
+                      else setSelected(new Set());
+                    }}
+                  />
+                </th>
+                <th className="project-table-sortable" onClick={() => handleSort('name')}>Title <SortIcon col="name" /></th>
+                <th className="project-table-sortable" onClick={() => handleSort('owner')}>Owner <SortIcon col="owner" /></th>
+                <th className="project-table-sortable" onClick={() => handleSort('updated_at')}>Last Modified <SortIcon col="updated_at" /></th>
+                <th className="project-table-sortable" onClick={() => handleSort('last_editor')}>Modified By <SortIcon col="last_editor" /></th>
+                <th className="project-table-actions-col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedProjects.map((p) => (
+                <tr key={p.id} className={`project-table-row ${selected.has(p.id) ? 'selected' : ''}`} onClick={() => !p.trashed && onSelect(p)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, project: p }); }}>
+                  <td className="project-table-check" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={() => setSelected((s) => { const next = new Set(s); if (next.has(p.id)) next.delete(p.id); else next.add(p.id); return next; })}
+                    />
+                  </td>
+                  <td className="project-table-title">
+                    <span className="project-table-name">{p.name}</span>
+                    {(p.tags || []).length > 0 && (
+                      <span className="project-table-tags">
+                        {p.tags.map((t) => (
+                          <span key={t.id} className="project-tag-chip" style={{ background: t.color + '33', color: t.color }}>{t.name}</span>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                  <td className="project-table-cell">{p.owner_id === user?.id ? 'You' : (p.owner_name || '')}</td>
+                  <td className="project-table-cell">{formatRelativeTime(p.updated_at)}</td>
+                  <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : (p.last_editor || '')}</td>
+                  <td className="project-table-cell project-table-actions" onClick={(e) => e.stopPropagation()}>
+                    {filter === 'deleted' ? (
+                      <>
+                        <button className="project-action-btn" onClick={(e) => handleRestore(e, p)} title="Restore">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                          </svg>
+                        </button>
+                        <button className="project-action-btn project-action-danger" onClick={(e) => confirmDeleteProject(e, p)} title="Delete permanently">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="project-action-btn" onClick={(e) => { e.stopPropagation(); window.location.href = `/api/projects/${p.id}/zip`; }} title="Download ZIP">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        </button>
+                        {p.archived ? (
+                          <button className="project-action-btn" onClick={(e) => handleUnarchive(e, p)} title="Unarchive">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <button className="project-action-btn" onClick={(e) => handleArchive(e, p)} title="Archive">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                            </svg>
+                          </button>
+                        )}
+                        <button className="project-action-btn project-action-danger" onClick={(e) => { e.stopPropagation(); setConfirmDelete({ message: `Are you sure you want to delete "${p.name}"?`, onConfirm: () => { handleTrash(e, p); setConfirmDelete(null); } }); }} title="Delete">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="project-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <div className="context-menu-header">Tags</div>
+          {tags.length === 0 && <div className="context-menu-empty">No tags yet</div>}
+          {tags.map((tag) => {
+            const hasTag = (contextMenu.project.tags || []).some((t) => t.id === tag.id);
+            return (
+              <button
+                key={tag.id}
+                className="context-menu-item"
+                onClick={(e) => { handleToggleProjectTag(e, contextMenu.project.id, tag.id); setContextMenu(null); }}
+              >
+                <span className={`context-menu-check ${hasTag ? 'checked' : ''}`}>
+                  {hasTag ? '\u2713' : ''}
+                </span>
+                <span className="sidebar-tag-dot" style={{ background: tag.color }} />
+                <span>{tag.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          message={confirmDelete.message}
+          onConfirm={confirmDelete.onConfirm}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {showMfa && (
+        <MfaSetupModal
+          user={user}
+          onClose={() => setShowMfa(false)}
+          onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
+          onAccountDeleted={onLogout}
+        />
+      )}
+    </div>
+  );
+}

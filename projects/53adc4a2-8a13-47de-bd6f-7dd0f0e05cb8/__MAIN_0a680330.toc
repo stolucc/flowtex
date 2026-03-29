@@ -1,0 +1,101 @@
+\acswitchoff 
+\contentsline {chapter}{List of Figures}{vii}{chapter*.8}%
+\contentsline {chapter}{List of Tables}{ix}{chapter*.9}%
+\contentsline {chapter}{List of Actions}{xii}{chapter*.10}%
+\contentsline {chapter}{List of Terms and Abbreviations}{xiii}{section*.11}%
+\contentsline {chapter}{\numberline {1}An introduction to the department's Athena Swan work}{1}{chapter.13}%
+\contentsline {section}{\numberline {1}Letter of Endorsement from the Head of School}{1}{section.14}%
+\contentsline {subsubsection}{Confirmation}{4}{subsubsection*.20}%
+\contentsline {section}{\numberline {2}Governance and recognition of equality, diversity and inclusion work}{5}{section.21}%
+\contentsline {subsection}{\numberline {a}Provide a description of the department's structures to advance equality. This should include:}{5}{subsection.22}%
+\contentsline {subsubsection}{Information on where the department is in the Athena Swan process}{5}{subsubsection*.23}%
+\contentsline {subsubsection}{An organigram of the department's key management and/or committee structures, with headcount by gender, that includes the formal reporting structures in place to carry out and support Athena Swan activity and, if applicable, wider EDI work}{6}{subsubsection*.24}%
+\contentsline {subsubsection}{Information on the relationship of department structures with departmental Athena Swan structures and, if applicable, EDI structures, including mechanisms for sharing the findings of self-assessment as well as good practice}{7}{subsubsection*.29}%
+\contentsline {subsubsection}{Information on support provided by the department for the application}{7}{subsubsection*.30}%
+\contentsline {subsubsection}{Information on formal processes in place to resource, distribute, recognise and reward Athena Swan and, where applicable, EDI work, referencing department-level policies where appropriate}{9}{subsubsection*.31}%
+\contentsline {subsubsection}{Resource provision for the action plan and associated activities to ensure effective implementation}{9}{subsubsection*.32}%
+\contentsline {subsubsection}{Any other relevant structure and organisation information, such as the department’s relationship with community partners}{9}{subsubsection*.33}%
+\contentsline {subsubsection}{Confirmation that staff and students are recorded as the gender with which they identity in this submission}{9}{subsubsection*.34}%
+\contentsline {section}{\numberline {3}The Self-Assessment Process}{10}{section.35}%
+\contentsline {subsection}{\numberline {a}Provide information on the preparation and delivery of this application by the department. This should include:}{10}{subsection.36}%
+\contentsline {subsubsection}{A description of the self-assessment team, including comment on the roles and responsibilities of individuals, and how these were assigned. The gender of SAT members, their professional/student role in the department, and their specific role in the SAT should be noted in a table}{10}{subsubsection*.37}%
+\contentsline {subsubsection}{Information on how the chair was appointed and on what supports or resources the institution and/or department has given the chair to lead the self-assessment process}{15}{subsubsection*.40}%
+\contentsline {subsubsection}{Comment on whether the self-assessment team is representative of the department, including if there is adequate representation of senior staff}{16}{subsubsection*.41}%
+\contentsline {subsection}{\numberline {b}Provide information on the preparation and delivery of this application by the department. This should include:}{16}{subsection.42}%
+\contentsline {subsubsection}{An overview of the approach taken to evidence-gathering and analysis. Details of consultation response rates, disaggregated by gender, should be provided}{16}{subsubsection*.43}%
+\contentsline {subsubsection}{Information on plans for evaluating progress, including action plan implementation, over the coming four-year period. This should make reference to how often the SAT will meet, and how SAT succession and turnover will be planned and managed}{18}{subsubsection*.50}%
+\contentsline {subsubsection}{Information on how the findings and activity of the self-assessment team are, and will continue to be, communicated to senior management and the wider department}{20}{subsubsection*.53}%
+\contentsline {chapter}{\numberline {2}An assessment of the department's gender equality context and wider equality context}{21}{chapter.56}%
+\contentsline {section}{\numberline {1}Overview of the department and its context}{21}{section.57}%
+\contentsline {subsection}{\numberline {a}Provide a description of the department's structures to advance equality. This should include:}{21}{subsection.58}%
+\contentsline {subsubsection}{Teaching and research focus, including discipline coverage and any areas of specialism}{22}{subsubsection*.59}%
+\contentsline {subsubsection}{The total number of staff by gender and category of post}{23}{subsubsection*.67}%
+\contentsline {subsubsection}{The total number of students by programme type and gender}{24}{subsubsection*.69}%
+\contentsline {subsubsection}{Information on location(s)}{24}{subsubsection*.70}%
+\contentsline {subsection}{\numberline {b}Analyse three years of data on undergraduate students by}{24}{subsection.73}%
+\contentsline {subsubsection}{Gender and degree programme, with reference to discipline-specific benchmark data}{25}{subsubsection*.74}%
+\contentsline {subsubsection}{Undergraduate gender and degree attainment}{27}{subsubsection*.79}%
+\contentsline {subsubsection}{Undergraduate gender and foundation courses}{27}{subsubsection*.83}%
+\contentsline {subsection}{\numberline {c}Analyse three years of data on postgraduate taught students by:}{28}{subsection.84}%
+\contentsline {subsubsection}{Postgraduate taught student gender and degree programme, with reference to discipline-specific benchmark data}{28}{subsubsection*.85}%
+\contentsline {subsubsection}{Postgraduate taught student gender and degree attainment}{29}{subsubsection*.88}%
+\contentsline {subsection}{\numberline {d}Analyse three years of data on postgraduate research students by:}{30}{subsection.90}%
+\contentsline {subsubsection}{Postgraduate research student gender and enrolment}{30}{subsubsection*.91}%
+\contentsline {subsubsection}{Postgraduate research student gender and application, offer, and enrolment, with comment on how this data is collected and evaluated by the department, and on any gender disparities in student funding}{32}{subsubsection*.96}%
+\contentsline {subsubsection}{Postgraduate research student gender and completion rates}{33}{subsubsection*.99}%
+\contentsline {subsection}{\numberline {e}Comment and reflect on the relationship (if any) between the department's outreach, engagement, and support activities and issues or opportunities in the student pipeline. This should include comment on how the department recognises staff and student contributions to these activities and monitors the gender balance of those involved.}{35}{subsection.103}%
+\contentsline {subsection}{\numberline {f}Provide data for academic and research staff by gender and grade. Analyse and benchmark the career pipeline.}{39}{subsection.123}%
+\contentsline {subsection}{\numberline {g}Provide data for professional, managerial and support staff by gender and grade. Analyse representation, benchmarking where possible.}{43}{subsection.130}%
+\contentsline {subsection}{\numberline {h}Provide data on staff on fixed-term contracts, contracts of indefinite duration/permanent contracts, and hourly-paid contracts by gender and staff category. Outline instances where fixed-term and hourly-paid contract types are used. This should include comment on:}{44}{subsection.132}%
+\contentsline {subsubsection}{Comment on whether or not numbers of fixed-term/hourly-paid contracts are representative of a typical year}{44}{subsubsection*.134}%
+\contentsline {subsubsection}{Comment on the rationale for the use of short-term contracts}{44}{subsubsection*.135}%
+\contentsline {subsubsection}{Comment on the extent to which hourly-paid staff contribute to the teaching of core modules and/or services}{45}{subsubsection*.136}%
+\contentsline {section}{\numberline {2}Embedding policy, practice and supports to advance academic and research careers}{46}{section.137}%
+\contentsline {subsection}{\numberline {a}Reflecting on recruitment practices in the department}{46}{subsection.138}%
+\contentsline {subsection}{\numberline {b}Provide three years of data on application, shortlist, and appointment rates for recruitment by gender and grade. Where data suggests opportunity for improvement, comment and reflect. Include any other relevant information relating to recruitment processes and practice for academic and research posts in the department. }{47}{subsection.142}%
+\contentsline {subsection}{\numberline {c}Reflecting on academic promotion in your institution, answer the following: }{50}{subsection.149}%
+\contentsline {subsection}{\numberline {d}Provide three years of data on application and success rates for promotion by gender and grade and present results from staff consultation by gender. Where data suggests opportunity for improvement, comment and reflect}{50}{subsection.150}%
+\contentsline {subsection}{\numberline {e}Reflecting on opportunities for staff development reviews, answer the following:}{51}{subsection.154}%
+\contentsline {subsection}{\numberline {f}Comment and reflect on department engagement with institution-level supports for academic and research staff career progression as well as any department-level support available. This should include results from staff consultation presented by gender and may include, but is not limited to, support given to staff to:}{54}{subsection.160}%
+\contentsline {subsubsection}{Comments and Reflections on Institution-level Supports for Career Progression}{55}{subsubsection*.161}%
+\contentsline {subsubsection}{Support for Research Funding Applications}{60}{subsubsection*.165}%
+\contentsline {subsubsection}{Support for Development of Excellence in Teaching and Learning}{62}{subsubsection*.167}%
+\contentsline {subsection}{\numberline {g}Comment and reflect on how workload is allocated and managed in the department (e.g. via a workload allocation model). This should include information on how the breadth of academic and research roles and responsibilities are captured in workload planning and allocation and results from staff consultation presented by gender.}{62}{subsection.169}%
+\contentsline {subsubsection}{Workload Model and Allocation}{62}{subsubsection*.170}%
+\contentsline {section}{\numberline {3}Embedding policy, practice and supports to advance professional, managerial and support staff careers}{66}{section.173}%
+\contentsline {subsection}{\numberline {a}Reflecting on recruitment practices in the department, answer the following:}{66}{subsection.174}%
+\contentsline {subsection}{\numberline {b}Provide three years of data on application, shortlist, and appointment rates for recruitment by gender and grade. Where data suggests opportunity for improvement, comment and reflect. Include any other relevant information relating to recruitment processes and practice for professional, managerial and support staff in the department.}{66}{subsection.175}%
+\contentsline {subsection}{\numberline {c}Reflecting on progression in your institution, answer the following:}{69}{subsection.180}%
+\contentsline {subsubsection}{Internal vacancy competitions}{69}{subsubsection*.181}%
+\contentsline {subsubsection}{Promotion}{70}{subsubsection*.182}%
+\contentsline {subsubsection}{Promotion pathways}{70}{subsubsection*.183}%
+\contentsline {subsection}{\numberline {d}Reflecting on opportunities for staff development review, answer the following:}{71}{subsection.185}%
+\contentsline {subsubsection}{Data uptake of development review process by gender}{72}{subsubsection*.186}%
+\contentsline {subsubsection}{Results from staff consultation presented by gender}{72}{subsubsection*.188}%
+\contentsline {subsubsection}{Information on any additional department-level opportunities for staff to discuss professional development, where different to above (2.e)}{74}{subsubsection*.191}%
+\contentsline {subsection}{\numberline {e}Comment and reflect on department engagement with institution-level supports for PMS staff career progression as well as any department-level support available, where different from above (2.\ref {sec:2f}). This should include results from staff consultation presented by gender.}{74}{subsection.192}%
+\contentsline {subsection}{\numberline {f}Comment and reflect on how workload is distributed and managed. This should include information on how the breadth of professional, managerial and support roles and responsibilities are captured in workload planning and allocation and results from staff consultation presented by gender.}{76}{subsection.195}%
+\contentsline {section}{\numberline {4}Evaluating culture, inclusion and belonging}{78}{section.197}%
+\contentsline {subsection}{\numberline {a}Provide information on how the department ensures that culture and practices support inclusion and belonging. This should include, but is not limited to, information on how the department actively considers gender equality, and EDI more broadly, in:}{78}{subsection.198}%
+\contentsline {subsubsection}{Organisation of meetings and events}{78}{subsubsection*.199}%
+\contentsline {subsubsection}{Images and text used in department spaces and on the department's website}{80}{subsubsection*.203}%
+\contentsline {subsubsection}{Student curricula, pedagogy, and assessment}{80}{subsubsection*.205}%
+\contentsline {subsection}{\numberline {b}Comment and reflect on the department’s current understanding of, and capacity to identify and address, issues and opportunities relating to equality grounds in addition to gender, as well as capacity to identify and address intersectional inequalities for staff and students.}{81}{subsection.208}%
+\contentsline {subsection}{\numberline {c}Provide information on the department’s culture as it relates to gender equality and, where relevant, EDI more broadly, by presenting consultation findings by gender and staff category on the following areas:}{82}{subsection.210}%
+\contentsline {subsubsection}{Values and traditions of the department}{82}{subsubsection*.211}%
+\contentsline {subsubsection}{Formal and informal structures and interactions characterising the department's working and learning environment, including leadership practices and behaviours}{84}{subsubsection*.214}%
+\contentsline {subsubsection}{Negative practices and behaviours and their management by the department}{85}{subsubsection*.215}%
+\contentsline {subsubsection}{Flexible working opportunities in the department}{85}{subsubsection*.217}%
+\contentsline {subsubsection}{Management of, and attitudes towards, family leave in the department}{86}{subsubsection*.219}%
+\contentsline {section}{\numberline {5}Department priorities for future action}{89}{section.223}%
+\contentsline {subsection}{\numberline {a}Identify the department’s key issues relating to gender equality and establish key priorities for action over the next four years:}{89}{subsection.224}%
+\contentsline {subsubsection}{Select up to five key priority areas where the department will strive for impact. Selected priorities should be justifiable and based on the quantitative and qualitative evidence presented in Section 2. Specific action(s) to support progress in priority areas should be identified.}{89}{subsubsection*.225}%
+\contentsline {paragraph}{Challenge}{89}{paragraph*.226}%
+\contentsline {paragraph}{Challenge}{89}{paragraph*.227}%
+\contentsline {paragraph}{Challenge}{90}{paragraph*.228}%
+\contentsline {paragraph}{Challenge}{90}{paragraph*.229}%
+\contentsline {subsection}{\numberline {b}Outline how the department’s gender equality priorities align with the institution’s Athena Swan action plan and, where relevant, broader EDI initiatives in the institution and/or department. This should include comment on:}{91}{subsection.230}%
+\contentsline {subsubsection}{Comment on key institutional actions that have, or will, support the department’s progress}{91}{subsubsection*.231}%
+\contentsline {subsubsection}{Comment on any gaps in institutional supports for achieving progress and impact in the department}{92}{subsubsection*.239}%
+\contentsline {chapter}{\numberline {3}Action plan}{93}{chapter.240}%
+\contentsline {section}{\numberline {1}Action Plan}{93}{section.241}%

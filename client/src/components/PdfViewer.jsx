@@ -1,0 +1,699 @@
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import 'pdfjs-dist/web/pdf_viewer.css';
+import { getErrorHelp } from '../utils/latexErrorHelp.js';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+
+const DEFAULT_SCALE = 1.5;
+const ZOOM_STEP = 0.25;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 4.0;
+
+function extractLineNumber(text) {
+  const match = text.match(/\bl\.(\d+)\b/) || text.match(/lines?\s+(\d+)/i) || text.match(/at lines?\s+(\d+)/i);
+  return match ? parseInt(match[1]) : null;
+}
+
+function parseLog(log) {
+  if (!log) return { errors: [], warnings: [] };
+  const lines = log.split('\n');
+  const errors = [];
+  const warnings = [];
+
+  // Track current file context from LaTeX log "(./file.tex" entries
+  let currentFile = null;
+  const fileStack = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Track file context: LaTeX logs "(./foo.tex" when entering, ")" when leaving
+    const opens = line.match(/\(\.\/([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g)
+      || line.match(/\(([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g);
+    if (opens) {
+      for (const m of opens) {
+        const f = m.match(/\((.+)/)[1];
+        fileStack.push(f);
+        currentFile = f;
+      }
+    }
+    const closes = (line.match(/\)/g) || []).length;
+    for (let c = 0; c < closes && fileStack.length > 0; c++) {
+      fileStack.pop();
+      currentFile = fileStack.length > 0 ? fileStack[fileStack.length - 1] : null;
+    }
+
+    // Errors: lines starting with "!"
+    if (line.startsWith('!')) {
+      const msg = line.substring(2).trim();
+      if (msg) {
+        // Look ahead for line number and column from "l.NNN text" context line
+        let lineNum = null;
+        let col = null;
+        for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+          const lMatch = lines[j].match(/^l\.(\d+)\s?(.*)/);
+          if (lMatch) {
+            lineNum = parseInt(lMatch[1]);
+            // Column is length of text after "l.NNN " — the error is at/near the end
+            const textAfter = lMatch[2] || '';
+            col = textAfter.length;
+            break;
+          }
+        }
+        errors.push({ text: msg, line: lineNum, col, file: currentFile });
+        // Skip context lines until we hit the "l.NNN" line or a blank line
+        while (i + 1 < lines.length && !lines[i + 1].startsWith('!') && !/^\s*$/.test(lines[i + 1])) {
+          i++;
+          if (/^l\.\d+/.test(lines[i])) break;
+        }
+      }
+      continue;
+    }
+    // Warnings — only match actual LaTeX/package warnings, not package description lines
+    if (/^(LaTeX|Package\s+\S+|Class\s+\S+)\s+Warning/i.test(line.trim())) {
+      warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
+    } else if (/^(Overfull|Underfull)/.test(line)) {
+      warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
+    }
+  }
+
+  // Deduplicate errors with same message and line
+  const seenErrors = new Set();
+  const uniqueErrors = errors.filter((e) => {
+    const key = `${e.text}:${e.line}:${e.file}`;
+    if (seenErrors.has(key)) return false;
+    seenErrors.add(key);
+    return true;
+  });
+
+  // Deduplicate warnings
+  const seenWarnings = new Set();
+  const uniqueWarnings = warnings.filter((w) => {
+    const key = `${w.text}:${w.line}:${w.file}`;
+    if (seenWarnings.has(key)) return false;
+    seenWarnings.add(key);
+    return true;
+  });
+
+  // Separate errors from non-user files (class/package files the user can't edit)
+  const SYSTEM_FILE_RE = /\.(?:sty|cls|clo|def|fd|cfg|ldf|bbx|cbx|lbx)$/;
+  for (const e of uniqueErrors) {
+    e.isSystemFile = !!(e.file && SYSTEM_FILE_RE.test(e.file));
+  }
+  for (const w of uniqueWarnings) {
+    w.isSystemFile = !!(w.file && SYSTEM_FILE_RE.test(w.file));
+  }
+
+  return { errors: uniqueErrors, warnings: uniqueWarnings };
+}
+
+function ConsolePanel({ output, compiling }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.scrollTop = ref.current.scrollHeight;
+    }
+  }, [output]);
+
+  return (
+    <div className="pdf-console-panel" ref={ref}>
+      {output ? (
+        <pre className="pdf-console-output">{output}</pre>
+      ) : (
+        <div className="pdf-console-empty">{compiling ? 'Starting compilation...' : 'No output yet. Click "Recompile" to compile.'}</div>
+      )}
+      {compiling && <div className="pdf-console-spinner">&#9679; Running...</div>}
+    </div>
+  );
+}
+
+function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp }) {
+  return (
+    <div className={className}>
+      <div className="pdf-log-item-row" onClick={onClick}>
+        {tag && <span className="pdf-log-tag">{tag}</span>}
+        {file && <span className="pdf-log-file">{file}</span>}
+        {line && <span className="pdf-log-line">line {line}</span>}
+        <span className="pdf-log-message">{message}</span>
+        {help && (
+          <button
+            className="pdf-log-help-btn"
+            onClick={(e) => { e.stopPropagation(); onShowHelp?.({ ...help, message }); }}
+            title="How to fix this"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HelpPanel({ help, onBack }) {
+  return (
+    <div className="pdf-help-panel">
+      <div className="pdf-help-header">
+        <button className="pdf-help-back" onClick={onBack}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Back
+        </button>
+      </div>
+      <div className="pdf-help-content">
+        <div className="pdf-help-title">{help.title}</div>
+        <div className="pdf-help-message">{help.message}</div>
+        <div className="pdf-help-suggestion">{help.suggestion}</div>
+
+        {help.tips.length > 0 && (
+          <div className="pdf-help-section">
+            <div className="pdf-help-section-title">Suggestions</div>
+            <ul className="pdf-help-tips">
+              {help.tips.map((tip, i) => <li key={i}>{tip}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {help.example && (
+          <div className="pdf-help-section">
+            <div className="pdf-help-section-title">Example</div>
+            <pre className="pdf-help-example">{help.example}</pre>
+          </div>
+        )}
+
+        <div className="pdf-help-links">
+          <a href={help.searchUrl} target="_blank" rel="noopener noreferrer" className="pdf-help-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            Search TeX Stack Exchange
+          </a>
+          <a href={`https://www.google.com/search?q=${encodeURIComponent(help.message + ' latex')}`} target="_blank" rel="noopener noreferrer" className="pdf-help-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="18 13 18 6 11 6" /><line x1="18" y1="6" x2="9" y2="15" /><path d="M5 19H3v-2" /><path d="M3 13v-2" /><path d="M3 7V5h2" /><path d="M9 5h2" /><path d="M15 19h-2" /><path d="M9 19H7" />
+            </svg>
+            Search Google
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PdfViewer = forwardRef(function PdfViewer({ url, compiling, onCompile, onStopCompile, onCleanFiles, onCleanCompile, onPdfClick, onPdfPositionChange, compileLog, consoleOutput, lintDiagnostics, style, onGoToLine, onGoToFileAndLine }, ref) {
+  const containerRef = useRef(null);
+  const [error, setError] = useState(null);
+  const pageInfoRef = useRef([]);
+  const pdfDocRef = useRef(null);
+  const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [numPages, setNumPages] = useState(0);
+  const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | null
+  const [inverted, setInverted] = useState(() => localStorage.getItem('flowtex-pdf-inverted') === 'true');
+  const [helpDetail, setHelpDetail] = useState(null); // when set, shows the help panel
+  const prevUrlRef = useRef(null);
+  const [showCompileMenu, setShowCompileMenu] = useState(false);
+  const compileMenuRef = useRef(null);
+
+  const { errors, warnings } = useMemo(() => parseLog(compileLog), [compileLog]);
+  const lintErrors = useMemo(() => (lintDiagnostics || []).filter(d => d.severity === 'error'), [lintDiagnostics]);
+  const lintWarnings = useMemo(() => (lintDiagnostics || []).filter(d => d.severity === 'warning'), [lintDiagnostics]);
+
+  useImperativeHandle(ref, () => ({
+    scrollToPosition(page, yPt) {
+      const info = pageInfoRef.current[page - 1];
+      if (!info || !containerRef.current) return;
+      const container = containerRef.current;
+      const pageHeightPt = info.viewport.viewBox[3];
+      const yFromTop = pageHeightPt - yPt;
+      const yPx = yFromTop * scale;
+      const wrapperTop = info.wrapper.offsetTop;
+      container.scrollTo({
+        top: wrapperTop + yPx - container.clientHeight / 3,
+        behavior: 'smooth',
+      });
+    },
+  }));
+
+  const handlePageClick = useCallback(
+    (pageNum, viewport, e) => {
+      const wrapper = e.currentTarget;
+      const rect = wrapper.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      const xPt = clickX / scale;
+      const yPt = clickY / scale;
+      // Always report position for the sync arrow
+      onPdfPositionChange?.({ page: pageNum, x: xPt, y: yPt });
+      // Double-click also triggers direct jump
+      if (e.detail >= 2 && onPdfClick) {
+        onPdfClick(pageNum, xPt, yPt);
+      }
+    },
+    [onPdfClick, onPdfPositionChange]
+  );
+
+  // Load PDF document when URL changes
+  useEffect(() => {
+    pdfDocRef.current = null;
+    if (!url) return;
+    let cancelled = false;
+    pdfjsLib.getDocument(url).promise.then((pdf) => {
+      if (!cancelled) pdfDocRef.current = pdf;
+    }).catch(() => {
+      if (!cancelled) pdfDocRef.current = null;
+    });
+    return () => { cancelled = true; };
+  }, [url]);
+
+  // Render pages when URL changes (render once at base resolution)
+  const baseScaleRef = useRef(DEFAULT_SCALE);
+
+  useEffect(() => {
+    if (!url || !containerRef.current) return;
+
+    let cancelled = false;
+    setError(null);
+    const container = containerRef.current;
+
+    // Capture scroll position relative to current page before re-render
+    const isZoomOnly = prevUrlRef.current === url;
+    let savedPage = 1;
+    let savedFraction = 0;
+    if (pageInfoRef.current.length > 0) {
+      const scrollTop = container.scrollTop;
+      for (let i = 0; i < pageInfoRef.current.length; i++) {
+        const info = pageInfoRef.current[i];
+        const top = info.wrapper.offsetTop;
+        const height = info.wrapper.offsetHeight;
+        if (scrollTop < top + height) {
+          savedPage = i + 1;
+          savedFraction = Math.max(0, (scrollTop - top) / height);
+          break;
+        }
+      }
+    }
+    prevUrlRef.current = url;
+
+    container.innerHTML = '';
+    pageInfoRef.current = [];
+    baseScaleRef.current = scale;
+
+    const renderPages = async () => {
+      try {
+        let pdf = pdfDocRef.current;
+        if (!pdf) pdf = await pdfjsLib.getDocument(url).promise;
+        if (cancelled) return;
+        pdfDocRef.current = pdf;
+        setNumPages(pdf.numPages);
+        // currentPage is set in the scroll restore block below
+
+        const dpr = window.devicePixelRatio || 1;
+
+        // Get reference width from first page
+        const firstPage = await pdf.getPage(1);
+        if (cancelled) return;
+        const refWidth = firstPage.getViewport({ scale: 1 }).width;
+
+        // Phase 1: Create all page wrappers and canvases at the correct size upfront
+        // This ensures all pages are consistently sized before any async rendering
+        const pageData = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = i === 1 ? firstPage : await pdf.getPage(i);
+          if (cancelled) return;
+          const nativeWidth = page.getViewport({ scale: 1 }).width;
+          const pageScale = scale * (refWidth / nativeWidth);
+          const viewport = page.getViewport({ scale: pageScale });
+
+          const pxWidth = Math.floor(viewport.width);
+          const pxHeight = Math.floor(viewport.height);
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'pdf-page-wrapper';
+          wrapper.style.position = 'relative';
+          wrapper.style.width = `${pxWidth}px`;
+          wrapper.style.height = `${pxHeight}px`;
+
+          const canvas = document.createElement('canvas');
+          canvas.className = 'pdf-page';
+          canvas.width = Math.floor(pxWidth * dpr);
+          canvas.height = Math.floor(pxHeight * dpr);
+          canvas.style.width = `${pxWidth}px`;
+          canvas.style.height = `${pxHeight}px`;
+          wrapper.appendChild(canvas);
+
+          const textLayerDiv = document.createElement('div');
+          textLayerDiv.className = 'textLayer';
+          textLayerDiv.style.position = 'absolute';
+          textLayerDiv.style.left = '0';
+          textLayerDiv.style.top = '0';
+          textLayerDiv.style.width = `${pxWidth}px`;
+          textLayerDiv.style.height = `${pxHeight}px`;
+          wrapper.appendChild(textLayerDiv);
+
+          const vp = viewport;
+          wrapper.addEventListener('click', (e) => handlePageClick(i, vp, e));
+          container.appendChild(wrapper);
+          pageInfoRef.current.push({ wrapper, viewport, pageNum: i });
+
+          pageData.push({ page, pageScale, viewport, canvas, textLayerDiv, pxWidth, pxHeight });
+        }
+
+        // Restore scroll position now that all wrappers are in the DOM
+        if (pageInfoRef.current.length >= savedPage && savedPage > 0) {
+          const info = pageInfoRef.current[savedPage - 1];
+          container.scrollTop = info.wrapper.offsetTop + savedFraction * info.wrapper.offsetHeight;
+          setCurrentPage(savedPage);
+        }
+
+        // Phase 2: Render canvas content (can be async without affecting layout)
+        for (const pd of pageData) {
+          if (cancelled) return;
+          const ctx = pd.canvas.getContext('2d');
+          const renderViewport = pd.page.getViewport({ scale: pd.pageScale * dpr });
+          await pd.page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+          if (cancelled) return;
+
+          const textContent = await pd.page.getTextContent();
+          if (cancelled) return;
+          const textLayer = new pdfjsLib.TextLayer({
+            textContentSource: textContent,
+            container: pd.textLayerDiv,
+            viewport: pd.viewport,
+          });
+          await textLayer.render();
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('PDF load error:', err);
+          setError('Failed to load PDF');
+        }
+      }
+    };
+
+    renderPages();
+    return () => { cancelled = true; };
+  }, [url, scale, handlePageClick]);
+
+  // Track current page from scroll position
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const pages = pageInfoRef.current;
+      if (!pages.length) return;
+      const scrollTop = container.scrollTop + container.clientHeight / 3;
+      for (let i = pages.length - 1; i >= 0; i--) {
+        if (pages[i].wrapper.offsetTop <= scrollTop) {
+          setCurrentPage(i + 1);
+          return;
+        }
+      }
+      setCurrentPage(1);
+    };
+    container.addEventListener('scroll', handleScroll);
+
+    // Pinch-to-zoom on trackpad (fires as wheel + ctrlKey on Mac)
+    const handleWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const delta = -e.deltaY * 0.01;
+      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s + delta)));
+    };
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Prevent Safari's native gesture zoom
+    const preventGesture = (e) => e.preventDefault();
+    container.addEventListener('gesturestart', preventGesture, { passive: false });
+    container.addEventListener('gesturechange', preventGesture, { passive: false });
+    container.addEventListener('gestureend', preventGesture, { passive: false });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('gesturestart', preventGesture);
+      container.removeEventListener('gesturechange', preventGesture);
+      container.removeEventListener('gestureend', preventGesture);
+    };
+  }, [url, scale]);
+
+  const goToPrevPage = () => {
+    const target = Math.max(1, currentPage - 1);
+    const info = pageInfoRef.current[target - 1];
+    if (info && containerRef.current) {
+      containerRef.current.scrollTo({ top: info.wrapper.offsetTop, behavior: 'smooth' });
+    }
+  };
+
+  const goToNextPage = () => {
+    const target = Math.min(numPages, currentPage + 1);
+    const info = pageInfoRef.current[target - 1];
+    if (info && containerRef.current) {
+      containerRef.current.scrollTo({ top: info.wrapper.offsetTop, behavior: 'smooth' });
+    }
+  };
+
+  const zoomIn = () => setScale(s => Math.min(s + ZOOM_STEP, MAX_SCALE));
+  const zoomOut = () => setScale(s => Math.max(s - ZOOM_STEP, MIN_SCALE));
+
+  const fitWidth = () => {
+    if (!containerRef.current || !pdfDocRef.current) return;
+    pdfDocRef.current.getPage(1).then((page) => {
+      const vp = page.getViewport({ scale: 1 });
+      const containerWidth = containerRef.current.clientWidth - 32; // subtract padding
+      setScale(containerWidth / vp.width);
+    });
+  };
+
+  const fitPage = () => {
+    if (!containerRef.current || !pdfDocRef.current) return;
+    pdfDocRef.current.getPage(1).then((page) => {
+      const vp = page.getViewport({ scale: 1 });
+      const containerWidth = containerRef.current.clientWidth - 32;
+      const containerHeight = containerRef.current.clientHeight - 32;
+      const scaleW = containerWidth / vp.width;
+      const scaleH = containerHeight / vp.height;
+      setScale(Math.min(scaleW, scaleH));
+    });
+  };
+
+  const togglePanel = (panel) => {
+    setShowPanel((cur) => (cur === panel ? null : panel));
+  };
+
+  useEffect(() => {
+    if (!showCompileMenu) return;
+    const handler = (e) => {
+      if (compileMenuRef.current && !compileMenuRef.current.contains(e.target)) {
+        setShowCompileMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCompileMenu]);
+
+  return (
+    <div className="pdf-viewer" style={style}>
+      <div className="pdf-viewer-header">
+        <div className="compile-btn-group" ref={compileMenuRef}>
+          <button className="pdf-compile-btn" onClick={onCompile} disabled={compiling}>
+            {compiling ? (
+              <>
+                <svg className="compile-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2a10 10 0 0 1 10 10" /></svg>
+                Compiling...
+              </>
+            ) : 'Recompile'}
+          </button>
+          <button
+            className="compile-menu-toggle"
+            onClick={() => setShowCompileMenu(!showCompileMenu)}
+          >
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 4 3-4z" /></svg>
+          </button>
+          {showCompileMenu && (
+            <div className="compile-dropdown-menu">
+              <button onClick={() => { setShowCompileMenu(false); onCompile?.(); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                Recompile
+              </button>
+              <button onClick={() => { setShowCompileMenu(false); onCleanCompile?.(); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                Recompile from scratch
+              </button>
+              <div className="compile-dropdown-separator" />
+              <button onClick={() => { setShowCompileMenu(false); onCleanFiles?.(); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+                </svg>
+                Clear generated files
+              </button>
+            </div>
+          )}
+        </div>
+        {compiling && (
+          <button className="pdf-stop-btn" onClick={onStopCompile} title="Stop compilation">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="12" height="12" rx="1" /></svg>
+          </button>
+        )}
+        <button
+          className={`pdf-header-btn ${(errors.length + lintErrors.length) > 0 ? 'has-errors' : ''} ${showPanel === 'errors' ? 'active' : ''}`}
+          onClick={() => togglePanel('errors')}
+        >
+          {errors.length + lintErrors.length} error{(errors.length + lintErrors.length) !== 1 ? 's' : ''}
+        </button>
+        <button
+          className={`pdf-header-btn ${(warnings.length + lintWarnings.length) > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
+          onClick={() => togglePanel('warnings')}
+        >
+          {warnings.length + lintWarnings.length} warning{(warnings.length + lintWarnings.length) !== 1 ? 's' : ''}
+        </button>
+        <button
+          className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''}`}
+          onClick={() => togglePanel('console')}
+        >
+          Console
+        </button>
+        {url && (
+          <a className="pdf-header-btn pdf-download-btn" href={url} download="output.pdf" title="Download PDF">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </a>
+        )}
+        {numPages > 0 && (
+          <div className="pdf-page-nav">
+            <button className="pdf-zoom-btn" onClick={goToPrevPage} title="Previous page" disabled={currentPage <= 1}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15" /></svg>
+            </button>
+            <span className="pdf-page-indicator">{currentPage} / {numPages}</span>
+            <button className="pdf-zoom-btn" onClick={goToNextPage} title="Next page" disabled={currentPage >= numPages}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+            </button>
+          </div>
+        )}
+        <div className="pdf-zoom-controls">
+          <button className="pdf-zoom-btn" onClick={zoomOut} title="Zoom out" disabled={scale <= MIN_SCALE}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          </button>
+          <span className="pdf-zoom-level">{Math.round(scale * 100)}%</span>
+          <button className="pdf-zoom-btn" onClick={zoomIn} title="Zoom in" disabled={scale >= MAX_SCALE}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          </button>
+          <button className="pdf-zoom-btn" onClick={fitWidth} title="Fit width">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12" /><polyline points="3,8 3,12 3,16" /><polyline points="21,8 21,12 21,16" /></svg>
+          </button>
+          <button className="pdf-zoom-btn" onClick={fitPage} title="Fit page">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
+          </button>
+          <button className={`pdf-zoom-btn ${inverted ? 'active' : ''}`} onClick={() => setInverted(v => { const n = !v; localStorage.setItem('flowtex-pdf-inverted', String(n)); return n; })} title="Invert colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" /></svg>
+          </button>
+        </div>
+      </div>
+      {helpDetail && (showPanel === 'errors' || showPanel === 'warnings') && (
+        <HelpPanel help={helpDetail} onBack={() => setHelpDetail(null)} />
+      )}
+      {!helpDetail && showPanel === 'errors' && (errors.length + lintErrors.length) > 0 && (
+        <div className="pdf-log-panel errors">
+          {lintErrors.map((e, i) => (
+            <LogItem
+              key={`lint-${i}`}
+              className="pdf-log-item error clickable"
+              onClick={() => onGoToLine?.(e.line, e.col)}
+              tag="lint"
+              line={e.line}
+              message={e.message}
+              help={getErrorHelp(e.message)}
+              onShowHelp={setHelpDetail}
+            />
+          ))}
+          {errors.filter(e => !e.isSystemFile).map((e, i) => (
+            <LogItem
+              key={`compile-${i}`}
+              className={`pdf-log-item error ${e.line ? 'clickable' : ''}`}
+              onClick={() => e.line && (e.file ? onGoToFileAndLine?.(e.file, e.line, e.col) : onGoToLine?.(e.line, e.col))}
+              file={e.file}
+              line={e.line}
+              message={e.text}
+              help={getErrorHelp(e.text)}
+              onShowHelp={setHelpDetail}
+            />
+          ))}
+          {errors.filter(e => e.isSystemFile).map((e, i) => (
+            <LogItem
+              key={`system-${i}`}
+              className="pdf-log-item system-error"
+              file={e.file}
+              line={e.line}
+              message={e.text}
+              tag="package"
+            />
+          ))}
+        </div>
+      )}
+      {!helpDetail && showPanel === 'warnings' && (warnings.length + lintWarnings.length) > 0 && (
+        <div className="pdf-log-panel warnings">
+          {lintWarnings.map((w, i) => (
+            <LogItem
+              key={`lint-${i}`}
+              className="pdf-log-item warning clickable"
+              onClick={() => onGoToLine?.(w.line, w.col)}
+              tag="lint"
+              line={w.line}
+              message={w.message}
+              help={getErrorHelp(w.message)}
+              onShowHelp={setHelpDetail}
+            />
+          ))}
+          {warnings.filter(w => !w.isSystemFile).map((w, i) => (
+            <LogItem
+              key={`compile-${i}`}
+              className={`pdf-log-item warning ${w.line ? 'clickable' : ''}`}
+              onClick={() => w.line && (w.file ? onGoToFileAndLine?.(w.file, w.line) : onGoToLine?.(w.line))}
+              file={w.file}
+              line={w.line}
+              message={w.text}
+              help={getErrorHelp(w.text)}
+              onShowHelp={setHelpDetail}
+            />
+          ))}
+          {warnings.filter(w => w.isSystemFile).map((w, i) => (
+            <LogItem
+              key={`system-${i}`}
+              className="pdf-log-item system-error"
+              file={w.file}
+              line={w.line}
+              message={w.text}
+              tag="package"
+            />
+          ))}
+        </div>
+      )}
+      {!helpDetail && showPanel === 'errors' && errors.length === 0 && lintErrors.length === 0 && (
+        <div className="pdf-log-panel empty">No errors</div>
+      )}
+      {!helpDetail && showPanel === 'warnings' && warnings.length === 0 && lintWarnings.length === 0 && (
+        <div className="pdf-log-panel empty">No warnings</div>
+      )}
+      {showPanel === 'console' && (
+        <ConsolePanel output={consoleOutput} compiling={compiling} />
+      )}
+      {!url && !compiling && <div className="pdf-placeholder">Click "Recompile" to generate PDF</div>}
+      {error && <div className="pdf-error">{error}</div>}
+      <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />
+    </div>
+  );
+});
+
+export default PdfViewer;

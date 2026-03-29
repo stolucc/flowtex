@@ -1,0 +1,55 @@
+This is BibTeX, Version 0.99d (TeX Live 2025)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: ManuscriptR2_0a680330.aux
+The style file: spbasic.bst
+Database file #1: sorted_main.bib
+Reallocated wiz_functions (elt_size=4) to 6000 items from 3000.
+Warning--can't use both volume and number fields in gawande2010checklist
+Warning--can't use both volume and number fields in latour1986
+Warning--can't use both volume and number fields in lundberg1999quality
+Warning--can't use both volume and number fields in marshall2014designing
+Warning--can't use both volume and number fields in miles1994qualitative
+Warning--can't use both volume and number fields in miner1980
+Warning--can't use both volume and number fields in strauss1990basics
+You've used 116 entries,
+            3269 wiz_defined-function locations,
+            1413 strings with 30415 characters,
+and the built_in function-call counts, 126687 in all, are:
+= -- 11497
+> -- 3467
+< -- 118
++ -- 1247
+- -- 1082
+* -- 11055
+:= -- 16959
+add.period$ -- 115
+call.type$ -- 116
+change.case$ -- 1003
+chr.to.int$ -- 139
+cite$ -- 123
+duplicate$ -- 11269
+empty$ -- 11789
+format.name$ -- 1465
+if$ -- 27012
+int.to.chr$ -- 2
+int.to.str$ -- 1
+missing$ -- 1250
+newline$ -- 358
+num.names$ -- 472
+pop$ -- 2701
+preamble$ -- 1
+purify$ -- 820
+quote$ -- 0
+skip$ -- 2411
+stack$ -- 0
+substring$ -- 13608
+swap$ -- 3188
+text.length$ -- 48
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 978
+warning$ -- 7
+while$ -- 968
+width$ -- 0
+write$ -- 1418
+(There were 7 warnings)

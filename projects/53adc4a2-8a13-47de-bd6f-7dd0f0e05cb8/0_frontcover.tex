@@ -1,0 +1,85 @@
+%% Define the front cover here.
+\begin{titlepage}
+
+    \newgeometry{left=65pt,right=30pt,bottom=30pt,top=60pt}
+    
+    %% add an orange border. Don't ask me what it does, it's from the web.
+    {   \pagecolor{SwanOrange}
+        \AddToShipoutPictureBG*
+        {%
+            \AtPageLowerLeft
+            {%
+                \color{white}%
+                \hspace{\myborder}%
+                \rule[\myborder]{\paperwidth-2\myborder}{\paperheight-2\myborder}%
+            }%
+        }
+    }
+    %% end orange border.
+
+    %% positioning of the two logos. 
+    \begin{tabular}{p{0.5\textwidth} p{0.5\textwidth}}
+        \vspace{0pt} 
+        \includegraphics[trim={3.5cm 2cm 2cm 3.7cm},clip,width=0.4\textwidth]{fig/asireland2.png}
+    & 
+        \vspace{0pt}
+        \includegraphics[width=0.4\textwidth]{fig/AdvanceHE_colour.png}\\
+    \end{tabular}
+
+
+    \vspace{1cm}
+    \noindent\Huge\textbf{{\sffamily\color{titlebgdark}
+        {Athena Swan Ireland Bronze application:\\Departments}}}
+    
+    \vspace*{1cm}
+    
+    %% Tables with information.
+    \begin{table}[!h]
+          \begin{tabular}{|p{6.2cm}|p{9.3cm}|}
+          \hline
+          Name of institution & University College Cork  \\
+          \hline
+          Name of department  & School of Computer Science and Information Technology\\ 
+          \hline
+          Date of current application & December 2022\\
+          \hline
+          Level of previous award, if applicable & Not applicable\\
+          \hline 
+          Date of previous award, if applicable & Not applicable\\
+          \hline
+          Contact name & Professor John Morrison \\
+          \hline 
+          Contact email & j.morrison@cs.ucc.ie \\
+          \hline
+          Contact telephone & +353 21 420 5892 \\
+          \hline
+      \end{tabular}
+      \label{tab:frontinfo}
+    \end{table}
+      
+    \begin{table}[!h]
+      \begin{tabular}{|P{6.2cm}|P{9.3cm}|}
+          \hline
+          \rowcolor{lightgray}\textbf{Section} & \textbf{Words used} \\
+          \hline
+          Section 1: An introduction to the department's Athena Swan work & 2,401   / 2,000\\ 
+          \hline
+          Section 2: An assessment of the department's gender equality context and, where relevant, wider equality context & 7,532 / 8,000\\
+          \hline
+          Section 3: Action Plan & N/A\\
+          \hline
+          \textbf{Overall word count} & 9,933 / 10,000\\
+          \hline
+      \end{tabular}
+      \label{tab:frontinfo2}
+    \end{table}
+
+\end{titlepage}
+
+
+% restore stuff for rest of doc.
+\restoregeometry 
+\pagecolor{white}
+
+
+

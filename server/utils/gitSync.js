@@ -1,0 +1,249 @@
+import simpleGit from 'simple-git';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { v4 as uuid } from 'uuid';
+import db from '../db.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GIT_REPOS_DIR = path.join(__dirname, '..', '..', 'git-repos');
+
+const BINARY_EXTS = new Set([
+  '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.eps', '.ps',
+  '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
+  '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.class', '.jar',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.mp3', '.mp4', '.avi', '.mov', '.wav',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+]);
+
+const syncLocks = new Map();
+
+async function withLock(projectId, fn) {
+  while (syncLocks.has(projectId)) {
+    await syncLocks.get(projectId);
+  }
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  syncLocks.set(projectId, promise);
+  try {
+    return await fn();
+  } finally {
+    syncLocks.delete(projectId);
+    resolve();
+  }
+}
+
+function getRepoDir(projectId) {
+  return path.join(GIT_REPOS_DIR, projectId);
+}
+
+async function ensureRepo(projectId) {
+  const repoDir = getRepoDir(projectId);
+  if (!fs.existsSync(repoDir)) {
+    fs.mkdirSync(repoDir, { recursive: true });
+  }
+  const git = simpleGit(repoDir);
+  const isRepo = await git.checkIsRepo().catch(() => false);
+  if (!isRepo) {
+    await git.init();
+    await git.addConfig('user.email', 'flowtex@localhost');
+    await git.addConfig('user.name', 'FlowTex');
+  }
+  return git;
+}
+
+async function configureRemote(git, repo, token) {
+  // Validate repo format strictly to prevent SSRF
+  if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
+    throw new Error('Invalid repository format. Use owner/repo.');
+  }
+  const url = `https://github.com/${repo}.git`;
+  const remotes = await git.getRemotes();
+  if (remotes.find((r) => r.name === 'origin')) {
+    await git.remote(['set-url', 'origin', url]);
+  } else {
+    await git.addRemote('origin', url);
+  }
+  // Use extraheader to pass token at runtime instead of embedding in URL
+  const authHeader = `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+  await git.addConfig('http.https://github.com/.extraheader', authHeader, false, 'local');
+}
+
+async function clearRemoteAuth(git) {
+  try {
+    await git.raw(['config', '--local', '--unset', 'http.https://github.com/.extraheader']);
+  } catch {
+    // Config key may not exist; ignore
+  }
+}
+
+async function writeProjectFilesToDisk(projectId, repoDir) {
+  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+
+  // Remove existing files (except .git)
+  for (const entry of fs.readdirSync(repoDir)) {
+    if (entry === '.git') continue;
+    fs.rmSync(path.join(repoDir, entry), { recursive: true, force: true });
+  }
+
+  for (const file of files) {
+    if (file.path.includes('..') || file.path.includes('\0') || path.isAbsolute(file.path)) continue;
+    const filePath = path.resolve(repoDir, file.path);
+    if (!filePath.startsWith(repoDir + path.sep) && filePath !== repoDir) continue;
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (file.is_binary && file.content) {
+      fs.writeFileSync(filePath, Buffer.from(file.content, 'base64'));
+    } else {
+      fs.writeFileSync(filePath, file.content || '');
+    }
+  }
+}
+
+async function readDiskFilesToProject(projectId, repoDir) {
+  const dbFiles = await db.all('SELECT id, path FROM files WHERE project_id = $1', [projectId]);
+  const dbPathMap = new Map(dbFiles.map((f) => [f.path, f.id]));
+  const diskPaths = new Set();
+
+  function walkDir(dir, prefix) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.git') continue;
+      // Skip symlinks to prevent reading arbitrary files
+      if (entry.isSymbolicLink()) continue;
+      const fullPath = path.join(dir, entry.name);
+      // Verify resolved path stays within repoDir
+      const realPath = fs.realpathSync(fullPath);
+      if (!realPath.startsWith(repoDir + path.sep) && realPath !== repoDir) continue;
+      const relPath = prefix ? prefix + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        walkDir(fullPath, relPath);
+      } else {
+        diskPaths.add(relPath);
+      }
+    }
+  }
+
+  walkDir(repoDir, '');
+
+  await db.transaction(async (tx) => {
+    for (const relPath of diskPaths) {
+      const fullPath = path.join(repoDir, relPath);
+      const ext = relPath.substring(relPath.lastIndexOf('.')).toLowerCase();
+      const isBinary = BINARY_EXTS.has(ext);
+      const content = isBinary
+        ? fs.readFileSync(fullPath).toString('base64')
+        : fs.readFileSync(fullPath, 'utf8');
+
+      if (dbPathMap.has(relPath)) {
+        await tx.run(
+          'UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3',
+          [content, isBinary, dbPathMap.get(relPath)]
+        );
+      } else {
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)',
+          [uuid(), projectId, relPath, content, isBinary]
+        );
+      }
+    }
+
+    // Delete DB files no longer on disk
+    for (const [dbPath, dbId] of dbPathMap) {
+      if (!diskPaths.has(dbPath)) {
+        await tx.run('DELETE FROM files WHERE id = $1', [dbId]);
+      }
+    }
+
+    await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+  });
+
+  return await db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
+}
+
+async function ensureGitHubRepoExists(token, repo) {
+  const [owner, name] = repo.split('/');
+  // Check if the repo already exists
+  const checkRes = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+  });
+  if (checkRes.ok) return; // already exists
+
+  // Try creating under the authenticated user
+  const createRes = await fetch('https://api.github.com/user/repos', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, private: true, auto_init: false }),
+  });
+  if (createRes.ok) return;
+
+  // If that failed, try creating under an org
+  const orgRes = await fetch(`https://api.github.com/orgs/${owner}/repos`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, private: true, auto_init: false }),
+  });
+  if (orgRes.ok) return;
+
+  const err = await orgRes.json().catch(() => ({}));
+  throw new Error(`Could not create GitHub repo: ${err.message || orgRes.status}`);
+}
+
+export async function pushToGitHub(projectId, token, repo, branch, commitMessage) {
+  return withLock(projectId, async () => {
+    await ensureGitHubRepoExists(token, repo);
+
+    const git = await ensureRepo(projectId);
+    const repoDir = getRepoDir(projectId);
+    await configureRemote(git, repo, token);
+
+    await writeProjectFilesToDisk(projectId, repoDir);
+
+    await git.add('-A');
+    const status = await git.status();
+    if (status.files.length > 0) {
+      await git.commit(commitMessage || 'Update from FlowTex');
+    }
+
+    // Ensure we're on the right branch
+    const branchList = await git.branchLocal();
+    if (branchList.current !== branch) {
+      if (branchList.all.includes(branch)) {
+        await git.checkout(branch);
+      } else {
+        await git.checkoutLocalBranch(branch);
+      }
+    }
+
+    await git.push('origin', branch, ['--set-upstream']);
+    await clearRemoteAuth(git);
+
+    const log = await git.log({ maxCount: 1 });
+    return { commit: log.latest?.hash || null };
+  });
+}
+
+export async function pullFromGitHub(projectId, token, repo, branch) {
+  return withLock(projectId, async () => {
+    const git = await ensureRepo(projectId);
+    const repoDir = getRepoDir(projectId);
+    await configureRemote(git, repo, token);
+
+    const branchList = await git.branchLocal();
+    if (branchList.all.length === 0) {
+      // Fresh repo — fetch and checkout remote branch
+      await git.fetch('origin');
+      await git.checkout(['-b', branch, `origin/${branch}`]);
+    } else {
+      if (branchList.current !== branch) {
+        try { await git.checkout(branch); } catch { await git.checkoutLocalBranch(branch); }
+      }
+      await git.pull('origin', branch, { '--strategy-option': 'theirs' });
+    }
+
+    await clearRemoteAuth(git);
+    const files = await readDiskFilesToProject(projectId, repoDir);
+    const log = await git.log({ maxCount: 1 });
+    return { files, commit: log.latest?.hash || null };
+  });
+}

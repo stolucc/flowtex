@@ -1,0 +1,17 @@
+{
+  "name": "flowtex",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && node --env-file=../.env index.js",
+    "dev:client": "cd client && npx vite",
+    "build": "cd client && npx vite build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "otpauth": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

@@ -1,0 +1,101 @@
+%
+% I've tried to replicate your table stye using 
+% tab_taught_programes as a model
+%
+
+% Following copied verbatim down to 'end preamble'
+\begin{tabbox}{!th}
+
+\caption{Overview of the programmes on offer at CSIT}
+\label{tab:teachingoverview}
+\footnotesize 
+
+\sisetup{
+    group-digits=all,
+    group-minimum-digits=4,
+    mode=text,
+    reset-text-series = false, 
+    text-series-to-math = true,
+    reset-text-family=false, 
+    text-family-to-math=true
+} % 'end preamle' marker
+
+
+\begin{tabular}{P{3.8cm}
+                !{\qquad}
+                p{1.2cm}
+                !{\quad}
+                C{1.2cm}
+                !{\quad}
+                P{5.4cm}
+                !{\qquad}
+                C{1cm}
+                }
+\toprule
+
+\textmd{Title}&
+\textmd{Acronym}&
+\makecell{First\\Intake}&
+\textmd{Description}&
+\makecell{Intake\\(2022)}\\ 
+\midrule
+
+BSc in Computer Science&
+BScCS&
+1979& 
+Mainstream undergraduate CS degree 
+& 85\\
+\hdashline
+BA in Digital Humanities and IT\interdis&
+BADHIT&
+2014& 
+Blends IT, digital humanities and traditional arts and humanities
+subjects 
+&50\\
+\hdashline
+BSc in Data Science and Analytics\interdis& 
+BScDSA&
+2018&
+Combines statistics and computing; focussed on data science
+& 30\\
+\hdashline
+BA in Psychology and Computing\interdis&
+BAPC&
+2018& 
+Degree combining psychology and  computing with an 
+emphasis on human aspects of computing 
+& 30\\ 
+\midrule
+
+Higher Diploma in Computer Science& 
+HDACT&
+1981&
+Conversion programme for graduates of any
+discipline & 40\\
+\hdashline
+MSc in Computing Science& 
+MScCS&
+1995& 
+Advanced degree for CS graduates
+&30\\
+\hdashline
+MSc in Interactive Media& 
+MScIM&
+1999&
+Conversion programme for graduates of any
+discipline; emphasis on IT for digital media 
+&40\\
+\hdashline
+MSc in Data Science and Analytics\interdis& 
+MScDSA&
+2013&
+Combines statistics and computing; focussed on data science
+&30\\
+
+% 'Postamble' material from here on also copied varbatim.
+\bottomrule 
+\end{tabular}
+
+
+
+\end{tabbox}

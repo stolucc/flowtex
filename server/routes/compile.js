@@ -1,0 +1,427 @@
+import { Router } from 'express';
+import { fileURLToPath } from 'url';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs';
+import os from 'os';
+import db from '../db.js';
+import { isProjectMember } from '../middleware/auth.js';
+import { compileProject, synctexForward, synctexInverse, stopCompilation, TEX_PATHS } from '../compiler.js';
+import latexDiff from '../utils/latexDiff.js';
+import path from 'path';
+import logger from '../logger.js';
+
+const execFileAsync = promisify(execFile);
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECTS_DIR = path.join(__dirname, '..', '..', 'projects');
+
+const router = Router();
+
+// Per-project and per-user compilation rate limiting
+const compileRateMap = new Map();
+const userCompileRateMap = new Map();
+const COMPILE_RATE_WINDOW = 60000;
+const COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 5;
+const USER_COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 20;
+
+function checkCompileRate(projectId, userId) {
+  const now = Date.now();
+  // Per-project limit
+  let entry = compileRateMap.get(projectId);
+  if (!entry || now - entry.start > COMPILE_RATE_WINDOW) {
+    entry = { start: now, count: 0 };
+    compileRateMap.set(projectId, entry);
+  }
+  entry.count++;
+  if (entry.count > COMPILE_RATE_MAX) return false;
+
+  // Per-user limit (across all projects)
+  if (userId) {
+    let userEntry = userCompileRateMap.get(userId);
+    if (!userEntry || now - userEntry.start > COMPILE_RATE_WINDOW) {
+      userEntry = { start: now, count: 0 };
+      userCompileRateMap.set(userId, userEntry);
+    }
+    userEntry.count++;
+    if (userEntry.count > USER_COMPILE_RATE_MAX) return false;
+  }
+
+  return true;
+}
+
+// Clean up stale rate limit entries every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of compileRateMap) {
+    if (now - entry.start > COMPILE_RATE_WINDOW * 2) compileRateMap.delete(id);
+  }
+  for (const [id, entry] of userCompileRateMap) {
+    if (now - entry.start > COMPILE_RATE_WINDOW * 2) userCompileRateMap.delete(id);
+  }
+}, 60 * 1000).unref();
+
+async function requireMembership(projectId, userId, res) {
+  const member = await isProjectMember(projectId, userId);
+  if (!member) {
+    res.status(403).json({ error: 'No access to this project' });
+    return false;
+  }
+  return true;
+}
+
+// Compile a project (returns final result)
+router.post('/:projectId', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    if (!(await requireMembership(projectId, req.session.userId, res))) return;
+    if (!checkCompileRate(projectId, req.session.userId)) {
+      return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
+    }
+
+    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+
+    const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+    const mainFile = project?.main_file || 'main.tex';
+
+    const { pdfPath, log } = await compileProject(projectId, mainFile, null, { files, userId: req.session.userId });
+
+    res.json({ success: true, log });
+  } catch (err) {
+    res.status(400).json({ success: false, log: err.message });
+  }
+});
+
+// Compile with SSE streaming output
+router.get('/:projectId/compile-stream', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+  if (!checkCompileRate(projectId)) {
+    return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+    const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+    const mainFile = project?.main_file || 'main.tex';
+
+    const { pdfPath, log } = await compileProject(projectId, mainFile, (chunk) => {
+      send('output', { text: chunk });
+    }, {
+      files,
+      userId: req.session.userId,
+      onBeforeCompile: () => {
+        send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile}...\n` });
+      },
+    });
+
+    send('done', { success: true, log });
+  } catch (err) {
+    send('done', { success: false, log: err.message });
+  }
+
+  res.end();
+});
+
+// Stop compilation
+router.post('/:projectId/stop', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+  const stopped = await stopCompilation(projectId);
+  res.json({ ok: true, stopped: !!stopped });
+});
+
+// Serve compiled PDF (per-user jobname)
+router.get('/:projectId/pdf', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+  const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const pdfPath = path.join(PROJECTS_DIR, projectId, baseName + userSuffix + '.pdf');
+
+  res.sendFile(pdfPath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'PDF not found. Compile first.' });
+    }
+  });
+});
+
+// Forward sync: editor → PDF
+router.get('/:projectId/syncforward', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const { line, column, file } = req.query;
+  const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+  const mainFile = project?.main_file || 'main.tex';
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const result = synctexForward(projectId, parseInt(line), parseInt(column || '0'), file || mainFile, mainFile, userSuffix);
+  if (result) {
+    res.json(result);
+  } else {
+    res.status(404).json({ error: 'No sync data found' });
+  }
+});
+
+// Inverse sync: PDF → editor
+router.get('/:projectId/syncinverse', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const { page, x, y } = req.query;
+  const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+  const mainFile = project?.main_file || 'main.tex';
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const result = synctexInverse(projectId, parseInt(page), parseFloat(x), parseFloat(y), mainFile, userSuffix);
+  if (result) {
+    res.json(result);
+  } else {
+    res.status(404).json({ error: 'No sync data found' });
+  }
+});
+
+// ChkTeX lint endpoint
+router.post('/:projectId/lint', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+    const { content, filename } = req.body;
+    if (!content) return res.json({ diagnostics: [] });
+
+    // Write content to temp file
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chktex-'));
+    const safeFilename = path.basename(filename || 'input.tex');
+    const tmpFile = path.join(tmpDir, safeFilename);
+    fs.writeFileSync(tmpFile, content);
+
+    try {
+      // Run lacheck for real syntax errors (unmatched braces, environments, etc.)
+      const { stdout, stderr } = await execFileAsync('/opt/local/bin/lacheck', [
+        tmpFile
+      ], { timeout: 5000 }).catch(e => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
+
+      const diagnostics = [];
+      const output = stdout || stderr || '';
+      const lines = output.split('\n').filter(Boolean);
+      for (const line of lines) {
+        // Format: "file", line N: message
+        const match = line.match(/line (\d+):\s*(.+)/);
+        if (match) {
+          diagnostics.push({
+            line: parseInt(match[1]),
+            col: 1,
+            len: 0,
+            severity: 'warning',
+            code: 0,
+            message: match[2].trim(),
+          });
+        }
+      }
+      res.json({ diagnostics });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    logger.error({ err }, 'Lint error');
+    res.json({ diagnostics: [] });
+  }
+});
+
+// Compare files with latexdiff — SSE streaming
+router.get('/:projectId/diff-stream', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const { oldFileId, newFileId } = req.query;
+  if (!oldFileId || !newFileId) {
+    return res.status(400).json({ error: 'Both oldFileId and newFileId required' });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const oldFile = await db.get('SELECT path, content FROM files WHERE id = $1 AND project_id = $2', [oldFileId, projectId]);
+    const newFile = await db.get('SELECT path, content FROM files WHERE id = $1 AND project_id = $2', [newFileId, projectId]);
+    if (!oldFile || !newFile) {
+      send('done', { success: false, log: 'File not found' });
+      res.end();
+      return;
+    }
+
+    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+    const projectDir = path.join(PROJECTS_DIR, projectId);
+
+    // Run latexdiff (doesn't touch the project dir, works on content strings)
+    send('output', { text: `Running latexdiff: ${oldFile.path} → ${newFile.path}...\n` });
+
+    let diffOutput;
+    try {
+      diffOutput = await latexDiff(oldFile.content || '', newFile.content || '', { workDir: projectDir });
+    } catch (diffErr) {
+      send('output', { text: `Diff error: ${diffErr.message}\n` });
+      if (diffErr.stderr) send('output', { text: diffErr.stderr + '\n' });
+      send('done', { success: false, log: diffErr.message });
+      res.end();
+      return;
+    }
+
+    const userSuffix = '_' + req.session.userId.slice(0, 8);
+    const diffJobName = '__diff__' + userSuffix;
+
+    // Write diff to temp file and compile
+    send('output', { text: 'Compiling diff...\n' });
+    try {
+      const { pdfPath, log } = await compileProject(projectId, '__diff__.tex', (chunk) => {
+        send('output', { text: chunk });
+      }, {
+        files,
+        userId: req.session.userId,
+        onBeforeCompile: async () => {
+          const diffTexPath = path.join(projectDir, '__diff__.tex');
+          fs.writeFileSync(diffTexPath, diffOutput);
+          send('output', { text: `Wrote __diff__.tex (${diffOutput.length} bytes)\n` });
+        },
+      });
+      send('done', { success: true, log });
+    } catch (compileErr) {
+      // Read the log file and stream it to the console
+      const diffLogPath = path.join(projectDir, diffJobName + '.log');
+      if (fs.existsSync(diffLogPath)) {
+        const logContents = fs.readFileSync(diffLogPath, 'utf-8');
+        send('output', { text: '\n--- diff log ---\n' + logContents + '\n' });
+      }
+      // Check if PDF was produced anyway
+      const diffPdfPath = path.join(projectDir, diffJobName + '.pdf');
+      if (fs.existsSync(diffPdfPath)) {
+        send('done', { success: true, log: compileErr.message });
+      } else {
+        send('done', { success: false, log: compileErr.message });
+      }
+    }
+  } catch (err) {
+    send('done', { success: false, log: err.message });
+  }
+
+  res.end();
+});
+
+// Serve diff PDF
+router.get('/:projectId/diff-pdf', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const pdfPath = path.join(PROJECTS_DIR, projectId, '__diff__' + userSuffix + '.pdf');
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(pdfPath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'Diff PDF not found. Run diff first.' });
+    }
+  });
+});
+
+// Delete LaTeX-generated files (aux, log, bbl, etc.)
+router.get('/:projectId/generated-files', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  if (!fs.existsSync(projectDir)) return res.json({ files: [] });
+
+  const generatedExts = new Set([
+    '.aux', '.log', '.bbl', '.blg', '.out', '.toc', '.lof', '.lot',
+    '.nav', '.snm', '.idx', '.ind', '.ilg', '.glo', '.gls', '.glg',
+    '.bcf', '.run.xml',
+  ]);
+
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const files = [];
+  for (const entry of fs.readdirSync(projectDir)) {
+    const ext = '.' + entry.split('.').slice(1).join('.');
+    if (generatedExts.has(ext.toLowerCase())) {
+      // Only show files generated for the logged-in user
+      const baseName = entry.split('.')[0];
+      if (!baseName.endsWith(userSuffix)) continue;
+      const stat = fs.statSync(path.join(projectDir, entry));
+      files.push({ name: entry, size: stat.size, mtime: stat.mtime });
+    }
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ files });
+});
+
+router.get('/:projectId/generated-file', async (req, res) => {
+  const { projectId } = req.params;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const fileName = req.query.name;
+  if (!fileName || fileName.includes('/') || fileName.includes('\\') || fileName.includes('..') || fileName.includes('\0')) {
+    return res.status(400).json({ error: 'Invalid file name' });
+  }
+  // Ensure resolved path stays within the project directory
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const resolvedPath = path.resolve(projectDir, fileName);
+  if (!resolvedPath.startsWith(projectDir + path.sep)) {
+    return res.status(400).json({ error: 'Invalid file name' });
+  }
+
+  const filePath = path.join(PROJECTS_DIR, projectId, fileName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  res.json({ name: fileName, content });
+});
+
+router.post('/:projectId/clean', async (req, res) => {
+  const projectId = req.params.projectId;
+  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  if (!fs.existsSync(projectDir)) return res.json({ deleted: 0 });
+
+  const generatedExts = new Set([
+    '.aux', '.log', '.fls', '.fdb_latexmk', '.synctex.gz', '.synctex',
+    '.bbl', '.blg', '.out', '.toc', '.lof', '.lot', '.nav', '.snm',
+    '.vrb', '.idx', '.ind', '.ilg', '.glo', '.gls', '.glg',
+    '.cb', '.cb2', '.bcf', '.run.xml', '.xdv',
+  ]);
+
+  let deleted = 0;
+  const entries = fs.readdirSync(projectDir);
+  for (const entry of entries) {
+    const ext = entry.includes('.') ? '.' + entry.split('.').slice(1).join('.') : '';
+    const lowerExt = ext.toLowerCase();
+    if (generatedExts.has(lowerExt) || lowerExt === '.synctex.gz') {
+      try {
+        fs.unlinkSync(path.join(projectDir, entry));
+        deleted++;
+      } catch {}
+    }
+  }
+  res.json({ deleted });
+});
+
+export default router;

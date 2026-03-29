@@ -1,0 +1,49 @@
+
+\begin{table}[!ht]
+\colorbox{SwanOrange!10}{
+      \begin{minipage}{5.8cm}
+
+\caption{PhD starts since 2019  by year and gender}
+\label{tab:phdintakerecent}
+\footnotesize 
+
+\sisetup{
+    group-digits=all,
+    group-minimum-digits=4,
+    table-format=2.1,
+    mode=text,
+    reset-text-series = false, 
+    text-series-to-math = true,
+    reset-text-family=false, 
+    text-family-to-math=true
+}
+
+% \begin{tabular}{cccccc}
+% \multicolumn{2}{c}{2019-20} &
+% \multicolumn{2}{c}{2020-21} &
+% \multicolumn{2}{c}{2021-22} \\
+% M & F & M & F & M & F\\
+% 15 & 4 & 13 & 9 & 5 & 6\\
+% & 21\% & & 41\% & & 55\%\\
+% \end{tabular}
+
+\begin{tabular}{p{3cm}
+                S[table-format=2.0]
+                !{\qquad}
+                S[table-format=2.0]
+                !{\qquad}
+                S[table-format=2.0\%]}
+\toprule
+Year & {M} & {F} & {\%F} \\
+\midrule
+2019/2020 & 15 & 4 & 21\%\\
+2020/2021 & 13 & 9 & 41\%\\
+2021/2022 &  5 & 6 & 55\%\\
+\bottomrule 
+\end{tabular}
+
+\end{minipage}
+}
+
+
+\end{table}
