@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.db
+*.sqlite
 .env
 .env.*
 !.env.example
@@ -9,3 +10,4 @@ server/public/
 git-repos/
 projects/
 .DS_Store
+*.pdf
