@@ -23,6 +23,7 @@ import githubRouter from './routes/github.js';
 import tagsRouter from './routes/tags.js';
 import trackedChangesRouter from './routes/tracked-changes.js';
 import adminRouter from './routes/admin.js';
+import setupRouter from './routes/setup.js';
 import bibRouter from './routes/bib.js';
 import zoteroRouter from './routes/zotero.js';
 import chatRouter from './routes/chat.js';
@@ -136,7 +137,7 @@ app.use((req, res, next) => {
   });
 
   // Verify on state-changing requests
-  const csrfExempt = ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password'];
+  const csrfExempt = ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password', '/api/setup/init'];
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')) {
     if (csrfExempt.includes(req.path)) {
       // For CSRF-exempt endpoints, validate Origin header to prevent cross-site login attacks
@@ -199,6 +200,10 @@ app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/auth/resend-verification', authLimiter);
 app.use('/api/auth', authRouter);
+
+// Setup routes (public, rate-limited — only functional before first admin exists)
+app.use('/api/setup/init', authLimiter);
+app.use('/api/setup', setupRouter);
 
 // Upload rate limits (stricter — 10 per 15 minutes)
 app.use('/api/projects/from-zip', uploadLimiter);

@@ -6,15 +6,17 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
-    get('/api/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((u) => {
-        setUser(u);
-        setAuthChecked(true);
-      })
-      .catch(() => setAuthChecked(true));
+    Promise.all([
+      get('/api/auth/me').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      get('/api/setup/status').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([u, setup]) => {
+      setUser(u);
+      if (setup?.needsSetup) setNeedsSetup(true);
+      setAuthChecked(true);
+    });
 
     const onExpired = () => {
       setUser(null);
@@ -30,7 +32,7 @@ export function AuthProvider({ children }) {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  return <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

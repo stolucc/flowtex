@@ -8,6 +8,7 @@ import SyncArrows from './components/SyncArrows.jsx';
 import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
 import AuthPage from './components/AuthPage.jsx';
+import SetupWizard from './components/SetupWizard.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import BinaryPreview, { getMimeType } from './components/BinaryPreview.jsx';
 import { TrackChangesPopup, TrackChangesReviewBar } from './components/TrackChangesBar.jsx';
@@ -54,7 +55,7 @@ function stripJobSuffix(filename) {
 }
 
 function AppInner() {
-  const { user, setUser, authChecked, handleLogout } = useAuth();
+  const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
   const editorRef = useRef(null);
   const pdfRef = useRef(null);
@@ -295,6 +296,7 @@ function AppInner() {
   // --- Render ---
 
   if (!authChecked) return <div className="auth-loading">Loading...</div>;
+  if (needsSetup) return <SetupWizard onComplete={(u) => { setNeedsSetup(false); setUser(u); }} />;
   if (!user) return <AuthPage onAuth={setUser} />;
   if (showAdmin && user.isAdmin) {
     return (
