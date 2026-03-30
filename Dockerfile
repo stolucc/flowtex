@@ -13,14 +13,9 @@ COPY client/ client/
 RUN cd client && npx vite build
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────
-FROM node:22-bookworm-slim
-
-# Install TeX Live (scheme-full for maximum compatibility, ~4GB)
-# Use scheme-basic + extras if you want a smaller image (~1.5GB)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-full \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Uses pre-built base image with Node + TeX Live (~1.5GB, built separately)
+# Rebuild base only when upgrading Node/TeX:  docker build -f Dockerfile.base -t flowtex-base .
+FROM flowtex-base
 
 WORKDIR /app
 
