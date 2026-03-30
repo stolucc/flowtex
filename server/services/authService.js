@@ -221,7 +221,7 @@ export async function verifyAndEnableTotp(userId, code) {
   if (user.totp_enabled) throw Object.assign(new Error('MFA is already enabled'), { status: 400 });
 
   const totp = new OTPAuth.TOTP({
-    secret: OTPAuth.Secret.fromBase32(user.totp_secret),
+    secret: OTPAuth.Secret.fromBase32(decryptTotpSecret(user.totp_secret)),
     algorithm: 'SHA1',
     digits: 6,
     period: 30,

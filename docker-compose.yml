@@ -1,0 +1,56 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${PGDATABASE:-flowtex}
+      PGUSER: ${PGUSER:-flowtex}
+      PGPASSWORD: ${PGPASSWORD:?Set PGPASSWORD in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      APP_URL: ${APP_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Redis (optional — uncomment redis service below to enable)
+      # REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - compile-workdir:/app/projects
+      - git-repos:/app/git-repos
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-flowtex}
+      POSTGRES_USER: ${PGUSER:-flowtex}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?Set PGPASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-flowtex}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Uncomment to enable Redis for WebSocket horizontal scaling
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redisdata:/data
+
+volumes:
+  pgdata:
+  compile-workdir:
+  git-repos:
+  # redisdata:
