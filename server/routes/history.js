@@ -23,13 +23,16 @@ router.get('/:projectId', async (req, res) => {
   const member = await isProjectMember(req.params.projectId, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
 
-  const snapshots = await db.all(`
+  const snapshots = await db.all(
+    `
     SELECT id, author_name, label, created_at
     FROM project_snapshots
     WHERE project_id = $1
     ORDER BY created_at DESC
     LIMIT 500
-  `, [req.params.projectId]);
+  `,
+    [req.params.projectId],
+  );
   res.json(snapshots);
 });
 
@@ -44,17 +47,20 @@ router.get('/snapshot/:snapshotId', async (req, res) => {
   const current = decompressSnapshot(snap.data);
 
   // Get previous snapshot
-  const prevSnap = await db.get(`
+  const prevSnap = await db.get(
+    `
     SELECT data FROM project_snapshots
     WHERE project_id = $1 AND created_at < $2
     ORDER BY created_at DESC LIMIT 1
-  `, [snap.project_id, snap.created_at]);
+  `,
+    [snap.project_id, snap.created_at],
+  );
 
   const previous = prevSnap ? decompressSnapshot(prevSnap.data) : { files: [] };
 
   // Build lookup maps
-  const prevMap = new Map(previous.files.map(f => [f.id, f]));
-  const curMap = new Map(current.files.map(f => [f.id, f]));
+  const prevMap = new Map(previous.files.map((f) => [f.id, f]));
+  const curMap = new Map(current.files.map((f) => [f.id, f]));
 
   // Determine which files changed
   const editedFileIds = [];
@@ -72,7 +78,7 @@ router.get('/snapshot/:snapshotId', async (req, res) => {
   }
 
   res.json({
-    files: current.files.map(f => ({ id: f.id, path: f.path, is_binary: f.is_binary })),
+    files: current.files.map((f) => ({ id: f.id, path: f.path, is_binary: f.is_binary })),
     editedFileIds,
     snapshotTime: snap.created_at,
   });
@@ -88,17 +94,20 @@ router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   if (!member) return res.status(403).json({ error: 'No access to this project' });
 
   const current = decompressSnapshot(snap.data);
-  const curFile = current.files.find(f => f.id === fileId);
+  const curFile = current.files.find((f) => f.id === fileId);
 
   // Get previous snapshot
-  const prevSnap = await db.get(`
+  const prevSnap = await db.get(
+    `
     SELECT data FROM project_snapshots
     WHERE project_id = $1 AND created_at < $2
     ORDER BY created_at DESC LIMIT 1
-  `, [snap.project_id, snap.created_at]);
+  `,
+    [snap.project_id, snap.created_at],
+  );
 
   const previous = prevSnap ? decompressSnapshot(prevSnap.data) : { files: [] };
-  const prevFile = previous.files.find(f => f.id === fileId);
+  const prevFile = previous.files.find((f) => f.id === fileId);
 
   res.json({
     currentContent: curFile?.content || '',
@@ -124,19 +133,19 @@ router.post('/restore/:snapshotId', async (req, res) => {
   // First, create a snapshot of the current state so the restore can be undone
   const currentFiles = await db.all(
     'SELECT id, path, content, is_binary FROM files WHERE project_id = $1 ORDER BY path',
-    [projectId]
+    [projectId],
   );
   const preRestorePayload = JSON.stringify({ files: currentFiles });
   const preRestoreCompressed = gzipSync(Buffer.from(preRestorePayload, 'utf8'));
   await db.run(
     'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
-    [uuid(), projectId, preRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Before restore']
+    [uuid(), projectId, preRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Before restore'],
   );
 
   // Decompress the target snapshot
   const target = decompressSnapshot(snap.data);
-  const targetFileIds = new Set(target.files.map(f => f.id));
-  const currentFileIds = new Set(currentFiles.map(f => f.id));
+  const targetFileIds = new Set(target.files.map((f) => f.id));
+  const currentFileIds = new Set(currentFiles.map((f) => f.id));
 
   await db.transaction(async (tx) => {
     // Delete files that don't exist in the target snapshot
@@ -149,11 +158,15 @@ router.post('/restore/:snapshotId', async (req, res) => {
     // Restore/create each file from the snapshot
     for (const f of target.files) {
       if (currentFileIds.has(f.id)) {
-        await tx.run('UPDATE files SET content = $1, path = $2, updated_at = NOW() WHERE id = $3', [f.content, f.path, f.id]);
+        await tx.run('UPDATE files SET content = $1, path = $2, updated_at = NOW() WHERE id = $3', [
+          f.content,
+          f.path,
+          f.id,
+        ]);
       } else {
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())',
-          [f.id, projectId, f.path, f.content, f.is_binary || false]
+          [f.id, projectId, f.path, f.content, f.is_binary || false],
         );
       }
     }
@@ -164,7 +177,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
   const postRestoreCompressed = gzipSync(Buffer.from(postRestorePayload, 'utf8'));
   await db.run(
     'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
-    [uuid(), projectId, postRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Restored snapshot']
+    [uuid(), projectId, postRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Restored snapshot'],
   );
 
   // Return the full restored file list

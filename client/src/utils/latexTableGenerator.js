@@ -1,10 +1,10 @@
 export function getMergeAt(merges, r, c) {
-  return merges?.find(m => m.row === r && m.col === c) || null;
+  return merges?.find((m) => m.row === r && m.col === c) || null;
 }
 
 export function isCoveredByMerge(merges, r, c) {
   if (!merges) return false;
-  return merges.some(m => {
+  return merges.some((m) => {
     if (m.row === r && m.col === c) return false; // origin, not covered
     return r >= m.row && r < m.row + m.rowSpan && c >= m.col && c < m.col + m.colSpan;
   });
@@ -13,41 +13,88 @@ export function isCoveredByMerge(merges, r, c) {
 // Returns the merge that covers cell (r,c) — but NOT the origin cell itself
 export function getCoveringMerge(merges, r, c) {
   if (!merges) return null;
-  return merges.find(m => {
-    if (m.row === r && m.col === c) return false; // origin, not covered
-    return r >= m.row && r < m.row + m.rowSpan && c >= m.col && c < m.col + m.colSpan;
-  }) || null;
+  return (
+    merges.find((m) => {
+      if (m.row === r && m.col === c) return false; // origin, not covered
+      return r >= m.row && r < m.row + m.rowSpan && c >= m.col && c < m.col + m.colSpan;
+    }) || null
+  );
 }
 
 export function extractColParts(spec, maxCols) {
   const parts = [];
-  let i = 0, current = '';
+  let i = 0,
+    current = '';
   function skipBraces() {
     if (i < spec.length && spec[i] === '{') {
-      let d = 1; current += '{'; i++;
+      let d = 1;
+      current += '{';
+      i++;
       while (i < spec.length && d > 0) {
         if (spec[i] === '{') d++;
         if (spec[i] === '}') d--;
-        current += spec[i]; i++;
+        current += spec[i];
+        i++;
       }
     }
   }
   while (i < spec.length && parts.length < maxCols) {
     const ch = spec[i];
-    if (/\s/.test(ch)) { i++; continue; }
-    if ('><!@'.includes(ch)) { current += ch; i++; skipBraces(); continue; }
-    if ('lcrX'.includes(ch)) { current += ch; i++; parts.push(current); current = ''; continue; }
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if ('><!@'.includes(ch)) {
+      current += ch;
+      i++;
+      skipBraces();
+      continue;
+    }
+    if ('lcrX'.includes(ch)) {
+      current += ch;
+      i++;
+      parts.push(current);
+      current = '';
+      continue;
+    }
     if ('pmbPMBLRCSW'.includes(ch) && i + 1 < spec.length && spec[i + 1] === '{') {
-      current += ch; i++; skipBraces(); parts.push(current); current = ''; continue;
+      current += ch;
+      i++;
+      skipBraces();
+      parts.push(current);
+      current = '';
+      continue;
     }
     // '*' repeat — just treat as raw
-    current += ch; i++;
+    current += ch;
+    i++;
   }
-  if (current) { if (parts.length > 0) parts[parts.length - 1] += current; }
+  if (current) {
+    if (parts.length > 0) parts[parts.length - 1] += current;
+  }
   return parts;
 }
 
-export default function generateLatexTable({ rows, cols, alignment, borders, headerRow, caption, captionText, label, env, centering, boldHeader, zebra, cells, rawColSpec, longtablePreamble, alignments, merges, vlines }) {
+export default function generateLatexTable({
+  rows,
+  cols,
+  alignment,
+  borders,
+  headerRow,
+  caption,
+  captionText,
+  label,
+  env,
+  centering,
+  boldHeader,
+  zebra,
+  cells,
+  rawColSpec,
+  longtablePreamble,
+  alignments,
+  merges,
+  vlines,
+}) {
   // Build column spec: preserve original if column count unchanged, otherwise generate new
   let colSpec;
   if (rawColSpec && alignments && alignments.length === cols) {
@@ -114,7 +161,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
   }
 
   // Add row spacing when using rules (hlines or vlines make tables look cramped)
-  const hasAnyRules = hlineTop || hlineAll || hlineHeader || isBooktabs || (vlines && vlines.some(v => v));
+  const hasAnyRules = hlineTop || hlineAll || hlineHeader || isBooktabs || (vlines && vlines.some((v) => v));
   if (hasAnyRules) {
     lines.push('\\renewcommand{\\arraystretch}{1.3}');
   }
@@ -142,7 +189,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
 
   // Rows — preserve existing cell content where available
   // For longtable with preamble, skip the header row (it's already in the preamble)
-  const startRow = (longtablePreamble && headerRow) ? 1 : 0;
+  const startRow = longtablePreamble && headerRow ? 1 : 0;
   const activeMerges = merges || [];
   for (let r = startRow; r < rows; r++) {
     const isHeader = headerRow && r === 0;
@@ -157,7 +204,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
         // Only emit the placeholder at the first covered column of the merge in this row.
         if (coveringMerge.colSpan > 1 && c === coveringMerge.col) {
           const vl = vlines || [];
-          const leftBar = (c === 0 && vl[0]) ? '|' : '';
+          const leftBar = c === 0 && vl[0] ? '|' : '';
           const rightBar = vl[c + coveringMerge.colSpan] ? '|' : '';
           const baseAlign = (coveringMerge.align || alignment).replace(/\|/g, '');
           const mcolAlign = `${leftBar}${baseAlign}${rightBar}`;
@@ -172,7 +219,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
       }
 
       const merge = getMergeAt(activeMerges, r, c);
-      let content = (existingRow && c < existingRow.length && existingRow[c] != null) ? existingRow[c] : '';
+      let content = existingRow && c < existingRow.length && existingRow[c] != null ? existingRow[c] : '';
 
       // Handle bold header toggle
       if (isHeader && content) {
@@ -192,7 +239,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
         if (merge.colSpan > 1) {
           // Build multicolumn alignment spec with vlines
           const vl = vlines || [];
-          const leftBar = (c === 0 && vl[0]) ? '|' : '';
+          const leftBar = c === 0 && vl[0] ? '|' : '';
           const rightBar = vl[c + merge.colSpan] ? '|' : '';
           const mcolAlign = `${leftBar}${baseAlign}${rightBar}`;
           if (merge.rowSpan > 1) {
@@ -210,7 +257,7 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
     }
     const rowStr = rowParts.join(' & ') + ' \\\\';
     // Determine if any multirow spans cross from this row to the next
-    const needsCline = activeMerges.some(m => r >= m.row && r < m.row + m.rowSpan - 1);
+    const needsCline = activeMerges.some((m) => r >= m.row && r < m.row + m.rowSpan - 1);
     const wantRule = (isHeader && (isBooktabs || hlineHeader)) || (!isHeader && hlineAll && r < rows - 1);
     const isLastRow = r === rows - 1;
     // Bottom rule: always full-width since no multirow can span past the last row
@@ -222,12 +269,18 @@ export default function generateLatexTable({ rows, cols, alignment, borders, hea
       // Use \cline for columns not covered by an active multirow span
       let c = 0;
       while (c < cols) {
-        const spanning = activeMerges.find(m => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan);
+        const spanning = activeMerges.find(
+          (m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan,
+        );
         if (spanning) {
           c = spanning.col + spanning.colSpan;
         } else {
           const start = c + 1; // \cline is 1-based
-          while (c < cols && !activeMerges.find(m => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan)) c++;
+          while (
+            c < cols &&
+            !activeMerges.find((m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan)
+          )
+            c++;
           lines.push(`\\cline{${start}-${c}}`);
         }
       }

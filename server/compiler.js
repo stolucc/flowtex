@@ -19,23 +19,87 @@ async function getCompileTimeout() {
     try {
       const row = await db.get("SELECT value FROM settings WHERE key = 'compile_timeout'");
       if (row) _compileTimeoutMs = parseInt(row.value) * 1000 || 120000;
-    } catch { /* use cached value */ }
+    } catch {
+      /* use cached value */
+    }
     _lastTimeoutFetch = now;
   }
   return _compileTimeoutMs;
 }
 
-// Build a PATH that includes common TeX Live locations
+// Common non-TeX-Live paths that are always included
+const COMMON_PATHS = ['/opt/local/bin', '/usr/local/bin', '/usr/bin'];
+
+// Build a PATH that includes common TeX Live locations (default, all distributions)
 export const TEX_PATHS = [
   '/Library/TeX/texbin',
   '/usr/local/texlive/2025/bin/universal-darwin',
   '/usr/local/texlive/2024/bin/universal-darwin',
   '/usr/local/texlive/2025/bin/x86_64-darwin',
   '/usr/local/texlive/2024/bin/x86_64-darwin',
-  '/opt/local/bin',
-  '/usr/local/bin',
-  '/usr/bin',
+  ...COMMON_PATHS,
 ].join(':');
+
+/**
+ * Build a PATH for a specific TeX Live distribution year.
+ * If distro is null/undefined, returns TEX_PATHS (all distributions).
+ */
+export function getTexPaths(distro) {
+  if (!distro) return TEX_PATHS;
+  const year = String(distro);
+  const distPaths = [
+    `/usr/local/texlive/${year}/bin/universal-darwin`,
+    `/usr/local/texlive/${year}/bin/x86_64-darwin`,
+    `/usr/local/texlive/${year}/bin/aarch64-linux`,
+    `/usr/local/texlive/${year}/bin/x86_64-linux`,
+  ].filter((p) => fs.existsSync(p));
+  if (distPaths.length === 0) return TEX_PATHS; // fallback
+  return [...distPaths, ...COMMON_PATHS].join(':');
+}
+
+/**
+ * Detect installed TeX Live distributions by scanning /usr/local/texlive/
+ * Returns array of { year, path, version } sorted newest first.
+ */
+let _cachedDistros = null;
+let _distrosCacheTime = 0;
+
+export function detectTexDistributions() {
+  const now = Date.now();
+  if (_cachedDistros && now - _distrosCacheTime < 60000) return _cachedDistros;
+
+  const distros = [];
+  const base = '/usr/local/texlive';
+  try {
+    const entries = fs.readdirSync(base);
+    for (const entry of entries) {
+      const year = parseInt(entry);
+      if (isNaN(year) || year < 2000) continue;
+      const dir = path.join(base, entry);
+      if (!fs.statSync(dir).isDirectory()) continue;
+      // Find the bin directory
+      const binDir = path.join(dir, 'bin');
+      if (!fs.existsSync(binDir)) continue;
+      const archs = fs.readdirSync(binDir).filter((a) => fs.existsSync(path.join(binDir, a, 'pdflatex')));
+      if (archs.length === 0) continue;
+      // Get version from pdflatex
+      let version = `TeX Live ${year}`;
+      try {
+        const out = execFileSync(path.join(binDir, archs[0], 'pdflatex'), ['--version'], {
+          encoding: 'utf-8',
+          timeout: 3000,
+        });
+        const m = out.match(/pdfTeX[^,]*, Version [^\n]+/);
+        if (m) version = m[0];
+      } catch {}
+      distros.push({ year, path: path.join(binDir, archs[0]), version });
+    }
+  } catch {}
+  distros.sort((a, b) => b.year - a.year);
+  _cachedDistros = distros;
+  _distrosCacheTime = now;
+  return distros;
+}
 
 // Track active compilations so they can be stopped
 const activeCompilations = new Map();
@@ -46,7 +110,7 @@ export const compileMetrics = {
   success: 0,
   failed: 0,
   active: 0,
-  history: [],  // last 300 entries: { time, duration, success }
+  history: [], // last 300 entries: { time, duration, success }
 };
 
 function recordCompile(success, duration) {
@@ -84,7 +148,12 @@ export function stopCompilation(projectId) {
   return Promise.resolve(false);
 }
 
-export async function compileProject(projectId, mainFile = 'main.tex', onOutput, { files, onBeforeCompile, userId } = {}) {
+export async function compileProject(
+  projectId,
+  mainFile = 'main.tex',
+  onOutput,
+  { files, onBeforeCompile, userId, texDistribution } = {},
+) {
   // Sync files to disk before compiling
   if (files) {
     await syncFilesToDisk(projectId, files);
@@ -97,10 +166,10 @@ export async function compileProject(projectId, mainFile = 'main.tex', onOutput,
 
   // Each user gets a unique jobname so concurrent compilations don't collide
   const userSuffix = userId ? '_' + userId.slice(0, 8) : '';
-  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs);
+  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution);
 }
 
-function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000) {
+function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000, texDistribution = null) {
   return new Promise((resolve, reject) => {
     const projectDir = path.join(PROJECTS_DIR, projectId);
 
@@ -127,14 +196,16 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
 
     const env = {
       ...process.env,
-      PATH: TEX_PATHS + ':' + (process.env.PATH || ''),
+      PATH: getTexPaths(texDistribution) + ':' + (process.env.PATH || ''),
       // Restrict LaTeX file I/O to prevent reading arbitrary server files
-      openin_any: 'p',   // only open files in the current directory or below
-      openout_any: 'p',  // only write files in the current directory or below
+      openin_any: 'p', // only open files in the current directory or below
+      openout_any: 'p', // only write files in the current directory or below
     };
 
     let resolveExit;
-    const exitPromise = new Promise((r) => { resolveExit = r; });
+    const exitPromise = new Promise((r) => {
+      resolveExit = r;
+    });
 
     compileMetrics.active++;
     const compileStartTime = Date.now();
@@ -164,7 +235,11 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
         // which contains output from all passes including early ones with unresolved refs)
         const logPath = path.join(projectDir, jobName + '.log');
         let finalLog = '';
-        try { finalLog = fs.readFileSync(logPath, 'utf-8'); } catch { finalLog = stdout; }
+        try {
+          finalLog = fs.readFileSync(logPath, 'utf-8');
+        } catch {
+          finalLog = stdout;
+        }
 
         if (error?.killed || error?.signal === 'SIGTERM') {
           recordCompile(false, duration);
@@ -176,7 +251,7 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
           recordCompile(false, duration);
           reject(new Error(finalLog || stdout || stderr || 'Compilation failed'));
         }
-      }
+      },
     );
 
     activeCompilations.set(projectId, { child, exitPromise });
@@ -189,7 +264,14 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
 }
 
 // Forward sync: editor line → PDF page/position
-export function synctexForward(projectId, line, column, inputFile = 'main.tex', mainFile = 'main.tex', userSuffix = '') {
+export function synctexForward(
+  projectId,
+  line,
+  column,
+  inputFile = 'main.tex',
+  mainFile = 'main.tex',
+  userSuffix = '',
+) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
 
   // Validate inputFile
@@ -204,11 +286,10 @@ export function synctexForward(projectId, line, column, inputFile = 'main.tex', 
   const pdfFile = path.join(projectDir, mainBase + userSuffix + '.pdf');
 
   try {
-    const output = execFileSync('synctex', [
-      'view',
-      '-i', `${line}:${column}:${safeInputFile}`,
-      '-o', pdfFile,
-    ], { encoding: 'utf-8', timeout: 5000 });
+    const output = execFileSync('synctex', ['view', '-i', `${line}:${column}:${safeInputFile}`, '-o', pdfFile], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
 
     const pageMatch = output.match(/Page:(\d+)/);
     const xMatch = output.match(/x:([\d.]+)/);
@@ -239,10 +320,10 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
   const pdfFile = safeMainFile;
 
   try {
-    const output = execFileSync('synctex', [
-      'edit',
-      '-o', `${page}:${x}:${y}:${pdfFile}`,
-    ], { encoding: 'utf-8', timeout: 5000 });
+    const output = execFileSync('synctex', ['edit', '-o', `${page}:${x}:${y}:${pdfFile}`], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
 
     const lineMatch = output.match(/Line:(\d+)/);
     const columnMatch = output.match(/Column:(-?\d+)/);
@@ -254,6 +335,8 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
       if (file.startsWith(projectDir)) {
         file = file.slice(projectDir.length + 1);
       }
+      // Strip leading ./ prefix
+      if (file.startsWith('./')) file = file.slice(2);
       return {
         line: parseInt(lineMatch[1]),
         column: Math.max(0, parseInt(columnMatch?.[1] || '0')),
@@ -288,9 +371,7 @@ export async function syncFilesToDisk(projectId, files) {
 
   const writes = files.map(async (file) => {
     const filePath = safePath(projectDir, file.path);
-    const buf = file.is_binary && file.content
-      ? Buffer.from(file.content, 'base64')
-      : file.content;
+    const buf = file.is_binary && file.content ? Buffer.from(file.content, 'base64') : file.content;
     const hash = contentHash(typeof buf === 'string' ? buf : buf || '');
     const cacheKey = projectId + ':' + file.path;
 

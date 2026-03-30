@@ -38,18 +38,15 @@ async function requireCommentAccess(commentId, userId, res, opts = {}) {
 router.get('/:fileId', async (req, res) => {
   if (!(await requireFileAccess(req.params.fileId, req.session.userId, res))) return;
 
-  const comments = await db.all(
-    'SELECT * FROM comments WHERE file_id = $1 ORDER BY from_pos',
-    [req.params.fileId]
-  );
+  const comments = await db.all('SELECT * FROM comments WHERE file_id = $1 ORDER BY from_pos', [req.params.fileId]);
 
   // Batch-fetch replies for all comments (avoids N+1)
   if (comments.length > 0) {
-    const commentIds = comments.map(c => c.id);
+    const commentIds = comments.map((c) => c.id);
     const placeholders = commentIds.map((_, i) => `$${i + 1}`).join(',');
     const allReplies = await db.all(
       `SELECT * FROM comment_replies WHERE comment_id IN (${placeholders}) ORDER BY created_at`,
-      commentIds
+      commentIds,
     );
     const repliesByComment = {};
     for (const r of allReplies) {
@@ -79,12 +76,14 @@ router.post('/:fileId', async (req, res) => {
   }
   const id = uuid();
 
-  const user = await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]);
-  const author = user?.name || 'User';
+  const author =
+    req.session.userName ||
+    (await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]))?.name ||
+    'User';
 
   await db.run(
     'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId]
+    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId],
   );
 
   const comment = await db.get('SELECT * FROM comments WHERE id = $1', [id]);
@@ -123,12 +122,17 @@ router.post('/:commentId/reply', async (req, res) => {
     return res.status(400).json({ error: 'Reply text must be 1-10000 characters' });
   }
   const id = uuid();
-  const user = await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]);
-  const author = user?.name || 'User';
-  await db.run(
-    'INSERT INTO comment_replies (id, comment_id, text, author, author_id) VALUES ($1, $2, $3, $4, $5)',
-    [id, req.params.commentId, text, author, req.session.userId]
-  );
+  const author =
+    req.session.userName ||
+    (await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]))?.name ||
+    'User';
+  await db.run('INSERT INTO comment_replies (id, comment_id, text, author, author_id) VALUES ($1, $2, $3, $4, $5)', [
+    id,
+    req.params.commentId,
+    text,
+    author,
+    req.session.userId,
+  ]);
   const reply = await db.get('SELECT * FROM comment_replies WHERE id = $1', [id]);
   res.json(reply);
 });

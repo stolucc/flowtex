@@ -17,45 +17,58 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
       .then(setComments);
   }, [activeFile]);
 
-  const handleAddComment = useCallback(async (text) => {
-    if (!activeFile || !selection) return;
-    const res = await post(`/api/comments/${activeFile.id}`, {
-      from_pos: selection.from,
-      to_pos: selection.to,
-      text,
-    });
-    const comment = await res.json();
-    setComments((c) => [...c, comment]);
-    setSelection(null);
-    sendWsRef.current?.({ type: 'comment', fileId: activeFile.id, comment });
-  }, [activeFile, selection, sendWsRef]);
+  const handleAddComment = useCallback(
+    async (text) => {
+      if (!activeFile || !selection) return;
+      const res = await post(`/api/comments/${activeFile.id}`, {
+        from_pos: selection.from,
+        to_pos: selection.to,
+        text,
+      });
+      const comment = await res.json();
+      setComments((c) => [...c, comment]);
+      setSelection(null);
+      sendWsRef.current?.({ type: 'comment', fileId: activeFile.id, comment });
+    },
+    [activeFile, selection, sendWsRef],
+  );
 
-  const handleResolveComment = useCallback(async (commentId, resolved) => {
-    await patch(`/api/comments/${commentId}/resolve`, { resolved });
-    setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, resolved: resolved ? 1 : 0 } : c)));
-    sendWsRef.current?.({ type: 'comment-resolve', commentId, resolved });
-  }, [sendWsRef]);
+  const handleResolveComment = useCallback(
+    async (commentId, resolved) => {
+      await patch(`/api/comments/${commentId}/resolve`, { resolved });
+      setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, resolved: resolved ? 1 : 0 } : c)));
+      sendWsRef.current?.({ type: 'comment-resolve', commentId, resolved });
+    },
+    [sendWsRef],
+  );
 
-  const handleDeleteComment = useCallback(async (commentId) => {
-    await del(`/api/comments/${commentId}`);
-    setComments((cs) => cs.filter((c) => c.id !== commentId));
-    sendWsRef.current?.({ type: 'comment-delete', commentId });
-  }, [sendWsRef]);
+  const handleDeleteComment = useCallback(
+    async (commentId) => {
+      await del(`/api/comments/${commentId}`);
+      setComments((cs) => cs.filter((c) => c.id !== commentId));
+      sendWsRef.current?.({ type: 'comment-delete', commentId });
+    },
+    [sendWsRef],
+  );
 
-  const handleReplyComment = useCallback(async (commentId, text) => {
-    const res = await post(`/api/comments/${commentId}/reply`, { text });
-    const reply = await res.json();
-    setComments((cs) => cs.map((c) =>
-      c.id === commentId ? { ...c, replies: [...(c.replies || []), reply] } : c
-    ));
-    sendWsRef.current?.({ type: 'comment-reply', commentId, reply });
-  }, [sendWsRef]);
+  const handleReplyComment = useCallback(
+    async (commentId, text) => {
+      const res = await post(`/api/comments/${commentId}/reply`, { text });
+      const reply = await res.json();
+      setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, replies: [...(c.replies || []), reply] } : c)));
+      sendWsRef.current?.({ type: 'comment-reply', commentId, reply });
+    },
+    [sendWsRef],
+  );
 
-  const handleEditComment = useCallback(async (commentId, text) => {
-    await patch(`/api/comments/${commentId}`, { text });
-    setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, text } : c)));
-    sendWsRef.current?.({ type: 'comment-edit', commentId, text });
-  }, [sendWsRef]);
+  const handleEditComment = useCallback(
+    async (commentId, text) => {
+      await patch(`/api/comments/${commentId}`, { text });
+      setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, text } : c)));
+      sendWsRef.current?.({ type: 'comment-edit', commentId, text });
+    },
+    [sendWsRef],
+  );
 
   const updateCommentPositions = useCallback(() => {
     const editor = editorRef.current;
@@ -95,12 +108,17 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   }, [comments, selection, updateCommentPositions]);
 
   return {
-    comments, setComments,
-    selection, setSelection,
+    comments,
+    setComments,
+    selection,
+    setSelection,
     selectionFormTop,
     commentPositions,
-    handleAddComment, handleResolveComment,
-    handleDeleteComment, handleReplyComment, handleEditComment,
+    handleAddComment,
+    handleResolveComment,
+    handleDeleteComment,
+    handleReplyComment,
+    handleEditComment,
     updateCommentPositions,
   };
 }

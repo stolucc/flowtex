@@ -25,7 +25,7 @@ function getRoom(projectId) {
 // ── Message sanitization ────────────────────────────────────────────────
 function sanitizeString(str) {
   if (typeof str !== 'string') return str;
-  return str.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+  return str.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
 function sanitizeValue(val) {
@@ -55,11 +55,16 @@ function broadcastToRoom(projectId, message, excludeWs) {
     }
   }
   if (redisPub) {
-    redisPub.publish(REDIS_CHANNEL, JSON.stringify({
-      projectId,
-      message: sanitized,
-      fromServer: SERVER_ID,
-    })).catch(() => {});
+    redisPub
+      .publish(
+        REDIS_CHANNEL,
+        JSON.stringify({
+          projectId,
+          message: sanitized,
+          fromServer: SERVER_ID,
+        }),
+      )
+      .catch(() => {});
   }
 }
 
@@ -92,11 +97,7 @@ function unsignCookie(signedValue, secret) {
   if (dotIdx === -1) return null;
   const id = val.slice(0, dotIdx);
   const mac = val.slice(dotIdx + 1);
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(id)
-    .digest('base64')
-    .replace(/=+$/, '');
+  const expected = crypto.createHmac('sha256', secret).update(id).digest('base64').replace(/=+$/, '');
   if (mac.length !== expected.length) return null;
   const macBuf = Buffer.from(mac);
   const expectedBuf = Buffer.from(expected);
@@ -145,10 +146,10 @@ async function handleJoin(ws, msg, state) {
 
   state.projectId = msg.projectId;
 
-  const member = await db.get(
-    'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-    [state.projectId, state.authenticatedUserId]
-  );
+  const member = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
+    state.projectId,
+    state.authenticatedUserId,
+  ]);
   if (!member) {
     ws.send(JSON.stringify({ type: 'error', error: 'No access' }));
     ws.close();
@@ -173,32 +174,42 @@ async function handleJoin(ws, msg, state) {
 
 function handleChanges(msg, state, ws) {
   if (!Array.isArray(msg.changes) || msg.changes.length > 1000) return;
-  const valid = msg.changes.every(c =>
-    c && typeof c === 'object' &&
-    (c.from === undefined || typeof c.from === 'number') &&
-    (c.to === undefined || typeof c.to === 'number') &&
-    (c.insert === undefined || (typeof c.insert === 'string' && c.insert.length <= 500000))
+  const valid = msg.changes.every(
+    (c) =>
+      c &&
+      typeof c === 'object' &&
+      (c.from === undefined || typeof c.from === 'number') &&
+      (c.to === undefined || typeof c.to === 'number') &&
+      (c.insert === undefined || (typeof c.insert === 'string' && c.insert.length <= 500000)),
   );
   if (!valid) return;
 
-  broadcastToRoom(state.projectId, {
-    type: 'changes',
-    fileId: msg.fileId,
-    changes: msg.changes,
-    userId: state.clientEntry.userId,
-  }, ws);
+  broadcastToRoom(
+    state.projectId,
+    {
+      type: 'changes',
+      fileId: msg.fileId,
+      changes: msg.changes,
+      userId: state.clientEntry.userId,
+    },
+    ws,
+  );
 }
 
 function handleCursor(msg, state, ws) {
   state.clientEntry.cursor = { fileId: msg.fileId, head: msg.head, anchor: msg.anchor };
-  broadcastToRoom(state.projectId, {
-    type: 'cursor',
-    fileId: msg.fileId,
-    userId: state.clientEntry.userId,
-    userName: state.clientEntry.userName,
-    head: msg.head,
-    anchor: msg.anchor,
-  }, ws);
+  broadcastToRoom(
+    state.projectId,
+    {
+      type: 'cursor',
+      fileId: msg.fileId,
+      userId: state.clientEntry.userId,
+      userName: state.clientEntry.userName,
+      head: msg.head,
+      anchor: msg.anchor,
+    },
+    ws,
+  );
 }
 
 function handleComment(msg, state, ws) {
@@ -240,18 +251,37 @@ async function handleChat(msg, state) {
   const text = (msg.text || '').trim().slice(0, 5000);
   if (!text) return;
   try {
-    await db.run(
-      'INSERT INTO chat_messages (id, project_id, user_id, user_name, text) VALUES ($1, $2, $3, $4, $5)',
-      [id, state.projectId, state.authenticatedUserId, state.authenticatedUserName, text]
-    );
-    const chatMsg = { type: 'chat', id, userId: state.authenticatedUserId, userName: state.authenticatedUserName, text, created_at: new Date().toISOString() };
+    await db.run('INSERT INTO chat_messages (id, project_id, user_id, user_name, text) VALUES ($1, $2, $3, $4, $5)', [
+      id,
+      state.projectId,
+      state.authenticatedUserId,
+      state.authenticatedUserName,
+      text,
+    ]);
+    const chatMsg = {
+      type: 'chat',
+      id,
+      userId: state.authenticatedUserId,
+      userName: state.authenticatedUserName,
+      text,
+      created_at: new Date().toISOString(),
+    };
     broadcastToRoom(state.projectId, chatMsg);
   } catch (e) {
     logger.error({ err: e }, 'Chat insert error');
   }
 }
 
-const writeTypes = new Set(['changes', 'comment', 'comment-reply', 'comment-resolve', 'comment-delete', 'comment-edit', 'tracked-change', 'tracked-change-resolve']);
+const writeTypes = new Set([
+  'changes',
+  'comment',
+  'comment-reply',
+  'comment-resolve',
+  'comment-delete',
+  'comment-edit',
+  'tracked-change',
+  'tracked-change-resolve',
+]);
 
 const messageHandlers = {
   changes: handleChanges,
@@ -318,7 +348,10 @@ export function initWebSocket(server, app, sessionSecret) {
   // Heartbeat
   const heartbeatTimer = setInterval(() => {
     for (const ws of wss.clients) {
-      if (ws.isAlive === false) { ws.terminate(); continue; }
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
       ws.isAlive = false;
       ws.ping();
     }
@@ -329,7 +362,9 @@ export function initWebSocket(server, app, sessionSecret) {
   // Connection handler
   wss.on('connection', async (ws, req) => {
     ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
 
     // Buffer messages that arrive during async auth so they aren't lost
     const pendingMessages = [];
@@ -397,7 +432,11 @@ export function initWebSocket(server, app, sessionSecret) {
       if (raw.length > 256 * 1024) return;
 
       let msg;
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
 
       if (msg.type === 'join') {
         await handleJoin(ws, msg, state);

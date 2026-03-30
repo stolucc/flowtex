@@ -10,10 +10,16 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     get('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
-      .then((u) => { setUser(u); setAuthChecked(true); })
+      .then((u) => {
+        setUser(u);
+        setAuthChecked(true);
+      })
       .catch(() => setAuthChecked(true));
 
-    const onExpired = () => { setUser(null); setAuthChecked(true); };
+    const onExpired = () => {
+      setUser(null);
+      setAuthChecked(true);
+    };
     window.addEventListener('auth:expired', onExpired);
     return () => window.removeEventListener('auth:expired', onExpired);
   }, []);
@@ -24,11 +30,7 @@ export function AuthProvider({ children }) {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

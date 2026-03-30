@@ -1,24 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { get, post, del } from '../api.js';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { get, post, del, getCsrfToken } from '../api.js';
 import Avatar from './Avatar.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import MfaSetupModal from './MfaSetupModal.jsx';
-
-function formatRelativeTime(dateStr) {
-  if (!dateStr) return '';
-  const now = new Date();
-  const date = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
-  const diffMs = now - date;
-  const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 30) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
-}
+import useClickOutside from '../hooks/useClickOutside.js';
+import { formatRelativeTime } from '../utils/dateFormat.js';
 
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
@@ -41,7 +27,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [newTagName, setNewTagName] = useState('');
   const [creatingTag, setCreatingTag] = useState(false);
   const [search, setSearch] = useState('');
-  useEffect(() => { setSelected(new Set()); }, [filter, selectedTag]);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [filter, selectedTag]);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, project }
   const contextMenuRef = useRef(null);
   const [sortCol, setSortCol] = useState('updated_at');
@@ -62,9 +50,17 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [ghRepoSearch, setGhRepoSearch] = useState('');
 
   useEffect(() => {
-    get('/api/projects').then((r) => r.json()).then(setProjects);
-    get('/api/projects/invitations/mine').then((r) => r.json()).then(setInvitations).catch(() => {});
-    get('/api/tags').then((r) => r.json()).then(setTags).catch(() => {});
+    get('/api/projects')
+      .then((r) => r.json())
+      .then(setProjects);
+    get('/api/projects/invitations/mine')
+      .then((r) => r.json())
+      .then(setInvitations)
+      .catch(() => {});
+    get('/api/tags')
+      .then((r) => r.json())
+      .then(setTags)
+      .catch(() => {});
   }, []);
 
   const handleCreate = async (e) => {
@@ -80,7 +76,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     setGhImportLoading(true);
     setGhImportError('');
     try {
-      const res = await post('/api/github/import', { repo: ghImportRepo.trim(), branch: ghImportBranch.trim() || undefined });
+      const res = await post('/api/github/import', {
+        repo: ghImportRepo.trim(),
+        branch: ghImportBranch.trim() || undefined,
+      });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Import failed');
@@ -121,12 +120,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const handleUploadZip = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const csrfToken = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/)?.[1] || '';
     const res = await fetch('/api/projects/from-zip', {
       method: 'POST',
       body: formData,
       credentials: 'include',
-      headers: { 'X-CSRF-Token': csrfToken },
+      headers: { 'X-CSRF-Token': getCsrfToken() },
     });
     if (res.ok) {
       const project = await res.json();
@@ -142,25 +140,25 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const handleTrash = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/trash`);
-    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, trashed: 1 } : p));
+    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
   };
 
   const handleRestore = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/restore`);
-    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, trashed: 0 } : p));
+    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 0 } : p)));
   };
 
   const handleArchive = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/archive`);
-    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, archived: 1 } : p));
+    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
   };
 
   const handleUnarchive = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/unarchive`);
-    setProjects((ps) => ps.map((p) => p.id === project.id ? { ...p, archived: 0 } : p));
+    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 0 } : p)));
   };
 
   const handleCopy = async (e, project) => {
@@ -178,7 +176,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     e.stopPropagation();
     setConfirmDelete({
       message: `Are you sure you want to permanently delete "${project.name}"?`,
-      onConfirm: () => { handleDelete(project.id); setConfirmDelete(null); },
+      onConfirm: () => {
+        handleDelete(project.id);
+        setConfirmDelete(null);
+      },
     });
   };
 
@@ -219,7 +220,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         await del(`/api/tags/${tagId}`);
         setTags((t) => t.filter((tg) => tg.id !== tagId));
         setProjects((ps) => ps.map((p) => ({ ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) })));
-        if (selectedTag === tagId) { setSelectedTag(null); setFilter('all'); }
+        if (selectedTag === tagId) {
+          setSelectedTag(null);
+          setFilter('all');
+        }
         setConfirmDelete(null);
       },
     });
@@ -231,49 +235,31 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     const hasTag = project?.tags?.some((t) => t.id === tagId);
     if (hasTag) {
       await del(`/api/projects/${projectId}/tags/${tagId}`);
-      setProjects((ps) => ps.map((p) => p.id === projectId ? { ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) } : p));
+      setProjects((ps) =>
+        ps.map((p) => (p.id === projectId ? { ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) } : p)),
+      );
     } else {
       await post(`/api/projects/${projectId}/tags/${tagId}`);
       const tag = tags.find((t) => t.id === tagId);
-      setProjects((ps) => ps.map((p) => p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p));
+      setProjects((ps) => ps.map((p) => (p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p)));
     }
   };
 
-  // Close context menu on click outside
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handler = (e) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [contextMenu]);
-
-  // Close bulk tag menu on click outside
-  useEffect(() => {
-    if (!showBulkTagMenu) return;
-    const handler = (e) => {
-      if (bulkTagRef.current && !bulkTagRef.current.contains(e.target)) {
-        setShowBulkTagMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showBulkTagMenu]);
-
-  // Close new project menu on click outside
-  useEffect(() => {
-    if (!showNewMenu) return;
-    const handler = (e) => {
-      if (newMenuRef.current && !newMenuRef.current.contains(e.target)) {
-        setShowNewMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showNewMenu]);
+  useClickOutside(
+    contextMenuRef,
+    useCallback(() => setContextMenu(null), []),
+    !!contextMenu,
+  );
+  useClickOutside(
+    bulkTagRef,
+    useCallback(() => setShowBulkTagMenu(false), []),
+    showBulkTagMenu,
+  );
+  useClickOutside(
+    newMenuRef,
+    useCallback(() => setShowNewMenu(false), []),
+    showNewMenu,
+  );
 
   const handleBulkTag = async (tagId) => {
     const tag = tags.find((t) => t.id === tagId);
@@ -283,23 +269,31 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         await post(`/api/projects/${id}/tags/${tagId}`);
       }
     }
-    setProjects((ps) => ps.map((p) => {
-      if (!selected.has(p.id)) return p;
-      if ((p.tags || []).some((t) => t.id === tagId)) return p;
-      return { ...p, tags: [...(p.tags || []), tag] };
-    }));
+    setProjects((ps) =>
+      ps.map((p) => {
+        if (!selected.has(p.id)) return p;
+        if ((p.tags || []).some((t) => t.id === tagId)) return p;
+        return { ...p, tags: [...(p.tags || []), tag] };
+      }),
+    );
     setShowBulkTagMenu(false);
   };
 
   // Filter projects
   const filteredProjects = projects.filter((p) => {
-    if (filter === 'all' && !p.trashed) { /* ok */ }
-    else if (filter === 'yours' && !p.trashed && !p.archived && p.owner_id === user?.id) { /* ok */ }
-    else if (filter === 'shared' && !p.trashed && !p.archived && p.owner_id !== user?.id) { /* ok */ }
-    else if (filter === 'archived' && p.archived && !p.trashed) { /* ok */ }
-    else if (filter === 'deleted' && p.trashed) { /* ok */ }
-    else if (filter === 'tag' && !p.trashed && (p.tags || []).some((t) => t.id === selectedTag)) { /* ok */ }
-    else return false;
+    if (filter === 'all' && !p.trashed) {
+      /* ok */
+    } else if (filter === 'yours' && !p.trashed && !p.archived && p.owner_id === user?.id) {
+      /* ok */
+    } else if (filter === 'shared' && !p.trashed && !p.archived && p.owner_id !== user?.id) {
+      /* ok */
+    } else if (filter === 'archived' && p.archived && !p.trashed) {
+      /* ok */
+    } else if (filter === 'deleted' && p.trashed) {
+      /* ok */
+    } else if (filter === 'tag' && !p.trashed && (p.tags || []).some((t) => t.id === selectedTag)) {
+      /* ok */
+    } else return false;
     // Apply search filter
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -311,20 +305,34 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   // Sort
   const sortedProjects = [...filteredProjects].sort((a, b) => {
     let aVal, bVal;
-    if (sortCol === 'name') { aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); }
-    else if (sortCol === 'owner') { aVal = (a.owner_id === user?.id ? '' : (a.owner_name || '')).toLowerCase(); bVal = (b.owner_id === user?.id ? '' : (b.owner_name || '')).toLowerCase(); }
-    else if (sortCol === 'updated_at') { aVal = a.updated_at || ''; bVal = b.updated_at || ''; }
-    else if (sortCol === 'last_editor') { aVal = (a.last_editor || '').toLowerCase(); bVal = (b.last_editor || '').toLowerCase(); }
-    else if (sortCol === 'member_count') { aVal = parseInt(a.member_count) || 1; bVal = parseInt(b.member_count) || 1; }
-    else return 0;
+    if (sortCol === 'name') {
+      aVal = a.name.toLowerCase();
+      bVal = b.name.toLowerCase();
+    } else if (sortCol === 'owner') {
+      aVal = (a.owner_id === user?.id ? '' : a.owner_name || '').toLowerCase();
+      bVal = (b.owner_id === user?.id ? '' : b.owner_name || '').toLowerCase();
+    } else if (sortCol === 'updated_at') {
+      aVal = a.updated_at || '';
+      bVal = b.updated_at || '';
+    } else if (sortCol === 'last_editor') {
+      aVal = (a.last_editor || '').toLowerCase();
+      bVal = (b.last_editor || '').toLowerCase();
+    } else if (sortCol === 'member_count') {
+      aVal = parseInt(a.member_count) || 1;
+      bVal = parseInt(b.member_count) || 1;
+    } else return 0;
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
     return 0;
   });
 
   const handleSort = (col) => {
-    if (sortCol === col) { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); }
-    else { setSortCol(col); setSortDir(col === 'updated_at' ? 'desc' : 'asc'); }
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir(col === 'updated_at' ? 'desc' : 'asc');
+    }
   };
 
   const SortIcon = ({ col }) => {
@@ -333,31 +341,107 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   const categories = [
-    { id: 'all', label: 'All Projects', icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
-      </svg>
-    )},
-    { id: 'yours', label: 'Your Projects', icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-      </svg>
-    )},
-    { id: 'shared', label: 'Shared with You', icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    )},
-    { id: 'archived', label: 'Archived Projects', icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
-      </svg>
-    )},
-    { id: 'deleted', label: 'Deleted Projects', icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-      </svg>
-    )},
+    {
+      id: 'all',
+      label: 'All Projects',
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      ),
+    },
+    {
+      id: 'yours',
+      label: 'Your Projects',
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      ),
+    },
+    {
+      id: 'shared',
+      label: 'Shared with You',
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      ),
+    },
+    {
+      id: 'archived',
+      label: 'Archived Projects',
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="21 8 21 21 3 21 3 8" />
+          <rect x="1" y="3" width="22" height="5" />
+          <line x1="10" y1="12" x2="14" y2="12" />
+        </svg>
+      ),
+    },
+    {
+      id: 'deleted',
+      label: 'Deleted Projects',
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -370,34 +454,74 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
         <div className="new-project-btn-group" ref={newMenuRef}>
           <button className="sidebar-new-project-btn" onClick={() => handleCreate({ preventDefault: () => {} })}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             New Project
           </button>
-          <button
-            className="new-project-menu-toggle"
-            onClick={() => setShowNewMenu(!showNewMenu)}
-          >
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 4 3-4z" /></svg>
+          <button className="new-project-menu-toggle" onClick={() => setShowNewMenu(!showNewMenu)}>
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M2 3l3 4 3-4z" />
+            </svg>
           </button>
           {showNewMenu && (
             <div className="new-project-dropdown-menu">
-              <button onClick={() => { setShowNewMenu(false); handleCreate({ preventDefault: () => {} }); }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+              <button
+                onClick={() => {
+                  setShowNewMenu(false);
+                  handleCreate({ preventDefault: () => {} });
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
                 </svg>
                 Blank Project
               </button>
-              <button onClick={() => { setShowNewMenu(false); zipInputRef.current?.click(); }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+              <button
+                onClick={() => {
+                  setShowNewMenu(false);
+                  zipInputRef.current?.click();
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
                 Upload ZIP
               </button>
               <button onClick={openGitHubImport}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
                 Import from GitHub
               </button>
@@ -421,7 +545,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             <button
               key={cat.id}
               className={`sidebar-category ${filter === cat.id && !selectedTag ? 'active' : ''}`}
-              onClick={() => { setFilter(cat.id); setSelectedTag(null); }}
+              onClick={() => {
+                setFilter(cat.id);
+                setSelectedTag(null);
+              }}
             >
               {cat.icon}
               <span>{cat.label}</span>
@@ -433,8 +560,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           <div className="sidebar-tags-header">
             <span className="sidebar-section-label">Tags</span>
             <button className="sidebar-add-tag-btn" onClick={() => setCreatingTag(!creatingTag)} title="Create tag">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
           </div>
@@ -446,7 +583,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 value={newTagName}
                 onChange={(e) => setNewTagName(e.target.value)}
                 autoFocus
-                onBlur={() => { if (!newTagName.trim()) setCreatingTag(false); }}
+                onBlur={() => {
+                  if (!newTagName.trim()) setCreatingTag(false);
+                }}
               />
             </form>
           )}
@@ -455,11 +594,26 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               <button
                 key={tag.id}
                 className={`sidebar-tag ${filter === 'tag' && selectedTag === tag.id ? 'active' : ''}`}
-                onClick={() => { setFilter('tag'); setSelectedTag(tag.id); }}
+                onClick={() => {
+                  setFilter('tag');
+                  setSelectedTag(tag.id);
+                }}
               >
                 <span className="sidebar-tag-dot" style={{ background: tag.color }} />
-                <span className="sidebar-tag-name">{tag.name} ({projects.filter(p => !p.trashed && (p.tags || []).some(t => t.id === tag.id)).length})</span>
-                <span className="sidebar-tag-delete" onClick={(e) => { e.stopPropagation(); handleDeleteTag(tag.id); }} title="Delete tag">&times;</span>
+                <span className="sidebar-tag-name">
+                  {tag.name} ({projects.filter((p) => !p.trashed && (p.tags || []).some((t) => t.id === tag.id)).length}
+                  )
+                </span>
+                <span
+                  className="sidebar-tag-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteTag(tag.id);
+                  }}
+                  title="Delete tag"
+                >
+                  &times;
+                </span>
               </button>
             ))}
           </div>
@@ -471,20 +625,51 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             <span className="sidebar-user-name">{user.name}</span>
             {user.isAdmin && onAdmin && (
               <button className="sidebar-icon-btn" onClick={onAdmin} title="Admin Dashboard">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20V10" /><path d="M18 20V4" /><path d="M6 20v-4" />
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20V10" />
+                  <path d="M18 20V4" />
+                  <path d="M6 20v-4" />
                 </svg>
               </button>
             )}
             <button className="sidebar-icon-btn" onClick={() => setShowMfa(true)} title="Settings">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
             <button className="sidebar-icon-btn" onClick={onLogout} title="Log out">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
             </button>
           </div>
@@ -494,28 +679,72 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       <div className="dashboard-main">
         <div className="dashboard-topbar">
           <h2 className="dashboard-view-title">
-            {filter === 'tag' && selectedTag ? tags.find((t) => t.id === selectedTag)?.name || 'Tag' : categories.find((c) => c.id === filter)?.label || 'All Projects'}
+            {filter === 'tag' && selectedTag
+              ? tags.find((t) => t.id === selectedTag)?.name || 'Tag'
+              : categories.find((c) => c.id === filter)?.label || 'All Projects'}
           </h2>
         </div>
         <div className="project-search-bar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          <input type="text" placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input
+            type="text"
+            placeholder="Search projects..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         {selected.size > 0 && (
           <div className="bulk-actions-bar">
             <span className="bulk-actions-count">{selected.size} selected</span>
-            <button className="bulk-action-btn" onClick={() => { selected.forEach((id) => window.open(`/api/projects/${id}/zip`, '_blank')); }} title="Download">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            <button
+              className="bulk-action-btn"
+              onClick={() => {
+                selected.forEach((id) => window.open(`/api/projects/${id}/zip`, '_blank'));
+              }}
+              title="Download"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
               Download
             </button>
             <div className="bulk-tag-wrapper" ref={bulkTagRef}>
               <button className="bulk-action-btn" onClick={() => setShowBulkTagMenu((v) => !v)} title="Assign tag">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                  <line x1="7" y1="7" x2="7.01" y2="7" />
                 </svg>
                 Tag
               </button>
@@ -523,55 +752,167 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 <div className="bulk-tag-dropdown">
                   {tags.length === 0 ? (
                     <div className="bulk-tag-empty">No tags yet</div>
-                  ) : tags.map((tag) => (
-                    <button key={tag.id} className="bulk-tag-option" onClick={() => handleBulkTag(tag.id)}>
-                      <span className="sidebar-tag-dot" style={{ background: tag.color }} />
-                      {tag.name}
-                    </button>
-                  ))}
+                  ) : (
+                    tags.map((tag) => (
+                      <button key={tag.id} className="bulk-tag-option" onClick={() => handleBulkTag(tag.id)}>
+                        <span className="sidebar-tag-dot" style={{ background: tag.color }} />
+                        {tag.name}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
             {filter !== 'archived' && filter !== 'deleted' && (
-              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/archive`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, archived: 1 } : p)); setSelected(new Set()); }} title="Archive">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+              <button
+                className="bulk-action-btn"
+                onClick={async () => {
+                  for (const id of selected) await post(`/api/projects/${id}/archive`);
+                  setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, archived: 1 } : p)));
+                  setSelected(new Set());
+                }}
+                title="Archive"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="21 8 21 21 3 21 3 8" />
+                  <rect x="1" y="3" width="22" height="5" />
+                  <line x1="10" y1="12" x2="14" y2="12" />
                 </svg>
                 Archive
               </button>
             )}
             {filter === 'archived' && (
-              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/unarchive`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, archived: 0 } : p)); setSelected(new Set()); }} title="Unarchive">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+              <button
+                className="bulk-action-btn"
+                onClick={async () => {
+                  for (const id of selected) await post(`/api/projects/${id}/unarchive`);
+                  setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, archived: 0 } : p)));
+                  setSelected(new Set());
+                }}
+                title="Unarchive"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="21 8 21 21 3 21 3 8" />
+                  <rect x="1" y="3" width="22" height="5" />
+                  <line x1="10" y1="12" x2="14" y2="12" />
                 </svg>
                 Unarchive
               </button>
             )}
             {filter === 'deleted' ? (
               <>
-              <button className="bulk-action-btn" onClick={async () => { for (const id of selected) await post(`/api/projects/${id}/restore`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 0 } : p)); setSelected(new Set()); }} title="Restore">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                </svg>
-                Restore
-              </button>
-              <button className="bulk-action-btn bulk-action-danger" onClick={() => setConfirmDelete({ message: `Permanently delete ${selected.size} project(s)? This cannot be undone.`, onConfirm: async () => { for (const id of selected) await del(`/api/projects/${id}`); setProjects((ps) => ps.filter((p) => !selected.has(p.id))); setSelected(new Set()); setConfirmDelete(null); } })} title="Delete permanently">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
-                </svg>
-                Delete permanently
-              </button>
+                <button
+                  className="bulk-action-btn"
+                  onClick={async () => {
+                    for (const id of selected) await post(`/api/projects/${id}/restore`);
+                    setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, trashed: 0 } : p)));
+                    setSelected(new Set());
+                  }}
+                  title="Restore"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                  Restore
+                </button>
+                <button
+                  className="bulk-action-btn bulk-action-danger"
+                  onClick={() =>
+                    setConfirmDelete({
+                      message: `Permanently delete ${selected.size} project(s)? This cannot be undone.`,
+                      onConfirm: async () => {
+                        for (const id of selected) await del(`/api/projects/${id}`);
+                        setProjects((ps) => ps.filter((p) => !selected.has(p.id)));
+                        setSelected(new Set());
+                        setConfirmDelete(null);
+                      },
+                    })
+                  }
+                  title="Delete permanently"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                  Delete permanently
+                </button>
               </>
             ) : (
-              <button className="bulk-action-btn bulk-action-danger" onClick={() => setConfirmDelete({ message: `Are you sure you want to delete ${selected.size} project(s)?`, onConfirm: async () => { for (const id of selected) await post(`/api/projects/${id}/trash`); setProjects((ps) => ps.map((p) => selected.has(p.id) ? { ...p, trashed: 1 } : p)); setSelected(new Set()); setConfirmDelete(null); } })} title="Delete">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+              <button
+                className="bulk-action-btn bulk-action-danger"
+                onClick={() =>
+                  setConfirmDelete({
+                    message: `Are you sure you want to delete ${selected.size} project(s)?`,
+                    onConfirm: async () => {
+                      for (const id of selected) await post(`/api/projects/${id}/trash`);
+                      setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, trashed: 1 } : p)));
+                      setSelected(new Set());
+                      setConfirmDelete(null);
+                    },
+                  })
+                }
+                title="Delete"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
                 </svg>
                 Delete
               </button>
             )}
-            <button className="bulk-action-btn-clear" onClick={() => setSelected(new Set())}>Clear</button>
+            <button className="bulk-action-btn-clear" onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
           </div>
         )}
 
@@ -588,8 +929,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     </span>
                   </div>
                   <div className="invitation-actions">
-                    <button className="invitation-accept-btn" onClick={() => handleAcceptInvite(inv.id)}>Accept</button>
-                    <button className="invitation-decline-btn" onClick={() => handleDeclineInvite(inv.id)}>Decline</button>
+                    <button className="invitation-accept-btn" onClick={() => handleAcceptInvite(inv.id)}>
+                      Accept
+                    </button>
+                    <button className="invitation-decline-btn" onClick={() => handleDeclineInvite(inv.id)}>
+                      Decline
+                    </button>
                   </div>
                 </div>
               ))}
@@ -613,87 +958,232 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     }}
                   />
                 </th>
-                <th className="project-table-sortable" onClick={() => handleSort('name')}>Title <SortIcon col="name" /></th>
-                <th className="project-table-sortable" onClick={() => handleSort('owner')}>Owner <SortIcon col="owner" /></th>
-                <th className="project-table-sortable" onClick={() => handleSort('member_count')}>Members <SortIcon col="member_count" /></th>
-                <th className="project-table-sortable" onClick={() => handleSort('updated_at')}>Last Modified <SortIcon col="updated_at" /></th>
-                <th className="project-table-sortable" onClick={() => handleSort('last_editor')}>Modified By <SortIcon col="last_editor" /></th>
+                <th className="project-table-sortable" onClick={() => handleSort('name')}>
+                  Title <SortIcon col="name" />
+                </th>
+                <th className="project-table-sortable" onClick={() => handleSort('owner')}>
+                  Owner <SortIcon col="owner" />
+                </th>
+                <th className="project-table-sortable" onClick={() => handleSort('member_count')}>
+                  Members <SortIcon col="member_count" />
+                </th>
+                <th className="project-table-sortable" onClick={() => handleSort('updated_at')}>
+                  Last Modified <SortIcon col="updated_at" />
+                </th>
+                <th className="project-table-sortable" onClick={() => handleSort('last_editor')}>
+                  Modified By <SortIcon col="last_editor" />
+                </th>
                 <th className="project-table-actions-col">Actions</th>
               </tr>
             </thead>
             <tbody>
               {sortedProjects.map((p) => (
-                <tr key={p.id} className={`project-table-row ${selected.has(p.id) ? 'selected' : ''}`} onClick={() => !p.trashed && onSelect(p)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, project: p }); }}>
+                <tr
+                  key={p.id}
+                  className={`project-table-row ${selected.has(p.id) ? 'selected' : ''}`}
+                  onClick={() => !p.trashed && onSelect(p)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, project: p });
+                  }}
+                >
                   <td className="project-table-check" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selected.has(p.id)}
-                      onChange={() => setSelected((s) => { const next = new Set(s); if (next.has(p.id)) next.delete(p.id); else next.add(p.id); return next; })}
+                      onChange={() =>
+                        setSelected((s) => {
+                          const next = new Set(s);
+                          if (next.has(p.id)) next.delete(p.id);
+                          else next.add(p.id);
+                          return next;
+                        })
+                      }
                     />
                   </td>
                   <td className="project-table-title">
                     <span className="project-table-name">
                       {p.name}
                       {p.github_repo && (
-                        <svg className="project-github-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" title={p.github_repo}>
-                          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                        <svg
+                          className="project-github-icon"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          title={p.github_repo}
+                        >
+                          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                         </svg>
                       )}
                     </span>
                     {(p.tags || []).length > 0 && (
                       <span className="project-table-tags">
                         {p.tags.map((t) => (
-                          <span key={t.id} className="project-tag-chip" style={{ background: t.color + '33', color: t.color }}>{t.name}</span>
+                          <span
+                            key={t.id}
+                            className="project-tag-chip"
+                            style={{ background: t.color + '33', color: t.color }}
+                          >
+                            {t.name}
+                          </span>
                         ))}
                       </span>
                     )}
                   </td>
-                  <td className="project-table-cell">{p.owner_id === user?.id ? 'You' : (p.owner_name || '')}</td>
+                  <td className="project-table-cell">{p.owner_id === user?.id ? 'You' : p.owner_name || ''}</td>
                   <td className="project-table-cell">{p.member_count || 1}</td>
                   <td className="project-table-cell">{formatRelativeTime(p.updated_at)}</td>
-                  <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : (p.last_editor || '')}</td>
+                  <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : p.last_editor || ''}</td>
                   <td className="project-table-cell project-table-actions" onClick={(e) => e.stopPropagation()}>
                     {filter === 'deleted' ? (
                       <>
                         <button className="project-action-btn" onClick={(e) => handleRestore(e, p)} title="Restore">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="1 4 1 10 7 10" />
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                           </svg>
                         </button>
-                        <button className="project-action-btn project-action-danger" onClick={(e) => confirmDeleteProject(e, p)} title="Delete permanently">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        <button
+                          className="project-action-btn project-action-danger"
+                          onClick={(e) => confirmDeleteProject(e, p)}
+                          title="Delete permanently"
+                        >
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                           </svg>
                         </button>
                       </>
                     ) : (
                       <>
                         <button className="project-action-btn" onClick={(e) => handleCopy(e, p)} title="Copy">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                           </svg>
                         </button>
-                        <button className="project-action-btn" onClick={(e) => { e.stopPropagation(); window.location.href = `/api/projects/${p.id}/zip`; }} title="Download ZIP">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                        <button
+                          className="project-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.location.href = `/api/projects/${p.id}/zip`;
+                          }}
+                          title="Download ZIP"
+                        >
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
                           </svg>
                         </button>
                         {p.archived ? (
-                          <button className="project-action-btn" onClick={(e) => handleUnarchive(e, p)} title="Unarchive">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                          <button
+                            className="project-action-btn"
+                            onClick={(e) => handleUnarchive(e, p)}
+                            title="Unarchive"
+                          >
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="21 8 21 21 3 21 3 8" />
+                              <rect x="1" y="3" width="22" height="5" />
+                              <line x1="10" y1="12" x2="14" y2="12" />
                             </svg>
                           </button>
                         ) : (
                           <button className="project-action-btn" onClick={(e) => handleArchive(e, p)} title="Archive">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="21 8 21 21 3 21 3 8" />
+                              <rect x="1" y="3" width="22" height="5" />
+                              <line x1="10" y1="12" x2="14" y2="12" />
                             </svg>
                           </button>
                         )}
-                        <button className="project-action-btn project-action-danger" onClick={(e) => { e.stopPropagation(); setConfirmDelete({ message: `Are you sure you want to delete "${p.name}"?`, onConfirm: () => { handleTrash(e, p); setConfirmDelete(null); } }); }} title="Delete">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        <button
+                          className="project-action-btn project-action-danger"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDelete({
+                              message: `Are you sure you want to delete "${p.name}"?`,
+                              onConfirm: () => {
+                                handleTrash(e, p);
+                                setConfirmDelete(null);
+                              },
+                            });
+                          }}
+                          title="Delete"
+                        >
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                           </svg>
                         </button>
                       </>
@@ -707,11 +1197,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       </div>
 
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="project-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
+        <div ref={contextMenuRef} className="project-context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
           <div className="context-menu-header">Tags</div>
           {tags.length === 0 && <div className="context-menu-empty">No tags yet</div>}
           {tags.map((tag) => {
@@ -720,11 +1206,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               <button
                 key={tag.id}
                 className="context-menu-item"
-                onClick={(e) => { handleToggleProjectTag(e, contextMenu.project.id, tag.id); setContextMenu(null); }}
+                onClick={(e) => {
+                  handleToggleProjectTag(e, contextMenu.project.id, tag.id);
+                  setContextMenu(null);
+                }}
               >
-                <span className={`context-menu-check ${hasTag ? 'checked' : ''}`}>
-                  {hasTag ? '\u2713' : ''}
-                </span>
+                <span className={`context-menu-check ${hasTag ? 'checked' : ''}`}>{hasTag ? '\u2713' : ''}</span>
                 <span className="sidebar-tag-dot" style={{ background: tag.color }} />
                 <span>{tag.name}</span>
               </button>
@@ -743,7 +1230,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       {showMfa && (
         <MfaSetupModal
           user={user}
-          onClose={() => { setShowMfa(false); setSettingsInitialTab(null); }}
+          onClose={() => {
+            setShowMfa(false);
+            setSettingsInitialTab(null);
+          }}
           onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
           onAccountDeleted={onLogout}
           initialTab={settingsInitialTab}
@@ -754,7 +1244,19 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           <div className="modal-card github-import-modal" onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Import from GitHub</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {ghImportError && <div style={{ padding: '8px 12px', background: 'rgba(243,139,168,0.15)', color: '#f38ba8', borderRadius: 'var(--radius)', fontSize: 13 }}>{ghImportError}</div>}
+              {ghImportError && (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    background: 'rgba(243,139,168,0.15)',
+                    color: '#f38ba8',
+                    borderRadius: 'var(--radius)',
+                    fontSize: 13,
+                  }}
+                >
+                  {ghImportError}
+                </div>
+              )}
               <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Repository</label>
               <input
                 type="text"
@@ -775,16 +1277,23 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   />
                   <div className="github-import-repo-list">
                     {ghRepos
-                      .filter(r => !ghRepoSearch || r.fullName.toLowerCase().includes(ghRepoSearch.toLowerCase()))
+                      .filter((r) => !ghRepoSearch || r.fullName.toLowerCase().includes(ghRepoSearch.toLowerCase()))
                       .slice(0, 50)
-                      .map(r => (
+                      .map((r) => (
                         <button
                           key={r.fullName}
                           className={`github-import-repo-item ${ghImportRepo === r.fullName ? 'active' : ''}`}
-                          onClick={() => { setGhImportRepo(r.fullName); setGhImportBranch(r.defaultBranch || 'main'); }}
+                          onClick={() => {
+                            setGhImportRepo(r.fullName);
+                            setGhImportBranch(r.defaultBranch || 'main');
+                          }}
                         >
-                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fullName}</span>
-                          {r.private && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>private</span>}
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.fullName}
+                          </span>
+                          {r.private && (
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>private</span>
+                          )}
                         </button>
                       ))}
                   </div>
@@ -799,8 +1308,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 onChange={(e) => setGhImportBranch(e.target.value)}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-                <button className="auth-button" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }} onClick={() => setShowGitHubImport(false)}>Cancel</button>
-                <button className="auth-button" onClick={handleGitHubImport} disabled={!ghImportRepo.trim() || ghImportLoading}>
+                <button
+                  className="auth-button"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                  onClick={() => setShowGitHubImport(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="auth-button"
+                  onClick={handleGitHubImport}
+                  disabled={!ghImportRepo.trim() || ghImportLoading}
+                >
                   {ghImportLoading ? 'Importing...' : 'Import'}
                 </button>
               </div>

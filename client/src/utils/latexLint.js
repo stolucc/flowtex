@@ -7,61 +7,131 @@
 // Environments where & is valid (alignment character)
 const ALIGN_ENVS = new Set([
   // Standard LaTeX tabular environments
-  'tabular', 'tabular*', 'tabularx', 'tabulary', 'tabu', 'longtabu',
-  'array', 'longtable', 'supertabular', 'supertabular*', 'xtabular',
-  'mpsupertabular', 'mpsupertabular*',
-  'delarray', 'NiceTabular', 'NiceTabular*', 'NiceArray', 'pNiceArray',
-  'bNiceArray', 'BNiceArray', 'vNiceArray', 'VNiceArray',
-  'blockarray', 'block', 'ctabular',
+  'tabular',
+  'tabular*',
+  'tabularx',
+  'tabulary',
+  'tabu',
+  'longtabu',
+  'array',
+  'longtable',
+  'supertabular',
+  'supertabular*',
+  'xtabular',
+  'mpsupertabular',
+  'mpsupertabular*',
+  'delarray',
+  'NiceTabular',
+  'NiceTabular*',
+  'NiceArray',
+  'pNiceArray',
+  'bNiceArray',
+  'BNiceArray',
+  'vNiceArray',
+  'VNiceArray',
+  'blockarray',
+  'block',
+  'ctabular',
   // Math alignment environments
-  'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'Bmatrix',
-  'smallmatrix', 'psmallmatrix', 'bsmallmatrix', 'vsmallmatrix',
-  'cases', 'dcases', 'rcases', 'drcases', 'cases*',
-  'align', 'align*', 'aligned', 'alignat', 'alignat*', 'alignedat',
-  'eqnarray', 'eqnarray*', 'split', 'gathered', 'multline', 'multline*',
-  'flalign', 'flalign*', 'xalignat', 'xalignat*', 'xxalignat',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'Vmatrix',
+  'Bmatrix',
+  'smallmatrix',
+  'psmallmatrix',
+  'bsmallmatrix',
+  'vsmallmatrix',
+  'cases',
+  'dcases',
+  'rcases',
+  'drcases',
+  'cases*',
+  'align',
+  'align*',
+  'aligned',
+  'alignat',
+  'alignat*',
+  'alignedat',
+  'eqnarray',
+  'eqnarray*',
+  'split',
+  'gathered',
+  'multline',
+  'multline*',
+  'flalign',
+  'flalign*',
+  'xalignat',
+  'xalignat*',
+  'xxalignat',
   // Other
-  'IEEEeqnarray', 'IEEEeqnarray*', 'systeme',
+  'IEEEeqnarray',
+  'IEEEeqnarray*',
+  'systeme',
 ]);
 
 // Environments that start math mode
 const MATH_ENVS = new Set([
-  'equation', 'equation*', 'align', 'align*', 'aligned', 'alignat',
-  'alignat*', 'gather', 'gather*', 'gathered', 'multline', 'multline*',
-  'flalign', 'flalign*', 'split', 'math', 'displaymath', 'eqnarray',
-  'eqnarray*', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix',
-  'Bmatrix', 'cases',
+  'equation',
+  'equation*',
+  'align',
+  'align*',
+  'aligned',
+  'alignat',
+  'alignat*',
+  'gather',
+  'gather*',
+  'gathered',
+  'multline',
+  'multline*',
+  'flalign',
+  'flalign*',
+  'split',
+  'math',
+  'displaymath',
+  'eqnarray',
+  'eqnarray*',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'Vmatrix',
+  'Bmatrix',
+  'cases',
 ]);
 
 // Environments where content is verbatim (no checking)
-const VERBATIM_ENVS = new Set([
-  'verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt', 'comment',
-]);
+const VERBATIM_ENVS = new Set(['verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt', 'comment']);
 
 export default function latexLint(text) {
   const diagnostics = [];
   const lines = text.split('\n');
 
   // State tracking
-  let inMathInline = false;     // $ ... $
-  let inMathDisplay = false;    // $$ ... $$
-  let mathParenDepth = 0;       // \( ... \) nesting
-  let mathBracketDepth = 0;     // \[ ... \] nesting
-  const envStack = [];          // stack of { name, line }
+  let inMathInline = false; // $ ... $
+  let inMathDisplay = false; // $$ ... $$
+  let mathParenDepth = 0; // \( ... \) nesting
+  let mathBracketDepth = 0; // \[ ... \] nesting
+  const envStack = []; // stack of { name, line }
   let inVerbatim = false;
   let verbatimEnv = null;
-  let inMacroDef = false;       // after \newcommand etc, until end of definition
+  let inMacroDef = false; // after \newcommand etc, until end of definition
   let braceDepthAtMacroDef = 0;
   let braceDepth = 0;
 
-
   function inMath() {
-    return inMathInline || inMathDisplay || mathParenDepth > 0 || mathBracketDepth > 0 ||
-      envStack.some(e => MATH_ENVS.has(e.name));
+    return (
+      inMathInline ||
+      inMathDisplay ||
+      mathParenDepth > 0 ||
+      mathBracketDepth > 0 ||
+      envStack.some((e) => MATH_ENVS.has(e.name))
+    );
   }
 
   function inAlignEnv() {
-    return envStack.some(e => ALIGN_ENVS.has(e.name));
+    return envStack.some((e) => ALIGN_ENVS.has(e.name));
   }
 
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
@@ -132,19 +202,23 @@ export default function latexLint(text) {
               envStack.pop();
             } else {
               diagnostics.push({
-                line: lineNum, col: i + 1, len: envMatch[0].length,
+                line: lineNum,
+                col: i + 1,
+                len: envMatch[0].length,
                 severity: 'error',
                 message: `Environment mismatch: expected \\end{${top.name}}, got \\end{${envName}}`,
               });
               // Try to recover — pop if we find the matching one
-              const matchIdx = envStack.findLastIndex(e => e.name === envName);
+              const matchIdx = envStack.findLastIndex((e) => e.name === envName);
               if (matchIdx >= 0) {
                 envStack.splice(matchIdx);
               }
             }
           } else {
             diagnostics.push({
-              line: lineNum, col: i + 1, len: envMatch[0].length,
+              line: lineNum,
+              col: i + 1,
+              len: envMatch[0].length,
               severity: 'error',
               message: `\\end{${envName}} without matching \\begin{${envName}}`,
             });
@@ -155,11 +229,20 @@ export default function latexLint(text) {
       }
 
       // \newcommand, \renewcommand, \def, etc. — enters macro definition mode
-      if (ch === '\\' && /^\\(re)?(newcommand|newenvironment|providecommand)|^\\def[^a-zA-Z]|^\\Declare|^\\NewDocument|^\\RenewDocument|^\\ProvideDocument/.test(line.slice(i))) {
+      if (
+        ch === '\\' &&
+        /^\\(re)?(newcommand|newenvironment|providecommand)|^\\def[^a-zA-Z]|^\\Declare|^\\NewDocument|^\\RenewDocument|^\\ProvideDocument/.test(
+          line.slice(i),
+        )
+      ) {
         inMacroDef = true;
         braceDepthAtMacroDef = braceDepth;
         // Skip the command preamble (name, arg specs, etc.)
-        const cmdMatch = line.slice(i).match(/^\\(?:re)?(?:newcommand|providecommand)\*?\{[^}]*\}(\[\d+\](\[[^\]]*\])?)*|^\\(?:re)?newenvironment\*?\{[^}]*\}(\[\d+\])*|^\\def\\[a-zA-Z]+|^\\(?:Declare\w+|(?:New|Renew|Provide)Document\w+)\*?\{[^}]*\}(\{[^}]*\})*(\[\d+\])*/);
+        const cmdMatch = line
+          .slice(i)
+          .match(
+            /^\\(?:re)?(?:newcommand|providecommand)\*?\{[^}]*\}(\[\d+\](\[[^\]]*\])?)*|^\\(?:re)?newenvironment\*?\{[^}]*\}(\[\d+\])*|^\\def\\[a-zA-Z]+|^\\(?:Declare\w+|(?:New|Renew|Provide)Document\w+)\*?\{[^}]*\}(\{[^}]*\})*(\[\d+\])*/,
+          );
         if (cmdMatch) {
           i += cmdMatch[0].length;
           continue;
@@ -197,18 +280,32 @@ export default function latexLint(text) {
         while (i < line.length && /[a-zA-Z*]/.test(line[i])) i++;
         const cmd = line.slice(cmdStart, i);
         // Skip brace arguments of commands that take keys/labels/references
-        if (/^(cite|citep|citet|autocite|parencite|textcite|fullcite|nocite|citeauthor|citeyear|citealt|citealp|Cite|Citep|Citet|ref|eqref|pageref|label|hyperref|url|href|includegraphics|input|include|bibliography|bibliographystyle|usepackage|documentclass|RequirePackage)$/.test(cmd)) {
+        if (
+          /^(cite|citep|citet|autocite|parencite|textcite|fullcite|nocite|citeauthor|citeyear|citealt|citealp|Cite|Citep|Citet|ref|eqref|pageref|label|hyperref|url|href|includegraphics|input|include|bibliography|bibliographystyle|usepackage|documentclass|RequirePackage)$/.test(
+            cmd,
+          )
+        ) {
           // Skip optional [...]
           while (i < line.length && /\s/.test(line[i])) i++;
           if (i < line.length && line[i] === '[') {
-            let depth = 1; i++;
-            while (i < line.length && depth > 0) { if (line[i] === '[') depth++; else if (line[i] === ']') depth--; i++; }
+            let depth = 1;
+            i++;
+            while (i < line.length && depth > 0) {
+              if (line[i] === '[') depth++;
+              else if (line[i] === ']') depth--;
+              i++;
+            }
           }
           // Skip brace {...}
           while (i < line.length && /\s/.test(line[i])) i++;
           if (i < line.length && line[i] === '{') {
-            let depth = 1; i++;
-            while (i < line.length && depth > 0) { if (line[i] === '{') depth++; else if (line[i] === '}') depth--; i++; }
+            let depth = 1;
+            i++;
+            while (i < line.length && depth > 0) {
+              if (line[i] === '{') depth++;
+              else if (line[i] === '}') depth--;
+              i++;
+            }
           }
         }
         continue;
@@ -238,7 +335,9 @@ export default function latexLint(text) {
         braceDepth--;
         if (braceDepth < 0) {
           diagnostics.push({
-            line: lineNum, col: i + 1, len: 1,
+            line: lineNum,
+            col: i + 1,
+            len: 1,
             severity: 'error',
             message: 'Unmatched "}" — too many closing braces',
           });
@@ -257,7 +356,9 @@ export default function latexLint(text) {
       if (ch === '&') {
         if (!inAlignEnv()) {
           diagnostics.push({
-            line: lineNum, col: i + 1, len: 1,
+            line: lineNum,
+            col: i + 1,
+            len: 1,
             severity: 'error',
             message: 'Misplaced alignment character "&" — use \\& for a literal ampersand',
           });
@@ -272,7 +373,9 @@ export default function latexLint(text) {
           i += 2; // skip #N parameter reference
         } else if (!inMacroDef) {
           diagnostics.push({
-            line: lineNum, col: i + 1, len: 1,
+            line: lineNum,
+            col: i + 1,
+            len: 1,
             severity: 'error',
             message: 'Misplaced "#" — only valid in macro definitions, use \\# for a literal hash',
           });
@@ -289,7 +392,9 @@ export default function latexLint(text) {
           const name = ch === '_' ? 'underscore' : 'caret';
           const escape = ch === '_' ? '\\_' : '\\^{}';
           diagnostics.push({
-            line: lineNum, col: i + 1, len: 1,
+            line: lineNum,
+            col: i + 1,
+            len: 1,
             severity: 'error',
             message: `Misplaced "${ch}" outside math mode — use ${escape} for a literal ${name}`,
           });
@@ -305,14 +410,18 @@ export default function latexLint(text) {
   // Check for unclosed math modes
   if (inMathInline) {
     diagnostics.push({
-      line: lines.length, col: 1, len: 0,
+      line: lines.length,
+      col: 1,
+      len: 0,
       severity: 'error',
       message: 'Unclosed inline math mode ($)',
     });
   }
   if (inMathDisplay) {
     diagnostics.push({
-      line: lines.length, col: 1, len: 0,
+      line: lines.length,
+      col: 1,
+      len: 0,
       severity: 'error',
       message: 'Unclosed display math mode ($$)',
     });
@@ -321,7 +430,9 @@ export default function latexLint(text) {
   // Check for unclosed braces
   if (braceDepth > 0) {
     diagnostics.push({
-      line: lines.length, col: 1, len: 0,
+      line: lines.length,
+      col: 1,
+      len: 0,
       severity: 'error',
       message: `${braceDepth} unclosed "{" — missing closing brace${braceDepth > 1 ? 's' : ''}`,
     });
@@ -330,7 +441,9 @@ export default function latexLint(text) {
   // Check for unclosed environments
   for (const env of envStack) {
     diagnostics.push({
-      line: env.line, col: 1, len: 0,
+      line: env.line,
+      col: 1,
+      len: 0,
       severity: 'error',
       message: `Unclosed environment: \\begin{${env.name}} never closed`,
     });

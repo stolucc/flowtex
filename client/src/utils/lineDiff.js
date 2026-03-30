@@ -4,7 +4,7 @@
  */
 export default function lineDiff(oldText, newText) {
   if (oldText === newText) {
-    return oldText.split('\n').map(text => ({ type: 'same', text }));
+    return oldText.split('\n').map((text) => ({ type: 'same', text }));
   }
 
   const oldLines = oldText.split('\n');
@@ -36,11 +36,13 @@ function lcsLineDiff(oldLines, newLines, m, n) {
   }
 
   const result = [];
-  let i = 0, j = 0;
+  let i = 0,
+    j = 0;
   while (i < m || j < n) {
     if (i < m && j < n && oldLines[i] === newLines[j]) {
       result.push({ type: 'same', text: oldLines[i] });
-      i++; j++;
+      i++;
+      j++;
     } else if (j < n && (i >= m || dp[i * w + (j + 1)] >= dp[(i + 1) * w + j])) {
       result.push({ type: 'add', text: newLines[j] });
       j++;
@@ -87,12 +89,13 @@ function hashLineDiff(oldLines, newLines) {
 
   // Sort anchors by old position and find LIS by new position
   anchors.sort((a, b) => a[0] - b[0]);
-  const lis = longestIncreasingSubseq(anchors.map(a => a[1]));
-  const anchorMatches = lis.map(idx => anchors[idx]);
+  const lis = longestIncreasingSubseq(anchors.map((a) => a[1]));
+  const anchorMatches = lis.map((idx) => anchors[idx]);
 
   // Now recursively diff between anchors
   const result = [];
-  let oi = 0, ni = 0;
+  let oi = 0,
+    ni = 0;
 
   for (const [ao, an] of anchorMatches) {
     // Diff the gap before this anchor
@@ -102,8 +105,8 @@ function hashLineDiff(oldLines, newLines) {
       if (oldSlice.length * newSlice.length <= 10000000) {
         result.push(...lcsLineDiff(oldSlice, newSlice, oldSlice.length, newSlice.length));
       } else {
-        result.push(...oldSlice.map(text => ({ type: 'remove', text })));
-        result.push(...newSlice.map(text => ({ type: 'add', text })));
+        result.push(...oldSlice.map((text) => ({ type: 'remove', text })));
+        result.push(...newSlice.map((text) => ({ type: 'add', text })));
       }
     }
     // The anchor itself
@@ -119,8 +122,8 @@ function hashLineDiff(oldLines, newLines) {
     if (oldTail.length * newTail.length <= 10000000) {
       result.push(...lcsLineDiff(oldTail, newTail, oldTail.length, newTail.length));
     } else {
-      result.push(...oldTail.map(text => ({ type: 'remove', text })));
-      result.push(...newTail.map(text => ({ type: 'add', text })));
+      result.push(...oldTail.map((text) => ({ type: 'remove', text })));
+      result.push(...newTail.map((text) => ({ type: 'add', text })));
     }
   }
 
@@ -135,7 +138,8 @@ function longestIncreasingSubseq(arr) {
   const prev = new Array(arr.length).fill(-1);
 
   for (let i = 0; i < arr.length; i++) {
-    let lo = 0, hi = tails.length;
+    let lo = 0,
+      hi = tails.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (tails[mid] < arr[i]) lo = mid + 1;

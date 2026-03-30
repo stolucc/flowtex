@@ -33,7 +33,12 @@ router.get('/stats/overview', async (req, res) => {
 
   res.json({
     users: { total: +users.total, last7d: +users.last_7d, last30d: +users.last_30d },
-    projects: { total: +projects.total, active: +projects.active, archived: +projects.archived, trashed: +projects.trashed },
+    projects: {
+      total: +projects.total,
+      active: +projects.active,
+      archived: +projects.archived,
+      trashed: +projects.trashed,
+    },
     files: +files.total,
     versions: { total: +versions.total, last7d: +versions.last_7d },
     comments: { total: +comments.total, last7d: +comments.last_7d },
@@ -61,7 +66,8 @@ router.get('/stats/timeseries', async (req, res) => {
   const spec = tableMap[metric];
   if (!spec) return res.status(400).json({ error: 'Invalid metric' });
 
-  const rows = await db.all(`
+  const rows = await db.all(
+    `
     SELECT d::date AS date, COALESCE(c.count, 0)::int AS count
     FROM generate_series(
       (NOW() - ($1 || ' days')::INTERVAL)::date,
@@ -75,16 +81,19 @@ router.get('/stats/timeseries', async (req, res) => {
       GROUP BY 1
     ) c ON d::date = c.day
     ORDER BY d
-  `, [String(days)]);
+  `,
+    [String(days)],
+  );
 
-  res.json(rows.map(r => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
+  res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
 // Daily active users
 router.get('/stats/active-users', async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
 
-  const rows = await db.all(`
+  const rows = await db.all(
+    `
     SELECT d::date AS date, COUNT(DISTINCT uid)::int AS count
     FROM generate_series(
       (NOW() - ($1 || ' days')::INTERVAL)::date,
@@ -102,16 +111,19 @@ router.get('/stats/active-users', async (req, res) => {
         WHERE date_trunc('day', created_at) = d::date
     ) u ON TRUE
     GROUP BY 1 ORDER BY 1
-  `, [String(days)]);
+  `,
+    [String(days)],
+  );
 
-  res.json(rows.map(r => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
+  res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
 // Top projects by activity
 router.get('/stats/top-projects', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 
-  const rows = await db.all(`
+  const rows = await db.all(
+    `
     SELECT p.id, p.name, p.created_at,
       (SELECT COUNT(*)::int FROM project_members WHERE project_id = p.id) AS member_count,
       (SELECT COUNT(*)::int FROM files WHERE project_id = p.id) AS file_count,
@@ -121,21 +133,30 @@ router.get('/stats/top-projects', async (req, res) => {
     FROM projects p
     ORDER BY last_edit DESC NULLS LAST
     LIMIT $1
-  `, [limit]);
+  `,
+    [limit],
+  );
 
-  res.json(rows.map(r => ({
-    id: r.id, name: r.name, createdAt: r.created_at,
-    memberCount: r.member_count, fileCount: r.file_count,
-    versionCount: r.version_count, commentCount: r.comment_count,
-    lastEdit: r.last_edit,
-  })));
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      createdAt: r.created_at,
+      memberCount: r.member_count,
+      fileCount: r.file_count,
+      versionCount: r.version_count,
+      commentCount: r.comment_count,
+      lastEdit: r.last_edit,
+    })),
+  );
 });
 
 // Top users by activity
 router.get('/stats/top-users', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 
-  const rows = await db.all(`
+  const rows = await db.all(
+    `
     SELECT u.id, u.name, u.email, u.created_at,
       (SELECT COUNT(*)::int FROM project_members WHERE user_id = u.id) AS project_count,
       (SELECT COUNT(*)::int FROM project_snapshots WHERE author_id = u.id) AS edit_count,
@@ -144,18 +165,27 @@ router.get('/stats/top-users', async (req, res) => {
     FROM users u
     ORDER BY edit_count DESC
     LIMIT $1
-  `, [limit]);
+  `,
+    [limit],
+  );
 
-  res.json(rows.map(r => {
-    // Partially redact email for privacy
-    const [local, domain] = (r.email || '').split('@');
-    const redacted = local ? local[0] + '***@' + (domain || '') : r.email;
-    return {
-      id: r.id, name: r.name, email: redacted, createdAt: r.created_at,
-      projectCount: r.project_count, editCount: r.edit_count,
-      commentCount: r.comment_count, lastEdit: r.last_edit,
-    };
-  }));
+  res.json(
+    rows.map((r) => {
+      // Partially redact email for privacy
+      const [local, domain] = (r.email || '').split('@');
+      const redacted = local ? local[0] + '***@' + (domain || '') : r.email;
+      return {
+        id: r.id,
+        name: r.name,
+        email: redacted,
+        createdAt: r.created_at,
+        projectCount: r.project_count,
+        editCount: r.edit_count,
+        commentCount: r.comment_count,
+        lastEdit: r.last_edit,
+      };
+    }),
+  );
 });
 
 // Audit log (paginated)
@@ -165,22 +195,32 @@ router.get('/audit-log', async (req, res) => {
   const offset = (page - 1) * limit;
 
   const [rows, countRow] = await Promise.all([
-    db.all(`
+    db.all(
+      `
       SELECT a.id, a.user_id, u.name AS user_name, u.email AS user_email,
         a.action, a.target_type, a.target_id, a.detail, a.ip, a.created_at
       FROM audit_log a
       LEFT JOIN users u ON a.user_id = u.id
       ORDER BY a.created_at DESC
       LIMIT $1 OFFSET $2
-    `, [limit, offset]),
+    `,
+      [limit, offset],
+    ),
     db.get('SELECT COUNT(*)::int AS total FROM audit_log'),
   ]);
 
   res.json({
-    entries: rows.map(r => ({
-      id: r.id, userId: r.user_id, userName: r.user_name, userEmail: r.user_email,
-      action: r.action, targetType: r.target_type, targetId: r.target_id,
-      detail: r.detail, ip: r.ip, createdAt: r.created_at,
+    entries: rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      userName: r.user_name,
+      userEmail: r.user_email,
+      action: r.action,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      detail: r.detail,
+      ip: r.ip,
+      createdAt: r.created_at,
     })),
     total: countRow.total,
     page,
@@ -196,9 +236,7 @@ router.get('/stats/system', async (req, res) => {
   // Process CPU usage since last call
   const cpuNow = process.cpuUsage(prevCpuUsage);
   const elapsedMs = Date.now() - prevCpuTime;
-  const cpuPercent = elapsedMs > 0
-    ? Math.min(100, ((cpuNow.user + cpuNow.system) / 1000 / elapsedMs) * 100)
-    : 0;
+  const cpuPercent = elapsedMs > 0 ? Math.min(100, ((cpuNow.user + cpuNow.system) / 1000 / elapsedMs) * 100) : 0;
   prevCpuUsage = process.cpuUsage();
   prevCpuTime = Date.now();
 
@@ -213,14 +251,15 @@ router.get('/stats/system', async (req, res) => {
 
   // Compilations per minute from recent history
   const oneMinAgo = Date.now() - 60000;
-  const recentCompiles = compileMetrics.history.filter(h => h.time > oneMinAgo);
+  const recentCompiles = compileMetrics.history.filter((h) => h.time > oneMinAgo);
   const compilesPerMin = recentCompiles.length;
-  const avgCompileTime = recentCompiles.length > 0
-    ? Math.round(recentCompiles.reduce((s, h) => s + h.duration, 0) / recentCompiles.length)
-    : 0;
+  const avgCompileTime =
+    recentCompiles.length > 0
+      ? Math.round(recentCompiles.reduce((s, h) => s + h.duration, 0) / recentCompiles.length)
+      : 0;
 
   // Active sessions from DB
-  const sessionCount = await db.get("SELECT COUNT(*)::int AS total FROM session WHERE expire > NOW()");
+  const sessionCount = await db.get('SELECT COUNT(*)::int AS total FROM session WHERE expire > NOW()');
 
   // Live WebSocket stats from app
   const liveStats = req.app.getLiveStats ? req.app.getLiveStats() : { wsConnections: 0, wsUniqueUsers: 0 };
@@ -228,7 +267,7 @@ router.get('/stats/system', async (req, res) => {
   res.json({
     cpu: {
       processPercent: Math.round(cpuPercent * 10) / 10,
-      loadAvg: loadAvg.map(l => Math.round(l * 100) / 100),
+      loadAvg: loadAvg.map((l) => Math.round(l * 100) / 100),
       cores: cpuCount,
     },
     memory: {
@@ -280,7 +319,7 @@ router.put('/settings', async (req, res) => {
 
   await db.run(
     'INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()',
-    [key, String(value)]
+    [key, String(value)],
   );
   res.json({ ok: true });
 });

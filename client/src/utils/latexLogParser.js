@@ -1,0 +1,98 @@
+function extractLineNumber(text) {
+  const match = text.match(/\bl\.(\d+)\b/) || text.match(/lines?\s+(\d+)/i) || text.match(/at lines?\s+(\d+)/i);
+  return match ? parseInt(match[1]) : null;
+}
+
+export default function parseLog(log) {
+  if (!log) return { errors: [], warnings: [] };
+  const lines = log.split('\n');
+  const errors = [];
+  const warnings = [];
+
+  // Track current file context from LaTeX log "(./file.tex" entries
+  let currentFile = null;
+  const fileStack = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Track file context: LaTeX logs "(./foo.tex" when entering, ")" when leaving
+    const opens =
+      line.match(/\(\.\/([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g) ||
+      line.match(/\(([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g);
+    if (opens) {
+      for (const m of opens) {
+        const f = m.match(/\((.+)/)[1];
+        fileStack.push(f);
+        currentFile = f;
+      }
+    }
+    const closes = (line.match(/\)/g) || []).length;
+    for (let c = 0; c < closes && fileStack.length > 0; c++) {
+      fileStack.pop();
+      currentFile = fileStack.length > 0 ? fileStack[fileStack.length - 1] : null;
+    }
+
+    // Errors: lines starting with "!"
+    if (line.startsWith('!')) {
+      const msg = line.substring(2).trim();
+      if (msg) {
+        // Look ahead for line number and column from "l.NNN text" context line
+        let lineNum = null;
+        let col = null;
+        for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+          const lMatch = lines[j].match(/^l\.(\d+)\s?(.*)/);
+          if (lMatch) {
+            lineNum = parseInt(lMatch[1]);
+            // Column is length of text after "l.NNN " — the error is at/near the end
+            const textAfter = lMatch[2] || '';
+            col = textAfter.length;
+            break;
+          }
+        }
+        errors.push({ text: msg, line: lineNum, col, file: currentFile });
+        // Skip context lines until we hit the "l.NNN" line or a blank line
+        while (i + 1 < lines.length && !lines[i + 1].startsWith('!') && !/^\s*$/.test(lines[i + 1])) {
+          i++;
+          if (/^l\.\d+/.test(lines[i])) break;
+        }
+      }
+      continue;
+    }
+    // Warnings — only match actual LaTeX/package warnings, not package description lines
+    if (/^(LaTeX|Package\s+\S+|Class\s+\S+)\s+Warning/i.test(line.trim())) {
+      warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
+    } else if (/^(Overfull|Underfull)/.test(line)) {
+      warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
+    }
+  }
+
+  // Deduplicate errors with same message and line
+  const seenErrors = new Set();
+  const uniqueErrors = errors.filter((e) => {
+    const key = `${e.text}:${e.line}:${e.file}`;
+    if (seenErrors.has(key)) return false;
+    seenErrors.add(key);
+    return true;
+  });
+
+  // Deduplicate warnings
+  const seenWarnings = new Set();
+  const uniqueWarnings = warnings.filter((w) => {
+    const key = `${w.text}:${w.line}:${w.file}`;
+    if (seenWarnings.has(key)) return false;
+    seenWarnings.add(key);
+    return true;
+  });
+
+  // Separate errors from non-user files (class/package files the user can't edit)
+  const SYSTEM_FILE_RE = /\.(?:sty|cls|clo|def|fd|cfg|ldf|bbx|cbx|lbx)$/;
+  for (const e of uniqueErrors) {
+    e.isSystemFile = !!(e.file && SYSTEM_FILE_RE.test(e.file));
+  }
+  for (const w of uniqueWarnings) {
+    w.isSystemFile = !!(w.file && SYSTEM_FILE_RE.test(w.file));
+  }
+
+  return { errors: uniqueErrors, warnings: uniqueWarnings };
+}

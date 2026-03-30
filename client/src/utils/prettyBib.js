@@ -26,7 +26,10 @@ export default function prettyBib(input) {
     let s = '';
     while (i < src.length && depth > 0) {
       if (src[i] === '{') depth++;
-      else if (src[i] === '}') { depth--; if (depth === 0) break; }
+      else if (src[i] === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
       s += src[i];
       i++;
     }
@@ -58,7 +61,10 @@ export default function prettyBib(input) {
         value += '{' + s + '}';
       } else if (/[0-9]/.test(src[i])) {
         let num = '';
-        while (i < src.length && /[0-9]/.test(src[i])) { num += src[i]; i++; }
+        while (i < src.length && /[0-9]/.test(src[i])) {
+          num += src[i];
+          i++;
+        }
         value += '{' + num + '}';
       } else if (src[i] === '#') {
         value += ' # ';
@@ -68,7 +74,10 @@ export default function prettyBib(input) {
       } else {
         // macro name
         let macro = '';
-        while (i < src.length && /[a-zA-Z0-9_]/.test(src[i])) { macro += src[i]; i++; }
+        while (i < src.length && /[a-zA-Z0-9_]/.test(src[i])) {
+          macro += src[i];
+          i++;
+        }
         if (macro) value += macro;
       }
       skipWhitespace();
@@ -84,7 +93,8 @@ export default function prettyBib(input) {
     if (src[i] !== '@') {
       let comment = '';
       while (i < src.length && src[i] !== '@') {
-        comment += src[i]; i++;
+        comment += src[i];
+        i++;
       }
       const trimmed = comment.trim();
       if (trimmed) {
@@ -97,7 +107,10 @@ export default function prettyBib(input) {
     // Entry
     i++; // skip @
     let entryType = '';
-    while (i < src.length && /[a-zA-Z]/.test(src[i])) { entryType += src[i]; i++; }
+    while (i < src.length && /[a-zA-Z]/.test(src[i])) {
+      entryType += src[i];
+      i++;
+    }
     skipWhitespace();
     if (i >= src.length || src[i] !== '{') {
       result.push('@' + entryType);
@@ -130,7 +143,10 @@ export default function prettyBib(input) {
     // Citation key
     skipWhitespace();
     let key = '';
-    while (i < src.length && src[i] !== ',' && src[i] !== '}') { key += src[i]; i++; }
+    while (i < src.length && src[i] !== ',' && src[i] !== '}') {
+      key += src[i];
+      i++;
+    }
     key = key.trim();
     if (i < src.length && src[i] === ',') i++; // skip ,
 
@@ -138,15 +154,22 @@ export default function prettyBib(input) {
     const fields = [];
     while (i < src.length) {
       skipWhitespace();
-      if (src[i] === '}') { i++; break; }
+      if (src[i] === '}') {
+        i++;
+        break;
+      }
 
       // Field name
       let fieldName = '';
       while (i < src.length && src[i] !== '=' && src[i] !== '}' && src[i] !== ',') {
-        fieldName += src[i]; i++;
+        fieldName += src[i];
+        i++;
       }
       fieldName = fieldName.trim();
-      if (!fieldName) { i++; continue; }
+      if (!fieldName) {
+        i++;
+        continue;
+      }
 
       if (i < src.length && src[i] === '=') {
         i++; // skip =

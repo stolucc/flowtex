@@ -45,7 +45,8 @@ function parseBibEntries(content) {
       let vi = fm.index + fm[0].length;
       let value = '';
       if (body[vi] === '{') {
-        let d = 1; vi++;
+        let d = 1;
+        vi++;
         while (vi < body.length && d > 0) {
           if (body[vi] === '{') d++;
           else if (body[vi] === '}') d--;
@@ -54,9 +55,15 @@ function parseBibEntries(content) {
         }
       } else if (body[vi] === '"') {
         vi++;
-        while (vi < body.length && body[vi] !== '"') { value += body[vi]; vi++; }
+        while (vi < body.length && body[vi] !== '"') {
+          value += body[vi];
+          vi++;
+        }
       } else {
-        while (vi < body.length && body[vi] !== ',' && body[vi] !== '}') { value += body[vi]; vi++; }
+        while (vi < body.length && body[vi] !== ',' && body[vi] !== '}') {
+          value += body[vi];
+          vi++;
+        }
         value = value.trim();
       }
       fields[fieldName] = value;
@@ -131,9 +138,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   }, [entries]);
 
   const toggleField = (key) => {
-    setSelectedFields((prev) =>
-      prev.includes(key) ? prev.filter((f) => f !== key) : [...prev, key]
-    );
+    setSelectedFields((prev) => (prev.includes(key) ? prev.filter((f) => f !== key) : [...prev, key]));
   };
 
   const toggleEntry = (key) => {
@@ -147,7 +152,9 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
 
   const addLog = (line) => {
     setLogLines((prev) => [...prev, line]);
-    setTimeout(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, 0);
+    setTimeout(() => {
+      logRef.current?.scrollTo(0, logRef.current.scrollHeight);
+    }, 0);
   };
 
   const handleLookup = async () => {
@@ -175,14 +182,18 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
 
       try {
         const res = await post('/api/bib/enrich', {
-          entries: [{
-            key: e.key,
-            title: `{${e.fields.title}}`,
-            author: e.fields.author ? `{${e.fields.author}}` : '',
-            existingFields: Object.fromEntries(
-              Object.entries(e.fields).map(([k, v]) => [k, v || null]).filter(([, v]) => v)
-            ),
-          }],
+          entries: [
+            {
+              key: e.key,
+              title: `{${e.fields.title}}`,
+              author: e.fields.author ? `{${e.fields.author}}` : '',
+              existingFields: Object.fromEntries(
+                Object.entries(e.fields)
+                  .map(([k, v]) => [k, v || null])
+                  .filter(([, v]) => v),
+              ),
+            },
+          ],
           fields: selectedFields,
         });
         const data = await res.json();
@@ -277,7 +288,13 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   const resultsWithChanges = results?.filter((r) => Object.keys(r.added).length > 0) || [];
 
   return (
-    <div className="modal-overlay" ref={overlayRef} onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}>
+    <div
+      className="modal-overlay"
+      ref={overlayRef}
+      onClick={(e) => {
+        if (e.target === overlayRef.current) onClose();
+      }}
+    >
       <div className="modal-card bib-enrich-modal">
         <div className="modal-header">
           <h2>Complete Bibliography</h2>
@@ -322,12 +339,15 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                       <div
                         key={e.key}
                         className={`bib-enrich-entry-row ${selectedEntries?.has(e.key) ? 'selected' : ''} ${previewKey === e.key ? 'previewing' : ''}`}
-                        onClick={() => setPreviewKey((prev) => prev === e.key ? null : e.key)}
+                        onClick={() => setPreviewKey((prev) => (prev === e.key ? null : e.key))}
                       >
                         <input
                           type="checkbox"
                           checked={selectedEntries?.has(e.key) || false}
-                          onChange={(ev) => { ev.stopPropagation(); toggleEntry(e.key); }}
+                          onChange={(ev) => {
+                            ev.stopPropagation();
+                            toggleEntry(e.key);
+                          }}
                         />
                         <span className="bib-enrich-entry-key">{e.key}</span>
                         <span className="bib-enrich-entry-title">{shortTitle || <em>no title</em>}</span>
@@ -340,20 +360,21 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                     );
                   })}
                 </div>
-                {previewKey && (() => {
-                  const entry = entries.find((e) => e.key === previewKey);
-                  if (!entry) return null;
-                  const raw = file.content.slice(entry.entryStart, entry.entryEnd);
-                  return (
-                    <div className="bib-enrich-preview">
-                      <div className="bib-enrich-preview-header">
-                        <span>{previewKey}</span>
-                        <button onClick={() => setPreviewKey(null)}>&times;</button>
+                {previewKey &&
+                  (() => {
+                    const entry = entries.find((e) => e.key === previewKey);
+                    if (!entry) return null;
+                    const raw = file.content.slice(entry.entryStart, entry.entryEnd);
+                    return (
+                      <div className="bib-enrich-preview">
+                        <div className="bib-enrich-preview-header">
+                          <span>{previewKey}</span>
+                          <button onClick={() => setPreviewKey(null)}>&times;</button>
+                        </div>
+                        <pre className="bib-enrich-preview-code">{raw}</pre>
                       </div>
-                      <pre className="bib-enrich-preview-code">{raw}</pre>
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
               </div>
 
               <div className="bib-enrich-actions">
@@ -364,7 +385,9 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                 >
                   Look up {selectedEntries?.size || 0} {(selectedEntries?.size || 0) === 1 ? 'entry' : 'entries'}
                 </button>
-                <button className="bib-enrich-btn" onClick={onClose}>Cancel</button>
+                <button className="bib-enrich-btn" onClick={onClose}>
+                  Cancel
+                </button>
               </div>
             </>
           )}
@@ -374,7 +397,10 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
             <>
               <div className="bib-enrich-log" ref={logRef}>
                 {logLines.map((line, i) => (
-                  <div key={i} className={`bib-enrich-log-line${line.startsWith('  ✓') ? ' log-ok' : line.startsWith('  ✗') ? ' log-err' : line.startsWith('  ⏭') ? ' log-skip' : ''}`}>
+                  <div
+                    key={i}
+                    className={`bib-enrich-log-line${line.startsWith('  ✓') ? ' log-ok' : line.startsWith('  ✗') ? ' log-err' : line.startsWith('  ⏭') ? ' log-skip' : ''}`}
+                  >
                     {line}
                   </div>
                 ))}
@@ -389,7 +415,14 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                   ) : (
                     <p className="bib-enrich-hint">No new fields found.</p>
                   )}
-                  <button className="bib-enrich-btn" onClick={() => { setStep('select'); setResults(null); setLogLines([]); }}>
+                  <button
+                    className="bib-enrich-btn"
+                    onClick={() => {
+                      setStep('select');
+                      setResults(null);
+                      setLogLines([]);
+                    }}
+                  >
                     Back
                   </button>
                 </div>
@@ -407,8 +440,12 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                   {rejectedCount > 0 && <span className="review-rejected">{rejectedCount} rejected</span>}
                 </span>
                 <span className="bib-enrich-review-bulk">
-                  <button className="bib-enrich-btn-sm accept" onClick={handleAcceptAll} disabled={pendingCount === 0}>Accept all</button>
-                  <button className="bib-enrich-btn-sm reject" onClick={handleRejectAll} disabled={pendingCount === 0}>Reject all</button>
+                  <button className="bib-enrich-btn-sm accept" onClick={handleAcceptAll} disabled={pendingCount === 0}>
+                    Accept all
+                  </button>
+                  <button className="bib-enrich-btn-sm reject" onClick={handleRejectAll} disabled={pendingCount === 0}>
+                    Reject all
+                  </button>
                 </span>
               </div>
 
@@ -418,7 +455,10 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                   return (
                     <div key={r.key} className="bib-enrich-diff-entry">
                       <div className="bib-enrich-diff-entry-header">
-                        <span className="bib-enrich-diff-key">@{entry?.type || 'misc'}{'{' + r.key + '}'}</span>
+                        <span className="bib-enrich-diff-key">
+                          @{entry?.type || 'misc'}
+                          {'{' + r.key + '}'}
+                        </span>
                       </div>
                       {Object.entries(r.added).map(([field, value]) => {
                         const statusKey = `${r.key}::${field}`;
@@ -432,15 +472,39 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                             <span className="bib-enrich-diff-actions">
                               {st === 'pending' && (
                                 <>
-                                  <button className="bib-enrich-btn-sm accept" onClick={() => setFieldStatus(r.key, field, 'accepted')} title="Accept">✓</button>
-                                  <button className="bib-enrich-btn-sm reject" onClick={() => setFieldStatus(r.key, field, 'rejected')} title="Reject">✗</button>
+                                  <button
+                                    className="bib-enrich-btn-sm accept"
+                                    onClick={() => setFieldStatus(r.key, field, 'accepted')}
+                                    title="Accept"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    className="bib-enrich-btn-sm reject"
+                                    onClick={() => setFieldStatus(r.key, field, 'rejected')}
+                                    title="Reject"
+                                  >
+                                    ✗
+                                  </button>
                                 </>
                               )}
                               {st === 'accepted' && (
-                                <button className="bib-enrich-btn-sm undo" onClick={() => setFieldStatus(r.key, field, 'pending')} title="Undo">↩</button>
+                                <button
+                                  className="bib-enrich-btn-sm undo"
+                                  onClick={() => setFieldStatus(r.key, field, 'pending')}
+                                  title="Undo"
+                                >
+                                  ↩
+                                </button>
                               )}
                               {st === 'rejected' && (
-                                <button className="bib-enrich-btn-sm undo" onClick={() => setFieldStatus(r.key, field, 'pending')} title="Undo">↩</button>
+                                <button
+                                  className="bib-enrich-btn-sm undo"
+                                  onClick={() => setFieldStatus(r.key, field, 'pending')}
+                                  title="Undo"
+                                >
+                                  ↩
+                                </button>
                               )}
                             </span>
                           </div>
@@ -452,17 +516,15 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
               </div>
 
               <div className="bib-enrich-actions">
-                <button
-                  className="bib-enrich-btn primary"
-                  onClick={handleApply}
-                  disabled={acceptedCount === 0}
-                >
+                <button className="bib-enrich-btn primary" onClick={handleApply} disabled={acceptedCount === 0}>
                   Apply {acceptedCount} change{acceptedCount !== 1 ? 's' : ''}
                 </button>
                 <button className="bib-enrich-btn" onClick={() => setStep('lookup')}>
                   Back to log
                 </button>
-                <button className="bib-enrich-btn" onClick={onClose}>Cancel</button>
+                <button className="bib-enrich-btn" onClick={onClose}>
+                  Cancel
+                </button>
               </div>
             </>
           )}

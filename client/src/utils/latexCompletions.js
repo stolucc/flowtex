@@ -138,7 +138,12 @@ const commands = [
   { label: '\\ddot', type: 'function', detail: 'Double dot', apply: '\\ddot{$}' },
 
   // Figures and tables
-  { label: '\\includegraphics', type: 'function', detail: 'Include image', apply: '\\includegraphics[width=\\textwidth]{$}' },
+  {
+    label: '\\includegraphics',
+    type: 'function',
+    detail: 'Include image',
+    apply: '\\includegraphics[width=\\textwidth]{$}',
+  },
   { label: '\\caption', type: 'function', detail: 'Caption', apply: '\\caption{$}' },
   { label: '\\centering', type: 'keyword', detail: 'Center content' },
   { label: '\\hline', type: 'keyword', detail: 'Horizontal line' },
@@ -184,15 +189,48 @@ const commands = [
 ];
 
 const environments = [
-  'document', 'figure', 'table', 'tabular', 'itemize', 'enumerate', 'description',
-  'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
-  'multline', 'multline*', 'split', 'cases',
-  'array', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix',
-  'minipage', 'center', 'flushleft', 'flushright',
-  'abstract', 'quote', 'quotation', 'verse',
-  'verbatim', 'lstlisting', 'proof', 'theorem', 'lemma', 'definition',
-  'corollary', 'proposition', 'remark', 'example',
-  'thebibliography', 'appendix',
+  'document',
+  'figure',
+  'table',
+  'tabular',
+  'itemize',
+  'enumerate',
+  'description',
+  'equation',
+  'equation*',
+  'align',
+  'align*',
+  'gather',
+  'gather*',
+  'multline',
+  'multline*',
+  'split',
+  'cases',
+  'array',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'minipage',
+  'center',
+  'flushleft',
+  'flushright',
+  'abstract',
+  'quote',
+  'quotation',
+  'verse',
+  'verbatim',
+  'lstlisting',
+  'proof',
+  'theorem',
+  'lemma',
+  'definition',
+  'corollary',
+  'proposition',
+  'remark',
+  'example',
+  'thebibliography',
+  'appendix',
 ];
 
 function latexCompletionSource(context) {
@@ -233,10 +271,7 @@ const citeCommandPattern = /\\(?:\w*[Cc]ite\w*|nocite)\*?(?:\[.*?\])*\{[^}]*$/;
 function makeCiteKeySource(citeKeysRef) {
   return function citeKeyCompletionSource(context) {
     // Check if we're inside a cite command's braces
-    const lineText = context.state.sliceDoc(
-      context.state.doc.lineAt(context.pos).from,
-      context.pos
-    );
+    const lineText = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
     if (!citeCommandPattern.test(lineText)) return null;
 
     // Find the start of the current key (after { or ,)

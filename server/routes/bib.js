@@ -5,7 +5,10 @@ const router = Router();
 // Strip braces from BibTeX field values for search queries
 function stripBraces(val) {
   if (!val) return '';
-  return val.replace(/^\{|\}$/g, '').replace(/[{}]/g, '').trim();
+  return val
+    .replace(/^\{|\}$/g, '')
+    .replace(/[{}]/g, '')
+    .trim();
 }
 
 // Query CrossRef API to find metadata for a single entry
@@ -14,7 +17,10 @@ async function lookupCrossRef(title, author) {
   if (title) params.set('query.bibliographic', title);
   if (author) params.set('query.author', author.split(/\s+and\s+/i)[0]);
   params.set('rows', '3');
-  params.set('select', 'DOI,title,author,container-title,volume,issue,page,publisher,published-print,published-online,ISSN,ISBN,URL,type');
+  params.set(
+    'select',
+    'DOI,title,author,container-title,volume,issue,page,publisher,published-print,published-online,ISSN,ISBN,URL,type',
+  );
 
   try {
     const res = await fetch(`https://api.crossref.org/works?${params}`, {
@@ -43,7 +49,10 @@ async function lookupCrossRef(title, author) {
         else break;
       }
       const score = minLen > 0 ? common / Math.max(titleLower.length, itemTitle.length) : 0;
-      if (score > bestScore) { bestScore = score; best = item; }
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
     }
 
     // Only use if reasonable match (> 50% prefix match)
@@ -89,9 +98,7 @@ function extractFields(item) {
   if (item.ISBN?.[0]) fields.isbn = item.ISBN[0];
 
   if (item.author?.length) {
-    fields.author = item.author
-      .map((a) => [a.family, a.given].filter(Boolean).join(', '))
-      .join(' and ');
+    fields.author = item.author.map((a) => [a.family, a.given].filter(Boolean).join(', ')).join(' and ');
   }
 
   if (item.title?.[0]) fields.title = item.title[0];
@@ -117,35 +124,37 @@ router.post('/enrich', async (req, res) => {
   const batchSize = 5;
   for (let i = 0; i < entries.length; i += batchSize) {
     const batch = entries.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(async (entry) => {
-      const title = stripBraces(entry.title);
-      const author = stripBraces(entry.author);
+    const batchResults = await Promise.all(
+      batch.map(async (entry) => {
+        const title = stripBraces(entry.title);
+        const author = stripBraces(entry.author);
 
-      if (!title) {
-        return { key: entry.key, found: false, added: {} };
-      }
-
-      const item = await lookupCrossRef(title, author);
-      if (!item) {
-        return { key: entry.key, found: false, added: {} };
-      }
-
-      const available = extractFields(item);
-      const added = {};
-
-      for (const field of fields) {
-        // Only add if the entry doesn't already have this field
-        const existing = entry.existingFields || {};
-        if (existing[field]) continue;
-
-        // Map requested field to available data
-        if (available[field]) {
-          added[field] = available[field];
+        if (!title) {
+          return { key: entry.key, found: false, added: {} };
         }
-      }
 
-      return { key: entry.key, found: true, added, source: 'crossref' };
-    }));
+        const item = await lookupCrossRef(title, author);
+        if (!item) {
+          return { key: entry.key, found: false, added: {} };
+        }
+
+        const available = extractFields(item);
+        const added = {};
+
+        for (const field of fields) {
+          // Only add if the entry doesn't already have this field
+          const existing = entry.existingFields || {};
+          if (existing[field]) continue;
+
+          // Map requested field to available data
+          if (available[field]) {
+            added[field] = available[field];
+          }
+        }
+
+        return { key: entry.key, found: true, added, source: 'crossref' };
+      }),
+    );
 
     results.push(...batchResults);
   }

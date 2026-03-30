@@ -6,18 +6,20 @@ function SymbolPicker({ onInsert, onClose }) {
   const [filter, setFilter] = useState('');
   const filterRef = useRef(null);
 
-  useEffect(() => { filterRef.current?.focus(); }, []);
+  useEffect(() => {
+    filterRef.current?.focus();
+  }, []);
 
   const filtered = filter.trim()
-    ? SYMBOL_CATEGORIES.map(cat => ({
+    ? SYMBOL_CATEGORIES.map((cat) => ({
         ...cat,
         symbols: cat.symbols.filter(([cmd]) => cmd.toLowerCase().includes(filter.toLowerCase())),
-      })).filter(cat => cat.symbols.length > 0)
+      })).filter((cat) => cat.symbols.length > 0)
     : SYMBOL_CATEGORIES;
 
   // Find package for selected symbol
   const selectedPkg = selected
-    ? SYMBOL_CATEGORIES.flatMap(c => c.symbols).find(s => s[0] === selected)?.[2] || null
+    ? SYMBOL_CATEGORIES.flatMap((c) => c.symbols).find((s) => s[0] === selected)?.[2] || null
     : null;
 
   const handleInsert = (cmd) => {
@@ -27,20 +29,22 @@ function SymbolPicker({ onInsert, onClose }) {
 
   return (
     <div className="symbol-picker-overlay" onClick={onClose}>
-      <div className="symbol-picker" onClick={e => e.stopPropagation()}>
+      <div className="symbol-picker" onClick={(e) => e.stopPropagation()}>
         <div className="symbol-picker-header">
           <span className="symbol-picker-title">Insert Special Symbol</span>
-          <button className="symbol-picker-close" onClick={onClose}>&times;</button>
+          <button className="symbol-picker-close" onClick={onClose}>
+            &times;
+          </button>
         </div>
         <input
           ref={filterRef}
           className="symbol-picker-filter"
           placeholder="Search symbols..."
           value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={(e) => setFilter(e.target.value)}
         />
         <div className="symbol-picker-body">
-          {filtered.map(cat => (
+          {filtered.map((cat) => (
             <div key={cat.name} className="symbol-picker-category">
               <div className="symbol-picker-cat-name">{cat.name}</div>
               <div className="symbol-picker-grid">
@@ -65,7 +69,13 @@ function SymbolPicker({ onInsert, onClose }) {
             <span className="symbol-picker-selected-cmd">{selected || ''}</span>
             {selectedPkg && <span className="symbol-picker-pkg">Requires: \usepackage{'{' + selectedPkg + '}'}</span>}
           </div>
-          <button className="symbol-picker-insert-btn" disabled={!selected} onClick={() => selected && handleInsert(selected)}>Insert</button>
+          <button
+            className="symbol-picker-insert-btn"
+            disabled={!selected}
+            onClick={() => selected && handleInsert(selected)}
+          >
+            Insert
+          </button>
         </div>
       </div>
     </div>

@@ -24,10 +24,12 @@ router.post('/', async (req, res) => {
   const id = uuid();
   try {
     const safeColor = validColor(color) ? color : '#89b4fa';
-    await db.run(
-      'INSERT INTO tags (id, user_id, name, color) VALUES ($1, $2, $3, $4)',
-      [id, req.session.userId, name.trim(), safeColor]
-    );
+    await db.run('INSERT INTO tags (id, user_id, name, color) VALUES ($1, $2, $3, $4)', [
+      id,
+      req.session.userId,
+      name.trim(),
+      safeColor,
+    ]);
     res.json({ id, name: name.trim(), color: safeColor });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
@@ -41,7 +43,8 @@ router.patch('/:id', async (req, res) => {
   const tag = await db.get('SELECT * FROM tags WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
   if (!tag) return res.status(404).json({ error: 'Tag not found' });
   if (name !== undefined) await db.run('UPDATE tags SET name = $1 WHERE id = $2', [name.trim(), req.params.id]);
-  if (color !== undefined && validColor(color)) await db.run('UPDATE tags SET color = $1 WHERE id = $2', [color, req.params.id]);
+  if (color !== undefined && validColor(color))
+    await db.run('UPDATE tags SET color = $1 WHERE id = $2', [color, req.params.id]);
   res.json({ ok: true });
 });
 

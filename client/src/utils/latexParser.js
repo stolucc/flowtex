@@ -29,104 +29,245 @@
 // ─── Token Types ─────────────────────────────────────────────────────────────
 
 export const T = Object.freeze({
-  TEXT:        'text',
-  COMMAND:     'command',      // \name or \name*
-  BEGIN:       'begin',        // \begin  (the command itself)
-  END:         'end',          // \end    (the command itself)
-  OPEN_BRACE:  '{',
+  TEXT: 'text',
+  COMMAND: 'command', // \name or \name*
+  BEGIN: 'begin', // \begin  (the command itself)
+  END: 'end', // \end    (the command itself)
+  OPEN_BRACE: '{',
   CLOSE_BRACE: '}',
-  OPEN_BRACKET:'[',
-  CLOSE_BRACKET:']',
+  OPEN_BRACKET: '[',
+  CLOSE_BRACKET: ']',
   MATH_INLINE: 'math_inline', // $ or \( or \)
-  MATH_DISPLAY:'math_display', // $$ or \[ or \]
-  AMPERSAND:   '&',
-  HASH:        '#',
-  SUBSCRIPT:   '_',
+  MATH_DISPLAY: 'math_display', // $$ or \[ or \]
+  AMPERSAND: '&',
+  HASH: '#',
+  SUBSCRIPT: '_',
   SUPERSCRIPT: '^',
-  TILDE:       '~',
-  NEWLINE:     'newline',      // \\
-  COMMENT:     'comment',      // % to end of line
-  VERBATIM:    'verbatim',     // contents of verbatim env or \verb
-  WHITESPACE:  'whitespace',
-  PARAM:       'param',        // #1, #2, etc.
+  TILDE: '~',
+  NEWLINE: 'newline', // \\
+  COMMENT: 'comment', // % to end of line
+  VERBATIM: 'verbatim', // contents of verbatim env or \verb
+  WHITESPACE: 'whitespace',
+  PARAM: 'param', // #1, #2, etc.
 });
 
 // ─── AST Node Types ──────────────────────────────────────────────────────────
 
 export const N = Object.freeze({
-  ROOT:        'root',
+  ROOT: 'root',
   ENVIRONMENT: 'environment',
-  COMMAND:     'command',
-  GROUP:       'group',        // { ... }
-  OPT_ARG:     'opt_arg',     // [ ... ]
+  COMMAND: 'command',
+  GROUP: 'group', // { ... }
+  OPT_ARG: 'opt_arg', // [ ... ]
   MATH_INLINE: 'math_inline',
-  MATH_DISPLAY:'math_display',
-  TEXT:        'text',
-  COMMENT:     'comment',
-  VERBATIM:    'verbatim',
+  MATH_DISPLAY: 'math_display',
+  TEXT: 'text',
+  COMMENT: 'comment',
+  VERBATIM: 'verbatim',
 });
 
 // ─── Known Sets ──────────────────────────────────────────────────────────────
 
 const VERBATIM_ENVS = new Set([
-  'verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt', 'comment',
-  'Verbatim', 'BVerbatim', 'LVerbatim', 'SaveVerbatim',
+  'verbatim',
+  'verbatim*',
+  'lstlisting',
+  'minted',
+  'alltt',
+  'comment',
+  'Verbatim',
+  'BVerbatim',
+  'LVerbatim',
+  'SaveVerbatim',
 ]);
 
 const MATH_ENVS = new Set([
-  'equation', 'equation*', 'align', 'align*', 'aligned', 'alignat',
-  'alignat*', 'gather', 'gather*', 'gathered', 'multline', 'multline*',
-  'flalign', 'flalign*', 'split', 'math', 'displaymath', 'eqnarray',
-  'eqnarray*', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix',
-  'Bmatrix', 'cases', 'dcases', 'rcases',
+  'equation',
+  'equation*',
+  'align',
+  'align*',
+  'aligned',
+  'alignat',
+  'alignat*',
+  'gather',
+  'gather*',
+  'gathered',
+  'multline',
+  'multline*',
+  'flalign',
+  'flalign*',
+  'split',
+  'math',
+  'displaymath',
+  'eqnarray',
+  'eqnarray*',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'Vmatrix',
+  'Bmatrix',
+  'cases',
+  'dcases',
+  'rcases',
 ]);
 
 const ALIGN_ENVS = new Set([
-  'tabular', 'tabular*', 'tabularx', 'tabulary', 'tabu', 'longtabu',
-  'array', 'longtable', 'supertabular', 'supertabular*',
-  'delarray', 'NiceTabular', 'NiceTabular*', 'NiceArray',
-  'blockarray', 'block', 'ctabular',
-  'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Vmatrix', 'Bmatrix',
-  'smallmatrix', 'cases', 'dcases', 'rcases', 'drcases', 'cases*',
-  'align', 'align*', 'aligned', 'alignat', 'alignat*', 'alignedat',
-  'eqnarray', 'eqnarray*', 'split', 'gathered', 'multline', 'multline*',
-  'flalign', 'flalign*',
-  'IEEEeqnarray', 'IEEEeqnarray*', 'systeme',
+  'tabular',
+  'tabular*',
+  'tabularx',
+  'tabulary',
+  'tabu',
+  'longtabu',
+  'array',
+  'longtable',
+  'supertabular',
+  'supertabular*',
+  'delarray',
+  'NiceTabular',
+  'NiceTabular*',
+  'NiceArray',
+  'blockarray',
+  'block',
+  'ctabular',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'Vmatrix',
+  'Bmatrix',
+  'smallmatrix',
+  'cases',
+  'dcases',
+  'rcases',
+  'drcases',
+  'cases*',
+  'align',
+  'align*',
+  'aligned',
+  'alignat',
+  'alignat*',
+  'alignedat',
+  'eqnarray',
+  'eqnarray*',
+  'split',
+  'gathered',
+  'multline',
+  'multline*',
+  'flalign',
+  'flalign*',
+  'IEEEeqnarray',
+  'IEEEeqnarray*',
+  'systeme',
 ]);
 
 const TABLE_ENVS = new Set([
-  'tabular', 'tabular*', 'tabularx', 'tabulary', 'tabu', 'longtabu',
-  'array', 'longtable', 'supertabular', 'supertabular*',
-  'NiceTabular', 'NiceTabular*', 'NiceArray',
+  'tabular',
+  'tabular*',
+  'tabularx',
+  'tabulary',
+  'tabu',
+  'longtabu',
+  'array',
+  'longtable',
+  'supertabular',
+  'supertabular*',
+  'NiceTabular',
+  'NiceTabular*',
+  'NiceArray',
 ]);
 
 // Commands whose first brace argument is not prose (labels, refs, filenames, etc.)
 const NON_PROSE_COMMANDS = new Set([
-  'cite', 'citep', 'citet', 'autocite', 'parencite', 'textcite', 'fullcite',
-  'nocite', 'citeauthor', 'citeyear', 'citealt', 'citealp',
-  'Cite', 'Citep', 'Citet',
-  'ref', 'eqref', 'pageref', 'label', 'hyperref', 'url', 'href',
-  'includegraphics', 'input', 'include', 'bibliography', 'bibliographystyle',
-  'usepackage', 'RequirePackage', 'documentclass',
-  'newcommand', 'renewcommand', 'providecommand',
-  'newcommand*', 'renewcommand*', 'providecommand*',
-  'newenvironment', 'renewenvironment',
-  'DeclareMathOperator', 'DeclareMathOperator*',
-  'DeclareRobustCommand', 'NewDocumentCommand', 'RenewDocumentCommand',
+  'cite',
+  'citep',
+  'citet',
+  'autocite',
+  'parencite',
+  'textcite',
+  'fullcite',
+  'nocite',
+  'citeauthor',
+  'citeyear',
+  'citealt',
+  'citealp',
+  'Cite',
+  'Citep',
+  'Citet',
+  'ref',
+  'eqref',
+  'pageref',
+  'label',
+  'hyperref',
+  'url',
+  'href',
+  'includegraphics',
+  'input',
+  'include',
+  'bibliography',
+  'bibliographystyle',
+  'usepackage',
+  'RequirePackage',
+  'documentclass',
+  'newcommand',
+  'renewcommand',
+  'providecommand',
+  'newcommand*',
+  'renewcommand*',
+  'providecommand*',
+  'newenvironment',
+  'renewenvironment',
+  'DeclareMathOperator',
+  'DeclareMathOperator*',
+  'DeclareRobustCommand',
+  'NewDocumentCommand',
+  'RenewDocumentCommand',
   'def',
 ]);
 
 // Commands whose brace argument IS prose (should be spell-checked)
 const PROSE_COMMANDS = new Set([
-  'title', 'author', 'date', 'thanks', 'abstract',
-  'section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph',
-  'section*', 'subsection*', 'subsubsection*', 'paragraph*', 'subparagraph*',
-  'chapter', 'chapter*', 'part', 'part*',
-  'caption', 'footnote', 'footnotetext', 'marginpar',
-  'text', 'textbf', 'textit', 'texttt', 'textrm', 'textsf', 'textsc',
-  'textsl', 'textup', 'textmd',
-  'emph', 'underline', 'mbox', 'fbox', 'parbox', 'minipage',
-  'quote', 'quotation',
+  'title',
+  'author',
+  'date',
+  'thanks',
+  'abstract',
+  'section',
+  'subsection',
+  'subsubsection',
+  'paragraph',
+  'subparagraph',
+  'section*',
+  'subsection*',
+  'subsubsection*',
+  'paragraph*',
+  'subparagraph*',
+  'chapter',
+  'chapter*',
+  'part',
+  'part*',
+  'caption',
+  'footnote',
+  'footnotetext',
+  'marginpar',
+  'text',
+  'textbf',
+  'textit',
+  'texttt',
+  'textrm',
+  'textsf',
+  'textsc',
+  'textsl',
+  'textup',
+  'textmd',
+  'emph',
+  'underline',
+  'mbox',
+  'fbox',
+  'parbox',
+  'minipage',
+  'quote',
+  'quotation',
   'item',
 ]);
 
@@ -134,64 +275,198 @@ const PROSE_COMMANDS = new Set([
 // Only these will have readArgs() called — prevents greedy consumption
 const COMMANDS_WITH_ARGS = new Set([
   // Sectioning
-  'part', 'part*', 'chapter', 'chapter*',
-  'section', 'section*', 'subsection', 'subsection*',
-  'subsubsection', 'subsubsection*', 'paragraph', 'paragraph*', 'subparagraph', 'subparagraph*',
+  'part',
+  'part*',
+  'chapter',
+  'chapter*',
+  'section',
+  'section*',
+  'subsection',
+  'subsection*',
+  'subsubsection',
+  'subsubsection*',
+  'paragraph',
+  'paragraph*',
+  'subparagraph',
+  'subparagraph*',
   // Text formatting
-  'textbf', 'textit', 'texttt', 'textrm', 'textsf', 'textsc', 'textsl', 'textup', 'textmd',
-  'emph', 'underline', 'mbox', 'fbox', 'makebox', 'framebox', 'parbox', 'raisebox',
-  'textsuperscript', 'textsubscript',
+  'textbf',
+  'textit',
+  'texttt',
+  'textrm',
+  'textsf',
+  'textsc',
+  'textsl',
+  'textup',
+  'textmd',
+  'emph',
+  'underline',
+  'mbox',
+  'fbox',
+  'makebox',
+  'framebox',
+  'parbox',
+  'raisebox',
+  'textsuperscript',
+  'textsubscript',
   // Math
-  'mathrm', 'mathbf', 'mathit', 'mathsf', 'mathtt', 'mathcal', 'mathbb', 'mathfrak', 'mathscr',
-  'frac', 'dfrac', 'tfrac', 'sqrt', 'binom', 'overset', 'underset', 'stackrel',
-  'hat', 'bar', 'vec', 'dot', 'ddot', 'tilde', 'widetilde', 'widehat', 'overline', 'underline',
-  'overbrace', 'underbrace', 'operatorname',
+  'mathrm',
+  'mathbf',
+  'mathit',
+  'mathsf',
+  'mathtt',
+  'mathcal',
+  'mathbb',
+  'mathfrak',
+  'mathscr',
+  'frac',
+  'dfrac',
+  'tfrac',
+  'sqrt',
+  'binom',
+  'overset',
+  'underset',
+  'stackrel',
+  'hat',
+  'bar',
+  'vec',
+  'dot',
+  'ddot',
+  'tilde',
+  'widetilde',
+  'widehat',
+  'overline',
+  'underline',
+  'overbrace',
+  'underbrace',
+  'operatorname',
   // References, citations, labels
-  'cite', 'citep', 'citet', 'autocite', 'parencite', 'textcite', 'fullcite',
-  'nocite', 'citeauthor', 'citeyear', 'citealt', 'citealp',
-  'Cite', 'Citep', 'Citet',
-  'ref', 'eqref', 'pageref', 'label', 'hyperref', 'url', 'href', 'hypersetup',
+  'cite',
+  'citep',
+  'citet',
+  'autocite',
+  'parencite',
+  'textcite',
+  'fullcite',
+  'nocite',
+  'citeauthor',
+  'citeyear',
+  'citealt',
+  'citealp',
+  'Cite',
+  'Citep',
+  'Citet',
+  'ref',
+  'eqref',
+  'pageref',
+  'label',
+  'hyperref',
+  'url',
+  'href',
+  'hypersetup',
   // Structure
-  'title', 'author', 'date', 'thanks', 'institute',
-  'caption', 'caption*', 'footnote', 'footnotetext', 'marginpar',
+  'title',
+  'author',
+  'date',
+  'thanks',
+  'institute',
+  'caption',
+  'caption*',
+  'footnote',
+  'footnotetext',
+  'marginpar',
   // Includes
-  'input', 'include', 'usepackage', 'RequirePackage', 'documentclass',
-  'bibliography', 'bibliographystyle', 'addbibresource',
-  'includegraphics', 'graphicspath',
+  'input',
+  'include',
+  'usepackage',
+  'RequirePackage',
+  'documentclass',
+  'bibliography',
+  'bibliographystyle',
+  'addbibresource',
+  'includegraphics',
+  'graphicspath',
   // Definitions
-  'newcommand', 'renewcommand', 'providecommand',
-  'newcommand*', 'renewcommand*', 'providecommand*',
-  'newenvironment', 'renewenvironment',
-  'NewDocumentCommand', 'RenewDocumentCommand', 'ProvideDocumentCommand',
-  'DeclareRobustCommand', 'DeclareMathOperator', 'DeclareMathOperator*',
-  'newlength', 'setlength', 'addtolength', 'setcounter', 'addtocounter', 'newcounter',
-  'newtheorem', 'newtheorem*',
+  'newcommand',
+  'renewcommand',
+  'providecommand',
+  'newcommand*',
+  'renewcommand*',
+  'providecommand*',
+  'newenvironment',
+  'renewenvironment',
+  'NewDocumentCommand',
+  'RenewDocumentCommand',
+  'ProvideDocumentCommand',
+  'DeclareRobustCommand',
+  'DeclareMathOperator',
+  'DeclareMathOperator*',
+  'newlength',
+  'setlength',
+  'addtolength',
+  'setcounter',
+  'addtocounter',
+  'newcounter',
+  'newtheorem',
+  'newtheorem*',
   // Layout
-  'geometry', 'setmainfont', 'setsansfont', 'setmonofont',
-  'pagestyle', 'thispagestyle', 'pagenumbering',
-  'hspace', 'hspace*', 'vspace', 'vspace*',
-  'minipage', 'resizebox', 'scalebox', 'rotatebox',
+  'geometry',
+  'setmainfont',
+  'setsansfont',
+  'setmonofont',
+  'pagestyle',
+  'thispagestyle',
+  'pagenumbering',
+  'hspace',
+  'hspace*',
+  'vspace',
+  'vspace*',
+  'minipage',
+  'resizebox',
+  'scalebox',
+  'rotatebox',
   // Floats and figures
   'centering',
   // Tables
-  'multicolumn', 'multirow', 'cline', 'rowcolor', 'cellcolor', 'columncolor', 'rowcolors',
+  'multicolumn',
+  'multirow',
+  'cline',
+  'rowcolor',
+  'cellcolor',
+  'columncolor',
+  'rowcolors',
   // Colors
-  'color', 'textcolor', 'colorbox', 'definecolor',
+  'color',
+  'textcolor',
+  'colorbox',
+  'definecolor',
   // Lists
   'item',
   // Misc
-  'phantom', 'hphantom', 'vphantom',
-  'rule', 'renewcommand', 'providecommand',
+  'phantom',
+  'hphantom',
+  'vphantom',
+  'rule',
+  'renewcommand',
+  'providecommand',
 ]);
 
 const MACRO_DEF_COMMANDS = new Set([
-  'newcommand', 'renewcommand', 'providecommand',
-  'newcommand*', 'renewcommand*', 'providecommand*',
-  'newenvironment', 'renewenvironment',
-  'NewDocumentCommand', 'RenewDocumentCommand', 'ProvideDocumentCommand',
-  'DeclareRobustCommand', 'DeclareMathOperator', 'DeclareMathOperator*',
+  'newcommand',
+  'renewcommand',
+  'providecommand',
+  'newcommand*',
+  'renewcommand*',
+  'providecommand*',
+  'newenvironment',
+  'renewenvironment',
+  'NewDocumentCommand',
+  'RenewDocumentCommand',
+  'ProvideDocumentCommand',
+  'DeclareRobustCommand',
+  'DeclareMathOperator',
+  'DeclareMathOperator*',
 ]);
-
 
 // ─── Tokenizer ───────────────────────────────────────────────────────────────
 //
@@ -214,7 +489,9 @@ export function tokenize(source) {
   let line = 1;
   let lineStart = 0;
 
-  function col() { return i - lineStart + 1; }
+  function col() {
+    return i - lineStart + 1;
+  }
 
   function push(type, from, to, value) {
     tokens.push({ type, value: value ?? source.slice(from, to), from, to, line, col: from - lineStart + 1 });
@@ -268,12 +545,28 @@ export function tokenize(source) {
         }
 
         // \( \) — math inline delimiters
-        if (next === '(') { i += 2; push(T.MATH_INLINE, start, i, '\\('); continue; }
-        if (next === ')') { i += 2; push(T.MATH_INLINE, start, i, '\\)'); continue; }
+        if (next === '(') {
+          i += 2;
+          push(T.MATH_INLINE, start, i, '\\(');
+          continue;
+        }
+        if (next === ')') {
+          i += 2;
+          push(T.MATH_INLINE, start, i, '\\)');
+          continue;
+        }
 
         // \[ \] — math display delimiters
-        if (next === '[') { i += 2; push(T.MATH_DISPLAY, start, i, '\\['); continue; }
-        if (next === ']') { i += 2; push(T.MATH_DISPLAY, start, i, '\\]'); continue; }
+        if (next === '[') {
+          i += 2;
+          push(T.MATH_DISPLAY, start, i, '\\[');
+          continue;
+        }
+        if (next === ']') {
+          i += 2;
+          push(T.MATH_DISPLAY, start, i, '\\]');
+          continue;
+        }
 
         // \\ — line break (not a command)
         if (next === '\\') {
@@ -330,10 +623,26 @@ export function tokenize(source) {
     }
 
     // ── Braces ──
-    if (ch === '{') { push(T.OPEN_BRACE, i, i + 1); i++; continue; }
-    if (ch === '}') { push(T.CLOSE_BRACE, i, i + 1); i++; continue; }
-    if (ch === '[') { push(T.OPEN_BRACKET, i, i + 1); i++; continue; }
-    if (ch === ']') { push(T.CLOSE_BRACKET, i, i + 1); i++; continue; }
+    if (ch === '{') {
+      push(T.OPEN_BRACE, i, i + 1);
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      push(T.CLOSE_BRACE, i, i + 1);
+      i++;
+      continue;
+    }
+    if (ch === '[') {
+      push(T.OPEN_BRACKET, i, i + 1);
+      i++;
+      continue;
+    }
+    if (ch === ']') {
+      push(T.CLOSE_BRACKET, i, i + 1);
+      i++;
+      continue;
+    }
 
     // ── Dollar math ──
     if (ch === '$') {
@@ -349,7 +658,11 @@ export function tokenize(source) {
     }
 
     // ── Special characters ──
-    if (ch === '&') { push(T.AMPERSAND, i, i + 1); i++; continue; }
+    if (ch === '&') {
+      push(T.AMPERSAND, i, i + 1);
+      i++;
+      continue;
+    }
     if (ch === '#') {
       const start = i;
       if (i + 1 < len && /[1-9]/.test(source[i + 1])) {
@@ -361,9 +674,21 @@ export function tokenize(source) {
       }
       continue;
     }
-    if (ch === '_') { push(T.SUBSCRIPT, i, i + 1); i++; continue; }
-    if (ch === '^') { push(T.SUPERSCRIPT, i, i + 1); i++; continue; }
-    if (ch === '~') { push(T.TILDE, i, i + 1); i++; continue; }
+    if (ch === '_') {
+      push(T.SUBSCRIPT, i, i + 1);
+      i++;
+      continue;
+    }
+    if (ch === '^') {
+      push(T.SUPERSCRIPT, i, i + 1);
+      i++;
+      continue;
+    }
+    if (ch === '~') {
+      push(T.TILDE, i, i + 1);
+      i++;
+      continue;
+    }
 
     // ── Whitespace runs ──
     if (/\s/.test(ch)) {
@@ -388,7 +713,6 @@ export function tokenize(source) {
   return tokens;
 }
 
-
 // ─── Tree Builder ────────────────────────────────────────────────────────────
 //
 // Builds a lightweight AST from the token stream. Each node has:
@@ -405,7 +729,9 @@ export function parse(source) {
 
   const stack = [root]; // stack of open containers
 
-  function current() { return stack[stack.length - 1]; }
+  function current() {
+    return stack[stack.length - 1];
+  }
 
   function pushChild(node) {
     current().children.push(node);
@@ -430,10 +756,15 @@ export function parse(source) {
   const tlen = tokens.length;
 
   // Lookahead helpers
-  function peek(offset = 0) { return ti + offset < tlen ? tokens[ti + offset] : null; }
-  function advance() { return ti < tlen ? tokens[ti++] : null; }
+  function peek(offset = 0) {
+    return ti + offset < tlen ? tokens[ti + offset] : null;
+  }
+  function advance() {
+    return ti < tlen ? tokens[ti++] : null;
+  }
   function skipWhitespace() {
-    while (ti < tlen && (tokens[ti].type === T.WHITESPACE || (tokens[ti].type === T.TEXT && tokens[ti].value === '\n'))) ti++;
+    while (ti < tlen && (tokens[ti].type === T.WHITESPACE || (tokens[ti].type === T.TEXT && tokens[ti].value === '\n')))
+      ti++;
   }
 
   // Read a brace group: { ... } — returns a GROUP node or null
@@ -459,7 +790,7 @@ export function parse(source) {
       ti++;
     }
     // Flatten group text for convenience
-    group.text = group.children.map(t => t.value).join('');
+    group.text = group.children.map((t) => t.value).join('');
     return group;
   }
 
@@ -484,7 +815,7 @@ export function parse(source) {
       arg.children.push(tok);
       ti++;
     }
-    arg.text = arg.children.map(t => t.value).join('');
+    arg.text = arg.children.map((t) => t.value).join('');
     return arg;
   }
 
@@ -722,7 +1053,6 @@ export function parse(source) {
   return root;
 }
 
-
 // ─── Query Utilities ─────────────────────────────────────────────────────────
 
 /**
@@ -789,9 +1119,7 @@ export function ancestorsAtPos(tree, pos) {
  * Find all environment nodes, optionally filtered by name.
  */
 export function findEnvironments(tree, name) {
-  return findAll(tree, (node) =>
-    node.type === N.ENVIRONMENT && (name == null || node.name === name)
-  );
+  return findAll(tree, (node) => node.type === N.ENVIRONMENT && (name == null || node.name === name));
 }
 
 /**
@@ -843,9 +1171,7 @@ export function findTableAtPos(tree, pos) {
  * Find all command nodes by name.
  */
 export function findCommands(tree, name) {
-  return findAll(tree, (node) =>
-    node.type === N.COMMAND && node.name === name
-  );
+  return findAll(tree, (node) => node.type === N.COMMAND && node.name === name);
 }
 
 /**
@@ -854,19 +1180,26 @@ export function findCommands(tree, name) {
  */
 export function getStructure(tree) {
   const levels = {
-    'part': 0, 'part*': 0,
-    'chapter': 1, 'chapter*': 1,
-    'section': 2, 'section*': 2,
-    'subsection': 3, 'subsection*': 3,
-    'subsubsection': 4, 'subsubsection*': 4,
-    'paragraph': 5, 'paragraph*': 5,
-    'subparagraph': 6, 'subparagraph*': 6,
+    part: 0,
+    'part*': 0,
+    chapter: 1,
+    'chapter*': 1,
+    section: 2,
+    'section*': 2,
+    subsection: 3,
+    'subsection*': 3,
+    subsubsection: 4,
+    'subsubsection*': 4,
+    paragraph: 5,
+    'paragraph*': 5,
+    subparagraph: 6,
+    'subparagraph*': 6,
   };
 
   const structure = [];
   walk(tree, (node) => {
     if (node.type === N.COMMAND && node.name in levels) {
-      const titleArg = node.args.find(a => a.type === N.GROUP);
+      const titleArg = node.args.find((a) => a.type === N.GROUP);
       structure.push({
         level: levels[node.name],
         name: node.name,
@@ -878,7 +1211,6 @@ export function getStructure(tree) {
   });
   return structure;
 }
-
 
 // ─── Table Parsing ───────────────────────────────────────────────────────────
 //
@@ -897,7 +1229,7 @@ export function parseTable(tableInfo, source) {
   const result = {
     env: inner.name,
     alignment: 'c',
-    alignments: [],    // per-column alignment
+    alignments: [], // per-column alignment
     borders: 'none',
     headerRow: false,
     boldHeader: false,
@@ -910,7 +1242,7 @@ export function parseTable(tableInfo, source) {
     rows: 0,
     cols: 0,
     cells: [],
-    merges: [],     // Array of { row, col, rowSpan, colSpan, align }
+    merges: [], // Array of { row, col, rowSpan, colSpan, align }
     // Position info for replacement
     from: tableInfo.from ?? inner.from,
     to: tableInfo.to ?? inner.to,
@@ -922,9 +1254,9 @@ export function parseTable(tableInfo, source) {
   const innerArgs = inner.args || [];
   let colSpecArg = null;
   if (inner.name === 'tabularx' || inner.name === 'tabulary') {
-    colSpecArg = innerArgs.filter(a => a.type === N.GROUP)[1]; // second brace group
+    colSpecArg = innerArgs.filter((a) => a.type === N.GROUP)[1]; // second brace group
   } else {
-    colSpecArg = innerArgs.find(a => a.type === N.GROUP);
+    colSpecArg = innerArgs.find((a) => a.type === N.GROUP);
   }
 
   if (colSpecArg) {
@@ -942,11 +1274,11 @@ export function parseTable(tableInfo, source) {
       if (node.type === N.COMMAND) {
         if (node.name === 'caption' || node.name === 'caption*') {
           result.caption = true;
-          const arg = node.args.find(a => a.type === N.GROUP);
+          const arg = node.args.find((a) => a.type === N.GROUP);
           result.captionText = arg ? arg.text : '';
         }
         if (node.name === 'label') {
-          const arg = node.args.find(a => a.type === N.GROUP);
+          const arg = node.args.find((a) => a.type === N.GROUP);
           result.label = arg ? arg.text : '';
         }
         if (node.name === 'centering') {
@@ -965,11 +1297,11 @@ export function parseTable(tableInfo, source) {
       if (node.type === N.COMMAND) {
         if (node.name === 'caption' || node.name === 'caption*') {
           result.caption = true;
-          const arg = node.args.find(a => a.type === N.GROUP);
+          const arg = node.args.find((a) => a.type === N.GROUP);
           result.captionText = arg ? arg.text : '';
         }
         if (node.name === 'label') {
-          const arg = node.args.find(a => a.type === N.GROUP);
+          const arg = node.args.find((a) => a.type === N.GROUP);
           result.label = arg ? arg.text : '';
         }
       }
@@ -1015,7 +1347,12 @@ function parseColumnSpec(spec, result, customTypes) {
 
     // Paragraph columns: p{width}, m{width}, b{width}
     // Also uppercase variants as fallback (when not defined via \newcolumntype)
-    if ('pmbPMBLRC'.includes(ch) && !(customTypes && customTypes.has(ch)) && i + 1 < spec.length && spec[i + 1] === '{') {
+    if (
+      'pmbPMBLRC'.includes(ch) &&
+      !(customTypes && customTypes.has(ch)) &&
+      i + 1 < spec.length &&
+      spec[i + 1] === '{'
+    ) {
       const align = ch === 'R' ? 'r' : ch === 'C' || ch === 'P' ? 'c' : 'l';
       alignments.push(align);
       i++;
@@ -1314,16 +1651,16 @@ function parseTableRows(envNode, source, result) {
   result.cells = dataRows;
   result.rows = dataRows.length;
   if (dataRows.length > 0) {
-    result.cols = Math.max(result.cols, ...dataRows.map(r => r.length));
+    result.cols = Math.max(result.cols, ...dataRows.map((r) => r.length));
   }
 
   // Detect header row
   if (dataRows.length > 0) {
     const firstRow = dataRows[0];
-    const hasContent = firstRow.some(c => c != null && c.trim().length > 0);
+    const hasContent = firstRow.some((c) => c != null && c.trim().length > 0);
     if (hasContent) {
       result.headerRow = true;
-      result.boldHeader = firstRow.some(c => c != null && /\\textbf\s*\{/.test(c));
+      result.boldHeader = firstRow.some((c) => c != null && /\\textbf\s*\{/.test(c));
     }
   }
 }
@@ -1332,11 +1669,16 @@ function parseTableRows(envNode, source, result) {
  * Extract the 3rd brace-group content from \multicolumn{n}{align}{content}.
  */
 function extractMulticolContent(cell) {
-  let depth = 0, groups = 0, start = -1;
+  let depth = 0,
+    groups = 0,
+    start = -1;
   for (let i = 0; i < cell.length; i++) {
     if (cell[i] === '{') {
       depth++;
-      if (depth === 1) { groups++; start = i + 1; }
+      if (depth === 1) {
+        groups++;
+        start = i + 1;
+      }
     } else if (cell[i] === '}') {
       depth--;
       if (depth === 0 && groups === 3) return cell.slice(start, i);
@@ -1354,11 +1696,16 @@ function extractMultirowContent(cell) {
   // Skip past \multirow
   const cmd = cell.match(/^\\multirow(?:\[[^\]]*\])?/);
   if (cmd) i = cmd[0].length;
-  let depth = 0, groups = 0, start = -1;
+  let depth = 0,
+    groups = 0,
+    start = -1;
   for (; i < cell.length; i++) {
     if (cell[i] === '{') {
       depth++;
-      if (depth === 1) { groups++; start = i + 1; }
+      if (depth === 1) {
+        groups++;
+        start = i + 1;
+      }
     } else if (cell[i] === '}') {
       depth--;
       if (depth === 0 && groups === 3) return cell.slice(start, i);
@@ -1379,8 +1726,18 @@ function splitTableRows(body) {
   while (i < body.length) {
     const ch = body[i];
 
-    if (ch === '{') { depth++; current += ch; i++; continue; }
-    if (ch === '}') { depth--; current += ch; i++; continue; }
+    if (ch === '{') {
+      depth++;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      depth--;
+      current += ch;
+      i++;
+      continue;
+    }
 
     // Check for \\ at depth 0
     if (depth === 0 && ch === '\\' && i + 1 < body.length && body[i + 1] === '\\') {
@@ -1437,7 +1794,6 @@ function splitOnAmpersand(text) {
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 
 // ─── Context Queries ─────────────────────────────────────────────────────────
 //
@@ -1507,7 +1863,6 @@ export function inVerbatim(tree, pos) {
   return contextAtPos(tree, pos).inVerbatim;
 }
 
-
 // ─── Linting with the AST ───────────────────────────────────────────────────
 //
 // Walk the tree and check for common errors.
@@ -1527,10 +1882,12 @@ export function lint(tree, source) {
 
   function posToLineCol(pos) {
     // Binary search for line
-    let lo = 0, hi = lineOffsets.length - 1;
+    let lo = 0,
+      hi = lineOffsets.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (lineOffsets[mid] <= pos) lo = mid; else hi = mid - 1;
+      if (lineOffsets[mid] <= pos) lo = mid;
+      else hi = mid - 1;
     }
     return { line: lo + 1, col: pos - lineOffsets[lo] + 1 };
   }
@@ -1543,18 +1900,27 @@ export function lint(tree, source) {
   // Single-pass walk tracking context via a stack — no contextAtPos calls
   const ctxStack = [{ inMath: false, inAlign: false, inVerbatim: false, inMacroDef: false }];
 
-  function ctx() { return ctxStack[ctxStack.length - 1]; }
+  function ctx() {
+    return ctxStack[ctxStack.length - 1];
+  }
 
   function lintWalk(node) {
     // Push context for container nodes
     let pushed = false;
-    if (node.type === N.ENVIRONMENT || node.type === N.MATH_INLINE ||
-        node.type === N.MATH_DISPLAY || node.type === N.VERBATIM ||
-        (node.type === N.COMMAND && node.isMacroDef)) {
+    if (
+      node.type === N.ENVIRONMENT ||
+      node.type === N.MATH_INLINE ||
+      node.type === N.MATH_DISPLAY ||
+      node.type === N.VERBATIM ||
+      (node.type === N.COMMAND && node.isMacroDef)
+    ) {
       const parent = ctx();
       ctxStack.push({
-        inMath: parent.inMath || node.type === N.MATH_INLINE || node.type === N.MATH_DISPLAY ||
-                (node.type === N.ENVIRONMENT && node.isMath),
+        inMath:
+          parent.inMath ||
+          node.type === N.MATH_INLINE ||
+          node.type === N.MATH_DISPLAY ||
+          (node.type === N.ENVIRONMENT && node.isMath),
         inAlign: parent.inAlign || (node.type === N.ENVIRONMENT && node.isAlign),
         inVerbatim: parent.inVerbatim || node.type === N.VERBATIM,
         inMacroDef: parent.inMacroDef || (node.type === N.COMMAND && node.isMacroDef),
@@ -1615,7 +1981,6 @@ export function lint(tree, source) {
   return diagnostics;
 }
 
-
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
 /**
@@ -1635,7 +2000,9 @@ export function parseCustomColumnTypes(source) {
   while ((m = re.exec(preamble)) !== null) {
     const letter = m[1];
     // Extract the full brace-balanced definition starting after the opening {
-    let depth = 1, start = m.index + m[0].length, end = start;
+    let depth = 1,
+      start = m.index + m[0].length,
+      end = start;
     while (end < preamble.length && depth > 0) {
       if (preamble[end] === '{') depth++;
       else if (preamble[end] === '}') depth--;
@@ -1659,12 +2026,4 @@ export function parseCustomColumnTypes(source) {
   return types;
 }
 
-export {
-  VERBATIM_ENVS,
-  MATH_ENVS,
-  ALIGN_ENVS,
-  TABLE_ENVS,
-  NON_PROSE_COMMANDS,
-  PROSE_COMMANDS,
-  MACRO_DEF_COMMANDS,
-};
+export { VERBATIM_ENVS, MATH_ENVS, ALIGN_ENVS, TABLE_ENVS, NON_PROSE_COMMANDS, PROSE_COMMANDS, MACRO_DEF_COMMANDS };

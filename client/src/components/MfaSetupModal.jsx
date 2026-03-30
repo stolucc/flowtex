@@ -107,8 +107,12 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     if (tab === 'github') {
       setGhLoading(true);
       Promise.all([
-        get('/api/github/token').then(r => r.json()).catch(() => ({ hasToken: false })),
-        get('/api/github/oauth/available').then(r => r.json()).catch(() => ({ available: false })),
+        get('/api/github/token')
+          .then((r) => r.json())
+          .catch(() => ({ hasToken: false })),
+        get('/api/github/oauth/available')
+          .then((r) => r.json())
+          .catch(() => ({ available: false })),
       ]).then(([tokenData, oauthData]) => {
         setGhHasToken(tokenData.hasToken);
         setGhUsername(tokenData.username || null);
@@ -236,37 +240,24 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card settings-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Account Settings</h2>
-        <p className="settings-user-info">{user.name} &mdash; {user.email}</p>
+        <p className="settings-user-info">
+          {user.name} &mdash; {user.email}
+        </p>
 
         <div className="settings-tabs">
-          <button
-            className={`settings-tab ${tab === 'mfa' ? 'active' : ''}`}
-            onClick={() => setTab('mfa')}
-          >
+          <button className={`settings-tab ${tab === 'mfa' ? 'active' : ''}`} onClick={() => setTab('mfa')}>
             2FA
           </button>
-          <button
-            className={`settings-tab ${tab === 'email' ? 'active' : ''}`}
-            onClick={() => setTab('email')}
-          >
+          <button className={`settings-tab ${tab === 'email' ? 'active' : ''}`} onClick={() => setTab('email')}>
             Email
           </button>
-          <button
-            className={`settings-tab ${tab === 'password' ? 'active' : ''}`}
-            onClick={() => setTab('password')}
-          >
+          <button className={`settings-tab ${tab === 'password' ? 'active' : ''}`} onClick={() => setTab('password')}>
             Password
           </button>
-          <button
-            className={`settings-tab ${tab === 'github' ? 'active' : ''}`}
-            onClick={() => setTab('github')}
-          >
+          <button className={`settings-tab ${tab === 'github' ? 'active' : ''}`} onClick={() => setTab('github')}>
             GitHub
           </button>
-          <button
-            className={`settings-tab ${tab === 'delete' ? 'active' : ''}`}
-            onClick={() => setTab('delete')}
-          >
+          <button className={`settings-tab ${tab === 'delete' ? 'active' : ''}`} onClick={() => setTab('delete')}>
             Delete Account
           </button>
         </div>
@@ -276,7 +267,8 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             {step === 'start' && (
               <>
                 <p className="mfa-description">
-                  Add an extra layer of security to your account by requiring a verification code from an authenticator app when you sign in.
+                  Add an extra layer of security to your account by requiring a verification code from an authenticator
+                  app when you sign in.
                 </p>
                 {mfaError && <div className="auth-error">{mfaError}</div>}
                 <button className="auth-button" onClick={handleSetup} disabled={mfaLoading}>
@@ -318,15 +310,16 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             {step === 'done' && (
               <>
                 <p className="mfa-success">Two-factor authentication is now enabled.</p>
-                <button className="auth-button" onClick={onClose}>Done</button>
+                <button className="auth-button" onClick={onClose}>
+                  Done
+                </button>
               </>
             )}
 
             {step === 'disable' && (
               <>
                 <p className="mfa-description">
-                  Two-factor authentication is currently <strong>enabled</strong>.
-                  Enter your password to disable it.
+                  Two-factor authentication is currently <strong>enabled</strong>. Enter your password to disable it.
                 </p>
                 <form onSubmit={handleDisable} className="auth-form">
                   <input
@@ -349,7 +342,9 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
 
         {tab === 'email' && (
           <div className="settings-section">
-            <p className="mfa-description">Current email: <strong>{user.email}</strong></p>
+            <p className="mfa-description">
+              Current email: <strong>{user.email}</strong>
+            </p>
             <form onSubmit={handleChangeEmail} className="auth-form">
               <input
                 type="email"
@@ -371,11 +366,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
               />
               {emailError && <div className="auth-error">{emailError}</div>}
               {emailSuccess && <div className="mfa-success">{emailSuccess}</div>}
-              <button
-                type="submit"
-                className="auth-button"
-                disabled={emailLoading || !emailNewVal || !emailPassword}
-              >
+              <button type="submit" className="auth-button" disabled={emailLoading || !emailNewVal || !emailPassword}>
                 {emailLoading ? 'Changing...' : 'Change Email'}
               </button>
             </form>
@@ -415,11 +406,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
               />
               {pwError && <div className="auth-error">{pwError}</div>}
               {pwSuccess && <div className="mfa-success">{pwSuccess}</div>}
-              <button
-                type="submit"
-                className="auth-button"
-                disabled={pwLoading || !currentPw || !newPw || !confirmPw}
-              >
+              <button type="submit" className="auth-button" disabled={pwLoading || !currentPw || !newPw || !confirmPw}>
                 {pwLoading ? 'Changing...' : 'Change Password'}
               </button>
             </form>
@@ -435,7 +422,14 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             ) : ghHasToken ? (
               <>
                 <p className="mfa-description">
-                  Your GitHub account is <strong>connected</strong>{ghUsername && <> as <strong>{ghUsername}</strong></>}. You can link individual projects to GitHub repositories from within each project.
+                  Your GitHub account is <strong>connected</strong>
+                  {ghUsername && (
+                    <>
+                      {' '}
+                      as <strong>{ghUsername}</strong>
+                    </>
+                  )}
+                  . You can link individual projects to GitHub repositories from within each project.
                 </p>
                 <button className="auth-button mfa-disable-btn" onClick={ghDisconnect}>
                   Disconnect GitHub
@@ -453,7 +447,11 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                     </button>
                     <p className="mfa-description" style={{ marginTop: 12, fontSize: 12 }}>
                       Or{' '}
-                      <button className="github-sync-link-btn" onClick={() => setGhShowTokenInput(true)} style={{ fontSize: 12 }}>
+                      <button
+                        className="github-sync-link-btn"
+                        onClick={() => setGhShowTokenInput(true)}
+                        style={{ fontSize: 12 }}
+                      >
                         use a Personal Access Token
                       </button>{' '}
                       instead.
@@ -461,7 +459,8 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                   </>
                 ) : (
                   <p className="mfa-description">
-                    Create a token at GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens (needs <code>repo</code> scope).
+                    Create a token at GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens
+                    (needs <code>repo</code> scope).
                   </p>
                 )}
                 {(ghShowTokenInput || !ghOauthAvailable) && (
@@ -472,10 +471,19 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                       placeholder="ghp_..."
                       value={ghTokenInput}
                       onChange={(e) => setGhTokenInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') ghSaveToken(); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') ghSaveToken();
+                      }}
                       style={{ flex: 1 }}
                     />
-                    <button className="auth-button" onClick={ghSaveToken} disabled={!ghTokenInput.trim()} style={{ whiteSpace: 'nowrap' }}>Save</button>
+                    <button
+                      className="auth-button"
+                      onClick={ghSaveToken}
+                      disabled={!ghTokenInput.trim()}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      Save
+                    </button>
                   </div>
                 )}
               </>
@@ -505,7 +513,9 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 required
                 className="auth-input"
               />
-              <label className="settings-label">Type <strong>DELETE</strong> to confirm:</label>
+              <label className="settings-label">
+                Type <strong>DELETE</strong> to confirm:
+              </label>
               <input
                 type="text"
                 placeholder="DELETE"
@@ -526,7 +536,9 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
           </div>
         )}
 
-        <button className="modal-close-btn" onClick={onClose}>Close</button>
+        <button className="modal-close-btn" onClick={onClose}>
+          Close
+        </button>
       </div>
     </div>
   );

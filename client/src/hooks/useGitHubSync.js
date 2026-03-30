@@ -8,13 +8,22 @@ export default function useGitHubSync(project) {
 
   // Fetch GitHub link status
   useEffect(() => {
-    if (!project) { setGithubLink(null); return; }
-    get(`/api/github/link/${project.id}`).then(r => r.json()).then(setGithubLink).catch(() => {});
+    if (!project) {
+      setGithubLink(null);
+      return;
+    }
+    get(`/api/github/link/${project.id}`)
+      .then((r) => r.json())
+      .then(setGithubLink)
+      .catch(() => {});
   }, [project]);
 
   // Auto-push to GitHub on interval
   useEffect(() => {
-    if (autoSyncTimer.current) { clearInterval(autoSyncTimer.current); autoSyncTimer.current = null; }
+    if (autoSyncTimer.current) {
+      clearInterval(autoSyncTimer.current);
+      autoSyncTimer.current = null;
+    }
     if (!project || !githubLink?.linked || !githubLink?.autoPush) return;
 
     const intervalMs = (githubLink.autoPushInterval || 300) * 1000;
@@ -25,7 +34,9 @@ export default function useGitHubSync(project) {
         const d = await res.json();
         if (res.ok) {
           setAutoSyncStatus('saved');
-          setGithubLink(prev => prev ? { ...prev, lastSyncAt: new Date().toISOString(), lastSyncCommit: d.commit } : prev);
+          setGithubLink((prev) =>
+            prev ? { ...prev, lastSyncAt: new Date().toISOString(), lastSyncCommit: d.commit } : prev,
+          );
         } else {
           setAutoSyncStatus('error');
         }
@@ -35,18 +46,22 @@ export default function useGitHubSync(project) {
       setTimeout(() => setAutoSyncStatus(''), 5000);
     }, intervalMs);
 
-    return () => { clearInterval(autoSyncTimer.current); autoSyncTimer.current = null; };
+    return () => {
+      clearInterval(autoSyncTimer.current);
+      autoSyncTimer.current = null;
+    };
   }, [project, githubLink?.linked, githubLink?.autoPush, githubLink?.autoPushInterval]);
 
   const handleToggleAutoSync = async () => {
     if (!project || !githubLink?.linked) return;
     const newVal = !githubLink.autoPush;
     await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
-    setGithubLink(prev => prev ? { ...prev, autoPush: newVal } : prev);
+    setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
   };
 
   return {
-    githubLink, setGithubLink,
+    githubLink,
+    setGithubLink,
     autoSyncStatus,
     handleToggleAutoSync,
   };

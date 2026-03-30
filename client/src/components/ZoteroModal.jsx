@@ -29,10 +29,7 @@ function itemTypeLabel(type) {
 // Strip excluded fields from BibTeX string
 function filterBibtex(bibtex, excludedFields) {
   if (!excludedFields.size) return bibtex;
-  const pattern = new RegExp(
-    `^\\s*(${[...excludedFields].join('|')})\\s*=\\s*\\{.*?\\},?\\s*$`,
-    'gmi'
-  );
+  const pattern = new RegExp(`^\\s*(${[...excludedFields].join('|')})\\s*=\\s*\\{.*?\\},?\\s*$`, 'gmi');
   // Handle multi-line field values (braces can span lines)
   let result = '';
   let depth = 0;
@@ -92,16 +89,16 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
 
   useEffect(() => {
     get('/api/zotero/status')
-      .then(r => r.json())
-      .then(data => setStatus(data))
+      .then((r) => r.json())
+      .then((data) => setStatus(data))
       .catch(() => setStatus({ connected: false }));
   }, []);
 
   useEffect(() => {
     if (!status?.connected) return;
     get('/api/zotero/collections')
-      .then(r => r.json())
-      .then(data => setCollections(data))
+      .then((r) => r.json())
+      .then((data) => setCollections(data))
       .catch(() => {});
   }, [status?.connected]);
 
@@ -116,8 +113,8 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
     if (search) params.set('q', search);
 
     get(`/api/zotero/items?${params}`)
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         setItems(data.items || []);
         setTotal(data.total || 0);
         setLoading(false);
@@ -167,9 +164,10 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
   };
 
   const toggleItem = (key) => {
-    setSelectedKeys(prev => {
+    setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -178,14 +176,15 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
     if (selectedKeys.size === items.length) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(items.map(i => i.key)));
+      setSelectedKeys(new Set(items.map((i) => i.key)));
     }
   };
 
   const toggleField = (field) => {
-    setExcludedFields(prev => {
+    setExcludedFields((prev) => {
       const next = new Set(prev);
-      if (next.has(field)) next.delete(field); else next.add(field);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
       return next;
     });
   };
@@ -208,7 +207,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
   };
 
   // Build collection tree
-  const rootCollections = collections.filter(c => !c.parentKey);
+  const rootCollections = collections.filter((c) => !c.parentKey);
   const childMap = {};
   for (const c of collections) {
     if (c.parentKey) {
@@ -224,15 +223,27 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
         <div
           className={`zotero-collection ${selectedCollection === col.key ? 'active' : ''}`}
           style={{ paddingLeft: 12 + depth * 16 }}
-          onClick={() => { setSelectedCollection(col.key === selectedCollection ? null : col.key); setPage(0); }}
+          onClick={() => {
+            setSelectedCollection(col.key === selectedCollection ? null : col.key);
+            setPage(0);
+          }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span className="zotero-collection-name">{col.name}</span>
           <span className="zotero-collection-count">{col.numItems}</span>
         </div>
-        {children.map(child => renderCollection(child, depth + 1))}
+        {children.map((child) => renderCollection(child, depth + 1))}
       </React.Fragment>
     );
   }
@@ -241,15 +252,23 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card zotero-modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-card zotero-modal" onClick={(e) => e.stopPropagation()}>
         <h2>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
           Zotero
-          {status?.connected && status.displayName && (
-            <span className="zotero-username">{status.displayName}</span>
-          )}
+          {status?.connected && status.displayName && <span className="zotero-username">{status.displayName}</span>}
         </h2>
 
         {status === null ? (
@@ -257,8 +276,11 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
         ) : !status.connected ? (
           <div className="zotero-connect">
             <p className="zotero-connect-info">
-              Connect your Zotero account to import references into your project.
-              You need a Zotero API key from <a href="https://www.zotero.org/settings/keys/new" target="_blank" rel="noopener noreferrer">zotero.org/settings/keys</a>.
+              Connect your Zotero account to import references into your project. You need a Zotero API key from{' '}
+              <a href="https://www.zotero.org/settings/keys/new" target="_blank" rel="noopener noreferrer">
+                zotero.org/settings/keys
+              </a>
+              .
             </p>
             <p className="zotero-connect-hint">
               Make sure to grant <strong>read access</strong> to your library.
@@ -269,44 +291,71 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
                 className="auth-input"
                 placeholder="Zotero API Key"
                 value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleConnect()}
+                onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
               />
               <button className="auth-button" onClick={handleConnect} disabled={connecting || !apiKey.trim()}>
                 {connecting ? 'Connecting...' : 'Connect'}
               </button>
             </div>
             {connectError && <div className="zotero-error">{connectError}</div>}
-            <button className="modal-close-btn" onClick={onClose}>Cancel</button>
+            <button className="modal-close-btn" onClick={onClose}>
+              Cancel
+            </button>
           </div>
         ) : (
           <div className="zotero-browser">
             <div className="zotero-toolbar">
               <div className="zotero-search">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
                 <input
                   type="text"
                   placeholder="Search library..."
                   value={searchInput}
-                  onChange={e => handleSearchInput(e.target.value)}
+                  onChange={(e) => handleSearchInput(e.target.value)}
                 />
               </div>
-              <button className="zotero-disconnect-btn" onClick={handleDisconnect}>Disconnect</button>
+              <button className="zotero-disconnect-btn" onClick={handleDisconnect}>
+                Disconnect
+              </button>
             </div>
             <div className="zotero-body">
               <div className="zotero-sidebar">
                 <div
                   className={`zotero-collection ${selectedCollection === null ? 'active' : ''}`}
-                  onClick={() => { setSelectedCollection(null); setPage(0); }}
+                  onClick={() => {
+                    setSelectedCollection(null);
+                    setPage(0);
+                  }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                   </svg>
                   <span className="zotero-collection-name">My Library</span>
                 </div>
-                {rootCollections.map(c => renderCollection(c))}
+                {rootCollections.map((c) => renderCollection(c))}
               </div>
               <div className="zotero-items">
                 {loading ? (
@@ -317,13 +366,19 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
                   <>
                     <div className="zotero-items-header">
                       <label className="zotero-select-all">
-                        <input type="checkbox" checked={selectedKeys.size === items.length && items.length > 0} onChange={selectAll} />
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.size === items.length && items.length > 0}
+                          onChange={selectAll}
+                        />
                         Select all
                       </label>
-                      <span className="zotero-items-count">{total} item{total !== 1 ? 's' : ''}</span>
+                      <span className="zotero-items-count">
+                        {total} item{total !== 1 ? 's' : ''}
+                      </span>
                     </div>
                     <div className="zotero-items-list">
-                      {items.map(item => (
+                      {items.map((item) => (
                         <div
                           key={item.key}
                           className={`zotero-item ${selectedKeys.has(item.key) ? 'selected' : ''}`}
@@ -335,10 +390,15 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
                             <div className="zotero-item-meta">
                               <span className="zotero-item-type">{itemTypeLabel(item.type)}</span>
                               {item.creators.length > 0 && (
-                                <span className="zotero-item-authors">{item.creators.slice(0, 3).join('; ')}{item.creators.length > 3 ? ' et al.' : ''}</span>
+                                <span className="zotero-item-authors">
+                                  {item.creators.slice(0, 3).join('; ')}
+                                  {item.creators.length > 3 ? ' et al.' : ''}
+                                </span>
                               )}
                               {item.year && <span className="zotero-item-year">{item.year}</span>}
-                              {item.publicationTitle && <span className="zotero-item-pub">{item.publicationTitle}</span>}
+                              {item.publicationTitle && (
+                                <span className="zotero-item-pub">{item.publicationTitle}</span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -346,9 +406,15 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
                     </div>
                     {totalPages > 1 && (
                       <div className="zotero-pagination">
-                        <button disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</button>
-                        <span>Page {page + 1} of {totalPages}</span>
-                        <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</button>
+                        <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                          Previous
+                        </button>
+                        <span>
+                          Page {page + 1} of {totalPages}
+                        </span>
+                        <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+                          Next
+                        </button>
                       </div>
                     )}
                   </>
@@ -358,9 +424,18 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
 
             {/* Field exclusion options */}
             <div className="zotero-fields-section">
-              <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions(v => !v)}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+              <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions((v) => !v)}>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                >
                   <polyline points="9 18 15 12 9 6" />
                 </svg>
                 Exclude fields
@@ -368,13 +443,9 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
               </button>
               {showFieldOptions && (
                 <div className="zotero-fields-list">
-                  {EXCLUDABLE_FIELDS.map(f => (
+                  {EXCLUDABLE_FIELDS.map((f) => (
                     <label key={f.key} className="zotero-field-option">
-                      <input
-                        type="checkbox"
-                        checked={excludedFields.has(f.key)}
-                        onChange={() => toggleField(f.key)}
-                      />
+                      <input type="checkbox" checked={excludedFields.has(f.key)} onChange={() => toggleField(f.key)} />
                       {f.label}
                     </label>
                   ))}
@@ -383,16 +454,18 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
             </div>
 
             <div className="zotero-footer">
-              {!bibFileExists && (
-                <span className="zotero-warning">No .bib file found — one will be created.</span>
-              )}
-              <button className="zotero-cancel-btn" onClick={onClose}>Cancel</button>
+              {!bibFileExists && <span className="zotero-warning">No .bib file found — one will be created.</span>}
+              <button className="zotero-cancel-btn" onClick={onClose}>
+                Cancel
+              </button>
               <button
                 className="auth-button zotero-import-btn"
                 onClick={handleImport}
                 disabled={selectedKeys.size === 0 || importing}
               >
-                {importing ? 'Importing...' : `Import ${selectedKeys.size} reference${selectedKeys.size !== 1 ? 's' : ''}`}
+                {importing
+                  ? 'Importing...'
+                  : `Import ${selectedKeys.size} reference${selectedKeys.size !== 1 ? 's' : ''}`}
               </button>
             </div>
           </div>

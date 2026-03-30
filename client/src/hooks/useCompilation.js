@@ -61,57 +61,71 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     }
     setCompiling(false);
     if (project) {
-      get(`/api/compile/${project.id}/generated-files`).then((r) => r.json()).then((d) => setGeneratedFiles(d.files || [])).catch(() => {});
+      get(`/api/compile/${project.id}/generated-files`)
+        .then((r) => r.json())
+        .then((d) => setGeneratedFiles(d.files || []))
+        .catch(() => {});
     }
   }, [project, activeFile, handleSave, editorRef]);
 
-  const handleDiff = useCallback((oldFileId, newFileId) => {
-    if (!project) return;
-    setCompiling(true);
-    setConsoleOutput('');
+  const handleDiff = useCallback(
+    (oldFileId, newFileId) => {
+      if (!project) return;
+      setCompiling(true);
+      setConsoleOutput('');
 
-    if (compileSourceRef.current) {
-      compileSourceRef.current.close();
-      compileSourceRef.current = null;
-    }
-
-    const evtSource = new EventSource(
-      `/api/compile/${project.id}/diff-stream?oldFileId=${encodeURIComponent(oldFileId)}&newFileId=${encodeURIComponent(newFileId)}`
-    );
-    compileSourceRef.current = evtSource;
-
-    evtSource.addEventListener('output', (e) => {
-      if (compileSourceRef.current !== evtSource) return;
-      const { text } = JSON.parse(e.data);
-      setConsoleOutput((prev) => prev + text);
-    });
-
-    evtSource.addEventListener('done', (e) => {
-      if (compileSourceRef.current !== evtSource) return;
-      const data = JSON.parse(e.data);
-      setCompileLog(data.log || '');
-      if (data.success) {
-        setPdfUrl(`/api/compile/${project.id}/diff-pdf?t=${Date.now()}`);
+      if (compileSourceRef.current) {
+        compileSourceRef.current.close();
+        compileSourceRef.current = null;
       }
-      evtSource.close();
-      compileSourceRef.current = null;
-      setCompiling(false);
-    });
 
-    evtSource.onerror = () => {
-      evtSource.close();
-      compileSourceRef.current = null;
-      setCompiling(false);
-    };
-  }, [project]);
+      const evtSource = new EventSource(
+        `/api/compile/${project.id}/diff-stream?oldFileId=${encodeURIComponent(oldFileId)}&newFileId=${encodeURIComponent(newFileId)}`,
+      );
+      compileSourceRef.current = evtSource;
+
+      evtSource.addEventListener('output', (e) => {
+        if (compileSourceRef.current !== evtSource) return;
+        const { text } = JSON.parse(e.data);
+        setConsoleOutput((prev) => prev + text);
+      });
+
+      evtSource.addEventListener('done', (e) => {
+        if (compileSourceRef.current !== evtSource) return;
+        const data = JSON.parse(e.data);
+        setCompileLog(data.log || '');
+        if (data.success) {
+          setPdfUrl(`/api/compile/${project.id}/diff-pdf?t=${Date.now()}`);
+        }
+        evtSource.close();
+        compileSourceRef.current = null;
+        setCompiling(false);
+      });
+
+      evtSource.onerror = () => {
+        evtSource.close();
+        compileSourceRef.current = null;
+        setCompiling(false);
+      };
+    },
+    [project],
+  );
 
   return {
-    compiling, pdfUrl, setPdfUrl,
-    compileLog, setCompileLog,
-    consoleOutput, setConsoleOutput,
-    lintDiagnostics, setLintDiagnostics,
-    generatedFiles, setGeneratedFiles,
-    activeGenFile, setActiveGenFile,
-    handleCompile, handleDiff,
+    compiling,
+    pdfUrl,
+    setPdfUrl,
+    compileLog,
+    setCompileLog,
+    consoleOutput,
+    setConsoleOutput,
+    lintDiagnostics,
+    setLintDiagnostics,
+    generatedFiles,
+    setGeneratedFiles,
+    activeGenFile,
+    setActiveGenFile,
+    handleCompile,
+    handleDiff,
   };
 }

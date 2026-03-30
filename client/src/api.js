@@ -1,6 +1,6 @@
 const BASE = '';
 
-function getCsrfToken() {
+export function getCsrfToken() {
   const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
   return match ? match[1] : '';
 }

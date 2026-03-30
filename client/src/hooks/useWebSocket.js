@@ -1,6 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
-export default function useWebSocket(user, project, activeFileRef, { setComments, setTrackedChanges, setHistoryVersion }) {
+export default function useWebSocket(
+  user,
+  project,
+  activeFileRef,
+  { setComments, setTrackedChanges, setHistoryVersion },
+) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState({});
   const [chatMessages, setChatMessages] = useState([]);
@@ -12,7 +17,10 @@ export default function useWebSocket(user, project, activeFileRef, { setComments
 
   useEffect(() => {
     if (!user || !project) {
-      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       setActiveUsers([]);
       return;
     }
@@ -27,26 +35,31 @@ export default function useWebSocket(user, project, activeFileRef, { setComments
 
     ws.onmessage = (e) => {
       let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
       if (msg.type === 'presence') {
         setActiveUsers(msg.users);
       } else if (msg.type === 'changes') {
         // handled via editorRef in App
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
       } else if (msg.type === 'cursor') {
-        setRemoteCursors((prev) => ({ ...prev, [msg.userId]: { fileId: msg.fileId, head: msg.head, anchor: msg.anchor, userName: msg.userName } }));
+        setRemoteCursors((prev) => ({
+          ...prev,
+          [msg.userId]: { fileId: msg.fileId, head: msg.head, anchor: msg.anchor, userName: msg.userName },
+        }));
       } else if (msg.type === 'comment') {
         if (msg.fileId === activeFileRef.current?.id) {
           setComments((cs) => [...cs, msg.comment]);
         }
       } else if (msg.type === 'comment-reply') {
-        setComments((cs) => cs.map((c) =>
-          c.id === msg.commentId ? { ...c, replies: [...(c.replies || []), msg.reply] } : c
-        ));
+        setComments((cs) =>
+          cs.map((c) => (c.id === msg.commentId ? { ...c, replies: [...(c.replies || []), msg.reply] } : c)),
+        );
       } else if (msg.type === 'comment-resolve') {
-        setComments((cs) => cs.map((c) =>
-          c.id === msg.commentId ? { ...c, resolved: msg.resolved ? 1 : 0 } : c
-        ));
+        setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, resolved: msg.resolved ? 1 : 0 } : c)));
       } else if (msg.type === 'comment-delete') {
         setComments((cs) => cs.filter((c) => c.id !== msg.commentId));
       } else if (msg.type === 'comment-edit') {
@@ -56,9 +69,7 @@ export default function useWebSocket(user, project, activeFileRef, { setComments
           setTrackedChanges((tc) => [...tc, msg.change]);
         }
       } else if (msg.type === 'tracked-change-resolve') {
-        setTrackedChanges((tc) => tc.map((c) =>
-          c.id === msg.changeId ? { ...c, status: msg.status } : c
-        ));
+        setTrackedChanges((tc) => tc.map((c) => (c.id === msg.changeId ? { ...c, status: msg.status } : c)));
       } else if (msg.type === 'history_update') {
         setHistoryVersion((v) => (v || 0) + 1);
       } else if (msg.type === 'chat') {
@@ -74,7 +85,10 @@ export default function useWebSocket(user, project, activeFileRef, { setComments
       setActiveUsers([]);
     };
 
-    return () => { ws.close(); wsRef.current = null; };
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
   }, [user, project]);
 
   const sendWsMessage = useCallback((msg) => {
@@ -83,10 +97,15 @@ export default function useWebSocket(user, project, activeFileRef, { setComments
   }, []);
 
   return {
-    activeUsers, remoteCursors, setRemoteCursors,
-    chatMessages, setChatMessages,
-    unreadChat, setUnreadChat,
-    showChat, setShowChat,
+    activeUsers,
+    remoteCursors,
+    setRemoteCursors,
+    chatMessages,
+    setChatMessages,
+    unreadChat,
+    setUnreadChat,
+    showChat,
+    setShowChat,
     sendWsMessage,
   };
 }

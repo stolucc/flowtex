@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Avatar from './Avatar.jsx';
+import useClickOutside from '../hooks/useClickOutside.js';
 
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   const ref = useRef(null);
@@ -10,7 +11,9 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
       <button
         className={`toolbar-menu-btn ${open ? 'active' : ''}`}
         onClick={() => setActiveMenu(open ? null : menuId)}
-        onMouseEnter={() => { if (activeMenu !== null) setActiveMenu(menuId); }}
+        onMouseEnter={() => {
+          if (activeMenu !== null) setActiveMenu(menuId);
+        }}
       >
         {label}
       </button>
@@ -23,11 +26,14 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
               <button
                 key={i}
                 disabled={item.disabled}
-                onClick={() => { setActiveMenu(null); item.action?.(); }}
+                onClick={() => {
+                  setActiveMenu(null);
+                  item.action?.();
+                }}
               >
                 {item.label}
               </button>
-            )
+            ),
           )}
         </div>
       )}
@@ -35,28 +41,50 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   );
 }
 
-function formatSyncDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const dateDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-
-  let dayPart;
-  if (dateDay.getTime() === today.getTime()) dayPart = 'Today';
-  else if (dateDay.getTime() === yesterday.getTime()) dayPart = 'Yesterday';
-  else {
-    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    dayPart = `${d.getDate()} ${months[d.getMonth()]}, ${d.getFullYear()}`;
-  }
-  const h = d.getHours() % 12 || 12;
-  const m = d.getMinutes().toString().padStart(2, '0');
-  const ampm = d.getHours() < 12 ? 'AM' : 'PM';
-  return `${dayPart} at ${h}:${m} ${ampm}`;
-}
-
-export default function Toolbar({ projectName, projectId, onBack, users, currentUser, onShare, onLogout, onUserClick, onRename, isOwner, activeFile, onPrettyPrint, onNewFile, onNewFolder, onSearch, onHistory, onUploadZip, onGitHubSync, onInsert, onSymbolPicker, onToggleComments, onToggleLineNumbers, onToggleWordWrap, onHelp, showComments, showLineNumbers, wordWrap, onCompareFiles, trackChangesMode, onToggleTrackChanges, githubLink, autoSyncStatus, onToggleAutoSync, lastSyncAt, onBibEnrich, onZotero, spellLanguages, spellLang, onSpellLangChange }) {
+export default function Toolbar({
+  projectName,
+  projectId,
+  onBack,
+  users,
+  currentUser,
+  onShare,
+  onLogout,
+  onUserClick,
+  onRename,
+  isOwner,
+  activeFile,
+  onPrettyPrint,
+  onNewFile,
+  onNewFolder,
+  onSearch,
+  onHistory,
+  onUploadZip,
+  onGitHubSync,
+  onInsert,
+  onSymbolPicker,
+  onToggleComments,
+  onToggleLineNumbers,
+  onToggleWordWrap,
+  onHelp,
+  showComments,
+  showLineNumbers,
+  wordWrap,
+  onCompareFiles,
+  trackChangesMode,
+  onToggleTrackChanges,
+  githubLink,
+  autoSyncStatus,
+  onToggleAutoSync,
+  lastSyncAt,
+  onBibEnrich,
+  onZotero,
+  spellLanguages,
+  spellLang,
+  onSpellLangChange,
+  onTapsCheck,
+  onWordCount,
+  onProjectSettings,
+}) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(projectName);
@@ -64,19 +92,11 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
   const [activeMenu, setActiveMenu] = useState(null);
   const menuBarRef = useRef(null);
 
-  // Close menu when clicking outside the menu bar
-  useEffect(() => {
-    if (activeMenu === null) return;
-    const handler = (e) => {
-      if (menuBarRef.current && !menuBarRef.current.contains(e.target)) {
-        setActiveMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [activeMenu]);
+  useClickOutside(menuBarRef, () => setActiveMenu(null), activeMenu !== null);
 
-  useEffect(() => { setName(projectName); }, [projectName]);
+  useEffect(() => {
+    setName(projectName);
+  }, [projectName]);
 
   const startEditing = () => {
     if (!isOwner || !onRename) return;
@@ -101,7 +121,20 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
     { label: 'New Folder', action: onNewFolder },
     { label: 'separator' },
     { label: 'Upload ZIP', action: () => zipInputRef.current?.click() },
-    { label: 'Download as ZIP', action: () => { window.location.href = `/api/projects/${projectId}/zip`; } },
+    {
+      label: 'Download as ZIP',
+      action: () => {
+        window.location.href = `/api/projects/${projectId}/zip`;
+      },
+    },
+    {
+      label: 'Download Used Files as ZIP',
+      action: () => {
+        window.location.href = `/api/projects/${projectId}/zip-used`;
+      },
+    },
+    { label: 'separator' },
+    { label: 'Project Settings', action: () => onProjectSettings?.() },
   ];
 
   const editMenuItems = [
@@ -117,8 +150,22 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
     { label: 'Itemize', action: () => onInsert?.('\\begin{itemize}\n  \\item ', '\n\\end{itemize}') },
     { label: 'Enumerate', action: () => onInsert?.('\\begin{enumerate}\n  \\item ', '\n\\end{enumerate}') },
     { label: 'separator' },
-    { label: 'Figure', action: () => onInsert?.('\\begin{figure}[htbp]\n  \\centering\n  \\includegraphics[width=0.8\\textwidth]{', '}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}') },
-    { label: 'Table', action: () => onInsert?.('\\begin{table}[htbp]\n  \\centering\n  \\begin{tabular}{lcc}\n    \\hline\n    ', ' \\\\\\\\\n    \\hline\n  \\end{tabular}\n  \\caption{}\n  \\label{tab:}\n\\end{table}') },
+    {
+      label: 'Figure',
+      action: () =>
+        onInsert?.(
+          '\\begin{figure}[htbp]\n  \\centering\n  \\includegraphics[width=0.8\\textwidth]{',
+          '}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}',
+        ),
+    },
+    {
+      label: 'Table',
+      action: () =>
+        onInsert?.(
+          '\\begin{table}[htbp]\n  \\centering\n  \\begin{tabular}{lcc}\n    \\hline\n    ',
+          ' \\\\\\\\\n    \\hline\n  \\end{tabular}\n  \\caption{}\n  \\label{tab:}\n\\end{table}',
+        ),
+    },
     { label: 'Equation', action: () => onInsert?.('\\begin{equation}\n  ', '\n\\end{equation}') },
     { label: 'Citation — \\cite{}', action: () => onInsert?.('\\cite{', '}') },
     { label: 'Reference — \\ref{}', action: () => onInsert?.('\\ref{', '}') },
@@ -126,10 +173,7 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
     { label: 'Special Symbol…', action: () => onSymbolPicker?.() },
   ];
 
-  const viewMenuItems = [
-    { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
-    { label: `${trackChangesMode ? '✓ ' : ''}Track Changes`, action: onToggleTrackChanges },
-  ];
+  const viewMenuItems = [{ label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments }];
 
   const formatMenuItems = [
     { label: 'Bold', action: () => onInsert?.('\\textbf{', '}') },
@@ -147,6 +191,8 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
     { label: 'Compare Files (latexdiff)', action: onCompareFiles },
     ...(onBibEnrich ? [{ label: 'Complete Bibliography', action: onBibEnrich }] : []),
     { label: 'Zotero Import', action: () => onZotero?.() },
+    { label: 'ACM TAPS Check', action: () => onTapsCheck?.() },
+    { label: 'Word Count', action: () => onWordCount?.() },
     { label: 'separator' },
     { label: `${githubLink?.autoPush ? '✓ ' : ''}Auto-save`, action: onToggleAutoSync, disabled: !githubLink?.linked },
     { label: 'separator' },
@@ -166,20 +212,72 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
     <div className="toolbar">
       <div className="toolbar-left">
         <button className="toolbar-back" onClick={onBack}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 5, verticalAlign: -2 }}>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ marginRight: 5, verticalAlign: -2 }}
+          >
             <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             <polyline points="9 22 9 12 15 12 15 22" />
           </svg>
           Home
         </button>
         <span ref={menuBarRef} className="toolbar-menu-bar">
-          <DropdownMenu label="File" items={fileMenuItems} menuId="file" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="Edit" items={editMenuItems} menuId="edit" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="Insert" items={insertMenuItems} menuId="insert" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="View" items={viewMenuItems} menuId="view" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="Format" items={formatMenuItems} menuId="format" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="Tools" items={toolsMenuItems} menuId="tools" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
-          <DropdownMenu label="Help" items={helpMenuItems} menuId="help" activeMenu={activeMenu} setActiveMenu={setActiveMenu} />
+          <DropdownMenu
+            label="File"
+            items={fileMenuItems}
+            menuId="file"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="Edit"
+            items={editMenuItems}
+            menuId="edit"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="Insert"
+            items={insertMenuItems}
+            menuId="insert"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="View"
+            items={viewMenuItems}
+            menuId="view"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="Format"
+            items={formatMenuItems}
+            menuId="format"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="Tools"
+            items={toolsMenuItems}
+            menuId="tools"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
+          <DropdownMenu
+            label="Help"
+            items={helpMenuItems}
+            menuId="help"
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+          />
         </span>
       </div>
 
@@ -191,7 +289,13 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={save}
-            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setName(projectName); setEditing(false); } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') save();
+              if (e.key === 'Escape') {
+                setName(projectName);
+                setEditing(false);
+              }
+            }}
             autoFocus
           />
         ) : (
@@ -207,22 +311,42 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
 
       <div className="toolbar-right">
         <div className="toolbar-users">
-          {(users || []).filter((u) => u.id !== currentUser?.id).map((u) => (
-            <span
-              key={u.id || u.name}
-              className={onUserClick ? 'toolbar-avatar-clickable' : ''}
-              onMouseDown={(e) => { if (e.detail > 1) e.preventDefault(); }}
-              onClick={(e) => { e.preventDefault(); onUserClick && onUserClick(u); }}
-              onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              title={u.name + ' — click to jump to their position'}
-            >
-              <Avatar name={u.name} size={30} />
-            </span>
-          ))}
+          {(users || [])
+            .filter((u) => u.id !== currentUser?.id)
+            .map((u) => (
+              <span
+                key={u.id || u.name}
+                className={onUserClick ? 'toolbar-avatar-clickable' : ''}
+                onMouseDown={(e) => {
+                  if (e.detail > 1) e.preventDefault();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onUserClick && onUserClick(u);
+                }}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                title={u.name + ' — click to jump to their position'}
+              >
+                <Avatar name={u.name} size={30} />
+              </span>
+            ))}
         </div>
         {onHistory && (
           <button className="toolbar-btn" onClick={onHistory} title="Version history">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 5, verticalAlign: -2 }}>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginRight: 5, verticalAlign: -2 }}
+            >
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
@@ -231,7 +355,17 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
         )}
         {onShare && (
           <button className="toolbar-btn toolbar-btn-share" onClick={onShare}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 5, verticalAlign: -2 }}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginRight: 5, verticalAlign: -2 }}
+            >
               <circle cx="7" cy="5.5" r="3" />
               <path d="M1.5 14.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
               <line x1="13" y1="3" x2="13" y2="8" />
@@ -242,7 +376,16 @@ export default function Toolbar({ projectName, projectId, onBack, users, current
         )}
         {onLogout && (
           <button className="toolbar-btn toolbar-btn-logout" onClick={onLogout} title="Log out">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />

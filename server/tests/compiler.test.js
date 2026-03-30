@@ -25,9 +25,7 @@ describe('safePath', () => {
   });
 
   it('accepts nested paths', () => {
-    expect(safePath(projectDir, 'chapters/intro.tex')).toBe(
-      path.join(projectDir, 'chapters', 'intro.tex')
-    );
+    expect(safePath(projectDir, 'chapters/intro.tex')).toBe(path.join(projectDir, 'chapters', 'intro.tex'));
   });
 
   it('rejects path traversal with ..', () => {

@@ -10,7 +10,9 @@ const ZOTERO_API = 'https://api.zotero.org';
 
 // Check if user has a Zotero connection
 router.get('/status', async (req, res) => {
-  const row = await db.get('SELECT zotero_user_id, display_name, updated_at FROM zotero_tokens WHERE user_id = $1', [req.session.userId]);
+  const row = await db.get('SELECT zotero_user_id, display_name, updated_at FROM zotero_tokens WHERE user_id = $1', [
+    req.session.userId,
+  ]);
   res.json({ connected: !!row, zoteroUserId: row?.zotero_user_id, displayName: row?.display_name });
 });
 
@@ -37,7 +39,7 @@ router.post('/connect', async (req, res) => {
       `INSERT INTO zotero_tokens (user_id, api_key, zotero_user_id, display_name)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id) DO UPDATE SET api_key = $2, zotero_user_id = $3, display_name = $4, updated_at = NOW()`,
-      [req.session.userId, encryptedKey, zoteroUserId, displayName]
+      [req.session.userId, encryptedKey, zoteroUserId, displayName],
     );
 
     res.json({ ok: true, zoteroUserId, displayName });
@@ -83,9 +85,10 @@ router.get('/collections', async (req, res) => {
 
   try {
     const { data } = await zoteroFetch(`/users/${auth.zoteroUserId}/collections`, auth.apiKey, {
-      limit: 100, sort: 'title',
+      limit: 100,
+      sort: 'title',
     });
-    const collections = data.map(c => ({
+    const collections = data.map((c) => ({
       key: c.key,
       name: c.data.name,
       parentKey: c.data.parentCollection || null,
@@ -125,18 +128,16 @@ router.get('/items', async (req, res) => {
 
     const { data, totalResults } = await zoteroFetch(path, auth.apiKey, params);
 
-    const items = data.map(item => ({
+    const items = data.map((item) => ({
       key: item.key,
       type: item.data.itemType,
       title: item.data.title || '(untitled)',
-      creators: (item.data.creators || []).map(c =>
-        c.name || [c.lastName, c.firstName].filter(Boolean).join(', ')
-      ),
+      creators: (item.data.creators || []).map((c) => c.name || [c.lastName, c.firstName].filter(Boolean).join(', ')),
       date: item.data.date || '',
       year: item.meta?.parsedDate?.split('-')[0] || '',
       publicationTitle: item.data.publicationTitle || item.data.bookTitle || '',
       DOI: item.data.DOI || '',
-      tags: (item.data.tags || []).map(t => t.tag),
+      tags: (item.data.tags || []).map((t) => t.tag),
     }));
 
     res.json({ items, total: totalResults, start: params.start, limit: params.limit });

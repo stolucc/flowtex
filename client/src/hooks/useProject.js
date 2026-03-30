@@ -103,7 +103,10 @@ export default function useProject(user) {
 
   // Load members when project changes
   useEffect(() => {
-    if (!project) { setMembers([]); return; }
+    if (!project) {
+      setMembers([]);
+      return;
+    }
     get(`/api/projects/${project.id}/members`)
       .then((r) => r.json())
       .then(setMembers)
@@ -111,83 +114,115 @@ export default function useProject(user) {
   }, [project]);
 
   // File operations
-  const handleSave = useCallback(async (content) => {
-    const file = activeFile;
-    if (!file) return;
-    await put(`/api/projects/files/${file.id}`, { content });
-    setActiveFile((f) => (f?.id === file.id ? { ...f, content } : f));
-    setFiles((fs) => fs.map((f) => (f.id === file.id ? { ...f, content } : f)));
-  }, [activeFile]);
+  const handleSave = useCallback(
+    async (content) => {
+      const file = activeFile;
+      if (!file) return;
+      await put(`/api/projects/files/${file.id}`, { content });
+      setActiveFile((f) => (f?.id === file.id ? { ...f, content } : f));
+      setFiles((fs) => fs.map((f) => (f.id === file.id ? { ...f, content } : f)));
+    },
+    [activeFile],
+  );
 
-  const handleCreateFile = useCallback(async (filePath, content) => {
-    if (!project) return;
-    const res = await post(`/api/projects/${project.id}/files`, { path: filePath, content });
-    const file = await res.json();
-    setFiles((fs) => [...fs, file]);
-    switchFile(file);
-  }, [project, switchFile]);
+  const handleCreateFile = useCallback(
+    async (filePath, content) => {
+      if (!project) return;
+      const res = await post(`/api/projects/${project.id}/files`, { path: filePath, content });
+      const file = await res.json();
+      setFiles((fs) => [...fs, file]);
+      switchFile(file);
+    },
+    [project, switchFile],
+  );
 
-  const handleDeleteFile = useCallback(async (fileId) => {
-    await del(`/api/projects/files/${fileId}`);
-    setFiles((fs) => {
-      const remaining = fs.filter((f) => f.id !== fileId);
-      if (activeFile?.id === fileId) {
-        switchFile(remaining[0] || null);
-      }
-      return remaining;
-    });
-  }, [activeFile, switchFile]);
+  const handleDeleteFile = useCallback(
+    async (fileId) => {
+      await del(`/api/projects/files/${fileId}`);
+      setFiles((fs) => {
+        const remaining = fs.filter((f) => f.id !== fileId);
+        if (activeFile?.id === fileId) {
+          switchFile(remaining[0] || null);
+        }
+        return remaining;
+      });
+    },
+    [activeFile, switchFile],
+  );
 
   const handleRenameFile = useCallback(async (fileId, newPath) => {
     await patch(`/api/projects/files/${fileId}`, { path: newPath });
-    setFiles((fs) => fs.map((f) => f.id === fileId ? { ...f, path: newPath } : f));
+    setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, path: newPath } : f)));
   }, []);
 
-  const handleRenameFolder = useCallback(async (oldPrefix, newPrefix) => {
-    const toRename = files.filter((f) => f.path === oldPrefix || f.path.startsWith(oldPrefix + '/'));
-    for (const f of toRename) {
-      const newPath = newPrefix + f.path.slice(oldPrefix.length);
-      await patch(`/api/projects/files/${f.id}`, { path: newPath });
-    }
-    setFiles((fs) => fs.map((f) => {
-      if (f.path === oldPrefix || f.path.startsWith(oldPrefix + '/')) {
-        return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
+  const handleRenameFolder = useCallback(
+    async (oldPrefix, newPrefix) => {
+      const toRename = files.filter((f) => f.path === oldPrefix || f.path.startsWith(oldPrefix + '/'));
+      for (const f of toRename) {
+        const newPath = newPrefix + f.path.slice(oldPrefix.length);
+        await patch(`/api/projects/files/${f.id}`, { path: newPath });
       }
-      return f;
-    }));
-  }, [files]);
+      setFiles((fs) =>
+        fs.map((f) => {
+          if (f.path === oldPrefix || f.path.startsWith(oldPrefix + '/')) {
+            return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
+          }
+          return f;
+        }),
+      );
+    },
+    [files],
+  );
 
-  const handleDeleteFolder = useCallback(async (folderPath) => {
-    const toDelete = files.filter((f) => f.path.startsWith(folderPath + '/'));
-    for (const f of toDelete) {
-      await del(`/api/projects/files/${f.id}`);
-    }
-    setFiles((fs) => {
-      const remaining = fs.filter((f) => !f.path.startsWith(folderPath + '/'));
-      if (activeFile && activeFile.path.startsWith(folderPath + '/')) {
-        switchFile(remaining[0] || null);
+  const handleDeleteFolder = useCallback(
+    async (folderPath) => {
+      const toDelete = files.filter((f) => f.path.startsWith(folderPath + '/'));
+      for (const f of toDelete) {
+        await del(`/api/projects/files/${f.id}`);
       }
-      return remaining;
-    });
-  }, [files, activeFile, switchFile]);
+      setFiles((fs) => {
+        const remaining = fs.filter((f) => !f.path.startsWith(folderPath + '/'));
+        if (activeFile && activeFile.path.startsWith(folderPath + '/')) {
+          switchFile(remaining[0] || null);
+        }
+        return remaining;
+      });
+    },
+    [files, activeFile, switchFile],
+  );
 
-  const handleSetMainFile = useCallback(async (filePath) => {
-    if (!project) return;
-    await patch(`/api/projects/${project.id}`, { main_file: filePath });
-    setProject((p) => ({ ...p, main_file: filePath }));
-  }, [project]);
+  const handleSetMainFile = useCallback(
+    async (filePath) => {
+      if (!project) return;
+      await patch(`/api/projects/${project.id}`, { main_file: filePath });
+      setProject((p) => ({ ...p, main_file: filePath }));
+    },
+    [project],
+  );
 
   return {
-    project, setProject,
-    files, setFiles,
-    activeFile, setActiveFile,
-    members, setMembers,
-    newFileCounter, setNewFileCounter,
-    newFolderCounter, setNewFolderCounter,
+    project,
+    setProject,
+    files,
+    setFiles,
+    activeFile,
+    setActiveFile,
+    members,
+    setMembers,
+    newFileCounter,
+    setNewFileCounter,
+    newFolderCounter,
+    setNewFolderCounter,
     needsAutoCompile,
-    switchFile, selectProject, goBack,
-    handleSave, handleCreateFile, handleDeleteFile,
-    handleRenameFile, handleRenameFolder, handleDeleteFolder,
+    switchFile,
+    selectProject,
+    goBack,
+    handleSave,
+    handleCreateFile,
+    handleDeleteFile,
+    handleRenameFile,
+    handleRenameFolder,
+    handleDeleteFolder,
     handleSetMainFile,
   };
 }

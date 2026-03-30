@@ -1,14 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getColor } from './Avatar.jsx';
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  const day = d.getDate();
-  const month = d.toLocaleString('en-US', { month: 'long' });
-  const year = d.getFullYear();
-  const time = d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
-  return `${day} ${month} ${year}, ${time}`;
-}
+import useClickOutside from '../hooks/useClickOutside.js';
+import { formatFullDate as formatDate } from '../utils/dateFormat.js';
 
 function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, onReply, innerRef, onLayoutChange }) {
   const [replyText, setReplyText] = useState('');
@@ -45,15 +38,7 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
     onLayoutChange?.();
   }, [editing]);
 
-  // Close menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
 
   return (
     <div ref={innerRef} className={`comment-item ${comment.resolved ? 'resolved' : ''}`}>
@@ -66,16 +51,37 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
           {comment.resolved ? '↩' : '✓'}
         </button>
         <div className="comment-menu-wrapper" ref={menuRef}>
-          <button className="comment-menu-btn" onClick={() => setMenuOpen(!menuOpen)} title="More options">⋯</button>
+          <button className="comment-menu-btn" onClick={() => setMenuOpen(!menuOpen)} title="More options">
+            ⋯
+          </button>
           {menuOpen && (
             <div className="comment-menu-dropdown">
-              <button onClick={() => { setMenuOpen(false); setEditText(comment.text); setEditing(true); }}>Edit</button>
-              <button className="comment-menu-delete" onClick={() => { setMenuOpen(false); onDelete(comment.id); }}>Delete</button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setEditText(comment.text);
+                  setEditing(true);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                className="comment-menu-delete"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete(comment.id);
+                }}
+              >
+                Delete
+              </button>
             </div>
           )}
         </div>
       </div>
-      <div className="comment-author"><span className="comment-author-swatch" style={{ backgroundColor: getColor(comment.author) }} />{comment.author === currentUserName ? 'You' : comment.author}</div>
+      <div className="comment-author">
+        <span className="comment-author-swatch" style={{ backgroundColor: getColor(comment.author) }} />
+        {comment.author === currentUserName ? 'You' : comment.author}
+      </div>
       <div className="comment-date">{formatDate(comment.created_at)}</div>
       {editing ? (
         <div className="comment-edit-form">
@@ -83,12 +89,20 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
             autoFocus
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(); } if (e.key === 'Escape') setEditing(false); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleEdit();
+              }
+              if (e.key === 'Escape') setEditing(false);
+            }}
             rows={2}
           />
           <div className="comment-edit-actions">
             <button onClick={() => setEditing(false)}>Cancel</button>
-            <button onClick={handleEdit} disabled={!editText.trim()} className="comment-edit-save">Save</button>
+            <button onClick={handleEdit} disabled={!editText.trim()} className="comment-edit-save">
+              Save
+            </button>
           </div>
         </div>
       ) : (
@@ -98,7 +112,10 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
         <div className="comment-replies">
           {comment.replies.map((r) => (
             <div key={r.id} className="comment-reply">
-              <div className="comment-reply-author"><span className="comment-author-swatch" style={{ backgroundColor: getColor(r.author) }} />{r.author === currentUserName ? 'You' : r.author}</div>
+              <div className="comment-reply-author">
+                <span className="comment-author-swatch" style={{ backgroundColor: getColor(r.author) }} />
+                {r.author === currentUserName ? 'You' : r.author}
+              </div>
               <div className="comment-reply-date">{formatDate(r.created_at)}</div>
               <div className="comment-reply-text">{r.text}</div>
             </div>
@@ -111,13 +128,20 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
             placeholder="Reply..."
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(); } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleReply();
+              }
+            }}
             rows={1}
           />
           {replyText.trim() && (
             <div className="comment-reply-actions">
               <button onClick={() => setReplyText('')}>Cancel</button>
-              <button onClick={handleReply} className="comment-reply-submit">Reply</button>
+              <button onClick={handleReply} className="comment-reply-submit">
+                Reply
+              </button>
             </div>
           )}
         </div>
@@ -126,7 +150,22 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
   );
 }
 
-export default function CommentsSidebar({ currentUserName, comments, selection, selectionFormTop, commentPositions, onAdd, onResolve, onDelete, onEdit, onCancelComment, onReply, onWheel, onClose, style }) {
+export default function CommentsSidebar({
+  currentUserName,
+  comments,
+  selection,
+  selectionFormTop,
+  commentPositions,
+  onAdd,
+  onResolve,
+  onDelete,
+  onEdit,
+  onCancelComment,
+  onReply,
+  onWheel,
+  onClose,
+  style,
+}) {
   const [text, setText] = useState('');
   const [resolvedCollapsed, setResolvedCollapsed] = useState(true);
   const textareaRef = useRef(null);
@@ -163,7 +202,7 @@ export default function CommentsSidebar({ currentUserName, comments, selection, 
 
   // Build target position map from commentPositions
   const posMap = {};
-  for (const p of (commentPositions || [])) {
+  for (const p of commentPositions || []) {
     posMap[p.id] = p.top;
   }
 
@@ -226,7 +265,11 @@ export default function CommentsSidebar({ currentUserName, comments, selection, 
     <div className="comments-sidebar" style={style} onWheel={onWheel}>
       <div className="comments-header">
         <span>Comments</span>
-        {onClose && <button className="comments-close-btn" onClick={onClose} title="Close comments">&times;</button>}
+        {onClose && (
+          <button className="comments-close-btn" onClick={onClose} title="Close comments">
+            &times;
+          </button>
+        )}
       </div>
 
       <div className="comments-body">
@@ -243,7 +286,12 @@ export default function CommentsSidebar({ currentUserName, comments, selection, 
                 placeholder="Write a comment..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
                 rows={3}
               />
               <div className="comment-form-actions">
@@ -265,7 +313,9 @@ export default function CommentsSidebar({ currentUserName, comments, selection, 
               onDelete={onDelete}
               onEdit={onEdit}
               onReply={onReply}
-              innerRef={(el) => { if (el) commentRefs.current[c.id] = el; }}
+              innerRef={(el) => {
+                if (el) commentRefs.current[c.id] = el;
+              }}
               onLayoutChange={handleLayoutChange}
             />
           ))}
@@ -273,7 +323,11 @@ export default function CommentsSidebar({ currentUserName, comments, selection, 
 
         {resolvedComments.length > 0 && (
           <>
-            <div className="comments-resolved-header" onClick={() => setResolvedCollapsed(v => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+            <div
+              className="comments-resolved-header"
+              onClick={() => setResolvedCollapsed((v) => !v)}
+              style={{ cursor: 'pointer', userSelect: 'none' }}
+            >
               <span className="comments-resolved-arrow">{resolvedCollapsed ? '▸' : '▾'}</span>
               Resolved ({resolvedComments.length})
             </div>

@@ -53,9 +53,7 @@ function postProcess(tex) {
   const omitCmds = /\\(multicolumn|multirow)\b/;
 
   function stripDif(s) {
-    return s
-      .replace(/\\DIF(add|del)(begin|end)(FL)?\s*/g, '')
-      .replace(/\\DIF(add|del)FL\{[^}]*\}\s*/g, '');
+    return s.replace(/\\DIF(add|del)(begin|end)(FL)?\s*/g, '').replace(/\\DIF(add|del)FL\{[^}]*\}\s*/g, '');
   }
 
   function hasDif(s) {
@@ -113,17 +111,16 @@ export default async function latexDiff(oldTex, newTex, options = {}) {
 
     const env = { ...process.env, PATH: TEX_PATHS + ':' + (process.env.PATH || '') };
 
-    const { stdout, stderr } = await execFileAsync('latexdiff', [
-      '--type=UNDERLINE',
-      '--encoding=utf8',
-      oldPath,
-      newPath,
-    ], {
-      env,
-      timeout: 30000,
-      maxBuffer: 50 * 1024 * 1024, // 50MB for large documents
-      cwd: workDir,
-    });
+    const { stdout, stderr } = await execFileAsync(
+      'latexdiff',
+      ['--type=UNDERLINE', '--encoding=utf8', oldPath, newPath],
+      {
+        env,
+        timeout: 30000,
+        maxBuffer: 50 * 1024 * 1024, // 50MB for large documents
+        cwd: workDir,
+      },
+    );
 
     if (!stdout || !stdout.trim()) {
       throw new Error('latexdiff produced no output' + (stderr ? ': ' + stderr : ''));
@@ -132,7 +129,11 @@ export default async function latexDiff(oldTex, newTex, options = {}) {
     return postProcess(stdout);
   } finally {
     // Clean up temp files
-    try { fs.unlinkSync(oldPath); } catch {}
-    try { fs.unlinkSync(newPath); } catch {}
+    try {
+      fs.unlinkSync(oldPath);
+    } catch {}
+    try {
+      fs.unlinkSync(newPath);
+    } catch {}
   }
 }

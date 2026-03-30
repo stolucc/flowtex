@@ -5,6 +5,43 @@ import { isProjectMember } from '../middleware/auth.js';
 
 const router = Router();
 
+// Shared helpers to reduce repeated auth patterns
+async function requireFileEditor(fileId, userId, res) {
+  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [fileId]);
+  if (!file) {
+    res.status(404).json({ error: 'File not found' });
+    return null;
+  }
+  const member = await isProjectMember(file.project_id, userId);
+  if (!member) {
+    res.status(403).json({ error: 'No access' });
+    return null;
+  }
+  if (member.role === 'viewer') {
+    res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+    return null;
+  }
+  return file;
+}
+
+async function requireChangeEditor(changeId, userId, res) {
+  const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [changeId]);
+  if (!change) {
+    res.status(404).json({ error: 'Change not found' });
+    return null;
+  }
+  const member = await isProjectMember(change.project_id, userId);
+  if (!member) {
+    res.status(403).json({ error: 'No access' });
+    return null;
+  }
+  if (member.role === 'viewer') {
+    res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+    return null;
+  }
+  return change;
+}
+
 // Get all tracked changes for a file
 router.get('/:fileId', async (req, res) => {
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
@@ -12,10 +49,9 @@ router.get('/:fileId', async (req, res) => {
   if (!(await isProjectMember(file.project_id, req.session.userId))) {
     return res.status(403).json({ error: 'No access' });
   }
-  const changes = await db.all(
-    'SELECT * FROM tracked_changes WHERE file_id = $1 ORDER BY from_pos ASC',
-    [req.params.fileId]
-  );
+  const changes = await db.all('SELECT * FROM tracked_changes WHERE file_id = $1 ORDER BY from_pos ASC', [
+    req.params.fileId,
+  ]);
   res.json(changes);
 });
 
@@ -29,7 +65,7 @@ router.get('/project/:projectId', async (req, res) => {
      JOIN files f ON tc.file_id = f.id
      WHERE tc.project_id = $1 AND tc.status = 'pending'
      ORDER BY tc.created_at DESC`,
-    [req.params.projectId]
+    [req.params.projectId],
   );
   res.json(changes);
 });
@@ -40,71 +76,78 @@ router.post('/:fileId', async (req, res) => {
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
     return res.status(400).json({ error: 'Invalid position values' });
   }
-  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
-  if (!file) return res.status(404).json({ error: 'File not found' });
-  const member = await isProjectMember(file.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+  const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
+  if (!file) return;
 
-  const user = await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]);
+  const authorName =
+    req.session.userName ||
+    (await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]))?.name ||
+    'Unknown';
   const id = uuid();
   await db.run(
     `INSERT INTO tracked_changes (id, file_id, project_id, from_pos, to_pos, inserted_text, deleted_text, author_id, author_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [id, req.params.fileId, file.project_id, from_pos, to_pos, inserted_text || '', deleted_text || '', req.session.userId, user?.name || 'Unknown']
+    [
+      id,
+      req.params.fileId,
+      file.project_id,
+      from_pos,
+      to_pos,
+      inserted_text || '',
+      deleted_text || '',
+      req.session.userId,
+      authorName,
+    ],
   );
 
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [id]);
   res.json(change);
 });
 
-// Accept a tracked change (apply it to the file content)
+// Accept a tracked change
 router.post('/:changeId/accept', async (req, res) => {
-  const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
-  if (!change) return res.status(404).json({ error: 'Change not found' });
-  const member = await isProjectMember(change.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+  const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
+  if (!change) return;
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
-  await db.run(
-    'UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3',
-    ['accepted', req.session.userId, change.id]
-  );
-
+  await db.run('UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3', [
+    'accepted',
+    req.session.userId,
+    change.id,
+  ]);
   res.json({ ok: true, id: change.id, status: 'accepted' });
 });
 
-// Reject a tracked change (revert the insertion / restore the deletion)
+// Reject a tracked change
 router.post('/:changeId/reject', async (req, res) => {
-  const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
-  if (!change) return res.status(404).json({ error: 'Change not found' });
-  const member = await isProjectMember(change.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+  const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
+  if (!change) return;
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
-  await db.run(
-    'UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3',
-    ['rejected', req.session.userId, change.id]
-  );
-
+  await db.run('UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3', [
+    'rejected',
+    req.session.userId,
+    change.id,
+  ]);
   res.json({ ok: true, id: change.id, status: 'rejected' });
 });
 
 // Update a tracked change (e.g. merge edits)
 router.patch('/:changeId', async (req, res) => {
-  const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
-  if (!change) return res.status(404).json({ error: 'Change not found' });
-  const member = await isProjectMember(change.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+  const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
+  if (!change) return;
   if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
 
   const { from_pos, to_pos, inserted_text, deleted_text } = req.body;
   await db.run(
     'UPDATE tracked_changes SET from_pos = $1, to_pos = $2, inserted_text = $3, deleted_text = $4 WHERE id = $5',
-    [from_pos ?? change.from_pos, to_pos ?? change.to_pos, inserted_text ?? change.inserted_text, deleted_text ?? change.deleted_text, change.id]
+    [
+      from_pos ?? change.from_pos,
+      to_pos ?? change.to_pos,
+      inserted_text ?? change.inserted_text,
+      deleted_text ?? change.deleted_text,
+      change.id,
+    ],
   );
   const updated = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [change.id]);
   res.json(updated);
@@ -112,41 +155,30 @@ router.patch('/:changeId', async (req, res) => {
 
 // Delete a tracked change
 router.delete('/:changeId', async (req, res) => {
-  const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [req.params.changeId]);
-  if (!change) return res.status(404).json({ error: 'Change not found' });
-  const member = await isProjectMember(change.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
+  const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
+  if (!change) return;
   await db.run('DELETE FROM tracked_changes WHERE id = $1', [change.id]);
   res.json({ ok: true });
 });
 
 // Bulk accept all pending changes for a file
 router.post('/file/:fileId/accept-all', async (req, res) => {
-  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
-  if (!file) return res.status(404).json({ error: 'File not found' });
-  const member = await isProjectMember(file.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
-
+  const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
+  if (!file) return;
   await db.run(
     "UPDATE tracked_changes SET status = 'accepted', resolved_by = $1 WHERE file_id = $2 AND status = 'pending'",
-    [req.session.userId, req.params.fileId]
+    [req.session.userId, req.params.fileId],
   );
   res.json({ ok: true });
 });
 
 // Bulk reject all pending changes for a file
 router.post('/file/:fileId/reject-all', async (req, res) => {
-  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
-  if (!file) return res.status(404).json({ error: 'File not found' });
-  const member = await isProjectMember(file.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
-
+  const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
+  if (!file) return;
   await db.run(
     "UPDATE tracked_changes SET status = 'rejected', resolved_by = $1 WHERE file_id = $2 AND status = 'pending'",
-    [req.session.userId, req.params.fileId]
+    [req.session.userId, req.params.fileId],
   );
   res.json({ ok: true });
 });
@@ -157,16 +189,12 @@ router.post('/file/:fileId/adjust-positions', async (req, res) => {
   if (!Number.isInteger(afterPos) || !Number.isInteger(delta)) {
     return res.status(400).json({ error: 'Invalid afterPos or delta' });
   }
-  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
-  if (!file) return res.status(404).json({ error: 'File not found' });
-  const member = await isProjectMember(file.project_id, req.session.userId);
-  if (!member) return res.status(403).json({ error: 'No access' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot modify tracked changes' });
-
+  const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
+  if (!file) return;
   await db.run(
     `UPDATE tracked_changes SET from_pos = from_pos + $1, to_pos = to_pos + $1
      WHERE file_id = $2 AND status = 'pending' AND from_pos >= $3`,
-    [delta, req.params.fileId, afterPos]
+    [delta, req.params.fileId, afterPos],
   );
   res.json({ ok: true });
 });

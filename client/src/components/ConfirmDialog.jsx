@@ -1,6 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 
-export default function ConfirmDialog({ message, onConfirm, onCancel, confirmLabel = 'Delete', confirmClass = 'confirm-dialog-delete' }) {
+export default function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel = 'Delete',
+  confirmClass = 'confirm-dialog-delete',
+}) {
   const overlayRef = useRef(null);
 
   useEffect(() => {
@@ -20,8 +26,12 @@ export default function ConfirmDialog({ message, onConfirm, onCancel, confirmLab
       <div className="modal-card confirm-dialog">
         <p className="confirm-dialog-message">{message}</p>
         <div className="confirm-dialog-actions">
-          <button className="confirm-dialog-cancel" onClick={onCancel}>Cancel</button>
-          <button className={confirmClass} onClick={onConfirm}>{confirmLabel}</button>
+          <button className="confirm-dialog-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className={confirmClass} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </div>

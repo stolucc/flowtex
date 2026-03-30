@@ -61,7 +61,9 @@ export default function ShareModal({ projectId, onClose }) {
             <option value="editor">Editor</option>
             <option value="viewer">Viewer</option>
           </select>
-          <button type="submit" className="auth-button">Invite</button>
+          <button type="submit" className="auth-button">
+            Invite
+          </button>
         </form>
         {error && <div className="auth-error">{error}</div>}
         {success && <div className="auth-success">{success}</div>}
@@ -95,7 +97,11 @@ export default function ShareModal({ projectId, onClose }) {
                     <span className="invitation-status">Pending</span>
                   </div>
                   <span className="member-role">{inv.role}</span>
-                  <button className="member-remove" onClick={() => handleCancelInvite(inv.id)} title="Cancel invitation">
+                  <button
+                    className="member-remove"
+                    onClick={() => handleCancelInvite(inv.id)}
+                    title="Cancel invitation"
+                  >
                     &times;
                   </button>
                 </li>
@@ -104,7 +110,9 @@ export default function ShareModal({ projectId, onClose }) {
           </>
         )}
 
-        <button className="modal-close-btn" onClick={onClose}>Close</button>
+        <button className="modal-close-btn" onClick={onClose}>
+          Close
+        </button>
       </div>
     </div>
   );

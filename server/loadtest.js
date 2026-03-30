@@ -33,7 +33,11 @@ function request(method, path, body, cookie) {
         const elapsed = Date.now() - start;
         const rawBody = Buffer.concat(chunks).toString();
         let json;
-        try { json = JSON.parse(rawBody); } catch { json = rawBody; }
+        try {
+          json = JSON.parse(rawBody);
+        } catch {
+          json = rawBody;
+        }
         const setCookie = res.headers['set-cookie'];
         let sessionCookie = cookie;
         let csrfToken = null;
@@ -49,7 +53,10 @@ function request(method, path, body, cookie) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(120000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(120000, () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     if (data) req.write(data);
     req.end();
   });
@@ -73,7 +80,11 @@ function requestWithCsrf(method, path, body, cookie, csrfToken) {
         const elapsed = Date.now() - start;
         const rawBody = Buffer.concat(chunks).toString();
         let json;
-        try { json = JSON.parse(rawBody); } catch { json = rawBody; }
+        try {
+          json = JSON.parse(rawBody);
+        } catch {
+          json = rawBody;
+        }
         const setCookie = res.headers['set-cookie'];
         let sessionCookie = cookie;
         let newCsrf = csrfToken;
@@ -89,7 +100,10 @@ function requestWithCsrf(method, path, body, cookie, csrfToken) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(120000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(120000, () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     if (data) req.write(data);
     req.end();
   });
@@ -97,7 +111,7 @@ function requestWithCsrf(method, path, body, cookie, csrfToken) {
 
 function percentile(arr, p) {
   const sorted = [...arr].sort((a, b) => a - b);
-  const idx = Math.ceil(sorted.length * p / 100) - 1;
+  const idx = Math.ceil((sorted.length * p) / 100) - 1;
   return sorted[Math.max(0, idx)];
 }
 
@@ -109,7 +123,9 @@ function printStats(label, s) {
   const p99 = percentile(s.times, 99);
   const min = Math.min(...s.times);
   const max = Math.max(...s.times);
-  console.log(`  ${label.padEnd(16)} ok=${String(s.ok).padStart(5)} fail=${String(s.fail).padStart(5)}  avg=${String(avg).padStart(5)}ms  p50=${String(p50).padStart(5)}ms  p95=${String(p95).padStart(5)}ms  p99=${String(p99).padStart(5)}ms  min=${String(min).padStart(5)}ms  max=${String(max).padStart(5)}ms`);
+  console.log(
+    `  ${label.padEnd(16)} ok=${String(s.ok).padStart(5)} fail=${String(s.fail).padStart(5)}  avg=${String(avg).padStart(5)}ms  p50=${String(p50).padStart(5)}ms  p95=${String(p95).padStart(5)}ms  p99=${String(p99).padStart(5)}ms  min=${String(min).padStart(5)}ms  max=${String(max).padStart(5)}ms`,
+  );
 }
 
 async function runBatch(items, batchSize, fn) {
@@ -135,7 +151,6 @@ async function main() {
   }
   console.log(`  Target: "${targetProject.name}" (main: ${targetProject.main_file})`);
 
-
   // Generate user data
   const users = Array.from({ length: NUM_USERS }, (_, i) => ({
     email: `loadtest${i}@test.com`,
@@ -152,7 +167,9 @@ async function main() {
   await runBatch(users, CONCURRENT_BATCH, async (user) => {
     try {
       const res = await request('POST', '/api/auth/register', {
-        email: user.email, name: user.name, password: user.password,
+        email: user.email,
+        name: user.name,
+        password: user.password,
       });
       if (res.status === 200) {
         stats.registrations.ok++;
@@ -167,7 +184,9 @@ async function main() {
       stats.registrations.fail++;
     }
   });
-  console.log(`  Done in ${((Date.now() - regStart) / 1000).toFixed(1)}s — ${stats.registrations.ok} ok, ${stats.registrations.fail} fail`);
+  console.log(
+    `  Done in ${((Date.now() - regStart) / 1000).toFixed(1)}s — ${stats.registrations.ok} ok, ${stats.registrations.fail} fail`,
+  );
 
   // Phase 2: Logout and login all users
   console.log('Phase 2: Logging in users...');
@@ -178,7 +197,8 @@ async function main() {
         await requestWithCsrf('POST', '/api/auth/logout', {}, user.cookie, user.csrfToken);
       }
       const res = await request('POST', '/api/auth/login', {
-        email: user.email, password: user.password,
+        email: user.email,
+        password: user.password,
       });
       if (res.status === 200 && res.json?.id) {
         stats.logins.ok++;
@@ -193,18 +213,23 @@ async function main() {
       stats.logins.fail++;
     }
   });
-  console.log(`  Done in ${((Date.now() - loginStart) / 1000).toFixed(1)}s — ${stats.logins.ok} ok, ${stats.logins.fail} fail`);
+  console.log(
+    `  Done in ${((Date.now() - loginStart) / 1000).toFixed(1)}s — ${stats.logins.ok} ok, ${stats.logins.fail} fail`,
+  );
 
   // Phase 3: Add all users as members of EMSE 2 project (direct DB insert)
   console.log('Phase 3: Adding users as members of EMSE 2...');
   const memberStart = Date.now();
   for (const user of users) {
-    if (!user.userId) { stats.addMember.fail++; continue; }
+    if (!user.userId) {
+      stats.addMember.fail++;
+      continue;
+    }
     try {
       const start = Date.now();
       await db.run(
         'INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-        [EMSE_PROJECT_ID, user.userId, 'editor']
+        [EMSE_PROJECT_ID, user.userId, 'editor'],
       );
       stats.addMember.ok++;
       stats.addMember.times.push(Date.now() - start);
@@ -212,13 +237,18 @@ async function main() {
       stats.addMember.fail++;
     }
   }
-  console.log(`  Done in ${((Date.now() - memberStart) / 1000).toFixed(1)}s — ${stats.addMember.ok} ok, ${stats.addMember.fail} fail`);
+  console.log(
+    `  Done in ${((Date.now() - memberStart) / 1000).toFixed(1)}s — ${stats.addMember.ok} ok, ${stats.addMember.fail} fail`,
+  );
 
   // Phase 4: List projects (all users concurrently)
   console.log('Phase 4: Listing projects...');
   const listStart = Date.now();
   await runBatch(users, CONCURRENT_BATCH * 2, async (user) => {
-    if (!user.cookie) { stats.projectList.fail++; return; }
+    if (!user.cookie) {
+      stats.projectList.fail++;
+      return;
+    }
     try {
       const res = await requestWithCsrf('GET', '/api/projects', null, user.cookie, user.csrfToken);
       if (res.status === 200) {
@@ -231,12 +261,14 @@ async function main() {
       stats.projectList.fail++;
     }
   });
-  console.log(`  Done in ${((Date.now() - listStart) / 1000).toFixed(1)}s — ${stats.projectList.ok} ok, ${stats.projectList.fail} fail`);
+  console.log(
+    `  Done in ${((Date.now() - listStart) / 1000).toFixed(1)}s — ${stats.projectList.ok} ok, ${stats.projectList.fail} fail`,
+  );
 
   // Phase 5: All 1000 users compile the EMSE 2 project
   console.log(`Phase 5: Compiling EMSE 2 (${NUM_USERS} users, ${COMPILE_BATCH} concurrent)...`);
   const compileStart = Date.now();
-  const compileUsers = users.filter(u => u.cookie);
+  const compileUsers = users.filter((u) => u.cookie);
   let compileProgress = 0;
   await runBatch(compileUsers, COMPILE_BATCH, async (user) => {
     try {
@@ -255,21 +287,32 @@ async function main() {
       process.stdout.write(`  ...${compileProgress}/${compileUsers.length}\r`);
     }
   });
-  console.log(`  Done in ${((Date.now() - compileStart) / 1000).toFixed(1)}s — ${stats.compile.ok} ok, ${stats.compile.fail} fail`);
+  console.log(
+    `  Done in ${((Date.now() - compileStart) / 1000).toFixed(1)}s — ${stats.compile.ok} ok, ${stats.compile.fail} fail`,
+  );
 
   // Phase 6: WebSocket connections (200 users join EMSE 2)
   console.log('Phase 6: WebSocket connections (200 users)...');
   const wsStart = Date.now();
-  const wsUsers = users.filter(u => u.cookie).slice(0, 200);
+  const wsUsers = users.filter((u) => u.cookie).slice(0, 200);
   const wsSockets = [];
   await runBatch(wsUsers, 50, async (user) => {
     try {
       const start = Date.now();
       const ws = await new Promise((resolve, reject) => {
         const s = new WebSocket(WS_URL, { headers: { Cookie: user.cookie } });
-        const timer = setTimeout(() => { s.terminate(); reject(new Error('ws timeout')); }, 10000);
-        s.on('open', () => { clearTimeout(timer); resolve(s); });
-        s.on('error', (e) => { clearTimeout(timer); reject(e); });
+        const timer = setTimeout(() => {
+          s.terminate();
+          reject(new Error('ws timeout'));
+        }, 10000);
+        s.on('open', () => {
+          clearTimeout(timer);
+          resolve(s);
+        });
+        s.on('error', (e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
       });
       ws.send(JSON.stringify({ type: 'join', projectId: EMSE_PROJECT_ID }));
       await new Promise((resolve) => {
@@ -306,7 +349,9 @@ async function main() {
 
   const totalOk = Object.values(stats).reduce((s, v) => s + v.ok, 0);
   const totalFail = Object.values(stats).reduce((s, v) => s + v.fail, 0);
-  console.log(`\n  Total: ${totalOk} ok, ${totalFail} failed (${((totalFail / (totalOk + totalFail)) * 100).toFixed(1)}% error rate)\n`);
+  console.log(
+    `\n  Total: ${totalOk} ok, ${totalFail} failed (${((totalFail / (totalOk + totalFail)) * 100).toFixed(1)}% error rate)\n`,
+  );
 
   // Cleanup: delete test users (this also removes them from project_members)
   console.log('Cleaning up test users...');
@@ -314,7 +359,13 @@ async function main() {
   await runBatch(users, CONCURRENT_BATCH, async (user) => {
     if (!user.cookie) return;
     try {
-      await requestWithCsrf('POST', '/api/auth/delete-account', { password: user.password }, user.cookie, user.csrfToken);
+      await requestWithCsrf(
+        'POST',
+        '/api/auth/delete-account',
+        { password: user.password },
+        user.cookie,
+        user.csrfToken,
+      );
       cleaned++;
     } catch {}
   });
@@ -323,4 +374,7 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

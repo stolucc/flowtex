@@ -17,10 +17,10 @@ export async function requireProjectAccess(req, res, next) {
     return res.status(400).json({ error: 'Invalid project ID' });
   }
 
-  const member = await db.get(
-    'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-    [projectId, req.session.userId]
-  );
+  const member = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
+    projectId,
+    req.session.userId,
+  ]);
 
   if (!member) {
     return res.status(403).json({ error: 'No access to this project' });
@@ -38,11 +38,20 @@ export async function requireAdmin(req, res, next) {
   next();
 }
 
+export async function requireMember(projectId, userId, res) {
+  const member = await isProjectMember(projectId, userId);
+  if (!member) {
+    res.status(403).json({ error: 'No access to this project' });
+    return null;
+  }
+  return member;
+}
+
 export async function isProjectMember(projectId, userId) {
   if (!UUID_RE.test(projectId)) return null;
-  const row = await db.get(
-    'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-    [projectId, userId]
-  );
+  const row = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
+    projectId,
+    userId,
+  ]);
   return row || null;
 }

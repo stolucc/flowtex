@@ -32,10 +32,10 @@ const HOST = flag('--host', 'http://localhost:3001');
 const BATCH_SIZE = 50; // register/login this many at a time
 const SHARED_PROJECTS = 50;
 const USERS_PER_SHARED = 20;
-const SAVE_INTERVAL_MS = 3000;    // how often each user saves via REST
-const LIST_INTERVAL_MS = 5000;    // how often each user lists files
+const SAVE_INTERVAL_MS = 3000; // how often each user saves via REST
+const LIST_INTERVAL_MS = 5000; // how often each user lists files
 const COMPILE_INTERVAL_MS = 10000; // how often each user compiles
-const RAMP_UP_MS = 10000;         // spread user connections over this window
+const RAMP_UP_MS = 10000; // spread user connections over this window
 
 const isHttps = HOST.startsWith('https');
 const httpModule = isHttps ? https : http;
@@ -52,11 +52,12 @@ let sourceProjectFiles = null; // fetched once at startup
 async function fetchSourceFiles() {
   const pool = new pg.Pool({ database: process.env.PGDATABASE || 'underleaf' });
   try {
-    const { rows } = await pool.query(
-      'SELECT path, content, is_binary FROM files WHERE project_id = $1',
-      [SOURCE_PROJECT_ID]
+    const { rows } = await pool.query('SELECT path, content, is_binary FROM files WHERE project_id = $1', [
+      SOURCE_PROJECT_ID,
+    ]);
+    console.log(
+      `  Loaded ${rows.length} files from source project (${rows.filter((r) => !r.is_binary).reduce((s, r) => s + (r.content?.length || 0), 0)} chars total)`,
     );
-    console.log(`  Loaded ${rows.length} files from source project (${rows.filter(r => !r.is_binary).reduce((s, r) => s + (r.content?.length || 0), 0)} chars total)`);
     return rows;
   } finally {
     await pool.end();
@@ -66,11 +67,20 @@ async function fetchSourceFiles() {
 // DEAD CODE — kept for reference but replaced by real project content
 function generateLatexDocument(userName, projectName) {
   const sectionNames = [
-    'Introduction', 'Background and Related Work', 'Theoretical Framework',
-    'Methodology', 'System Architecture', 'Experimental Setup',
-    'Results and Analysis', 'Statistical Validation', 'Ablation Studies',
-    'Scalability Analysis', 'Discussion', 'Limitations and Future Work',
-    'Ethical Considerations', 'Conclusion',
+    'Introduction',
+    'Background and Related Work',
+    'Theoretical Framework',
+    'Methodology',
+    'System Architecture',
+    'Experimental Setup',
+    'Results and Analysis',
+    'Statistical Validation',
+    'Ablation Studies',
+    'Scalability Analysis',
+    'Discussion',
+    'Limitations and Future Work',
+    'Ethical Considerations',
+    'Conclusion',
   ];
 
   const loremParas = [
@@ -99,7 +109,9 @@ eleifend, sagittis quis, diam. Duis eget orci sit amet orci dignissim
 rutrum. Nam dui ligula, fringilla a, euismod sodales, sollicitudin vel, wisi.`,
   ];
 
-  function randPara() { return loremParas[Math.floor(Math.random() * loremParas.length)]; }
+  function randPara() {
+    return loremParas[Math.floor(Math.random() * loremParas.length)];
+  }
 
   const sections = sectionNames.map((name, i) => {
     let content = `\n\\section{${name}}\n\n${randPara()}\n\n${randPara()}\n`;
@@ -110,8 +122,8 @@ rutrum. Nam dui ligula, fringilla a, euismod sodales, sollicitudin vel, wisi.`,
 
 The core relationship in this context is captured by:
 \\begin{equation}
-  \\mathcal{L}_{${i+1}}(\\theta) = -\\frac{1}{N}\\sum_{j=1}^{N} \\left[ y_j \\log\\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b) + (1 - y_j)\\log(1 - \\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b)) \\right] + \\frac{\\lambda}{2}\\|\\theta\\|_2^2
-  \\label{eq:loss${i+1}}
+  \\mathcal{L}_{${i + 1}}(\\theta) = -\\frac{1}{N}\\sum_{j=1}^{N} \\left[ y_j \\log\\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b) + (1 - y_j)\\log(1 - \\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b)) \\right] + \\frac{\\lambda}{2}\\|\\theta\\|_2^2
+  \\label{eq:loss${i + 1}}
 \\end{equation}
 
 where $\\sigma(z) = (1 + e^{-z})^{-1}$ is the logistic sigmoid, $\\theta = (\\mathbf{w}, b)$
@@ -140,8 +152,8 @@ ${randPara()}
 
 \\begin{table}[h]
 \\centering
-\\caption{Performance metrics for Section~${i+1} experiments.}
-\\label{tab:results${i+1}}
+\\caption{Performance metrics for Section~${i + 1} experiments.}
+\\label{tab:results${i + 1}}
 \\begin{tabular}{lcccccc}
 \\toprule
 \\textbf{Method} & \\textbf{Prec.} & \\textbf{Rec.} & \\textbf{F1} & \\textbf{AUC} & \\textbf{Time (s)} & \\textbf{Params} \\\\
@@ -156,7 +168,7 @@ Ours (large)     & \\textbf{0.91} & \\textbf{0.89} & \\textbf{0.90} & \\textbf{0
 \\end{tabular}
 \\end{table}
 
-As shown in Table~\\ref{tab:results${i+1}}, our proposed method achieves
+As shown in Table~\\ref{tab:results${i + 1}}, our proposed method achieves
 superior performance across all metrics while using significantly fewer
 parameters than the Transformer-L baseline. The efficiency gains are
 particularly notable in the small variant.
@@ -203,7 +215,7 @@ The recommended procedure is:
 The optimisation procedure is formalised below.
 
 \\medskip
-\\noindent\\textbf{Algorithm ${Math.floor(i/4)+1}:} Adaptive Gradient Method (Variant ${i+1})
+\\noindent\\textbf{Algorithm ${Math.floor(i / 4) + 1}:} Adaptive Gradient Method (Variant ${i + 1})
 \\begin{quote}
 \\textbf{Input:} Dataset $\\mathcal{D} = \\{(\\mathbf{x}_i, y_i)\\}_{i=1}^N$, learning rate $\\eta$, epochs $T$ \\\\
 \\textbf{Output:} Optimised parameters $\\theta^*$ \\\\[4pt]
@@ -253,7 +265,7 @@ ${randPara()}
 \\newtheorem{corollary}[theorem]{Corollary}
 
 \\title{${projectName}:\\\\A Comprehensive Analysis of Multi-dimensional\\\\Optimisation Strategies for Large-Scale Systems}
-\\author{${userName}\\\\[6pt]Department of Computer Science\\\\FlowTex University\\\\[4pt]\\texttt{${userName.toLowerCase().replace(/ /g,'.')}@flowtex.edu}}
+\\author{${userName}\\\\[6pt]Department of Computer Science\\\\FlowTex University\\\\[4pt]\\texttt{${userName.toLowerCase().replace(/ /g, '.')}@flowtex.edu}}
 \\date{\\today}
 
 \\begin{document}
@@ -389,8 +401,8 @@ const stats = {
   compileFails: 0,
   compileLatencies: [],
   errors: [],
-  latencies: [],        // REST latencies in ms
-  wsLatencies: [],      // time from WS send to recv for pong-like responses
+  latencies: [], // REST latencies in ms
+  wsLatencies: [], // time from WS send to recv for pong-like responses
   startTime: 0,
   peakWsConnections: 0,
 };
@@ -433,7 +445,9 @@ function request(method, path, body, cookies = '') {
 
     const req = httpModule.request(opts, (res) => {
       let body = '';
-      res.on('data', (c) => { body += c; });
+      res.on('data', (c) => {
+        body += c;
+      });
       res.on('end', () => {
         const ms = Date.now() - start;
         recordLatency(stats.latencies, ms);
@@ -457,7 +471,11 @@ function request(method, path, body, cookies = '') {
         let updatedCookies = [...cookieMap.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
 
         let json;
-        try { json = JSON.parse(body); } catch { json = body; }
+        try {
+          json = JSON.parse(body);
+        } catch {
+          json = body;
+        }
         if (res.statusCode >= 400) {
           resolve({ status: res.statusCode, json, cookies: updatedCookies, error: true });
         } else {
@@ -495,11 +513,16 @@ class SimUser {
 
   async register() {
     try {
-      const res = await request('POST', '/api/auth/register', {
-        email: this.email,
-        name: this.name,
-        password: this.password,
-      }, this.cookies);
+      const res = await request(
+        'POST',
+        '/api/auth/register',
+        {
+          email: this.email,
+          name: this.name,
+          password: this.password,
+        },
+        this.cookies,
+      );
       this.cookies = res.cookies;
       if (!res.error) {
         this.userId = res.json.id;
@@ -513,10 +536,15 @@ class SimUser {
 
   async login() {
     try {
-      const res = await request('POST', '/api/auth/login', {
-        email: this.email,
-        password: this.password,
-      }, this.cookies);
+      const res = await request(
+        'POST',
+        '/api/auth/login',
+        {
+          email: this.email,
+          password: this.password,
+        },
+        this.cookies,
+      );
       this.cookies = res.cookies;
       if (!res.error) {
         this.userId = res.json.id;
@@ -531,9 +559,14 @@ class SimUser {
 
   async createProject() {
     try {
-      const res = await request('POST', '/api/projects', {
-        name: `LoadTest Project ${this.index}`,
-      }, this.cookies);
+      const res = await request(
+        'POST',
+        '/api/projects',
+        {
+          name: `LoadTest Project ${this.index}`,
+        },
+        this.cookies,
+      );
       if (!res.error) {
         this.projectId = res.json.id;
         stats.projectsCreated++;
@@ -554,23 +587,38 @@ class SimUser {
         if (srcFile.path === 'main.tex') {
           // The project already has main.tex — update it with source content
           if (this.fileId) {
-            await request('PUT', `/api/projects/files/${this.fileId}`, {
-              content: srcFile.content || '',
-            }, this.cookies);
+            await request(
+              'PUT',
+              `/api/projects/files/${this.fileId}`,
+              {
+                content: srcFile.content || '',
+              },
+              this.cookies,
+            );
             this.fileContent = srcFile.content || '';
           }
         } else {
           // Create all other source files
-          await request('POST', `/api/projects/${this.projectId}/files`, {
-            path: srcFile.path,
-            content: srcFile.content || '',
-          }, this.cookies);
+          await request(
+            'POST',
+            `/api/projects/${this.projectId}/files`,
+            {
+              path: srcFile.path,
+              content: srcFile.content || '',
+            },
+            this.cookies,
+          );
         }
       }
       // Set main_file to ManuscriptR2.tex (the actual paper)
-      await request('PUT', `/api/projects/${this.projectId}`, {
-        main_file: 'ManuscriptR2.tex',
-      }, this.cookies);
+      await request(
+        'PUT',
+        `/api/projects/${this.projectId}`,
+        {
+          main_file: 'ManuscriptR2.tex',
+        },
+        this.cookies,
+      );
     } catch (e) {
       stats.errors.push(`Populate files failed user ${this.index}: ${e.message}`);
     }
@@ -582,7 +630,7 @@ class SimUser {
       const res = await request('GET', `/api/projects/${this.projectId}/files`, null, this.cookies);
       if (!res.error && Array.isArray(res.json) && res.json.length > 0) {
         // Prefer main.tex as the file to edit
-        const mainFile = res.json.find(f => f.path === 'main.tex');
+        const mainFile = res.json.find((f) => f.path === 'main.tex');
         const target = mainFile || res.json[0];
         this.fileId = target.id;
         this.fileContent = target.content || '';
@@ -595,9 +643,14 @@ class SimUser {
   async saveFile() {
     if (!this.fileId) return;
     try {
-      await request('PUT', `/api/projects/files/${this.fileId}`, {
-        content: this.fileContent,
-      }, this.cookies);
+      await request(
+        'PUT',
+        `/api/projects/files/${this.fileId}`,
+        {
+          content: this.fileContent,
+        },
+        this.cookies,
+      );
     } catch (e) {
       stats.errors.push(`Save failed user ${this.index}: ${e.message}`);
     }
@@ -673,10 +726,12 @@ class SimUser {
   startActivity() {
     const jitter = () => Math.random() * 1000;
     // Periodic file saves (main DB write load)
-    this.intervals.push(setInterval(async () => {
-      this.editFile();
-      await this.saveFile();
-    }, SAVE_INTERVAL_MS + jitter()));
+    this.intervals.push(
+      setInterval(async () => {
+        this.editFile();
+        await this.saveFile();
+      }, SAVE_INTERVAL_MS + jitter()),
+    );
     // Periodic file listings (main DB read load)
     this.intervals.push(setInterval(() => this.listFiles(), LIST_INTERVAL_MS + jitter()));
     // Periodic compilations (CPU + I/O heavy)
@@ -689,7 +744,9 @@ class SimUser {
     for (const iv of this.intervals) clearInterval(iv);
     this.intervals = [];
     if (this.ws) {
-      try { this.ws.close(); } catch {}
+      try {
+        this.ws.close();
+      } catch {}
       this.ws = null;
     }
   }
@@ -701,11 +758,11 @@ function printProgress(phase) {
   const mem = process.memoryUsage();
   process.stdout.write(
     `\r[${elapsed}s] ${phase} | ` +
-    `WS: ${stats.wsConnected}/${NUM_USERS} | ` +
-    `Compiles: ${stats.compilations}/${stats.compilations + stats.compileFails} | ` +
-    `REST: ${stats.restCalls} | ` +
-    `Errors: ${stats.errors.length} | ` +
-    `RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB  `
+      `WS: ${stats.wsConnected}/${NUM_USERS} | ` +
+      `Compiles: ${stats.compilations}/${stats.compilations + stats.compileFails} | ` +
+      `REST: ${stats.restCalls} | ` +
+      `Errors: ${stats.errors.length} | ` +
+      `RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB  `,
   );
 }
 
@@ -715,7 +772,9 @@ async function main() {
   console.log(`║          FlowTex Load Test                             ║`);
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  Users:     ${String(NUM_USERS).padEnd(6)} Shared projects: ${SHARED_PROJECTS}           ║`);
-  console.log(`║  Duration:  ${String(DURATION_SEC + 's').padEnd(6)} Users per shared: ${USERS_PER_SHARED}           ║`);
+  console.log(
+    `║  Duration:  ${String(DURATION_SEC + 's').padEnd(6)} Users per shared: ${USERS_PER_SHARED}           ║`,
+  );
   console.log(`║  Host:      ${HOST.padEnd(42)}║`);
   console.log(`╚══════════════════════════════════════════════════════════╝\n`);
 
@@ -733,12 +792,14 @@ async function main() {
   console.log(`Phase 1: Registering and logging in ${NUM_USERS} users...\n`);
   for (let i = 0; i < NUM_USERS; i += BATCH_SIZE) {
     const batch = users.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (u) => {
-      const reg = await u.register();
-      if (!reg || reg.error) {
-        await u.login();
-      }
-    }));
+    await Promise.all(
+      batch.map(async (u) => {
+        const reg = await u.register();
+        if (!reg || reg.error) {
+          await u.login();
+        }
+      }),
+    );
     printProgress('REGISTER');
   }
 
@@ -793,13 +854,14 @@ async function main() {
   console.log(`Phase 4: Connecting ${loggedIn.length} WebSockets (${RAMP_UP_MS / 1000}s ramp-up)...\n`);
   const perUserDelay = RAMP_UP_MS / loggedIn.length;
 
-  const connectPromises = loggedIn.map((u, i) =>
-    new Promise((resolve) => {
-      setTimeout(async () => {
-        await u.connectWebSocket();
-        resolve();
-      }, i * perUserDelay);
-    })
+  const connectPromises = loggedIn.map(
+    (u, i) =>
+      new Promise((resolve) => {
+        setTimeout(async () => {
+          await u.connectWebSocket();
+          resolve();
+        }, i * perUserDelay);
+      }),
   );
   await Promise.all(connectPromises);
 
@@ -842,7 +904,7 @@ async function main() {
   console.log(`\n╔══════════════════════════════════════════════════════════╗`);
   console.log(`║                    LOAD TEST RESULTS                     ║`);
   console.log(`╠══════════════════════════════════════════════════════════╣`);
-  console.log(`║  Total duration:         ${(totalTime).toFixed(1).padStart(8)}s                    ║`);
+  console.log(`║  Total duration:         ${totalTime.toFixed(1).padStart(8)}s                    ║`);
   console.log(`║  Users registered:       ${String(stats.registrations).padStart(8)}                     ║`);
   console.log(`║  Users logged in:        ${String(stats.logins).padStart(8)}                     ║`);
   console.log(`║  Projects created:       ${String(stats.projectsCreated).padStart(8)}                     ║`);
@@ -850,30 +912,52 @@ async function main() {
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  THROUGHPUT                                              ║`);
   console.log(`║  REST API calls:         ${String(stats.restCalls).padStart(8)}                     ║`);
-  console.log(`║  REST calls/sec:         ${(stats.restCalls / totalTime).toFixed(0).padStart(8)}                     ║`);
+  console.log(
+    `║  REST calls/sec:         ${(stats.restCalls / totalTime).toFixed(0).padStart(8)}                     ║`,
+  );
   console.log(`║  WS messages received:   ${String(stats.wsMsgRecv).padStart(8)}                     ║`);
   console.log(`║  Compilations OK:        ${String(stats.compilations).padStart(8)}                     ║`);
   console.log(`║  Compilations failed:    ${String(stats.compileFails).padStart(8)}                     ║`);
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  REST LATENCY (non-compile)                               ║`);
-  console.log(`║  p50:                    ${(percentile(stats.latencies, 50)).toFixed(0).padStart(6)}ms                   ║`);
-  console.log(`║  p90:                    ${(percentile(stats.latencies, 90)).toFixed(0).padStart(6)}ms                   ║`);
-  console.log(`║  p95:                    ${(percentile(stats.latencies, 95)).toFixed(0).padStart(6)}ms                   ║`);
-  console.log(`║  p99:                    ${(percentile(stats.latencies, 99)).toFixed(0).padStart(6)}ms                   ║`);
-  console.log(`║  max:                    ${(percentile(stats.latencies, 100)).toFixed(0).padStart(6)}ms                   ║`);
+  console.log(
+    `║  p50:                    ${percentile(stats.latencies, 50).toFixed(0).padStart(6)}ms                   ║`,
+  );
+  console.log(
+    `║  p90:                    ${percentile(stats.latencies, 90).toFixed(0).padStart(6)}ms                   ║`,
+  );
+  console.log(
+    `║  p95:                    ${percentile(stats.latencies, 95).toFixed(0).padStart(6)}ms                   ║`,
+  );
+  console.log(
+    `║  p99:                    ${percentile(stats.latencies, 99).toFixed(0).padStart(6)}ms                   ║`,
+  );
+  console.log(
+    `║  max:                    ${percentile(stats.latencies, 100).toFixed(0).padStart(6)}ms                   ║`,
+  );
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  COMPILE LATENCY                                         ║`);
-  console.log(`║  p50:                    ${(percentile(stats.compileLatencies, 50) / 1000).toFixed(1).padStart(6)}s                   ║`);
-  console.log(`║  p90:                    ${(percentile(stats.compileLatencies, 90) / 1000).toFixed(1).padStart(6)}s                   ║`);
-  console.log(`║  p95:                    ${(percentile(stats.compileLatencies, 95) / 1000).toFixed(1).padStart(6)}s                   ║`);
-  console.log(`║  max:                    ${(percentile(stats.compileLatencies, 100) / 1000).toFixed(1).padStart(6)}s                   ║`);
+  console.log(
+    `║  p50:                    ${(percentile(stats.compileLatencies, 50) / 1000).toFixed(1).padStart(6)}s                   ║`,
+  );
+  console.log(
+    `║  p90:                    ${(percentile(stats.compileLatencies, 90) / 1000).toFixed(1).padStart(6)}s                   ║`,
+  );
+  console.log(
+    `║  p95:                    ${(percentile(stats.compileLatencies, 95) / 1000).toFixed(1).padStart(6)}s                   ║`,
+  );
+  console.log(
+    `║  max:                    ${(percentile(stats.compileLatencies, 100) / 1000).toFixed(1).padStart(6)}s                   ║`,
+  );
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  ERRORS                                                   ║`);
   console.log(`║  Total errors:           ${String(stats.errors.length).padStart(8)}                     ║`);
   console.log(`╠══════════════════════════════════════════════════════════╣`);
   console.log(`║  LOAD TEST MEMORY (this process)                         ║`);
   console.log(`║  RSS:                    ${(mem.rss / 1024 / 1024).toFixed(0).padStart(6)}MB                   ║`);
-  console.log(`║  Heap used:              ${(mem.heapUsed / 1024 / 1024).toFixed(0).padStart(6)}MB                   ║`);
+  console.log(
+    `║  Heap used:              ${(mem.heapUsed / 1024 / 1024).toFixed(0).padStart(6)}MB                   ║`,
+  );
   console.log(`╚══════════════════════════════════════════════════════════╝`);
 
   // Print unique error types (deduped, max 20)
@@ -884,7 +968,9 @@ async function main() {
       errorCounts[key] = (errorCounts[key] || 0) + 1;
     }
     console.log(`\nError breakdown:`);
-    const entries = Object.entries(errorCounts).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const entries = Object.entries(errorCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20);
     for (const [msg, count] of entries) {
       console.log(`  [${count}x] ${msg}`);
     }

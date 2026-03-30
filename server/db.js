@@ -5,9 +5,10 @@ const pool = new pg.Pool({
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432', 10),
   max: 20,
-  ssl: process.env.PGSSLMODE === 'require' || process.env.PGSSLMODE === 'verify-full'
-    ? { rejectUnauthorized: process.env.PGSSLMODE === 'verify-full' }
-    : false,
+  ssl:
+    process.env.PGSSLMODE === 'require' || process.env.PGSSLMODE === 'verify-full'
+      ? { rejectUnauthorized: process.env.PGSSLMODE === 'verify-full' }
+      : false,
 });
 
 // Prevent unhandled errors from idle clients crashing the process
@@ -331,10 +332,9 @@ async function initSchema() {
 
   // Bootstrap admin from env var
   if (process.env.ADMIN_EMAIL) {
-    await pool.query(
-      'UPDATE users SET is_admin = TRUE WHERE email = $1',
-      [process.env.ADMIN_EMAIL.toLowerCase().trim()]
-    );
+    await pool.query('UPDATE users SET is_admin = TRUE WHERE email = $1', [
+      process.env.ADMIN_EMAIL.toLowerCase().trim(),
+    ]);
   }
 }
 

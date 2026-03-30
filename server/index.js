@@ -25,8 +25,9 @@ import trackedChangesRouter from './routes/tracked-changes.js';
 import adminRouter from './routes/admin.js';
 import bibRouter from './routes/bib.js';
 import zoteroRouter from './routes/zotero.js';
+import chatRouter from './routes/chat.js';
 import cookieParser from 'cookie-parser';
-import { requireAuth, requireAdmin, UUID_RE } from './middleware/auth.js';
+import { requireAuth, requireAdmin } from './middleware/auth.js';
 import { initWebSocket } from './websocket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,49 +46,57 @@ if (process.env.NODE_ENV === 'production') {
 
 // ── Security headers ────────────────────────────────────────────────────
 const isProduction = process.env.NODE_ENV === 'production';
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "ws:", "wss:"],
-      fontSrc: ["'self'", "data:"],
-      objectSrc: ["'self'", "blob:"],
-      frameSrc: ["'self'", "blob:"],
-      frameAncestors: ["'none'"],
-      // Only upgrade insecure requests in production (breaks localhost on Safari)
-      upgradeInsecureRequests: isProduction ? [] : null,
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+        fontSrc: ["'self'", 'data:'],
+        objectSrc: ["'self'", 'blob:'],
+        frameSrc: ["'self'", 'blob:'],
+        frameAncestors: ["'none'"],
+        // Only upgrade insecure requests in production (breaks localhost on Safari)
+        upgradeInsecureRequests: isProduction ? [] : null,
+      },
     },
-  },
-  crossOriginEmbedderPolicy: false,
-  // Disable HSTS in development (forces HTTPS, breaks localhost on Safari)
-  strictTransportSecurity: isProduction,
-}));
+    crossOriginEmbedderPolicy: false,
+    // Disable HSTS in development (forces HTTPS, breaks localhost on Safari)
+    strictTransportSecurity: isProduction,
+  }),
+);
 
 // ── CORS — restrict to known origins ────────────────────────────────────
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3001,https://localhost:3001').split(',');
-app.use(cors({
-  origin(origin, cb) {
-    // Allow requests with no origin in development (mobile apps, curl, same-origin)
-    // In production, require a valid origin to prevent sandboxed-iframe attacks
-    if (!origin && process.env.NODE_ENV !== 'production') return cb(null, true);
-    if (origin && allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-}));
+const allowedOrigins = (
+  process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3001,https://localhost:3001'
+).split(',');
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Allow requests with no origin in development (mobile apps, curl, same-origin)
+      // In production, require a valid origin to prevent sandboxed-iframe attacks
+      if (!origin && process.env.NODE_ENV !== 'production') return cb(null, true);
+      if (origin && allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  }),
+);
 
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
 // ── Request logging ──────────────────────────────────────────────────────
-app.use(pinoHttp({
-  logger,
-  autoLogging: { ignore: (req) => req.url === '/api/health' },
-}));
+app.use(
+  pinoHttp({
+    logger,
+    autoLogging: { ignore: (req) => req.url === '/api/health' },
+  }),
+);
 
 // ── Session ─────────────────────────────────────────────────────────────
 const SESSION_SECRET = process.env.SESSION_SECRET || 'flowtex-dev-secret-change-in-production';
@@ -180,90 +189,21 @@ app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/compile', requireAuth, compileRouter);
 app.use('/api/comments', requireAuth, commentsRouter);
 app.use('/api/history', requireAuth, historyRouter);
-app.use('/api/github', (req, res, next) => {
-  // OAuth callback must bypass auth — user returns from GitHub redirect with a valid session
-  if (req.path === '/oauth/callback') return next();
-  requireAuth(req, res, next);
-}, githubRouter);
+app.use(
+  '/api/github',
+  (req, res, next) => {
+    // OAuth callback must bypass auth — user returns from GitHub redirect with a valid session
+    if (req.path === '/oauth/callback') return next();
+    requireAuth(req, res, next);
+  },
+  githubRouter,
+);
 app.use('/api/tags', requireAuth, tagsRouter);
 app.use('/api/tracked-changes', requireAuth, trackedChangesRouter);
+app.use('/api/chat', requireAuth, chatRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
-
-// ── Chat history ────────────────────────────────────────────────────────
-app.get('/api/chat/:projectId', requireAuth, async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
-    const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
-    if (!member) return res.status(403).json({ error: 'Not a member' });
-    const messages = await db.all(
-      'SELECT id, user_id as "userId", user_name as "userName", text, created_at FROM chat_messages WHERE project_id = $1 ORDER BY created_at DESC LIMIT 500',
-      [projectId]
-    );
-    messages.reverse();
-    res.json(messages);
-  } catch (err) {
-    logger.error({ err }, 'Chat history error');
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ── Global search across project files ────────────────────────────────
-app.get('/api/projects/:projectId/search', requireAuth, async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    if (!UUID_RE.test(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
-    const member = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, req.session.userId]);
-    if (!member) return res.status(403).json({ error: 'Not a member' });
-
-    const q = (req.query.q || '').trim();
-    const scope = req.query.scope || 'all'; // 'tex' or 'all'
-    const cs = req.query.cs === '1'; // case sensitive
-    if (!q) return res.json([]);
-
-    const files = await db.all(
-      'SELECT id, path, content FROM files WHERE project_id = $1 AND is_binary = false',
-      [projectId]
-    );
-
-    const results = [];
-    const searchStr = cs ? q : q.toLowerCase();
-
-    for (const file of files) {
-      if (scope === 'tex' && !file.path.endsWith('.tex')) continue;
-      if (!file.content) continue;
-
-      const lines = file.content.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const haystack = cs ? line : line.toLowerCase();
-        let pos = 0;
-        while (pos < haystack.length) {
-          const idx = haystack.indexOf(searchStr, pos);
-          if (idx === -1) break;
-          results.push({
-            fileId: file.id,
-            filePath: file.path,
-            line: i + 1,
-            col: idx,
-            text: line.trim(),
-          });
-          pos = idx + 1;
-          if (results.length >= 500) break;
-        }
-        if (results.length >= 500) break;
-      }
-      if (results.length >= 500) break;
-    }
-
-    res.json(results);
-  } catch (err) {
-    logger.error({ err }, 'Project search error');
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
 app.get('/api/health', (req, res) => {
@@ -299,7 +239,6 @@ const server = useHttps
 // ── WebSocket setup ──────────────────────────────────────────────────────
 const { wss, redisPub, redisSub } = initWebSocket(server, app, SESSION_SECRET);
 
-
 // ── Global error handlers ────────────────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
   logger.error({ err: reason }, 'Unhandled rejection');
@@ -329,8 +268,12 @@ async function shutdown(signal) {
   }
 
   // 3. Close Redis connections
-  if (redisPub) { redisPub.disconnect(); }
-  if (redisSub) { redisSub.disconnect(); }
+  if (redisPub) {
+    redisPub.disconnect();
+  }
+  if (redisSub) {
+    redisSub.disconnect();
+  }
 
   // 4. Drain the database pool
   await db.pool.end().catch(() => {});
@@ -374,12 +317,14 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 // Initialize database schema, then start server
-db.initSchema().then(() => {
-  server.listen(PORT, () => {
-    const proto = useHttps ? 'https' : 'http';
-    logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);
+db.initSchema()
+  .then(() => {
+    server.listen(PORT, () => {
+      const proto = useHttps ? 'https' : 'http';
+      logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    logger.fatal({ err }, 'Failed to initialize database');
+    process.exit(1);
   });
-}).catch((err) => {
-  logger.fatal({ err }, 'Failed to initialize database');
-  process.exit(1);
-});

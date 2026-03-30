@@ -5,19 +5,17 @@ import { auditLog } from '../utils/audit.js';
 import { sendPasswordResetEmail } from '../utils/email.js';
 import logger from '../logger.js';
 import * as authService from '../services/authService.js';
+import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
-function sendError(res, err) {
-  res.status(err.status || 500).json({ error: err.message });
-}
-
 function regenerateSession(req, res) {
   return new Promise((resolve, reject) => {
-    const userId = req.session.userId;
+    const { userId, userName } = req.session;
     req.session.regenerate((err) => {
       if (err) return reject(err);
       req.session.userId = userId;
+      req.session.userName = userName;
       req.session.csrfToken = crypto.randomBytes(32).toString('hex');
       res.cookie('csrf-token', req.session.csrfToken, {
         httpOnly: false,
@@ -36,15 +34,20 @@ function regenerateSession(req, res) {
 router.post('/register', async (req, res) => {
   const { email, name, password } = req.body;
   if (!email || !name || !password) return res.status(400).json({ error: 'Email, name, and password are required' });
-  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email format' });
-  if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 200) return res.status(400).json({ error: 'Name must be 1–200 characters' });
+  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({ error: 'Invalid email format' });
+  if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 200)
+    return res.status(400).json({ error: 'Name must be 1–200 characters' });
   try {
     const user = await authService.registerUser(email, name, password);
     req.session.userId = user.id;
+    req.session.userName = user.name;
     await regenerateSession(req, res);
     await auditLog(user.id, 'register', { ip: req.ip });
     res.json(user);
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // Login
@@ -82,9 +85,11 @@ router.post('/login', async (req, res) => {
       if (trustDevice) {
         const { token, maxAge } = await authService.createTrustedDevice(user.id, req.headers['user-agent']);
         res.cookie('trusted-device', token, {
-          httpOnly: true, sameSite: 'lax',
+          httpOnly: true,
+          sameSite: 'lax',
           secure: process.env.NODE_ENV === 'production',
-          maxAge, path: '/',
+          maxAge,
+          path: '/',
         });
       }
     }
@@ -92,9 +97,16 @@ router.post('/login', async (req, res) => {
 
   await authService.recordLoginAttempt(normalizedEmail, req.ip, true);
   req.session.userId = user.id;
+  req.session.userName = user.name;
   await regenerateSession(req, res);
   await auditLog(user.id, 'login', { ip: req.ip });
-  res.json({ id: user.id, email: user.email, name: user.name, totpEnabled: !!user.totp_enabled, isAdmin: !!user.is_admin });
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    totpEnabled: !!user.totp_enabled,
+    isAdmin: !!user.is_admin,
+  });
 });
 
 // Logout
@@ -116,8 +128,11 @@ router.get('/me', requireAuth, async (req, res) => {
 
 // --- TOTP MFA ---
 router.post('/totp/setup', requireAuth, async (req, res) => {
-  try { res.json(await authService.setupTotp(req.session.userId)); }
-  catch (err) { sendError(res, err); }
+  try {
+    res.json(await authService.setupTotp(req.session.userId));
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 router.post('/totp/verify', requireAuth, async (req, res) => {
@@ -126,7 +141,9 @@ router.post('/totp/verify', requireAuth, async (req, res) => {
     await authService.verifyAndEnableTotp(req.session.userId, req.body.code);
     await auditLog(req.session.userId, 'mfa_enabled', { ip: req.ip });
     res.json({ ok: true });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 router.post('/totp/disable', requireAuth, async (req, res) => {
@@ -136,7 +153,9 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
     res.clearCookie('trusted-device', { path: '/' });
     await auditLog(req.session.userId, 'mfa_disabled', { ip: req.ip });
     res.json({ ok: true });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // --- Forgot/reset password ---
@@ -145,8 +164,11 @@ router.post('/forgot-password', async (req, res) => {
   const result = await authService.createPasswordResetToken(req.body.email);
   if (result) {
     const baseUrl = process.env.APP_URL || 'http://localhost:3001';
-    try { await sendPasswordResetEmail(result.email, `${baseUrl}/reset-password?token=${result.token}`); }
-    catch (err) { logger.error({ err }, 'Failed to send reset email'); }
+    try {
+      await sendPasswordResetEmail(result.email, `${baseUrl}/reset-password?token=${result.token}`);
+    } catch (err) {
+      logger.error({ err }, 'Failed to send reset email');
+    }
     await auditLog(result.userId, 'password_reset_requested', { ip: req.ip });
   }
   res.json({ ok: true }); // Always return success
@@ -159,7 +181,9 @@ router.post('/reset-password', async (req, res) => {
     const userId = await authService.resetPassword(token, password);
     await auditLog(userId, 'password_reset', { ip: req.ip });
     res.json({ ok: true });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // --- Change email/password ---
@@ -168,9 +192,15 @@ router.post('/change-email', requireAuth, async (req, res) => {
   if (!password || !newEmail) return res.status(400).json({ error: 'Password and new email are required' });
   try {
     const result = await authService.changeEmail(req.session.userId, password, newEmail);
-    await auditLog(req.session.userId, 'email_changed', { ip: req.ip, oldEmail: result.oldEmail, newEmail: result.email });
+    await auditLog(req.session.userId, 'email_changed', {
+      ip: req.ip,
+      oldEmail: result.oldEmail,
+      newEmail: result.email,
+    });
     res.json({ ok: true, email: result.email });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 router.post('/change-password', requireAuth, async (req, res) => {
@@ -180,7 +210,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
     await authService.changePassword(req.session.userId, currentPassword, newPassword);
     await auditLog(req.session.userId, 'password_changed', { ip: req.ip });
     res.json({ ok: true });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // --- Delete account ---
@@ -190,7 +222,9 @@ router.post('/delete-account', requireAuth, async (req, res) => {
     await authService.deleteAccount(req.session.userId, req.body.password);
     await auditLog(req.session.userId, 'account_deleted', { ip: req.ip }).catch(() => {});
     req.session.destroy(() => res.json({ ok: true }));
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 export default router;

@@ -18,23 +18,38 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
 
   useEffect(() => {
     if (projectName) {
-      setNewRepoName(projectName.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''));
+      setNewRepoName(
+        projectName
+          .toLowerCase()
+          .replace(/[^a-z0-9-_]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, ''),
+      );
     }
   }, [projectName]);
 
   useEffect(() => {
-    get('/api/github/token').then((r) => r.json()).then((d) => {
-      setHasToken(d.hasToken);
-    }).catch(() => {});
-    get(`/api/github/link/${projectId}`).then((r) => r.json()).then(setLink).catch(() => {});
+    get('/api/github/token')
+      .then((r) => r.json())
+      .then((d) => {
+        setHasToken(d.hasToken);
+      })
+      .catch(() => {});
+    get(`/api/github/link/${projectId}`)
+      .then((r) => r.json())
+      .then(setLink)
+      .catch(() => {});
   }, [projectId]);
 
   const fetchRepos = (force) => {
     if (repos !== null && !force) return;
     setRepos([]);
-    get('/api/github/repos').then((r) => r.json()).then((data) => {
-      if (Array.isArray(data)) setRepos(data);
-    }).catch(() => {});
+    get('/api/github/repos')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setRepos(data);
+      })
+      .catch(() => {});
   };
 
   const handleOverlayClick = (e) => {
@@ -52,7 +67,9 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       if (!createRes.ok) {
         const errMsg = repoData.error || 'Failed to create repository';
         if (errMsg.toLowerCase().includes('already exists') || errMsg.toLowerCase().includes('name already exists')) {
-          throw new Error(`A repository named "${newRepoName}" already exists on your GitHub account. Use "Link existing repo" to connect to it.`);
+          throw new Error(
+            `A repository named "${newRepoName}" already exists on your GitHub account. Use "Link existing repo" to connect to it.`,
+          );
         }
         throw new Error(errMsg);
       }
@@ -142,16 +159,16 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     setLoading('');
   };
 
-  const filteredRepos = repos
-    ? repos.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase()))
-    : [];
+  const filteredRepos = repos ? repos.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase())) : [];
 
   return (
     <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="modal-card github-sync-modal">
         <div className="modal-header">
           <h2>GitHub Sync</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
         </div>
 
         {error && <div className="github-sync-msg error">{error}</div>}
@@ -161,9 +178,9 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
         {!hasToken && (
           <div className="github-sync-section">
             <p className="github-sync-hint">
-              Connect your GitHub account first in <strong>Account Settings</strong> (gear icon on the dashboard sidebar), then come back here to link a repository.
+              Connect your GitHub account first in <strong>Account Settings</strong> (gear icon on the dashboard
+              sidebar), then come back here to link a repository.
             </p>
-            <button className="github-sync-btn oauth" onClick={onClose}>Close</button>
           </div>
         )}
 
@@ -174,7 +191,13 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
               <button className={repoMode === 'create' ? 'active' : ''} onClick={() => setRepoMode('create')}>
                 Create new repo
               </button>
-              <button className={repoMode === 'existing' ? 'active' : ''} onClick={() => { setRepoMode('existing'); fetchRepos(); }}>
+              <button
+                className={repoMode === 'existing' ? 'active' : ''}
+                onClick={() => {
+                  setRepoMode('existing');
+                  fetchRepos();
+                }}
+              >
                 Link existing repo
               </button>
             </div>
@@ -186,7 +209,9 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                     placeholder="repository-name"
                     value={newRepoName}
                     onChange={(e) => setNewRepoName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') createAndLink(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createAndLink();
+                    }}
                     autoFocus
                   />
                   <button onClick={createAndLink} disabled={!newRepoName.trim() || !!loading}>
@@ -196,11 +221,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 <label className="github-sync-autosave-toggle">
                   <span className="github-sync-toggle-label">Private repository</span>
                   <span className={`github-sync-switch ${isPrivate ? 'on' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={isPrivate}
-                      onChange={(e) => setIsPrivate(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
                     <span className="github-sync-switch-slider" />
                   </span>
                 </label>
@@ -210,7 +231,9 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
             {repoMode === 'existing' && (
               <>
                 {repos === null || (Array.isArray(repos) && repos.length === 0 && !repoSearch) ? (
-                  <div className="github-sync-hint" style={{ padding: '12px 0' }}>Loading repositories...</div>
+                  <div className="github-sync-hint" style={{ padding: '12px 0' }}>
+                    Loading repositories...
+                  </div>
                 ) : (
                   <>
                     <input
@@ -244,7 +267,6 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 )}
               </>
             )}
-
           </div>
         )}
 
@@ -253,7 +275,9 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
           <div className="github-sync-section github-sync-linked">
             <div className="github-sync-repo-info">
               <span className="github-sync-status-dot green" />
-              <span style={{ wordBreak: 'break-all' }}><strong>{link.repo}</strong> ({link.branch})</span>
+              <span style={{ wordBreak: 'break-all' }}>
+                <strong>{link.repo}</strong> ({link.branch})
+              </span>
             </div>
             {link.lastSyncAt && (
               <div className="github-sync-hint">
@@ -287,14 +311,18 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 placeholder="Commit message (optional)"
                 value={commitMsg}
                 onChange={(e) => setCommitMsg(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handlePush(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handlePush();
+                }}
               />
               <button className="github-sync-btn push" onClick={handlePush} disabled={!!loading}>
                 {loading === 'push' ? 'Pushing...' : 'Push to GitHub'}
               </button>
             </div>
             <div className="github-sync-bottom-row">
-              <button className="github-sync-link-btn danger" onClick={() => setConfirmDisconnect(true)}>Disconnect from GitHub repository</button>
+              <button className="github-sync-link-btn danger" onClick={() => setConfirmDisconnect(true)}>
+                Disconnect from GitHub repository
+              </button>
               <button className="github-sync-btn pull" onClick={handlePull} disabled={!!loading}>
                 {loading === 'pull' ? 'Pulling...' : 'Pull from GitHub'}
               </button>
@@ -308,16 +336,30 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
             <p className="github-sync-confirm-text">
               Disconnect this project from <strong style={{ wordBreak: 'break-all' }}>{link.repo}</strong>?
             </p>
-            <p className="github-sync-hint">This will only unlink the project. Your GitHub repository will not be affected.</p>
+            <p className="github-sync-hint">
+              This will only unlink the project. Your GitHub repository will not be affected.
+            </p>
             <div className="github-sync-confirm-buttons">
-              <button className="github-sync-link-btn danger" onClick={() => { setConfirmDisconnect(false); unlinkRepo(); }}>Yes, disconnect</button>
-              <button className="github-sync-link-btn" onClick={() => setConfirmDisconnect(false)}>Cancel</button>
+              <button
+                className="github-sync-link-btn danger"
+                onClick={() => {
+                  setConfirmDisconnect(false);
+                  unlinkRepo();
+                }}
+              >
+                Yes, disconnect
+              </button>
+              <button className="github-sync-link-btn" onClick={() => setConfirmDisconnect(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         )}
 
         <div className="github-sync-footer">
-          <button className="github-sync-btn" onClick={onClose}>Close</button>
+          <button className="github-sync-btn" onClick={onClose}>
+            Close
+          </button>
         </div>
       </div>
     </div>

@@ -71,8 +71,8 @@ export async function getDictionary() {
   dictionary = null;
   try {
     const [affResp, dicResp] = await Promise.all([
-      fetch(`/dictionaries/${currentLang}.aff`).then(r => r.text()),
-      fetch(`/dictionaries/${currentLang}.dic`).then(r => r.text()),
+      fetch(`/dictionaries/${currentLang}.aff`).then((r) => r.text()),
+      fetch(`/dictionaries/${currentLang}.dic`).then((r) => r.text()),
     ]);
     dictionary = new Typo(currentLang, affResp, dicResp);
     for (const cb of callbacks) cb(dictionary);
@@ -92,12 +92,36 @@ const SKIP_PATTERNS = /^\\[a-zA-Z]+|^[A-Z]{2,}$|^\d+$/;
 
 // Commands whose brace arguments contain prose (should be spellchecked)
 const PROSE_COMMANDS = new Set([
-  'title', 'author', 'date', 'section', 'subsection', 'subsubsection',
-  'paragraph', 'subparagraph', 'chapter', 'part',
-  'caption', 'footnote', 'footnotetext', 'text', 'textbf', 'textit',
-  'texttt', 'textrm', 'textsf', 'textsc', 'emph', 'underline',
-  'mbox', 'fbox', 'parbox', 'minipage', 'thanks',
-  'abstract', 'quote', 'quotation',
+  'title',
+  'author',
+  'date',
+  'section',
+  'subsection',
+  'subsubsection',
+  'paragraph',
+  'subparagraph',
+  'chapter',
+  'part',
+  'caption',
+  'footnote',
+  'footnotetext',
+  'text',
+  'textbf',
+  'textit',
+  'texttt',
+  'textrm',
+  'textsf',
+  'textsc',
+  'emph',
+  'underline',
+  'mbox',
+  'fbox',
+  'parbox',
+  'minipage',
+  'thanks',
+  'abstract',
+  'quote',
+  'quotation',
 ]);
 
 function skipBracketGroup(line, i, open, close) {
@@ -196,7 +220,12 @@ export function spellcheckText(text, dict) {
 
       // Extract word — allow apostrophes and accented chars
       const wordStart = i;
-      while (i < line.length && (/[a-zA-Z\u00C0-\u024F]/.test(line[i]) || (line[i] === '\'' && i + 1 < line.length && /[a-zA-Z\u00C0-\u024F]/.test(line[i + 1])))) i++;
+      while (
+        i < line.length &&
+        (/[a-zA-Z\u00C0-\u024F]/.test(line[i]) ||
+          (line[i] === "'" && i + 1 < line.length && /[a-zA-Z\u00C0-\u024F]/.test(line[i + 1])))
+      )
+        i++;
       const word = line.slice(wordStart, i);
 
       // Skip very short words, all-caps abbreviations

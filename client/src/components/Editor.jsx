@@ -1,612 +1,91 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { EditorView, keymap, Decoration, ViewPlugin, WidgetType, gutter, GutterMarker } from '@codemirror/view';
-import { EditorState, ChangeSet, Compartment, StateEffect, StateField, Prec, RangeSet } from '@codemirror/state';
+import useClickOutside from '../hooks/useClickOutside.js';
+import { EditorView, keymap, Decoration } from '@codemirror/view';
+import { EditorState, Compartment, Prec } from '@codemirror/state';
 import { basicSetup } from 'codemirror';
 import { StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import latexLint from '../utils/latexLint.js';
-import { parse as parseLatex, findTableAtPos, parseTable } from '../utils/latexParser.js';
-import { getDictionary, spellcheckText, addToCustomDictionary, ignoreWord, LANGUAGES, getLanguage, setLanguage } from '../utils/spellcheck.js';
+import {
+  getDictionary,
+  spellcheckText,
+  addToCustomDictionary,
+  ignoreWord,
+  LANGUAGES,
+  getLanguage,
+  setLanguage,
+} from '../utils/spellcheck.js';
 import latexAutocomplete from '../utils/latexCompletions.js';
 import SymbolPicker from './SymbolPicker.jsx';
 import SearchPanel from './SearchPanel.jsx';
 import TableGridPicker from './TableGridPicker.jsx';
+import {
+  commentHighlighter,
+  CursorWidget,
+  setCursorsEffect,
+  remoteCursorsField,
+  setErrorHighlightEffect,
+  errorHighlightField,
+  cursorColor,
+  setTrackedChangesEffect,
+  trackedChangesField,
+  setTcDeletesEffect,
+  tcDeletesField,
+  isPosInDeletion,
+  isPosInInsertion,
+  tcInsertGutterField,
+  tcDeleteGutterField,
+  tcInsertGutterExtension,
+  tcDeleteGutterExtension,
+  buildTcInsertDecorations,
+  buildTcDeleteDecorations,
+  setSearchHighlightEffect,
+  searchHighlightField,
+  spellcheckField,
+  lintField,
+  lintGutterField,
+  lintGutterExtension,
+  spellGutterField,
+  spellGutterExtension,
+  applyLintDiagnostics,
+  applySpellcheck,
+  citeKeyHighlighter,
+  findTableAtCursor,
+} from '../utils/editorExtensions.js';
 
-function buildCommentDecorations(comments, docLength) {
-  const widgets = [];
-  for (const c of (comments || [])) {
-    if (c.resolved) continue;
-    try {
-      const from = Math.min(c.from_pos, c.to_pos);
-      const to = Math.max(c.from_pos, c.to_pos);
-      if (from >= 0 && to <= docLength) {
-        widgets.push(
-          Decoration.mark({ class: 'cm-comment-highlight', attributes: { 'data-comment-id': c.id } }).range(from, to)
-        );
-      }
-    } catch (e) {}
-  }
-  widgets.sort((a, b) => a.from - b.from);
-  return Decoration.set(widgets);
-}
-
-function commentHighlighter(comments) {
-  return ViewPlugin.fromClass(
-    class {
-      constructor(view) {
-        this.decorations = buildCommentDecorations(comments, view.state.doc.length);
-      }
-      update() {}
-    },
-    { decorations: (v) => v.decorations }
-  );
-}
-
-// Remote cursor decoration
-class CursorWidget extends WidgetType {
-  constructor(userName, color) {
-    super();
-    this.userName = userName;
-    this.color = color;
-  }
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-remote-cursor';
-    el.style.borderLeftColor = this.color;
-    const label = document.createElement('span');
-    label.className = 'cm-remote-cursor-label';
-    label.style.backgroundColor = this.color;
-    label.textContent = this.userName;
-    el.appendChild(label);
-    return el;
-  }
-}
-
-const setCursorsEffect = StateEffect.define();
-
-const remoteCursorsField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setCursorsEffect)) return e.value;
-    }
-    return value.map(tr.changes);
+const Editor = forwardRef(function Editor(
+  {
+    file,
+    comments,
+    currentUserName,
+    onSave,
+    onSelectionChange,
+    onLineChange,
+    onChanges,
+    onCursorChange,
+    onCompile,
+    onRequestComment,
+    onScroll,
+    onLintDiagnostics,
+    projectId,
+    showLineNumbers = true,
+    wordWrap = true,
+    trackChangesMode = false,
+    trackedChanges = [],
+    onTrackChange,
+    onTrackedChangeClick,
+    onDeleteInsertionChar,
+    onToggleTrackChanges,
+    citeKeys,
+    autoSaveOn,
+    autoSaveLabel,
+    onToggleAutoSave,
+    onGoToFile,
+    projectFiles,
   },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-// Error highlight decoration
-const setErrorHighlightEffect = StateEffect.define();
-
-const errorHighlightField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setErrorHighlightEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-const CURSOR_COLORS = ['#e06c75', '#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#be5046'];
-function cursorColor(userId) {
-  let h = 0;
-  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) | 0;
-  return CURSOR_COLORS[Math.abs(h) % CURSOR_COLORS.length];
-}
-
-// Tracked changes — insertion highlights
-const setTrackedChangesEffect = StateEffect.define();
-
-const trackedChangesField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setTrackedChangesEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-// Tracked changes — deletion strikethroughs (separate field so we can query it)
-const setTcDeletesEffect = StateEffect.define();
-
-const tcDeletesField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setTcDeletesEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-function isPosInDeletion(state, pos) {
-  const decos = state.field(tcDeletesField);
-  let found = false;
-  decos.between(pos, pos + 1, (from, to) => {
-    if (pos >= from && pos < to) found = true;
-  });
-  return found;
-}
-
-function isPosInInsertion(state, pos) {
-  const decos = state.field(trackedChangesField);
-  let found = false;
-  decos.between(pos, pos + 1, (from, to) => {
-    if (pos >= from && pos < to) found = true;
-  });
-  return found;
-}
-
-// Track changes gutter markers
-class TcInsertGutterMarker extends GutterMarker {
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-tc-gutter-insert';
-    return el;
-  }
-}
-class TcDeleteGutterMarker extends GutterMarker {
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-tc-gutter-delete';
-    return el;
-  }
-}
-const tcInsertMarkerInstance = new TcInsertGutterMarker();
-const tcDeleteMarkerInstance = new TcDeleteGutterMarker();
-
-const tcInsertGutterField = StateField.define({
-  create() { return RangeSet.empty; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setTrackedChangesEffect)) {
-        // Rebuild gutter markers from insertion decorations
-        const lines = new Set();
-        const doc = tr.state.doc;
-        e.value.between(0, doc.length, (from) => {
-          lines.add(doc.lineAt(from).from);
-        });
-        const markers = [];
-        for (const lineStart of [...lines].sort((a, b) => a - b)) {
-          markers.push(tcInsertMarkerInstance.range(lineStart));
-        }
-        return RangeSet.of(markers);
-      }
-    }
-    return value.map(tr.changes);
-  },
-});
-
-const tcDeleteGutterField = StateField.define({
-  create() { return RangeSet.empty; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setTcDeletesEffect)) {
-        const lines = new Set();
-        const doc = tr.state.doc;
-        e.value.between(0, doc.length, (from) => {
-          lines.add(doc.lineAt(from).from);
-        });
-        const markers = [];
-        for (const lineStart of [...lines].sort((a, b) => a - b)) {
-          markers.push(tcDeleteMarkerInstance.range(lineStart));
-        }
-        return RangeSet.of(markers);
-      }
-    }
-    return value.map(tr.changes);
-  },
-});
-
-const tcInsertGutterExtension = gutter({
-  class: 'cm-tc-insert-gutter',
-  markers: (view) => view.state.field(tcInsertGutterField),
-});
-
-const tcDeleteGutterExtension = gutter({
-  class: 'cm-tc-delete-gutter',
-  markers: (view) => view.state.field(tcDeleteGutterField),
-});
-
-function buildTcInsertDecorations(trackedChanges, docLength) {
-  const decos = [];
-  for (const tc of (trackedChanges || [])) {
-    if (tc.status !== 'pending') continue;
-    if (!tc.inserted_text) continue;
-    try {
-      const from = Math.max(0, Math.min(tc.from_pos, docLength));
-      const to = Math.max(from, Math.min(tc.to_pos, docLength));
-      if (from < to) {
-        decos.push(
-          Decoration.mark({
-            class: 'cm-tc-insert',
-            attributes: {
-              'data-tc-id': tc.id,
-              'data-tc-author': tc.author_name,
-              title: `Inserted by ${tc.author_name === currentUserNameRef.current ? 'You' : tc.author_name}`,
-            },
-          }).range(from, to)
-        );
-      }
-    } catch (e) {}
-  }
-  decos.sort((a, b) => a.from - b.from);
-  return Decoration.set(decos, true);
-}
-
-function buildTcDeleteDecorations(trackedChanges, docLength) {
-  const decos = [];
-  for (const tc of (trackedChanges || [])) {
-    if (tc.status !== 'pending') continue;
-    if (!tc.deleted_text) continue;
-    try {
-      // Deletions always use from_pos..to_pos
-      const from = Math.max(0, Math.min(tc.from_pos, docLength));
-      const to = Math.max(from, Math.min(tc.to_pos, docLength));
-      if (from < to) {
-        decos.push(
-          Decoration.mark({
-            class: 'cm-tc-delete',
-            attributes: {
-              'data-tc-id': tc.id,
-              'data-tc-author': tc.author_name,
-              title: `Deleted by ${tc.author_name === currentUserNameRef.current ? 'You' : tc.author_name}`,
-            },
-          }).range(from, to)
-        );
-      }
-    } catch (e) {}
-  }
-  decos.sort((a, b) => a.from - b.from);
-  return Decoration.set(decos, true);
-}
-
-// Search highlight decoration
-const setSearchHighlightEffect = StateEffect.define();
-
-const searchHighlightField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setSearchHighlightEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-
-// Table environment names the regex fallback should match
-const TABLE_RE_NAMES = 'tabular\\*?|tabularx|tabulary|tabu|longtabu|array|longtable|supertabular\\*?|NiceTabular\\*?|NiceArray';
-
-// Regex fallback: find the table environment containing position `pos`
-function findTableByRegex(source, pos) {
-  const beginRe = new RegExp('\\\\begin\\{(' + TABLE_RE_NAMES + ')\\}', 'g');
-  let match;
-  const candidates = [];
-  while ((match = beginRe.exec(source)) !== null) {
-    const envName = match[1];
-    const start = match.index;
-    const endRe = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
-    endRe.lastIndex = start + match[0].length;
-    const endMatch = endRe.exec(source);
-    if (endMatch) {
-      const end = endMatch.index + endMatch[0].length;
-      if (pos >= start && pos <= end) {
-        candidates.push({ start, end, envName });
-      }
-    }
-  }
-  // Also check for \begin{table} wrapper
-  const tableRe = /\\begin\{table\*?\}/g;
-  while ((match = tableRe.exec(source)) !== null) {
-    const start = match.index;
-    const envName = match[0].match(/\{(.+)\}/)[1];
-    const endRe = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
-    endRe.lastIndex = start + match[0].length;
-    const endMatch = endRe.exec(source);
-    if (endMatch) {
-      const end = endMatch.index + endMatch[0].length;
-      if (pos >= start && pos <= end) {
-        candidates.push({ start, end, envName });
-      }
-    }
-  }
-  if (candidates.length === 0) return null;
-  // Outermost
-  candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start));
-  const outer = candidates[0];
-  return { from: outer.start, to: outer.end, text: source.slice(outer.start, outer.end) };
-}
-
-// Find and parse a table at the cursor using the AST parser, with regex fallback
-function findTableAtCursor(view) {
-  const pos = view.state.selection.main.head;
-  const source = view.state.doc.toString();
-
-  // Try AST parser first
-  try {
-    const tree = parseLatex(source);
-    const tableInfo = findTableAtPos(tree, pos);
-    if (tableInfo) {
-      return parseTable(tableInfo, source);
-    }
-  } catch (e) {
-    console.warn('AST table detection failed, using fallback:', e);
-  }
-
-  // Regex fallback
-  const found = findTableByRegex(source, pos);
-  if (!found) return null;
-  return parseTableFromText(found.text, found.from);
-}
-
-// Simple regex-based table parser (fallback)
-function parseTableFromText(text, offset) {
-  const result = {
-    env: 'tabular', alignment: 'c', borders: 'none',
-    headerRow: false, boldHeader: false, caption: false,
-    captionText: '', label: '', centering: false,
-    zebra: false, booktabs: false, rows: 0, cols: 0, cells: [],
-    from: offset, to: offset + text.length,
-  };
-
-  // Detect float wrapper
-  result.centering = /\\centering/.test(text);
-  result.zebra = /\\rowcolors/.test(text);
-  if (/\\toprule|\\midrule|\\bottomrule/.test(text)) {
-    result.borders = 'booktabs';
-  }
-
-  const captionMatch = text.match(/\\caption\{(.+?)\}/);
-  if (captionMatch) { result.caption = true; result.captionText = captionMatch[1]; }
-
-  const labelMatch = text.match(/\\label\{(.+?)\}/);
-  if (labelMatch) result.label = labelMatch[1];
-
-  // Find inner env and colspec
-  const envMatch = text.match(/\\begin\{(tabular\*?|tabularx|tabulary|tabu|longtabu?|array|longtable|supertabular\*?|NiceTabular\*?|NiceArray)\}(?:\{[^}]*\})?\{([^}]*)\}/)
-    || text.match(/\\begin\{(tabular\*?|tabularx|tabulary|tabu|longtabu?|array|longtable|supertabular\*?|NiceTabular\*?|NiceArray)\}\{([^}]*)\}/);
-  if (envMatch) {
-    result.env = envMatch[1];
-    const spec = envMatch[2] || envMatch[3] || '';
-    const stripped = spec.replace(/\|/g, '').replace(/[><!@]\{[^}]*\}/g, '').replace(/[pmb]\{[^}]*\}/g, 'l').replace(/\s/g, '');
-    if (/^l+$/.test(stripped)) result.alignment = 'l';
-    else if (/^r+$/.test(stripped)) result.alignment = 'r';
-    else if (/^c+$/.test(stripped)) result.alignment = 'c';
-    else if (/^X+$/.test(stripped)) result.alignment = 'c';
-    else if (stripped.length > 0) result.alignment = stripped[0];
-    result.cols = stripped.length || 0;
-    if (/\|/.test(spec)) result.borders = 'all';
-  }
-
-  if (result.borders !== 'booktabs' && /\\hline/.test(text)) {
-    // Count hlines to distinguish modes
-    const hlineCount = (text.match(/\\hline/g) || []).length;
-    if (hlineCount <= 2) result.borders = 'outside';
-    else if (hlineCount <= 3) result.borders = 'header';
-    else result.borders = 'all';
-  }
-
-  // Parse rows
-  const innerMatch = text.match(/\\begin\{(?:tabular\*?|tabularx|tabulary|tabu|longtabu?|array|longtable|supertabular\*?|NiceTabular\*?|NiceArray)\}(?:\{[^}]*\})*\s*([\s\S]*?)\\end\{/);
-  if (innerMatch) {
-    const body = innerMatch[1];
-    const rawRows = body.split(/\\\\/).map(r => r.trim()).filter(r => r && !/^\\(?:hline|toprule|midrule|bottomrule|cline\{[^}]*\}|endfirsthead|endhead|endfoot|endlastfoot|caption\{[^}]*\}|label\{[^}]*\})$/.test(r));
-    const cellRows = rawRows.map(row => {
-      const cleaned = row.replace(/\\(?:hline|toprule|midrule|bottomrule|cline\{[^}]*\}|endfirsthead|endhead|endfoot|endlastfoot)\s*/g, '').trim();
-      if (!cleaned || /^\\caption/.test(cleaned) || /^\\label/.test(cleaned)) return null;
-      return cleaned.split('&').map(c => c.trim());
-    }).filter(Boolean);
-    result.cells = cellRows;
-    result.rows = cellRows.length;
-    if (cellRows.length > 0) result.cols = Math.max(result.cols, ...cellRows.map(r => r.length));
-    if (cellRows.length > 0) {
-      const first = cellRows[0];
-      if (first.some(c => c.length > 0)) {
-        result.headerRow = true;
-        result.boldHeader = first.some(c => /\\textbf\s*\{/.test(c));
-      }
-    }
-  }
-
-  return result;
-}
-
-// Spellcheck decoration
-const setSpellcheckEffect = StateEffect.define();
-
-const spellcheckField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setSpellcheckEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-// Lint decoration
-const setLintEffect = StateEffect.define();
-
-const lintField = StateField.define({
-  create() { return Decoration.none; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setLintEffect)) return e.value;
-    }
-    return value.map(tr.changes);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-// Lint gutter markers — shown in a narrow gutter next to line numbers
-class LintErrorMarker extends GutterMarker {
-  constructor(msg) { super(); this.msg = msg; }
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-lint-gutter-error';
-    el.title = this.msg;
-    return el;
-  }
-}
-
-class LintWarningMarker extends GutterMarker {
-  constructor(msg) { super(); this.msg = msg; }
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-lint-gutter-warning';
-    el.title = this.msg;
-    return el;
-  }
-}
-
-class SpellGutterMarker extends GutterMarker {
-  constructor(count) { super(); this.count = count; }
-  toDOM() {
-    const el = document.createElement('span');
-    el.className = 'cm-spell-gutter-marker';
-    el.title = `${this.count} misspelled word${this.count !== 1 ? 's' : ''} on this line`;
-    return el;
-  }
-}
-
-const setLintGutterEffect = StateEffect.define();
-const setSpellGutterEffect = StateEffect.define();
-
-const lintGutterField = StateField.define({
-  create() { return RangeSet.empty; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setLintGutterEffect)) return e.value;
-    }
-    return value;
-  },
-});
-
-const spellGutterField = StateField.define({
-  create() { return RangeSet.empty; },
-  update(value, tr) {
-    for (const e of tr.effects) {
-      if (e.is(setSpellGutterEffect)) return e.value;
-    }
-    return value;
-  },
-});
-
-const lintGutterExtension = gutter({
-  class: 'cm-lint-gutter',
-  markers: (view) => view.state.field(lintGutterField),
-});
-
-const spellGutterExtension = gutter({
-  class: 'cm-spell-gutter',
-  markers: (view) => view.state.field(spellGutterField),
-});
-
-function applyLintDiagnostics(view, diagnostics) {
-  const decos = [];
-  const gutterMarkers = [];
-  const seenLines = new Set();
-
-  for (const d of diagnostics) {
-    try {
-      const lineInfo = view.state.doc.line(Math.min(d.line, view.state.doc.lines));
-      const from = d.len > 0 ? Math.min(lineInfo.from + Math.max(0, d.col - 1), lineInfo.to) : lineInfo.from;
-      const to = d.len > 0 ? Math.min(from + d.len, lineInfo.to) : lineInfo.to;
-      if (from < to) {
-        decos.push(
-          Decoration.mark({
-            class: d.severity === 'error' ? 'cm-lint-error' : 'cm-lint-warning',
-            attributes: { title: d.message },
-          }).range(from, to)
-        );
-      }
-      // One gutter marker per line (first diagnostic wins)
-      if (!seenLines.has(d.line)) {
-        seenLines.add(d.line);
-        const marker = d.severity === 'error'
-          ? new LintErrorMarker(d.message)
-          : new LintWarningMarker(d.message);
-        gutterMarkers.push(marker.range(lineInfo.from));
-      }
-    } catch (e) {}
-  }
-
-  decos.sort((a, b) => a.from - b.from);
-  gutterMarkers.sort((a, b) => a.from - b.from);
-
-  view.dispatch({
-    effects: [
-      setLintEffect.of(Decoration.set(decos)),
-      setLintGutterEffect.of(RangeSet.of(gutterMarkers)),
-    ],
-  });
-}
-
-function applySpellcheck(view, misspelled) {
-  const decos = misspelled.map(m =>
-    Decoration.mark({ class: 'cm-spell-error', attributes: { title: `Misspelled: ${m.word}` } })
-      .range(m.from, m.to)
-  );
-
-  // Build gutter markers — one per line with misspellings
-  const lineCounts = new Map();
-  for (const m of misspelled) {
-    const lineNum = view.state.doc.lineAt(m.from).number;
-    lineCounts.set(lineNum, (lineCounts.get(lineNum) || 0) + 1);
-  }
-  const gutterMarkers = [];
-  for (const [lineNum, count] of lineCounts) {
-    const lineInfo = view.state.doc.line(lineNum);
-    gutterMarkers.push(new SpellGutterMarker(count).range(lineInfo.from));
-  }
-  gutterMarkers.sort((a, b) => a.from - b.from);
-
-  view.dispatch({
-    effects: [
-      setSpellcheckEffect.of(Decoration.set(decos)),
-      setSpellGutterEffect.of(RangeSet.of(gutterMarkers)),
-    ],
-  });
-}
-
-// Citation key highlighter — decorates keys inside \cite{}, \citep{}, \citet{}, etc.
-const citeKeyMark = Decoration.mark({ class: 'cm-cite-key' });
-const citeKeyPattern = /\\cite[tp]?\*?\{([^}]+)\}/g;
-
-function buildCiteDecorations(view) {
-  const decos = [];
-  for (const { from, to } of view.visibleRanges) {
-    const text = view.state.sliceDoc(from, to);
-    let match;
-    citeKeyPattern.lastIndex = 0;
-    while ((match = citeKeyPattern.exec(text)) !== null) {
-      const keyStart = from + match.index + match[0].indexOf('{') + 1;
-      const keyEnd = keyStart + match[1].length;
-      decos.push(citeKeyMark.range(keyStart, keyEnd));
-    }
-  }
-  return Decoration.set(decos, true);
-}
-
-const citeKeyHighlighter = ViewPlugin.fromClass(class {
-  constructor(view) { this.decorations = buildCiteDecorations(view); }
-  update(update) {
-    if (update.docChanged || update.viewportChanged) {
-      this.decorations = buildCiteDecorations(update.view);
-    }
-  }
-}, { decorations: (v) => v.decorations });
-
-const Editor = forwardRef(function Editor({ file, comments, currentUserName, onSave, onSelectionChange, onLineChange, onChanges, onCursorChange, onCompile, onRequestComment, onScroll, onLintDiagnostics, projectId, showLineNumbers = true, wordWrap = true, trackChangesMode = false, trackedChanges = [], onTrackChange, onTrackedChangeClick, onDeleteInsertionChar, onToggleTrackChanges, citeKeys, autoSaveOn, autoSaveLabel, onToggleAutoSave, onGoToFile, projectFiles }, ref) {
+  ref,
+) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const saveTimeout = useRef(null);
@@ -621,8 +100,8 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
   const dictRef = useRef(null);
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
-  const tcPendingChanges = useRef(null);  // composed ChangeSet for debounce
-  const tcStartDoc = useRef(null);        // doc at start of debounce window
+  const tcPendingChanges = useRef(null); // composed ChangeSet for debounce
+  const tcStartDoc = useRef(null); // doc at start of debounce window
   const tcDebounceTimer = useRef(null);
   const tcDelBuffer = useRef({ from: null, to: null, text: '' });
   const tcDelTimer = useRef(null);
@@ -630,8 +109,16 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
   const [showSearch, setShowSearch] = useState(false);
   const [lintDiags, setLintDiags] = useState([]);
   const [spellMenu, setSpellMenu] = useState(null); // { x, y, word, from, to }
+  const spellMenuRef = useRef(null);
   const [spellLang, setSpellLang] = useState(() => getLanguage());
   const [inverted, setInverted] = useState(() => localStorage.getItem('flowtex-editor-inverted') === 'true');
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail.editorInverted !== undefined) setInverted(e.detail.editorInverted);
+    };
+    window.addEventListener('flowtex:settings-changed', handler);
+    return () => window.removeEventListener('flowtex:settings-changed', handler);
+  }, []);
   const [tableBuilder, setTableBuilder] = useState(null); // null | { initial?, replaceFrom?, replaceTo? }
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const tableBuilderRef = useRef(null);
@@ -708,19 +195,23 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
       });
       view.focus({ preventScroll: true });
       // Restore all ancestor scroll positions
-      for (const a of ancestors) { a.el.scrollTop = a.top; a.el.scrollLeft = a.left; }
+      for (const a of ancestors) {
+        a.el.scrollTop = a.top;
+        a.el.scrollLeft = a.left;
+      }
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       requestAnimationFrame(() => {
-        for (const a of ancestors) { a.el.scrollTop = a.top; a.el.scrollLeft = a.left; }
+        for (const a of ancestors) {
+          a.el.scrollTop = a.top;
+          a.el.scrollLeft = a.left;
+        }
         document.documentElement.scrollTop = 0;
         document.body.scrollTop = 0;
       });
       // Add error highlight decoration
       if (from < to) {
-        const deco = Decoration.set([
-          Decoration.mark({ class: 'cm-error-highlight' }).range(from, to),
-        ]);
+        const deco = Decoration.set([Decoration.mark({ class: 'cm-error-highlight' }).range(from, to)]);
         view.dispatch({ effects: setErrorHighlightEffect.of(deco) });
         clearTimeout(errorHighlightTimer.current);
         errorHighlightTimer.current = setTimeout(() => {
@@ -824,8 +315,8 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
       const docLen = view.state.doc.length;
       view.dispatch({
         effects: [
-          setTrackedChangesEffect.of(buildTcInsertDecorations(changes, docLen)),
-          setTcDeletesEffect.of(buildTcDeleteDecorations(changes, docLen)),
+          setTrackedChangesEffect.of(buildTcInsertDecorations(changes, docLen, currentUserNameRef.current)),
+          setTcDeletesEffect.of(buildTcDeleteDecorations(changes, docLen, currentUserNameRef.current)),
         ],
       });
     },
@@ -854,7 +345,7 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
           Decoration.widget({
             widget: new CursorWidget(c.userName, color),
             side: 1,
-          }).range(head)
+          }).range(head),
         );
 
         // Selection highlight if anchor != head
@@ -865,7 +356,7 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
             Decoration.mark({
               class: 'cm-remote-selection',
               attributes: { style: `background-color: ${color}33` },
-            }).range(from, to)
+            }).range(from, to),
           );
         }
       }
@@ -875,8 +366,13 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
     openSymbolPicker() {
       setShowSymbolPicker(true);
     },
-    getSpellLang() { return spellLang; },
-    setSpellLang(code) { setLanguage(code); setSpellLang(code); },
+    getSpellLang() {
+      return spellLang;
+    },
+    setSpellLang(code) {
+      setLanguage(code);
+      setSpellLang(code);
+    },
   }));
 
   // Mark a range as deleted (for track changes mode)
@@ -946,79 +442,88 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
         syntaxHighlighting(classHighlighter, { fallback: true }),
         latexAutocomplete(citeKeysRef),
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
-        fontSizeCompartment.current.of(EditorView.theme({ '.cm-content': { fontSize: fontSize + 'px' }, '.cm-gutters': { fontSize: fontSize + 'px' } })),
+        fontSizeCompartment.current.of(
+          EditorView.theme({
+            '.cm-content': { fontSize: fontSize + 'px' },
+            '.cm-gutters': { fontSize: fontSize + 'px' },
+          }),
+        ),
         EditorView.contentAttributes.of({ spellcheck: 'false' }),
         remoteCursorsField,
         trackedChangesField,
         tcDeletesField,
         // Track changes: intercept Backspace/Delete to mark text as deleted instead of removing it
-        Prec.high(keymap.of([
-          {
-            key: 'Backspace',
-            run(view) {
-              if (!trackChangesModeRef.current) return false;
-              const sel = view.state.selection.main;
-              if (!sel.empty) {
-                tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
-                return true;
-              }
-              if (sel.from === 0) return true;
-              let target = sel.from - 1;
-              // Skip backward over already-deleted char (one at a time)
-              if (isPosInDeletion(view.state, target)) {
-                view.dispatch({ selection: { anchor: target } });
-                return true;
-              }
-              // If char is a tracked insertion, just delete it normally (undo the insertion)
-              if (isPosInInsertion(view.state, target)) {
-                isRemoteUpdate.current = true;
-                try {
-                  view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
-                } finally {
-                  isRemoteUpdate.current = false;
+        Prec.high(
+          keymap.of([
+            {
+              key: 'Backspace',
+              run(view) {
+                if (!trackChangesModeRef.current) return false;
+                const sel = view.state.selection.main;
+                if (!sel.empty) {
+                  tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
+                  return true;
                 }
-                onDeleteInsertionCharRef.current?.(target);
-                return true;
-              }
-              tcMarkAsDeleted(view, target, target + 1, target);
-              return true;
-            },
-          },
-          {
-            key: 'Delete',
-            run(view) {
-              if (!trackChangesModeRef.current) return false;
-              const sel = view.state.selection.main;
-              if (!sel.empty) {
-                tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
-                return true;
-              }
-              if (sel.from >= view.state.doc.length) return true;
-              // Skip forward over already-deleted chars
-              let target = sel.from;
-              while (target < view.state.doc.length && isPosInDeletion(view.state, target)) target++;
-              if (target >= view.state.doc.length) return true;
-              // If char is a tracked insertion, just delete it normally
-              if (isPosInInsertion(view.state, target)) {
-                isRemoteUpdate.current = true;
-                try {
-                  view.dispatch({ changes: { from: target, to: target + 1 } });
-                } finally {
-                  isRemoteUpdate.current = false;
+                if (sel.from === 0) return true;
+                let target = sel.from - 1;
+                // Skip backward over already-deleted char (one at a time)
+                if (isPosInDeletion(view.state, target)) {
+                  view.dispatch({ selection: { anchor: target } });
+                  return true;
                 }
-                onDeleteInsertionCharRef.current?.(target);
+                // If char is a tracked insertion, just delete it normally (undo the insertion)
+                if (isPosInInsertion(view.state, target)) {
+                  isRemoteUpdate.current = true;
+                  try {
+                    view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
+                  } finally {
+                    isRemoteUpdate.current = false;
+                  }
+                  onDeleteInsertionCharRef.current?.(target);
+                  return true;
+                }
+                tcMarkAsDeleted(view, target, target + 1, target);
                 return true;
-              }
-              tcMarkAsDeleted(view, target, target + 1, sel.from);
-              return true;
+              },
             },
-          },
-        ])),
+            {
+              key: 'Delete',
+              run(view) {
+                if (!trackChangesModeRef.current) return false;
+                const sel = view.state.selection.main;
+                if (!sel.empty) {
+                  tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
+                  return true;
+                }
+                if (sel.from >= view.state.doc.length) return true;
+                // Skip forward over already-deleted chars
+                let target = sel.from;
+                while (target < view.state.doc.length && isPosInDeletion(view.state, target)) target++;
+                if (target >= view.state.doc.length) return true;
+                // If char is a tracked insertion, just delete it normally
+                if (isPosInInsertion(view.state, target)) {
+                  isRemoteUpdate.current = true;
+                  try {
+                    view.dispatch({ changes: { from: target, to: target + 1 } });
+                  } finally {
+                    isRemoteUpdate.current = false;
+                  }
+                  onDeleteInsertionCharRef.current?.(target);
+                  return true;
+                }
+                tcMarkAsDeleted(view, target, target + 1, sel.from);
+                return true;
+              },
+            },
+          ]),
+        ),
         // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
         EditorState.transactionFilter.of((tr) => {
           if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current) return tr;
           let hasDeletion = false;
-          tr.changes.iterChanges((fromA, toA) => { if (fromA < toA) hasDeletion = true; });
+          tr.changes.iterChanges((fromA, toA) => {
+            if (fromA < toA) hasDeletion = true;
+          });
           if (!hasDeletion) return tr; // pure insertion, let through
           // Build insert-only changes and record deletions
           const insertParts = [];
@@ -1038,7 +543,10 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
             for (const d of deletionParts) {
               let skip = true;
               for (let p = d.from; p < d.to; p++) {
-                if (!isPosInDeletion(tr.startState, p)) { skip = false; break; }
+                if (!isPosInDeletion(tr.startState, p)) {
+                  skip = false;
+                  break;
+                }
               }
               if (!skip && viewRef.current) {
                 const adjFrom = d.from + offset;
@@ -1101,7 +609,8 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
               const lineText = line.text;
               const offset = pos - line.from;
               // Find word boundaries
-              let start = offset, end = offset;
+              let start = offset,
+                end = offset;
               while (start > 0 && /[a-zA-Z']/.test(lineText[start - 1])) start--;
               while (end < lineText.length && /[a-zA-Z']/.test(lineText[end])) end++;
               // Strip leading/trailing apostrophes
@@ -1165,7 +674,7 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
                       Decoration.mark({
                         class: 'cm-tc-insert',
                         attributes: { 'data-tc-type': 'insert' },
-                      }).range(fromB, toB)
+                      }).range(fromB, toB),
                     );
                   }
                 });
@@ -1280,24 +789,26 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
             }
           }
         }),
-        Prec.highest(keymap.of([
-          {
-            key: 'Mod-s',
-            run: (view) => {
-              clearTimeout(saveTimeout.current);
-              onSaveRef.current(view.state.doc.toString());
-              onCompileRef.current?.();
-              return true;
+        Prec.highest(
+          keymap.of([
+            {
+              key: 'Mod-s',
+              run: (view) => {
+                clearTimeout(saveTimeout.current);
+                onSaveRef.current(view.state.doc.toString());
+                onCompileRef.current?.();
+                return true;
+              },
             },
-          },
-          {
-            key: 'Mod-f',
-            run: () => {
-              setShowSearch(true);
-              return true;
+            {
+              key: 'Mod-f',
+              run: () => {
+                setShowSearch(true);
+                return true;
+              },
             },
-          },
-        ])),
+          ]),
+        ),
         commentCompartment.current.of(commentHighlighter(comments || [])),
         EditorView.theme({
           '&': { height: '100%', fontSize: '14px', backgroundColor: '#ffffff' },
@@ -1464,24 +975,18 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
     run();
   }, [spellLang]);
 
-  // Close spell menu on click outside
-  useEffect(() => {
-    if (!spellMenu) return;
-    const handler = (e) => {
-      if (!e.target.closest('.spell-context-menu')) setSpellMenu(null);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [spellMenu]);
+  useClickOutside(
+    spellMenuRef,
+    useCallback(() => setSpellMenu(null), []),
+    !!spellMenu,
+  );
 
   // Update comment decorations without recreating editor
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: commentCompartment.current.reconfigure(
-        commentHighlighter(comments || [])
-      ),
+      effects: commentCompartment.current.reconfigure(commentHighlighter(comments || [])),
     });
   }, [comments]);
 
@@ -1494,13 +999,17 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const currentIds = new Set(
-      trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id)
-    );
+    const currentIds = new Set(trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id));
     const prevIds = prevTcIdsRef.current;
 
-    const idsChanged = currentIds.size !== prevIds.size || [...currentIds].some((id) => !prevIds.has(id)) || [...prevIds].some((id) => !currentIds.has(id));
-    if (!idsChanged) { prevTcIdsRef.current = currentIds; return; }
+    const idsChanged =
+      currentIds.size !== prevIds.size ||
+      [...currentIds].some((id) => !prevIds.has(id)) ||
+      [...prevIds].some((id) => !currentIds.has(id));
+    if (!idsChanged) {
+      prevTcIdsRef.current = currentIds;
+      return;
+    }
 
     const wasRemoved = [...prevIds].some((id) => !currentIds.has(id));
     const isInitialLoad = prevIds.size === 0 && currentIds.size > 0;
@@ -1508,11 +1017,13 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
     prevTcIdsRef.current = currentIds;
 
     const docLen = view.state.doc.length;
-    const effects = [setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen))];
+    const effects = [
+      setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current)),
+    ];
 
     // Only rebuild deletion decorations on file load or resolution
     if (wasRemoved || isInitialLoad) {
-      effects.push(setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen)));
+      effects.push(setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current)));
     }
 
     view.dispatch({ effects });
@@ -1532,7 +1043,10 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
     if (!view) return;
     view.dispatch({
       effects: fontSizeCompartment.current.reconfigure(
-        EditorView.theme({ '.cm-content': { fontSize: fontSize + 'px' }, '.cm-gutters': { fontSize: fontSize + 'px' } })
+        EditorView.theme({
+          '.cm-content': { fontSize: fontSize + 'px' },
+          '.cm-gutters': { fontSize: fontSize + 'px' },
+        }),
       ),
     });
     localStorage.setItem('flowtex-font-size', String(fontSize));
@@ -1564,23 +1078,43 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
           <button
             className={`editor-header-tc-btn ${autoSaveOn ? 'editor-header-autosave-active' : ''}`}
             onClick={onToggleAutoSave}
-            title={autoSaveOn ? (autoSaveLabel || 'Auto-save ON — click to disable') : 'Auto-save OFF — click to enable'}
+            title={autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Auto-save OFF — click to enable'}
           >
             <span className={`editor-autosave-dot ${autoSaveOn ? 'on' : 'off'}`} />
-            {autoSaveOn ? (autoSaveLabel || 'Auto-save ON') : 'Auto-save OFF'}
+            {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save OFF'}
           </button>
         )}
         <span className="editor-zoom-controls">
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.max(8, s - 1))} title="Zoom out">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
               <line x1="8" y1="11" x2="14" y2="11" />
             </svg>
           </button>
-          <span className="editor-zoom-label" title="Font size">{fontSize}px</span>
+          <span className="editor-zoom-label" title="Font size">
+            {fontSize}px
+          </span>
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.min(32, s + 1))} title="Zoom in">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
               <line x1="11" y1="8" x2="11" y2="14" />
@@ -1589,23 +1123,51 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
           </button>
         </span>
         <button className="editor-header-btn" onClick={() => setShowSearch(true)} title="Find & Replace (Cmd+F)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
         </button>
-        <button className={`editor-header-btn ${tableBuilder ? 'editor-header-btn-active' : ''}`} onClick={() => {
-          if (tableBuilder) { setTableBuilder(null); return; }
-          const view = viewRef.current;
-          if (!view) { setTableBuilder({}); return; }
-          const parsed = findTableAtCursor(view);
-          if (parsed) {
-            setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
-          } else {
-            setTableBuilder({});
-          }
-        }} title="Insert table">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <button
+          className={`editor-header-btn ${tableBuilder ? 'editor-header-btn-active' : ''}`}
+          onClick={() => {
+            if (tableBuilder) {
+              setTableBuilder(null);
+              return;
+            }
+            const view = viewRef.current;
+            if (!view) {
+              setTableBuilder({});
+              return;
+            }
+            const parsed = findTableAtCursor(view);
+            if (parsed) {
+              setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
+            } else {
+              setTableBuilder({});
+            }
+          }}
+          title="Insert table"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <line x1="3" y1="9" x2="21" y2="9" />
             <line x1="3" y1="15" x2="21" y2="15" />
@@ -1623,8 +1185,22 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
             Track changes {trackChangesMode ? 'ON' : 'OFF'}
           </button>
         )}
-        <button className={`editor-header-btn ${inverted ? 'editor-header-btn-active' : ''}`} style={{ marginLeft: 'auto' }} onClick={() => setInverted((v) => { const n = !v; localStorage.setItem('flowtex-editor-inverted', String(n)); return n; })} title="Invert colors">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" /></svg>
+        <button
+          className={`editor-header-btn ${inverted ? 'editor-header-btn-active' : ''}`}
+          style={{ marginLeft: 'auto' }}
+          onClick={() =>
+            setInverted((v) => {
+              const n = !v;
+              localStorage.setItem('flowtex-editor-inverted', String(n));
+              return n;
+            })
+          }
+          title="Invert colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" />
+          </svg>
         </button>
       </div>
       {showSymbolPicker && (
@@ -1657,7 +1233,13 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
       )}
       <div className={`editor-container ${inverted ? 'editor-inverted' : ''}`} ref={containerRef} />
       {showSearch && viewRef.current && (
-        <SearchPanel view={viewRef.current} onClose={() => setShowSearch(false)} projectFiles={projectFilesRef.current} onGoToFile={onGoToFileRef.current} setSearchHighlightEffect={setSearchHighlightEffect} />
+        <SearchPanel
+          view={viewRef.current}
+          onClose={() => setShowSearch(false)}
+          projectFiles={projectFilesRef.current}
+          onGoToFile={onGoToFileRef.current}
+          setSearchHighlightEffect={setSearchHighlightEffect}
+        />
       )}
       {commentBtn && (
         <button
@@ -1670,29 +1252,41 @@ const Editor = forwardRef(function Editor({ file, comments, currentUserName, onS
         </button>
       )}
       {spellMenu && (
-        <div className="spell-context-menu" style={{ position: 'fixed', left: spellMenu.x, top: spellMenu.y, zIndex: 1000 }}>
+        <div
+          ref={spellMenuRef}
+          className="spell-context-menu"
+          style={{ position: 'fixed', left: spellMenu.x, top: spellMenu.y, zIndex: 1000 }}
+        >
           <div className="spell-context-word">
             {spellMenu.misspelled && <span className="spell-context-badge">Misspelled</span>}
             {spellMenu.word}
           </div>
-          <button onClick={async () => {
-            addToCustomDictionary(spellMenu.word);
-            setSpellMenu(null);
-            const v = viewRef.current;
-            if (v && dictRef.current) {
-              const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
-              applySpellcheck(v, misspelled);
-            }
-          }}>Add to dictionary</button>
-          <button onClick={async () => {
-            ignoreWord(spellMenu.word);
-            setSpellMenu(null);
-            const v = viewRef.current;
-            if (v && dictRef.current) {
-              const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
-              applySpellcheck(v, misspelled);
-            }
-          }}>Ignore</button>
+          <button
+            onClick={async () => {
+              addToCustomDictionary(spellMenu.word);
+              setSpellMenu(null);
+              const v = viewRef.current;
+              if (v && dictRef.current) {
+                const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
+                applySpellcheck(v, misspelled);
+              }
+            }}
+          >
+            Add to dictionary
+          </button>
+          <button
+            onClick={async () => {
+              ignoreWord(spellMenu.word);
+              setSpellMenu(null);
+              const v = viewRef.current;
+              if (v && dictRef.current) {
+                const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
+                applySpellcheck(v, misspelled);
+              }
+            }}
+          >
+            Ignore
+          </button>
         </div>
       )}
     </div>

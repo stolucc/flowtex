@@ -2,18 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { get, post } from '../api.js';
 import { getColor } from './Avatar.jsx';
 import lineDiff from '../utils/lineDiff.js';
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now - d;
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
+import { formatRelativeTime as formatDate } from '../utils/dateFormat.js';
 
 function formatTime(dateStr) {
   const d = new Date(dateStr);
@@ -32,8 +21,8 @@ function groupByDate(versions) {
 }
 
 function DiffStats({ diff }) {
-  const added = diff.filter(l => l.type === 'add').length;
-  const removed = diff.filter(l => l.type === 'remove').length;
+  const added = diff.filter((l) => l.type === 'add').length;
+  const removed = diff.filter((l) => l.type === 'remove').length;
   return (
     <span className="history-diff-stats">
       {added > 0 && <span className="diff-stat-add">+{added}</span>}
@@ -47,12 +36,23 @@ const CONTEXT_LINES = 3;
 
 /** Build GitHub-style hunks from a flat diff */
 function buildHunks(diff) {
-  let oldLine = 0, newLine = 0;
+  let oldLine = 0,
+    newLine = 0;
   const numbered = diff.map((line, i) => {
-    let oldNum = null, newNum = null;
-    if (line.type === 'same') { oldLine++; newLine++; oldNum = oldLine; newNum = newLine; }
-    else if (line.type === 'remove') { oldLine++; oldNum = oldLine; }
-    else if (line.type === 'add') { newLine++; newNum = newLine; }
+    let oldNum = null,
+      newNum = null;
+    if (line.type === 'same') {
+      oldLine++;
+      newLine++;
+      oldNum = oldLine;
+      newNum = newLine;
+    } else if (line.type === 'remove') {
+      oldLine++;
+      oldNum = oldLine;
+    } else if (line.type === 'add') {
+      newLine++;
+      newNum = newLine;
+    }
     return { ...line, oldNum, newNum, idx: i };
   });
 
@@ -62,7 +62,13 @@ function buildHunks(diff) {
   }
 
   if (changeIndices.length === 0) {
-    return [{ header: null, lines: numbered.slice(0, Math.min(10, numbered.length)), collapsed: numbered.length > 10 ? numbered.length - 10 : 0 }];
+    return [
+      {
+        header: null,
+        lines: numbered.slice(0, Math.min(10, numbered.length)),
+        collapsed: numbered.length > 10 ? numbered.length - 10 : 0,
+      },
+    ];
   }
 
   const ranges = [];
@@ -85,10 +91,10 @@ function buildHunks(diff) {
     const ctxEnd = Math.min(numbered.length - 1, rangeEnd + CONTEXT_LINES);
     const lines = numbered.slice(ctxStart, ctxEnd + 1);
 
-    const firstOld = lines.find(l => l.oldNum !== null)?.oldNum || 1;
-    const firstNew = lines.find(l => l.newNum !== null)?.newNum || 1;
-    const oldCount = lines.filter(l => l.type === 'same' || l.type === 'remove').length;
-    const newCount = lines.filter(l => l.type === 'same' || l.type === 'add').length;
+    const firstOld = lines.find((l) => l.oldNum !== null)?.oldNum || 1;
+    const firstNew = lines.find((l) => l.newNum !== null)?.newNum || 1;
+    const oldCount = lines.filter((l) => l.type === 'same' || l.type === 'remove').length;
+    const newCount = lines.filter((l) => l.type === 'same' || l.type === 'add').length;
     const header = `@@ -${firstOld},${oldCount} +${firstNew},${newCount} @@`;
 
     const collapsedBefore = ctxStart > 0 ? ctxStart - (hunks.length > 0 ? hunks[hunks.length - 1]._ctxEnd + 1 : 0) : 0;
@@ -111,7 +117,12 @@ function charDiff(oldStr, newStr) {
   while (pre < oldStr.length && pre < newStr.length && oldStr[pre] === newStr[pre]) pre++;
   // Find common suffix
   let suf = 0;
-  while (suf < oldStr.length - pre && suf < newStr.length - pre && oldStr[oldStr.length - 1 - suf] === newStr[newStr.length - 1 - suf]) suf++;
+  while (
+    suf < oldStr.length - pre &&
+    suf < newStr.length - pre &&
+    oldStr[oldStr.length - 1 - suf] === newStr[newStr.length - 1 - suf]
+  )
+    suf++;
 
   const oldMid = oldStr.slice(pre, oldStr.length - suf);
   const newMid = newStr.slice(pre, newStr.length - suf);
@@ -199,18 +210,14 @@ function DiffView({ diff }) {
                 {hunk.collapsedBefore} unchanged lines
               </div>
             )}
-            {hunk.header && (
-              <div className="gh-diff-hunk-header">{hunk.header}</div>
-            )}
+            {hunk.header && <div className="gh-diff-hunk-header">{hunk.header}</div>}
             <table className="gh-diff-table">
               <tbody>
                 {annotatedLines.map((row, ri) => (
                   <tr key={ri} className={`gh-diff-row gh-diff-row-${row.type}`}>
                     <td className="gh-diff-num gh-diff-num-old">{row.oldNum ?? ''}</td>
                     <td className="gh-diff-num gh-diff-num-new">{row.newNum ?? ''}</td>
-                    <td className="gh-diff-marker">
-                      {row.type === 'add' ? '+' : row.type === 'remove' ? '−' : ''}
-                    </td>
+                    <td className="gh-diff-marker">{row.type === 'add' ? '+' : row.type === 'remove' ? '−' : ''}</td>
                     <td className="gh-diff-code">{row.segments || row.text || '\u00A0'}</td>
                   </tr>
                 ))}
@@ -223,7 +230,18 @@ function DiffView({ diff }) {
   );
 }
 
-export default function HistoryPanel({ projectId, currentUserName, refreshKey, snapshotInterval, onSnapshotIntervalChange, onClose, onRestore, onSelectVersion, historyFileId, historyFilePath }) {
+export default function HistoryPanel({
+  projectId,
+  currentUserName,
+  refreshKey,
+  snapshotInterval,
+  onSnapshotIntervalChange,
+  onClose,
+  onRestore,
+  onSelectVersion,
+  historyFileId,
+  historyFilePath,
+}) {
   const [snapshots, setSnapshots] = useState([]);
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
@@ -240,8 +258,11 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
     setLoading(true);
     pendingAutoSelect.current = true;
     get(`/api/history/${projectId}`)
-      .then(r => r.json())
-      .then(data => { setSnapshots(data); setLoading(false); })
+      .then((r) => r.json())
+      .then((data) => {
+        setSnapshots(data);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [projectId, refreshKey]);
 
@@ -272,12 +293,15 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
     })();
   }, [historyFileId, selected]);
 
-  const selectSnapshot = useCallback(async (snap) => {
-    setSelected(snap);
-    setDiff(null);
-    setViewingFile(null);
-    onSelectVersion?.(snap);
-  }, [onSelectVersion]);
+  const selectSnapshot = useCallback(
+    async (snap) => {
+      setSelected(snap);
+      setDiff(null);
+      setViewingFile(null);
+      onSelectVersion?.(snap);
+    },
+    [onSelectVersion],
+  );
 
   // Once a snapshot is selected and its metadata loaded (via onSelectVersion -> App),
   // auto-load the first edited file's diff
@@ -325,14 +349,11 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
               <span className="history-diff-filename">{viewingFile?.path || 'Select a file to view diff'}</span>
               {diff && <DiffStats diff={diff} />}
               <span className="history-diff-meta">
-                {selected.author_name === currentUserName ? 'You' : selected.author_name} — {formatDate(selected.created_at)}
+                {selected.author_name === currentUserName ? 'You' : selected.author_name} —{' '}
+                {formatDate(selected.created_at)}
                 {selected.label && <> — {selected.label}</>}
               </span>
-              <button
-                className="history-restore-btn"
-                onClick={() => setConfirmRestore(true)}
-                disabled={restoring}
-              >
+              <button className="history-restore-btn" onClick={() => setConfirmRestore(true)} disabled={restoring}>
                 {restoring ? 'Restoring...' : 'Restore to this snapshot'}
               </button>
             </>
@@ -344,7 +365,9 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
           {diff ? (
             <DiffView diff={diff} />
           ) : selected ? (
-            <div className="history-diff-loading">{viewingFile ? 'Loading diff...' : 'Select a file from the files panel to view its diff'}</div>
+            <div className="history-diff-loading">
+              {viewingFile ? 'Loading diff...' : 'Select a file from the files panel to view its diff'}
+            </div>
           ) : null}
         </div>
       </div>
@@ -366,10 +389,20 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
               <option value={600}>10 min</option>
             </select>
             <button className="history-close-btn" onClick={onClose} title="Close history">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
         </div>
         <div className="history-list-body">
@@ -406,21 +439,36 @@ export default function HistoryPanel({ projectId, currentUserName, refreshKey, s
         <div className="modal-overlay" onClick={() => setConfirmRestore(false)}>
           <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>
             <div className="history-restore-modal-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
               </svg>
             </div>
             <h2>Restore to this snapshot?</h2>
             <p className="history-restore-modal-desc">
-              This will revert <strong>all files</strong> to their state at <strong>{formatDate(selected.created_at)}</strong>.
-              Files created after this snapshot will be removed, and any deleted files will be brought back.
+              This will revert <strong>all files</strong> to their state at{' '}
+              <strong>{formatDate(selected.created_at)}</strong>. Files created after this snapshot will be removed, and
+              any deleted files will be brought back.
             </p>
             <p className="history-restore-modal-note">
               A snapshot of the current state will be saved first, so you can undo this.
             </p>
             <div className="history-restore-modal-actions">
-              <button className="history-restore-modal-cancel" onClick={() => setConfirmRestore(false)}>Cancel</button>
-              <button className="history-restore-modal-confirm" onClick={handleRestore}>Restore</button>
+              <button className="history-restore-modal-cancel" onClick={() => setConfirmRestore(false)}>
+                Cancel
+              </button>
+              <button className="history-restore-modal-confirm" onClick={handleRestore}>
+                Restore
+              </button>
             </div>
           </div>
         </div>

@@ -32,35 +32,60 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
       <div className="chat-header">
         <span>Chat</span>
         <button className="chat-close-btn" onClick={onClose} title="Close chat">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>
       <div className="chat-messages" ref={listRef}>
-        {messages.length === 0 && (
-          <div className="chat-empty">No messages yet. Say hello!</div>
-        )}
+        {messages.length === 0 && <div className="chat-empty">No messages yet. Say hello!</div>}
         {messages.map((m, i) => {
           const isOwn = m.userId === currentUser?.id;
           const showAuthor = i === 0 || messages[i - 1].userId !== m.userId;
-          const dateStr = new Date(m.created_at).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-          const prevDateStr = i > 0 ? new Date(messages[i - 1].created_at).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : null;
+          const dateStr = new Date(m.created_at).toLocaleDateString([], {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+          const prevDateStr =
+            i > 0
+              ? new Date(messages[i - 1].created_at).toLocaleDateString([], {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })
+              : null;
           const showDate = i === 0 || dateStr !== prevDateStr;
           return (
             <React.Fragment key={m.id || i}>
-            {showDate && <div className="chat-date-separator"><span>{dateStr}</span></div>}
-            <div className={`chat-message ${isOwn ? 'own' : ''}`}>
-              <div className="chat-bubble">
-                {showAuthor && (
-                  <div className="chat-bubble-author" style={isOwn ? undefined : { color: getColor(m.userName) }}>
-                    {isOwn ? 'You' : m.userName}
-                  </div>
-                )}
-                <span className="chat-bubble-text">{m.text}</span>
-                <span className="chat-bubble-time">{formatTime(m.created_at)}</span>
+              {showDate && (
+                <div className="chat-date-separator">
+                  <span>{dateStr}</span>
+                </div>
+              )}
+              <div className={`chat-message ${isOwn ? 'own' : ''}`}>
+                <div className="chat-bubble">
+                  {showAuthor && (
+                    <div className="chat-bubble-author" style={isOwn ? undefined : { color: getColor(m.userName) }}>
+                      {isOwn ? 'You' : m.userName}
+                    </div>
+                  )}
+                  <span className="chat-bubble-text">{m.text}</span>
+                  <span className="chat-bubble-time">{formatTime(m.created_at)}</span>
+                </div>
               </div>
-            </div>
             </React.Fragment>
           );
         })}
@@ -76,8 +101,18 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
           autoFocus
         />
         <button type="submit" className="chat-send-btn" disabled={!text.trim()}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </button>
       </form>

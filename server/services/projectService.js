@@ -3,19 +3,18 @@ import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
+import { BINARY_EXTS } from '../utils/fileTypes.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
-
-const BINARY_EXTS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.eps', '.ps', '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar', '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.class', '.jar', '.woff', '.woff2', '.ttf', '.otf', '.eot', '.mp3', '.mp4', '.avi', '.mov', '.wav', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']);
 
 export function isValidFilePath(filePath) {
   if (!filePath || typeof filePath !== 'string') return false;
   if (filePath.includes('\0')) return false;
   if (filePath.startsWith('/') || filePath.startsWith('\\')) return false;
   const parts = filePath.split(/[/\\]/);
-  if (parts.some(p => p === '..' || p === '')) return false;
+  if (parts.some((p) => p === '..' || p === '')) return false;
   if (filePath.length > 500) return false;
   return true;
 }
@@ -34,10 +33,10 @@ export async function checkEditor(projectId, userId) {
 }
 
 export async function checkOwnership(projectId, userId) {
-  const member = await db.get(
-    'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-    [projectId, userId]
-  );
+  const member = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
+    projectId,
+    userId,
+  ]);
   if (!member) return { error: 'No access to this project', status: 403 };
   if (member.role !== 'owner') return { error: 'Only the project owner can perform this action', status: 403 };
   return { member };
@@ -72,17 +71,17 @@ export async function listUserProjects(userId) {
      LEFT JOIN users owner_u ON owner_u.id = owner_pm.user_id
      LEFT JOIN project_github_links pgl ON pgl.project_id = p.id
      ORDER BY p.updated_at DESC`,
-    [userId]
+    [userId],
   );
 
   if (projects.length > 0) {
-    const projectIds = projects.map(p => p.id);
+    const projectIds = projects.map((p) => p.id);
     const placeholders = projectIds.map((_, i) => `$${i + 1}`).join(',');
     const allTags = await db.all(
       `SELECT pt.project_id, t.id, t.name, t.color FROM tags t
        JOIN project_tags pt ON pt.tag_id = t.id
        WHERE pt.project_id IN (${placeholders})`,
-      projectIds
+      projectIds,
     );
     const tagsByProject = {};
     for (const t of allTags) {
@@ -120,7 +119,12 @@ Hello from FlowTex!
 
   await db.transaction(async (tx) => {
     await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, safeName]);
-    await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [fileId, id, 'main.tex', defaultContent]);
+    await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
+      fileId,
+      id,
+      'main.tex',
+      defaultContent,
+    ]);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [id, userId, 'owner']);
   });
 
@@ -131,13 +135,15 @@ export async function createProjectFromZip(userId, buffer, originalName) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
-  const fileEntries = entries.filter(e => !e.isDirectory);
+  const fileEntries = entries.filter((e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
   const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
-    throw new Error(`ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`);
+    throw new Error(
+      `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
+    );
   }
 
   const projectName = (originalName || 'Uploaded Project').replace(/\.zip$/i, '');
@@ -146,13 +152,17 @@ export async function createProjectFromZip(userId, buffer, originalName) {
 
   await db.transaction(async (tx) => {
     await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [projectId, projectName]);
-    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [projectId, userId, 'owner']);
+    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
+      projectId,
+      userId,
+      'owner',
+    ]);
 
     let actualTotal = 0;
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       let entryPath = entry.entryName;
-      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some(p => p.startsWith('.'))) continue;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
       if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
@@ -164,7 +174,13 @@ export async function createProjectFromZip(userId, buffer, originalName) {
       const content = isBinary ? rawData.toString('base64') : rawData.toString('utf8');
       const id = uuid();
 
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [id, projectId, entryPath, content, isBinary]);
+      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+        id,
+        projectId,
+        entryPath,
+        content,
+        isBinary,
+      ]);
       created.push({ id, path: entryPath });
     }
   });
@@ -178,13 +194,15 @@ export async function uploadZipToProject(projectId, buffer) {
   const entries = zip.getEntries();
   const created = [];
 
-  const fileEntries = entries.filter(e => !e.isDirectory);
+  const fileEntries = entries.filter((e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
   const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
-    throw new Error(`ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`);
+    throw new Error(
+      `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
+    );
   }
 
   await db.transaction(async (tx) => {
@@ -192,7 +210,7 @@ export async function uploadZipToProject(projectId, buffer) {
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       let entryPath = entry.entryName;
-      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some(p => p.startsWith('.'))) continue;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
       if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
@@ -205,11 +223,21 @@ export async function uploadZipToProject(projectId, buffer) {
 
       const existing = await tx.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, entryPath]);
       if (existing) {
-        await tx.run('UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3', [content, isBinary, existing.id]);
+        await tx.run('UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3', [
+          content,
+          isBinary,
+          existing.id,
+        ]);
         created.push({ id: existing.id, path: entryPath, updated: true });
       } else {
         const id = uuid();
-        await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [id, projectId, entryPath, content, isBinary]);
+        await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+          id,
+          projectId,
+          entryPath,
+          content,
+          isBinary,
+        ]);
         created.push({ id, path: entryPath, updated: false });
       }
     }
@@ -226,7 +254,7 @@ async function stripCommonPrefix(created) {
   const firstSlash = created[0].path.indexOf('/');
   if (firstSlash <= 0) return;
   const prefix = created[0].path.substring(0, firstSlash + 1);
-  if (!created.every(f => f.path.startsWith(prefix))) return;
+  if (!created.every((f) => f.path.startsWith(prefix))) return;
   await db.transaction(async (tx) => {
     for (const f of created) {
       const newPath = f.path.substring(prefix.length);
@@ -238,7 +266,7 @@ async function stripCommonPrefix(created) {
   });
 }
 
-export async function updateProject(projectId, { name, main_file, snapshot_interval_sec }) {
+export async function updateProject(projectId, { name, main_file, snapshot_interval_sec, tex_distribution }) {
   if (main_file) {
     if (!isValidFilePath(main_file)) throw new Error('Invalid main file path');
     await db.run('UPDATE projects SET main_file = $1 WHERE id = $2', [main_file, projectId]);
@@ -249,6 +277,9 @@ export async function updateProject(projectId, { name, main_file, snapshot_inter
   if (snapshot_interval_sec != null) {
     const val = Math.max(10, Math.min(3600, parseInt(snapshot_interval_sec) || 30));
     await db.run('UPDATE projects SET snapshot_interval_sec = $1 WHERE id = $2', [val, projectId]);
+  }
+  if (tex_distribution !== undefined) {
+    await db.run('UPDATE projects SET tex_distribution = $1 WHERE id = $2', [tex_distribution || null, projectId]);
   }
   return db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
 }
@@ -265,9 +296,19 @@ export async function copyProject(projectId, userId, newName) {
   const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
   await db.transaction(async (tx) => {
     await tx.run('INSERT INTO projects (id, name, main_file) VALUES ($1, $2, $3)', [newId, name, source.main_file]);
-    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [newId, userId, 'owner']);
+    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
+      newId,
+      userId,
+      'owner',
+    ]);
     for (const file of files) {
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [uuid(), newId, file.path, file.content, file.is_binary]);
+      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+        uuid(),
+        newId,
+        file.path,
+        file.content,
+        file.is_binary,
+      ]);
     }
   });
   return db.get('SELECT * FROM projects WHERE id = $1', [newId]);
@@ -285,7 +326,12 @@ export async function createFile(projectId, filePath, content) {
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
   if (existing) throw Object.assign(new Error('A file with that name already exists'), { status: 409 });
   const id = uuid();
-  await db.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [id, projectId, filePath, content || '']);
+  await db.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
+    id,
+    projectId,
+    filePath,
+    content || '',
+  ]);
   await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
@@ -306,13 +352,22 @@ export async function updateFileContent(fileId, content, userId) {
 
     const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [file.project_id]);
     const intervalSec = proj?.snapshot_interval_sec || 30;
-    const latestSnap = await tx.get('SELECT id, created_at FROM project_snapshots WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1', [file.project_id]);
+    const latestSnap = await tx.get(
+      'SELECT id, created_at FROM project_snapshots WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [file.project_id],
+    );
     const elapsed = latestSnap ? (Date.now() - new Date(latestSnap.created_at).getTime()) / 1000 : Infinity;
     if (elapsed >= intervalSec) {
-      const allFiles = await tx.all('SELECT id, path, content, is_binary FROM files WHERE project_id = $1 ORDER BY path', [file.project_id]);
+      const allFiles = await tx.all(
+        'SELECT id, path, content, is_binary FROM files WHERE project_id = $1 ORDER BY path',
+        [file.project_id],
+      );
       const payload = JSON.stringify({ files: allFiles });
       const compressed = gzipSync(Buffer.from(payload, 'utf8'));
-      await tx.run('INSERT INTO project_snapshots (id, project_id, data, author_id, author_name) VALUES ($1, $2, $3, $4, $5)', [uuid(), file.project_id, compressed, authorId, authorName]);
+      await tx.run(
+        'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name) VALUES ($1, $2, $3, $4, $5)',
+        [uuid(), file.project_id, compressed, authorId, authorName],
+      );
       newSnapshot = true;
     }
   });
@@ -335,7 +390,7 @@ export async function deleteFile(fileId) {
 export async function getRawFile(fileId, userId) {
   const file = await db.get(
     'SELECT f.*, pm.user_id FROM files f JOIN project_members pm ON f.project_id = pm.project_id WHERE f.id = $1 AND pm.user_id = $2',
-    [fileId, userId]
+    [fileId, userId],
   );
   return file;
 }
@@ -347,7 +402,7 @@ export async function getProjectMembers(projectId) {
     `SELECT u.id, u.email, u.name, pm.role FROM project_members pm
      JOIN users u ON u.id = pm.user_id
      WHERE pm.project_id = $1`,
-    [projectId]
+    [projectId],
   );
 }
 
@@ -356,19 +411,25 @@ export async function inviteMember(projectId, email, role, inviterId) {
   const user = await db.get('SELECT id, email, name FROM users WHERE email = $1', [normalizedEmail]);
   if (!user) throw Object.assign(new Error('User not found. They must register first.'), { status: 404 });
 
-  const existing = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, user.id]);
+  const existing = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [
+    projectId,
+    user.id,
+  ]);
   if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
 
   const VALID_ROLES = ['editor', 'viewer'];
   const assignedRole = VALID_ROLES.includes(role) ? role : 'editor';
 
-  const existingInvite = await db.get("SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending'", [projectId, email]);
+  const existingInvite = await db.get(
+    "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending'",
+    [projectId, email],
+  );
   if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
 
   const id = uuid();
   await db.run(
     "INSERT INTO project_invitations (id, project_id, email, role, inviter_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (project_id, email) DO UPDATE SET role = $4, inviter_id = $5, status = 'pending'",
-    [id, projectId, email, assignedRole, inviterId]
+    [id, projectId, email, assignedRole, inviterId],
   );
   return { id, email, role: assignedRole, status: 'pending' };
 }
@@ -390,21 +451,31 @@ export async function getMyInvitations(userId) {
      JOIN users u ON u.id = pi.inviter_id
      WHERE pi.email = $1 AND pi.status = 'pending'
      ORDER BY pi.created_at DESC`,
-    [user.email]
+    [user.email],
   );
 }
 
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [inviteId, user.email]);
+  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [
+    inviteId,
+    user.email,
+  ]);
   if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
 
   await db.transaction(async (tx) => {
     await tx.run("UPDATE project_invitations SET status = 'accepted' WHERE id = $1", [invite.id]);
-    const existing = await tx.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [invite.project_id, user.id]);
+    const existing = await tx.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [
+      invite.project_id,
+      user.id,
+    ]);
     if (!existing) {
-      await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [invite.project_id, user.id, invite.role]);
+      await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
+        invite.project_id,
+        user.id,
+        invite.role,
+      ]);
     }
   });
   return { ok: true, projectId: invite.project_id };
@@ -413,7 +484,10 @@ export async function acceptInvitation(inviteId, userId) {
 export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [inviteId, user.email]);
+  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [
+    inviteId,
+    user.email,
+  ]);
   if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
   await db.run("UPDATE project_invitations SET status = 'declined' WHERE id = $1", [invite.id]);
 }
@@ -423,7 +497,7 @@ export async function getProjectInvitations(projectId) {
     `SELECT pi.id, pi.email, pi.role, pi.status, pi.created_at, u.name AS inviter_name
      FROM project_invitations pi JOIN users u ON u.id = pi.inviter_id
      WHERE pi.project_id = $1 AND pi.status = 'pending' ORDER BY pi.created_at DESC`,
-    [projectId]
+    [projectId],
   );
 }
 

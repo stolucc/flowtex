@@ -5,7 +5,9 @@ const ALGORITHM = 'aes-256-gcm';
 function deriveKey() {
   const envKey = process.env.ENCRYPTION_KEY;
   if (process.env.NODE_ENV === 'production' && !envKey) {
-    throw new Error('ENCRYPTION_KEY must be set in production. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    throw new Error(
+      "ENCRYPTION_KEY must be set in production. Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    );
   }
   const keyMaterial = envKey || 'underleaf-dev-encryption-key-change-in-production';
   // Note: salt is static for backward-compatibility with existing encrypted tokens.

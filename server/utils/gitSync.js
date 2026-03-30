@@ -9,14 +9,7 @@ import { invalidateFileCache } from '../compiler.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GIT_REPOS_DIR = path.join(__dirname, '..', '..', 'git-repos');
 
-const BINARY_EXTS = new Set([
-  '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.eps', '.ps',
-  '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
-  '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.class', '.jar',
-  '.woff', '.woff2', '.ttf', '.otf', '.eot',
-  '.mp3', '.mp4', '.avi', '.mov', '.wav',
-  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-]);
+import { BINARY_EXTS } from './fileTypes.js';
 
 const syncLocks = new Map();
 
@@ -25,7 +18,9 @@ async function withLock(projectId, fn) {
     await syncLocks.get(projectId);
   }
   let resolve;
-  const promise = new Promise((r) => { resolve = r; });
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
   syncLocks.set(projectId, promise);
   try {
     return await fn();
@@ -134,20 +129,22 @@ async function readDiskFilesToProject(projectId, repoDir) {
       const fullPath = path.join(repoDir, relPath);
       const ext = relPath.substring(relPath.lastIndexOf('.')).toLowerCase();
       const isBinary = BINARY_EXTS.has(ext);
-      const content = isBinary
-        ? fs.readFileSync(fullPath).toString('base64')
-        : fs.readFileSync(fullPath, 'utf8');
+      const content = isBinary ? fs.readFileSync(fullPath).toString('base64') : fs.readFileSync(fullPath, 'utf8');
 
       if (dbPathMap.has(relPath)) {
-        await tx.run(
-          'UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3',
-          [content, isBinary, dbPathMap.get(relPath)]
-        );
+        await tx.run('UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3', [
+          content,
+          isBinary,
+          dbPathMap.get(relPath),
+        ]);
       } else {
-        await tx.run(
-          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)',
-          [uuid(), projectId, relPath, content, isBinary]
-        );
+        await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+          uuid(),
+          projectId,
+          relPath,
+          content,
+          isBinary,
+        ]);
       }
     }
 
@@ -175,7 +172,11 @@ async function ensureGitHubRepoExists(token, repo) {
   // Try creating under the authenticated user
   const createRes = await fetch('https://api.github.com/user/repos', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({ name, private: true, auto_init: false }),
   });
   if (createRes.ok) return;
@@ -183,7 +184,11 @@ async function ensureGitHubRepoExists(token, repo) {
   // If that failed, try creating under an org
   const orgRes = await fetch(`https://api.github.com/orgs/${owner}/repos`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({ name, private: true, auto_init: false }),
   });
   if (orgRes.ok) return;
@@ -204,9 +209,12 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
       // Fetch remote history first so we can build on top of it
       await git.fetch('origin').catch(() => {});
       const remoteRefs = await git.raw(['branch', '-r']).catch(() => '');
-      const hasRemoteBranch = remoteRefs.split('\n').some(l => l.trim().startsWith(`origin/${branch}`));
+      const hasRemoteBranch = remoteRefs.split('\n').some((l) => l.trim().startsWith(`origin/${branch}`));
 
-      const hasLocalCommits = await git.raw(['rev-parse', 'HEAD']).then(() => true).catch(() => false);
+      const hasLocalCommits = await git
+        .raw(['rev-parse', 'HEAD'])
+        .then(() => true)
+        .catch(() => false);
       if (hasRemoteBranch && !hasLocalCommits) {
         // Fresh local repo — start from remote branch
         await git.checkout(['-b', branch, `origin/${branch}`]);
@@ -221,7 +229,14 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
           }
         }
         // Merge remote changes before pushing
-        await git.raw(['pull', 'origin', branch, '--no-rebase', '--strategy-option=theirs', '--allow-unrelated-histories']);
+        await git.raw([
+          'pull',
+          'origin',
+          branch,
+          '--no-rebase',
+          '--strategy-option=theirs',
+          '--allow-unrelated-histories',
+        ]);
       } else if (!hasLocalCommits) {
         // No remote, no local — just create the branch
         await git.checkoutLocalBranch(branch);
@@ -256,19 +271,27 @@ export async function pullFromGitHub(projectId, token, repo, branch) {
 
       // Check if the remote has any branches at all (empty repo check)
       const remoteRefs = await git.raw(['branch', '-r']).catch(() => '');
-      const remoteBranches = remoteRefs.split('\n').map(l => l.trim()).filter(l => l.startsWith('origin/'));
+      const remoteBranches = remoteRefs
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith('origin/'));
       if (remoteBranches.length === 0) {
-        throw new Error('This GitHub repository is empty (no commits yet). Push some content to it first, or use "Create & Link" to start from your FlowTex project.');
+        throw new Error(
+          'This GitHub repository is empty (no commits yet). Push some content to it first, or use "Create & Link" to start from your FlowTex project.',
+        );
       }
 
-      const hasRemoteBranch = remoteBranches.some(l => l === `origin/${branch}` || l.startsWith(`origin/${branch} `));
+      const hasRemoteBranch = remoteBranches.some((l) => l === `origin/${branch}` || l.startsWith(`origin/${branch} `));
       if (!hasRemoteBranch) {
-        const available = remoteBranches.map(l => l.replace('origin/', ''));
+        const available = remoteBranches.map((l) => l.replace('origin/', ''));
         throw new Error(`Branch "${branch}" not found on remote. Available: ${available.join(', ')}`);
       }
 
       // Check if the local repo has any commits (HEAD must exist)
-      const hasLocalCommits = await git.raw(['rev-parse', 'HEAD']).then(() => true).catch(() => false);
+      const hasLocalCommits = await git
+        .raw(['rev-parse', 'HEAD'])
+        .then(() => true)
+        .catch(() => false);
       if (!hasLocalCommits) {
         await git.checkout(['-b', branch, `origin/${branch}`]);
       } else {
@@ -280,7 +303,14 @@ export async function pullFromGitHub(projectId, token, repo, branch) {
             await git.checkout(['-b', branch, `origin/${branch}`]);
           }
         }
-        await git.raw(['pull', 'origin', branch, '--no-rebase', '--strategy-option=theirs', '--allow-unrelated-histories']);
+        await git.raw([
+          'pull',
+          'origin',
+          branch,
+          '--no-rebase',
+          '--strategy-option=theirs',
+          '--allow-unrelated-histories',
+        ]);
       }
 
       const files = await readDiskFilesToProject(projectId, repoDir);

@@ -23,9 +23,10 @@ export default function AuthPage({ onAuth }) {
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const body = mode === 'login'
-        ? { email, password, ...(mfaRequired ? { totpCode, trustDevice } : {}) }
-        : { email, name, password };
+      const body =
+        mode === 'login'
+          ? { email, password, ...(mfaRequired ? { totpCode, trustDevice } : {}) }
+          : { email, name, password };
       const res = await post(endpoint, body);
       const data = await res.json();
       if (!res.ok) {
@@ -184,11 +185,7 @@ export default function AuthPage({ onAuth }) {
                 autoComplete="one-time-code"
               />
               <label className="auth-trust-label">
-                <input
-                  type="checkbox"
-                  checked={trustDevice}
-                  onChange={(e) => setTrustDevice(e.target.checked)}
-                />
+                <input type="checkbox" checked={trustDevice} onChange={(e) => setTrustDevice(e.target.checked)} />
                 Trust this device for 30 days
               </label>
               {error && <div className="auth-error">{error}</div>}
@@ -202,9 +199,7 @@ export default function AuthPage({ onAuth }) {
           </>
         ) : (
           <>
-            <p className="auth-subtitle">
-              {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
-            </p>
+            <p className="auth-subtitle">{mode === 'login' ? 'Sign in to your account' : 'Create a new account'}</p>
             <form onSubmit={handleSubmit} className="auth-form">
               {mode === 'register' && (
                 <input
@@ -241,7 +236,13 @@ export default function AuthPage({ onAuth }) {
             </form>
             {mode === 'login' && (
               <p className="auth-switch">
-                <button onClick={() => { setMode('forgot'); setError(''); setSuccess(''); }}>
+                <button
+                  onClick={() => {
+                    setMode('forgot');
+                    setError('');
+                    setSuccess('');
+                  }}
+                >
                   Forgot password?
                 </button>
               </p>
@@ -250,12 +251,18 @@ export default function AuthPage({ onAuth }) {
               {mode === 'login' ? (
                 <>
                   Don't have an account?{' '}
-                  <button onClick={() => { setMode('register'); setError(''); }}>Register</button>
+                  <button
+                    onClick={() => {
+                      setMode('register');
+                      setError('');
+                    }}
+                  >
+                    Register
+                  </button>
                 </>
               ) : (
                 <>
-                  Already have an account?{' '}
-                  <button onClick={goToLogin}>Sign In</button>
+                  Already have an account? <button onClick={goToLogin}>Sign In</button>
                 </>
               )}
             </p>
