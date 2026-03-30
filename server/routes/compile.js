@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { fileURLToPath } from 'url';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import os from 'os';
@@ -588,6 +588,80 @@ router.post('/:projectId/clean', async (req, res) => {
     }
   }
   res.json({ deleted });
+});
+
+// --- LaTeX formatters ---
+const KNOWN_FORMATTERS = [
+  { id: 'latexindent', name: 'latexindent', commands: ['latexindent', '/opt/local/bin/latexindent'] },
+  { id: 'texfmt', name: 'texfmt', commands: ['texfmt'] },
+];
+
+let _cachedFormatters = null;
+let _formattersCacheTime = 0;
+
+function detectFormatters() {
+  const now = Date.now();
+  if (_cachedFormatters && now - _formattersCacheTime < 60000) return _cachedFormatters;
+
+  const found = [];
+  for (const fmt of KNOWN_FORMATTERS) {
+    for (const cmd of fmt.commands) {
+      try {
+        const fullPath = execFileSync('which', [cmd], { encoding: 'utf-8', timeout: 3000 }).trim();
+        let version = '';
+        try {
+          const out = execFileSync(fullPath, ['--version'], { encoding: 'utf-8', timeout: 3000 });
+          const m = out.match(/(\d+\.\d+[\.\d]*)/);
+          if (m) version = m[1];
+        } catch {}
+        found.push({ id: fmt.id, name: fmt.name, path: fullPath, version });
+        break;
+      } catch {}
+    }
+  }
+
+  _cachedFormatters = found;
+  _formattersCacheTime = now;
+  return found;
+}
+
+router.get('/formatters', (req, res) => {
+  res.json(detectFormatters());
+});
+
+router.post('/format', requireMember, async (req, res) => {
+  const { content, formatter } = req.body;
+  if (!content) return res.status(400).json({ error: 'No content provided' });
+
+  const formatters = detectFormatters();
+  const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));
+  if (!fmt) return res.status(400).json({ error: 'No formatter available' });
+
+  try {
+    const tmpDir = os.tmpdir();
+    const tmpFile = path.join(tmpDir, `flowtex-format-${Date.now()}.tex`);
+    fs.writeFileSync(tmpFile, content);
+
+    let formatted;
+    if (fmt.id === 'latexindent') {
+      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '-o', '-'], { timeout: 10000 });
+      formatted = stdout;
+    } else if (fmt.id === 'texfmt') {
+      const { stdout } = await execFileAsync(fmt.path, ['--stdin'], { timeout: 10000, input: content });
+      formatted = stdout;
+    } else {
+      return res.status(400).json({ error: 'Unknown formatter' });
+    }
+
+    try { fs.unlinkSync(tmpFile); } catch {}
+    // latexindent creates backup files
+    try { fs.unlinkSync(tmpFile + '.bak'); } catch {}
+
+    res.json({ formatted });
+  } catch (err) {
+    logger.error({ err }, 'Format error');
+    res.status(500).json({ error: err.message || 'Formatting failed' });
+  }
 });
 
 export default router;

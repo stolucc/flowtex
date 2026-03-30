@@ -185,6 +185,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     style,
     onGoToLine,
     onGoToFileAndLine,
+    tapsDiagnostics,
     showBoxWarnings = true,
     onOpenSettings,
   },
@@ -195,6 +196,9 @@ const PdfViewer = forwardRef(function PdfViewer(
   const pageInfoRef = useRef([]);
   const pdfDocRef = useRef(null);
   const [scale, setScale] = useState(DEFAULT_SCALE);
+  const visualScaleRef = useRef(DEFAULT_SCALE); // tracks live pinch scale for CSS transform
+  const commitTimerRef = useRef(null);
+  const baseScaleOnPinchRef = useRef(DEFAULT_SCALE); // the committed scale when pinch started
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
   const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | null
@@ -286,7 +290,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   // Render pages with virtualization: create all placeholder wrappers, but only
   // render canvases for pages near the viewport. IntersectionObserver triggers
   // on-demand rendering; far-off-screen canvases are destroyed on scroll.
-  const baseScaleRef = useRef(DEFAULT_SCALE);
+
 
   useEffect(() => {
     if (!url || !containerRef.current) return;
@@ -321,7 +325,8 @@ const PdfViewer = forwardRef(function PdfViewer(
     container.innerHTML = '';
     pageInfoRef.current = [];
     pageProxyRef.current = [];
-    baseScaleRef.current = scale;
+    visualScaleRef.current = scale;
+    baseScaleOnPinchRef.current = scale;
 
     const dpr = window.devicePixelRatio || 1;
 
@@ -545,11 +550,27 @@ const PdfViewer = forwardRef(function PdfViewer(
     container.addEventListener('scroll', handleScroll);
 
     // Pinch-to-zoom on trackpad (fires as wheel + ctrlKey on Mac)
+    // Uses CSS transform for instant visual feedback, then commits the final scale after a pause
     const handleWheel = (e) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
       const delta = -e.deltaY * 0.01;
-      setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s + delta)));
+      const newVisual = Math.min(MAX_SCALE, Math.max(MIN_SCALE, visualScaleRef.current + delta));
+      visualScaleRef.current = newVisual;
+
+      // Apply CSS transform for instant feedback (relative to the committed render scale)
+      const cssScale = newVisual / baseScaleOnPinchRef.current;
+      container.style.transformOrigin = 'top center';
+      container.style.transform = `scale(${cssScale})`;
+
+      // Debounce: commit the actual scale after pinch gesture settles
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = setTimeout(() => {
+        container.style.transform = '';
+        container.style.transformOrigin = '';
+        baseScaleOnPinchRef.current = newVisual;
+        setScale(newVisual);
+      }, 200);
     };
     container.addEventListener('wheel', handleWheel, { passive: false });
 
@@ -565,6 +586,7 @@ const PdfViewer = forwardRef(function PdfViewer(
       container.removeEventListener('gesturestart', preventGesture);
       container.removeEventListener('gesturechange', preventGesture);
       container.removeEventListener('gestureend', preventGesture);
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     };
   }, [url, scale]);
 
@@ -584,15 +606,21 @@ const PdfViewer = forwardRef(function PdfViewer(
     }
   };
 
-  const zoomIn = () => setScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE));
-  const zoomOut = () => setScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE));
+  const commitScale = useCallback((newScale) => {
+    const s = typeof newScale === 'function' ? newScale(visualScaleRef.current) : newScale;
+    visualScaleRef.current = s;
+    baseScaleOnPinchRef.current = s;
+    setScale(s);
+  }, []);
+  const zoomIn = () => commitScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE));
+  const zoomOut = () => commitScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE));
 
   const fitWidth = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
     pdfDocRef.current.getPage(1).then((page) => {
       const vp = page.getViewport({ scale: 1 });
       const containerWidth = containerRef.current.clientWidth - 32; // subtract padding
-      setScale(containerWidth / vp.width);
+      commitScale(containerWidth / vp.width);
     });
   };
 
@@ -604,7 +632,7 @@ const PdfViewer = forwardRef(function PdfViewer(
       const containerHeight = containerRef.current.clientHeight - 32;
       const scaleW = containerWidth / vp.width;
       const scaleH = containerHeight / vp.height;
-      setScale(Math.min(scaleW, scaleH));
+      commitScale(Math.min(scaleW, scaleH));
     });
   };
 
@@ -732,10 +760,10 @@ const PdfViewer = forwardRef(function PdfViewer(
           {errors.length + lintErrors.length} error{errors.length + lintErrors.length !== 1 ? 's' : ''}
         </button>
         <button
-          className={`pdf-header-btn ${warnings.length + lintWarnings.length > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
+          className={`pdf-header-btn ${warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
           onClick={() => togglePanel('warnings')}
         >
-          {warnings.length + lintWarnings.length} warning{warnings.length + lintWarnings.length !== 1 ? 's' : ''}
+          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning{warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
         </button>
         <button
           className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''}`}
@@ -873,7 +901,7 @@ const PdfViewer = forwardRef(function PdfViewer(
             ))}
         </div>
       )}
-      {!helpDetail && showPanel === 'warnings' && warnings.length + lintWarnings.length + hiddenBoxCount > 0 && (
+      {!helpDetail && showPanel === 'warnings' && warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) + hiddenBoxCount > 0 && (
         <div className="pdf-log-panel warnings">
           {hiddenBoxCount > 0 && (
             <div className="pdf-log-hidden-notice clickable" onClick={() => onOpenSettings?.('compiler')}>
@@ -881,6 +909,24 @@ const PdfViewer = forwardRef(function PdfViewer(
               settings
             </div>
           )}
+          {(tapsDiagnostics || []).map((w, i) => (
+            <LogItem
+              key={`taps-${i}`}
+              className="pdf-log-item warning taps clickable"
+              onClick={() => onGoToFileAndLine?.(w.file, w.line)}
+              tag={
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" style={{ marginRight: 3, verticalAlign: -1 }}>
+                    <polygon points="12,1 23,12 12,23 1,12" fill="#2065AC" />
+                  </svg>
+                  TAPS
+                </>
+              }
+              file={w.file}
+              line={w.line}
+              message={w.message}
+            />
+          ))}
           {lintWarnings.map((w, i) => (
             <LogItem
               key={`lint-${i}`}
@@ -928,6 +974,7 @@ const PdfViewer = forwardRef(function PdfViewer(
         showPanel === 'warnings' &&
         warnings.length === 0 &&
         lintWarnings.length === 0 &&
+        (tapsDiagnostics?.length || 0) === 0 &&
         hiddenBoxCount === 0 && <div className="pdf-log-panel empty">No warnings</div>}
       {showPanel === 'console' && <ConsolePanel output={consoleOutput} compiling={compiling} />}
       {!url && !compiling && <div className="pdf-placeholder">Click "Build PDF" to generate PDF</div>}

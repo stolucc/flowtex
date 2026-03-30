@@ -84,6 +84,7 @@ export default function Toolbar({
   onTapsCheck,
   onWordCount,
   onProjectSettings,
+  onFormatDocument,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -184,11 +185,13 @@ export default function Toolbar({
     { label: 'separator' },
     { label: 'Inline Math', action: () => onInsert?.('$', '$') },
     { label: 'Display Math', action: () => onInsert?.('\\[\n  ', '\n\\]') },
+    { label: 'separator' },
+    { label: 'Format Document', action: onFormatDocument, disabled: !activeFile?.path?.endsWith('.tex') },
   ];
 
   const toolsMenuItems = [
     { label: 'Git Sync', action: () => onGitHubSync?.() },
-    { label: 'Compare Files (latexdiff)', action: onCompareFiles },
+    { label: 'Compare Files', action: onCompareFiles },
     ...(onBibEnrich ? [{ label: 'Complete Bibliography', action: onBibEnrich }] : []),
     { label: 'Zotero Import', action: () => onZotero?.() },
     { label: 'ACM TAPS Check', action: () => onTapsCheck?.() },

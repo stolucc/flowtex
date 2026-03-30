@@ -71,6 +71,7 @@ export async function upsertToken(userId, token) {
 }
 
 export async function deleteToken(userId) {
+  await db.run('DELETE FROM project_github_links WHERE linked_by = $1', [userId]);
   await db.run('DELETE FROM github_tokens WHERE user_id = $1', [userId]);
 }
 

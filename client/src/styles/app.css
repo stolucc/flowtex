@@ -2542,6 +2542,7 @@ html {
   background: #2a2d3d;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .pdf-viewer-header {
@@ -2916,6 +2917,11 @@ html {
   background: rgba(210, 153, 34, 0.08);
   border-left-color: #d29922;
   color: #e3b341;
+}
+.pdf-log-item.warning.taps {
+  background: rgba(32, 101, 172, 0.08);
+  border-left-color: #2065AC;
+  color: #5b9bd5;
 }
 
 .pdf-log-item.system-error {

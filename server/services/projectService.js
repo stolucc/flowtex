@@ -69,7 +69,7 @@ export async function listUserProjects(userId) {
      JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $1
      LEFT JOIN project_members owner_pm ON owner_pm.project_id = p.id AND owner_pm.role = 'owner'
      LEFT JOIN users owner_u ON owner_u.id = owner_pm.user_id
-     LEFT JOIN project_github_links pgl ON pgl.project_id = p.id
+     LEFT JOIN project_github_links pgl ON pgl.project_id = p.id AND pgl.linked_by = $1
      ORDER BY p.updated_at DESC`,
     [userId],
   );

@@ -337,8 +337,11 @@ function AppInner() {
     setPdfUrl(null);
   }, [handleLogout]);
 
+  const mainFilePath = project?.main_file || 'main.tex';
+  const tapsDiagnostics = useMemo(() => tapsCheck(files, mainFilePath), [files, mainFilePath]);
+
   const handleTapsCheck = useCallback(() => {
-    const results = tapsCheck(files);
+    const results = tapsCheck(files, mainFilePath);
     if (results.length === 0) {
       setConsoleOutput('ACM TAPS Check: All packages are on the approved list. ✓');
     } else {
@@ -349,6 +352,30 @@ function AppInner() {
       setConsoleOutput(lines.join('\n'));
     }
   }, [files]);
+
+  const handleFormatDocument = useCallback(async () => {
+    const formatter = localStorage.getItem('flowtex-latex-formatter');
+    if (!formatter) {
+      setConsoleOutput('No LaTeX formatter selected. Set one in Project Settings > Editor.');
+      return;
+    }
+    if (!activeFile || !activeFile.path.endsWith('.tex')) return;
+    const content = editorRef.current?.getContent?.();
+    if (!content) return;
+    setConsoleOutput('Formatting...');
+    try {
+      const res = await post('/api/compile/format', { content, formatter });
+      const data = await res.json();
+      if (!res.ok) {
+        setConsoleOutput(`Format error: ${data.error}`);
+        return;
+      }
+      editorRef.current?.replaceContent(data.formatted);
+      setConsoleOutput('Document formatted.');
+    } catch (err) {
+      setConsoleOutput(`Format error: ${err.message}`);
+    }
+  }, [activeFile]);
 
   const [wordCountState, setWordCountState] = useState({ open: false, loading: false, data: null, error: null });
 
@@ -470,6 +497,7 @@ function AppInner() {
           onTapsCheck={handleTapsCheck}
           onWordCount={handleWordCount}
           onProjectSettings={() => ui.setShowProjectSettings(true)}
+          onFormatDocument={handleFormatDocument}
           githubLink={githubLink}
           autoSyncStatus={autoSyncStatus}
           lastSyncAt={githubLink?.lastSyncAt}
@@ -1078,6 +1106,7 @@ function AppInner() {
                   setTimeout(() => editorRef.current?.goToLine(line, col), 50);
                 } else editorRef.current?.goToLine(line, col);
               }}
+              tapsDiagnostics={tapsDiagnostics}
               showBoxWarnings={showBoxWarnings}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);

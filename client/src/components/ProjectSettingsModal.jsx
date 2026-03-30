@@ -82,7 +82,15 @@ function ProjectSection({
   );
 }
 
-function EditorSection({ trackChangesMode, onTrackChangesChange, editorInverted, setEditorInverted }) {
+function EditorSection({
+  trackChangesMode,
+  onTrackChangesChange,
+  editorInverted,
+  setEditorInverted,
+  latexFormatter,
+  setLatexFormatter,
+  formatters,
+}) {
   return (
     <>
       <div className="settings-group">
@@ -96,6 +104,24 @@ function EditorSection({ trackChangesMode, onTrackChangesChange, editorInverted,
           <span className="settings-toggle-label">Invert colors</span>
           <Toggle on={editorInverted} onChange={setEditorInverted} />
         </div>
+      </div>
+      <div className="settings-group">
+        <label className="settings-label">LaTeX Formatter</label>
+        <select
+          className="settings-input"
+          value={latexFormatter || ''}
+          onChange={(e) => setLatexFormatter(e.target.value || '')}
+        >
+          <option value="">None</option>
+          {formatters.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name} {f.version ? `(${f.version})` : ''}
+            </option>
+          ))}
+        </select>
+        {formatters.length === 0 && (
+          <p className="settings-hint">No LaTeX formatters detected on the server.</p>
+        )}
       </div>
     </>
   );
@@ -134,7 +160,8 @@ function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
     return (
       <div className="settings-group">
         <p className="settings-hint">
-          No GitHub repository is linked to this project. Use Tools &gt; Git Sync to connect one.
+          Connect your GitHub account first in Account Settings (gear icon on the dashboard sidebar), then use
+          Tools &gt; Git Sync to link a repository.
         </p>
       </div>
     );
@@ -199,6 +226,8 @@ export default function ProjectSettingsModal({
   const [pdfInverted, setPdfInverted] = useState(() => localStorage.getItem('flowtex-pdf-inverted') === 'true');
   const [texDistribution, setTexDistribution] = useState(project.tex_distribution || null);
   const [distributions, setDistributions] = useState([]);
+  const [latexFormatter, setLatexFormatter] = useState(() => localStorage.getItem('flowtex-latex-formatter') || '');
+  const [formatters, setFormatters] = useState([]);
   const [activeCategory, setActiveCategory] = useState(initialTab || 'project');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -208,6 +237,10 @@ export default function ProjectSettingsModal({
     get('/api/compile/texlive-distributions')
       .then((r) => r.json())
       .then(setDistributions)
+      .catch(() => {});
+    get('/api/compile/formatters')
+      .then((r) => r.json())
+      .then(setFormatters)
       .catch(() => {});
   }, []);
 
@@ -237,8 +270,9 @@ export default function ProjectSettingsModal({
       localStorage.setItem(`flowtex-show-box-warnings-${project.id}`, showBoxWarnings);
       localStorage.setItem('flowtex-editor-inverted', String(editorInverted));
       localStorage.setItem('flowtex-pdf-inverted', String(pdfInverted));
+      localStorage.setItem('flowtex-latex-formatter', latexFormatter);
       window.dispatchEvent(
-        new CustomEvent('flowtex:settings-changed', { detail: { showBoxWarnings, editorInverted, pdfInverted } }),
+        new CustomEvent('flowtex:settings-changed', { detail: { showBoxWarnings, editorInverted, pdfInverted, latexFormatter } }),
       );
 
       onClose();
@@ -299,6 +333,9 @@ export default function ProjectSettingsModal({
                 onTrackChangesChange={onTrackChangesChange}
                 editorInverted={editorInverted}
                 setEditorInverted={setEditorInverted}
+                latexFormatter={latexFormatter}
+                setLatexFormatter={setLatexFormatter}
+                formatters={formatters}
               />
             )}
 

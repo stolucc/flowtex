@@ -3,6 +3,7 @@
  * Checks project files against TAPS requirements.
  * Returns an array of { file, line, severity, message }.
  */
+import { resolveUsedFiles } from './texDeps.js';
 
 const APPROVED_PACKAGES = new Set([
   'abstract',
@@ -227,6 +228,8 @@ function checkPackages(files) {
   return diagnostics;
 }
 
-export default function tapsCheck(files) {
-  return [...checkPackages(files)];
+export default function tapsCheck(files, mainFile = 'main.tex') {
+  const usedPaths = resolveUsedFiles(files, mainFile);
+  const usedFiles = files.filter((f) => usedPaths.has(f.path));
+  return [...checkPackages(usedFiles)];
 }
