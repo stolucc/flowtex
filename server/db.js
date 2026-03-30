@@ -82,6 +82,18 @@ async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Mark all existing users as verified (they were created before email verification was added)
+    UPDATE users SET email_verified = TRUE WHERE email_verified = FALSE AND created_at < NOW() - INTERVAL '1 minute';
+
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,

@@ -179,6 +179,105 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     setTrackedChanges((tc) => tc.map((c) => (c.status === 'pending' ? { ...c, status: 'rejected' } : c)));
   }, [activeFile, editorRef]);
 
+  // --- Review walkthrough ---
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
+
+  const pendingChanges = trackedChanges
+    .filter((c) => c.status === 'pending')
+    .sort((a, b) => a.from_pos - b.from_pos);
+
+  // Clamp index when pending list shrinks
+  useEffect(() => {
+    if (reviewing && reviewIndex >= pendingChanges.length) {
+      if (pendingChanges.length === 0) {
+        setReviewing(false);
+        setReviewIndex(0);
+      } else {
+        setReviewIndex(pendingChanges.length - 1);
+      }
+    }
+  }, [reviewing, reviewIndex, pendingChanges.length]);
+
+  const startReview = useCallback(() => {
+    setReviewing(true);
+    setReviewIndex(0);
+    const first = trackedChanges
+      .filter((c) => c.status === 'pending')
+      .sort((a, b) => a.from_pos - b.from_pos)[0];
+    if (first) editorRef.current?.goToPosition(first.from_pos);
+  }, [trackedChanges, editorRef]);
+
+  const stopReview = useCallback(() => {
+    setReviewing(false);
+    setReviewIndex(0);
+  }, []);
+
+  const goToReviewIndex = useCallback(
+    (idx) => {
+      const sorted = trackedChanges
+        .filter((c) => c.status === 'pending')
+        .sort((a, b) => a.from_pos - b.from_pos);
+      if (sorted[idx]) {
+        setReviewIndex(idx);
+        editorRef.current?.goToPosition(sorted[idx].from_pos);
+      }
+    },
+    [trackedChanges, editorRef],
+  );
+
+  const reviewNext = useCallback(() => {
+    goToReviewIndex(Math.min(reviewIndex + 1, pendingChanges.length - 1));
+  }, [reviewIndex, pendingChanges.length, goToReviewIndex]);
+
+  const reviewPrev = useCallback(() => {
+    goToReviewIndex(Math.max(reviewIndex - 1, 0));
+  }, [reviewIndex, goToReviewIndex]);
+
+  const acceptAndNext = useCallback(
+    async (changeId) => {
+      await handleAcceptChange(changeId);
+      // After accepting, the pending list shrinks; effect will clamp index.
+      // Navigate to the same index (which is now the next change).
+      setTimeout(() => {
+        const sorted = trackedChangesRef.current
+          .filter((c) => c.status === 'pending' && c.id !== changeId)
+          .sort((a, b) => a.from_pos - b.from_pos);
+        if (sorted.length === 0) {
+          setReviewing(false);
+          setReviewIndex(0);
+          return;
+        }
+        const nextIdx = Math.min(reviewIndex, sorted.length - 1);
+        setReviewIndex(nextIdx);
+        editorRef.current?.goToPosition(sorted[nextIdx].from_pos);
+      }, 50);
+    },
+    [handleAcceptChange, reviewIndex, editorRef],
+  );
+
+  const rejectAndNext = useCallback(
+    async (changeId) => {
+      await handleRejectChange(changeId);
+      setTimeout(() => {
+        const sorted = trackedChangesRef.current
+          .filter((c) => c.status === 'pending' && c.id !== changeId)
+          .sort((a, b) => a.from_pos - b.from_pos);
+        if (sorted.length === 0) {
+          setReviewing(false);
+          setReviewIndex(0);
+          return;
+        }
+        const nextIdx = Math.min(reviewIndex, sorted.length - 1);
+        setReviewIndex(nextIdx);
+        editorRef.current?.goToPosition(sorted[nextIdx].from_pos);
+      }, 50);
+    },
+    [handleRejectChange, reviewIndex, editorRef],
+  );
+
+  const reviewCurrentChange = reviewing ? pendingChanges[reviewIndex] || null : null;
+
   return {
     trackChangesMode,
     setTrackChangesMode,
@@ -192,5 +291,16 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     handleRejectChange,
     handleAcceptAllChanges,
     handleRejectAllChanges,
+    // Review walkthrough
+    reviewing,
+    reviewIndex,
+    reviewCurrentChange,
+    pendingChanges,
+    startReview,
+    stopReview,
+    reviewNext,
+    reviewPrev,
+    acceptAndNext,
+    rejectAndNext,
   };
 }

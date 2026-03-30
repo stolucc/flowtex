@@ -37,6 +37,27 @@ function getFileIcon(path) {
   return 'F';
 }
 
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.eps', '.svg', '.tiff', '.tif'];
+const STYLE_EXTS = ['.sty', '.cls', '.clo', '.bst', '.def', '.fd', '.cfg', '.bbx', '.cbx', '.lbx'];
+
+const FILE_CATEGORIES = [
+  { key: 'tex', label: 'TeX Files', test: (p) => p.endsWith('.tex') },
+  { key: 'bib', label: 'Bibliography', test: (p) => p.endsWith('.bib') },
+  { key: 'images', label: 'Images', test: (p) => { const ext = p.substring(p.lastIndexOf('.')).toLowerCase(); return IMAGE_EXTS.includes(ext) || ext === '.pdf'; } },
+  { key: 'style', label: 'Style Files', test: (p) => { const ext = p.substring(p.lastIndexOf('.')).toLowerCase(); return STYLE_EXTS.includes(ext); } },
+];
+
+function categorizeFiles(files) {
+  const groups = {};
+  for (const cat of FILE_CATEGORIES) groups[cat.key] = [];
+  groups.other = [];
+  for (const f of files) {
+    const cat = FILE_CATEGORIES.find((c) => c.test(f.path));
+    groups[cat ? cat.key : 'other'].push(f);
+  }
+  return groups;
+}
+
 function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
@@ -62,6 +83,7 @@ function ContextMenu({ x, y, items, onClose }) {
 export default function FileTree({
   files,
   activeFile,
+  groupByType = true,
   onSelect,
   onCreate,
   onOverwrite,
@@ -82,6 +104,7 @@ export default function FileTree({
   const [adding, setAdding] = useState(false);
   const [addType, setAddType] = useState('file');
   const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [collapsedCategories, setCollapsedCategories] = useState({});
   const [emptyFolders, setEmptyFolders] = useState([]);
   const [addingIn, setAddingIn] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -353,7 +376,7 @@ export default function FileTree({
     [files, processNextDrop],
   );
 
-  const tree = buildTree(files, emptyFolders);
+  const fileGroups = groupByType ? categorizeFiles(files) : null;
 
   const renderNode = (node, fullPath, depth) => {
     const isRoot = fullPath === '';
@@ -619,7 +642,29 @@ export default function FileTree({
           />
         </form>
       )}
-      <div className="file-tree-list">{renderNode(tree, '', 0)}</div>
+      <div className="file-tree-list">
+        {groupByType && fileGroups
+          ? [...FILE_CATEGORIES, { key: 'other', label: 'Other' }].map((cat) => {
+              const groupFiles = fileGroups[cat.key];
+              if (!groupFiles || groupFiles.length === 0) return null;
+              const collapsed = !!collapsedCategories[cat.key];
+              const catTree = buildTree(groupFiles, cat.key === 'other' ? emptyFolders : []);
+              return (
+                <React.Fragment key={cat.key}>
+                  <div
+                    className="file-tree-category"
+                    onClick={() => setCollapsedCategories((s) => ({ ...s, [cat.key]: !s[cat.key] }))}
+                  >
+                    <span className="file-tree-category-arrow">{collapsed ? '▸' : '▾'}</span>
+                    <span className="file-tree-category-label">{cat.label}</span>
+                    <span className="file-tree-category-count">{groupFiles.length}</span>
+                  </div>
+                  {!collapsed && renderNode(catTree, '', 0)}
+                </React.Fragment>
+              );
+            })
+          : renderNode(buildTree(files, emptyFolders), '', 0)}
+      </div>
       {dragging && <div className="file-tree-drop-overlay">Drop files here</div>}
       {contextMenu && (
         <ContextMenu

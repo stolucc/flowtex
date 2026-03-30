@@ -46,7 +46,9 @@ router.get('/', async (req, res) => {
 
 // Create a project
 router.post('/', async (req, res) => {
-  res.json(await projectService.createProject(req.session.userId, req.body.name));
+  const project = await projectService.createProject(req.session.userId, req.body.name);
+  await auditLog(req.session.userId, 'project_create', { targetType: 'project', targetId: project.id, ip: req.ip });
+  res.json(project);
 });
 
 // Create project from ZIP upload
@@ -91,9 +93,9 @@ router.patch('/:id', async (req, res) => {
   if (!name && !main_file && snapshot_interval_sec == null && tex_distribution === undefined && compiler === undefined)
     return res.status(400).json({ error: 'Nothing to update' });
   try {
-    res.json(
-      await projectService.updateProject(req.params.id, { name, main_file, snapshot_interval_sec, tex_distribution, compiler }),
-    );
+    const updated = await projectService.updateProject(req.params.id, { name, main_file, snapshot_interval_sec, tex_distribution, compiler });
+    await auditLog(req.session.userId, 'project_update', { targetType: 'project', targetId: req.params.id, ip: req.ip });
+    res.json(updated);
   } catch (err) {
     sendError(res, err);
   }
@@ -133,6 +135,7 @@ router.post('/:id/members', async (req, res) => {
     } catch (err) {
       logger.warn({ err, email }, 'Failed to send invitation email');
     }
+    await auditLog(req.session.userId, 'member_invite', { targetType: 'project', targetId: req.params.id, detail: JSON.stringify({ email, role: role || 'editor' }), ip: req.ip });
     res.json(invitation);
   } catch (err) {
     sendError(res, err);
@@ -291,21 +294,25 @@ router.delete('/files/:fileId', async (req, res) => {
 router.post('/:id/archive', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.archiveProject(req.params.id);
+  await auditLog(req.session.userId, 'project_archive', { targetType: 'project', targetId: req.params.id, ip: req.ip });
   res.json({ ok: true });
 });
 router.post('/:id/unarchive', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.unarchiveProject(req.params.id);
+  await auditLog(req.session.userId, 'project_unarchive', { targetType: 'project', targetId: req.params.id, ip: req.ip });
   res.json({ ok: true });
 });
 router.post('/:id/trash', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.trashProject(req.params.id);
+  await auditLog(req.session.userId, 'project_trash', { targetType: 'project', targetId: req.params.id, ip: req.ip });
   res.json({ ok: true });
 });
 router.post('/:id/restore', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.restoreProject(req.params.id);
+  await auditLog(req.session.userId, 'project_restore', { targetType: 'project', targetId: req.params.id, ip: req.ip });
   res.json({ ok: true });
 });
 

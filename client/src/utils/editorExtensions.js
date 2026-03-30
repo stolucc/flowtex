@@ -122,6 +122,22 @@ export const tcDeletesField = StateField.define({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+// Tracked changes — review highlight (highlights the currently-reviewed change)
+export const setTcReviewHighlightEffect = StateEffect.define();
+
+export const tcReviewHighlightField = StateField.define({
+  create() {
+    return Decoration.none;
+  },
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setTcReviewHighlightEffect)) return e.value;
+    }
+    return value.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 export function isPosInDeletion(state, pos) {
   const decos = state.field(tcDeletesField);
   let found = false;

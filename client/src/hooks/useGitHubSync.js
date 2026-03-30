@@ -3,8 +3,17 @@ import { get, post, patch } from '../api.js';
 
 export default function useGitHubSync(project) {
   const [githubLink, setGithubLink] = useState(null);
+  const [hasGithubToken, setHasGithubToken] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('');
   const autoSyncTimer = useRef(null);
+
+  // Check if the user has a GitHub token
+  useEffect(() => {
+    get('/api/github/token')
+      .then((r) => r.json())
+      .then((d) => setHasGithubToken(!!d.hasToken))
+      .catch(() => setHasGithubToken(false));
+  }, []);
 
   // Fetch GitHub link status
   useEffect(() => {
@@ -62,6 +71,8 @@ export default function useGitHubSync(project) {
   return {
     githubLink,
     setGithubLink,
+    hasGithubToken,
+    setHasGithubToken,
     autoSyncStatus,
     handleToggleAutoSync,
   };

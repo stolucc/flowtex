@@ -2,6 +2,7 @@ import { Router } from 'express';
 import os from 'os';
 import db from '../db.js';
 import { compileMetrics } from '../compiler.js';
+import { resetTransporter, sendEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -308,7 +309,7 @@ router.put('/settings', async (req, res) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' });
 
-  const ALLOWED_KEYS = ['compile_timeout'];
+  const ALLOWED_KEYS = ['compile_timeout', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from'];
   if (!ALLOWED_KEYS.includes(key)) return res.status(400).json({ error: 'Unknown setting' });
 
   // Validate
@@ -318,12 +319,46 @@ router.put('/settings', async (req, res) => {
       return res.status(400).json({ error: 'Compile timeout must be between 10 and 600 seconds' });
     }
   }
+  if (key === 'smtp_port') {
+    const num = parseInt(value);
+    if (isNaN(num) || num < 1 || num > 65535) {
+      return res.status(400).json({ error: 'SMTP port must be between 1 and 65535' });
+    }
+  }
+  if (key === 'smtp_secure') {
+    if (value !== 'true' && value !== 'false') {
+      return res.status(400).json({ error: 'smtp_secure must be "true" or "false"' });
+    }
+  }
 
   await db.run(
     'INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()',
     [key, String(value)],
   );
+
+  // Reset cached email transporter when any SMTP setting changes
+  if (key.startsWith('smtp_')) {
+    resetTransporter();
+  }
+
   res.json({ ok: true });
+});
+
+// Test email
+router.post('/settings/test-email', async (req, res) => {
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Recipient email required' });
+  try {
+    await sendEmail({
+      to,
+      subject: 'FlowTex SMTP Test',
+      text: 'This is a test email from FlowTex. If you received this, your SMTP settings are working correctly.',
+      html: '<p>This is a test email from FlowTex.</p><p>If you received this, your SMTP settings are working correctly.</p>',
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to send test email' });
+  }
 });
 
 export default router;

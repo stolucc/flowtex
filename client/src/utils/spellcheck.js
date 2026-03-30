@@ -88,7 +88,7 @@ export async function getDictionary() {
 }
 
 // LaTeX commands and common terms to skip
-const SKIP_PATTERNS = /^\\[a-zA-Z]+|^[A-Z]{2,}$|^\d+$/;
+const SKIP_PATTERNS = /^[A-Z]{2,}$|^\d+$/;
 
 // Commands whose brace arguments contain prose (should be spellchecked)
 const PROSE_COMMANDS = new Set([
@@ -124,13 +124,25 @@ const PROSE_COMMANDS = new Set([
   'quotation',
 ]);
 
-function skipBracketGroup(line, i, open, close) {
-  if (i >= line.length || line[i] !== open) return i;
+// Environments whose body is not prose (math, code, etc.)
+const SKIP_ENVIRONMENTS = new Set([
+  'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
+  'multline', 'multline*', 'flalign', 'flalign*', 'eqnarray', 'eqnarray*',
+  'math', 'displaymath', 'array', 'matrix', 'pmatrix', 'bmatrix',
+  'vmatrix', 'Vmatrix', 'cases',
+  'verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt',
+  'tikzpicture', 'pgfpicture',
+  'filecontents', 'filecontents*',
+]);
+
+function skipBracketGroup(text, i, open, close) {
+  if (i >= text.length || text[i] !== open) return i;
   let depth = 1;
   i++;
-  while (i < line.length && depth > 0) {
-    if (line[i] === open) depth++;
-    else if (line[i] === close) depth--;
+  while (i < text.length && depth > 0) {
+    if (text[i] === '\\') { i += 2; continue; } // skip escaped chars
+    if (text[i] === open) depth++;
+    else if (text[i] === close) depth--;
     i++;
   }
   return i;
@@ -138,110 +150,145 @@ function skipBracketGroup(line, i, open, close) {
 
 /**
  * Spellcheck text content, skipping LaTeX commands and their arguments.
+ * Works on the full text (not line-by-line) to correctly handle multi-line
+ * commands, math environments, and brace groups.
  * Returns array of { from, to, word } for misspelled words.
- * `from` and `to` are character offsets in the full text.
  */
 export function spellcheckText(text, dict) {
   if (!dict) return [];
   const results = [];
-  const lines = text.split('\n');
-  let offset = 0;
+  const len = text.length;
+  let i = 0;
 
-  for (const line of lines) {
-    let i = 0;
-    while (i < line.length) {
-      const ch = line[i];
+  while (i < len) {
+    const ch = text[i];
 
-      // Skip comments
-      if (ch === '%' && (i === 0 || line[i - 1] !== '\\')) {
-        break;
-      }
-
-      // Skip inline math $...$
-      if (ch === '$') {
-        i++;
-        if (i < line.length && line[i] === '$') {
-          // $$...$$ display math
-          i++;
-          while (i < line.length - 1 && !(line[i] === '$' && line[i + 1] === '$')) i++;
-          i += 2;
-        } else {
-          while (i < line.length && line[i] !== '$') {
-            if (line[i] === '\\') i++; // skip escaped $
-            i++;
-          }
-          if (i < line.length) i++; // skip closing $
-        }
-        continue;
-      }
-
-      // Skip LaTeX commands and their arguments
-      if (ch === '\\') {
-        i++;
-        // Collect command name
-        const cmdStart = i;
-        while (i < line.length && /[a-zA-Z*]/.test(line[i])) i++;
-        const cmd = line.slice(cmdStart, i);
-
-        if (!cmd) {
-          // Escaped character like \\ \$ \& — skip next char
-          if (i < line.length) i++;
-          continue;
-        }
-
-        const isProse = PROSE_COMMANDS.has(cmd);
-
-        // Skip optional arguments [...]
-        while (i < line.length && /\s/.test(line[i])) i++;
-        if (i < line.length && line[i] === '[') {
-          i = skipBracketGroup(line, i, '[', ']');
-        }
-
-        // Handle brace arguments {...}
-        while (i < line.length && /\s/.test(line[i])) i++;
-        if (isProse) {
-          // Don't skip — let the brace content be spellchecked
-          if (i < line.length && line[i] === '{') i++; // skip the opening brace only
-        } else {
-          // Skip all brace arguments for non-prose commands
-          while (i < line.length && /\s/.test(line[i])) i++;
-          if (i < line.length && line[i] === '{') {
-            i = skipBracketGroup(line, i, '{', '}');
-          }
-        }
-        continue;
-      }
-
-      // Skip braces, brackets, math delimiters, digits, punctuation
-      if (!/[a-zA-Z\u00C0-\u024F]/.test(ch)) {
-        i++;
-        continue;
-      }
-
-      // Extract word — allow apostrophes and accented chars
-      const wordStart = i;
-      while (
-        i < line.length &&
-        (/[a-zA-Z\u00C0-\u024F]/.test(line[i]) ||
-          (line[i] === "'" && i + 1 < line.length && /[a-zA-Z\u00C0-\u024F]/.test(line[i + 1])))
-      )
-        i++;
-      const word = line.slice(wordStart, i);
-
-      // Skip very short words, all-caps abbreviations
-      if (word.length < 2) continue;
-      if (SKIP_PATTERNS.test(word)) continue;
-
-      // Check spelling
-      if (!dict.check(word) && !isCustomOrIgnored(word)) {
-        results.push({
-          from: offset + wordStart,
-          to: offset + i,
-          word,
-        });
-      }
+    // Skip comments (% to end of line, unless escaped)
+    if (ch === '%' && (i === 0 || text[i - 1] !== '\\')) {
+      while (i < len && text[i] !== '\n') i++;
+      continue;
     }
-    offset += line.length + 1; // +1 for \n
+
+    // Skip inline math $...$  and display math $$...$$
+    if (ch === '$') {
+      i++;
+      if (i < len && text[i] === '$') {
+        // $$...$$
+        i++;
+        while (i < len - 1 && !(text[i] === '$' && text[i + 1] === '$')) {
+          if (text[i] === '\\') i++;
+          i++;
+        }
+        i += 2;
+      } else {
+        while (i < len && text[i] !== '$') {
+          if (text[i] === '\\') i++;
+          i++;
+        }
+        if (i < len) i++;
+      }
+      continue;
+    }
+
+    // Skip \(...\) and \[...\] math delimiters
+    if (ch === '\\' && i + 1 < len && (text[i + 1] === '(' || text[i + 1] === '[')) {
+      const closeChar = text[i + 1] === '(' ? ')' : ']';
+      i += 2;
+      while (i < len - 1 && !(text[i] === '\\' && text[i + 1] === closeChar)) i++;
+      i += 2;
+      continue;
+    }
+
+    // LaTeX commands
+    if (ch === '\\') {
+      i++;
+      // Collect command name
+      const cmdStart = i;
+      while (i < len && /[a-zA-Z@*]/.test(text[i])) i++;
+      const cmd = text.slice(cmdStart, i);
+
+      if (!cmd) {
+        // Escaped character like \\ \$ \& — skip next char
+        if (i < len) i++;
+        continue;
+      }
+
+      // \begin{env} / \end{env} — check if we should skip the environment body
+      if (cmd === 'begin' || cmd === 'end') {
+        // Skip whitespace
+        while (i < len && /\s/.test(text[i])) i++;
+        if (i < len && text[i] === '{') {
+          const envStart = i + 1;
+          i = skipBracketGroup(text, i, '{', '}');
+          const envName = text.slice(envStart, i - 1);
+
+          if (cmd === 'begin' && SKIP_ENVIRONMENTS.has(envName)) {
+            // Skip everything until \end{envName}
+            const endTag = `\\end{${envName}}`;
+            const endIdx = text.indexOf(endTag, i);
+            if (endIdx !== -1) {
+              i = endIdx + endTag.length;
+            }
+          }
+        }
+        continue;
+      }
+
+      const isProse = PROSE_COMMANDS.has(cmd);
+
+      // Skip optional arguments [...]
+      while (i < len && /\s/.test(text[i])) i++;
+      if (i < len && text[i] === '[') {
+        i = skipBracketGroup(text, i, '[', ']');
+      }
+
+      if (isProse) {
+        // Skip just the opening brace — let content be spellchecked
+        while (i < len && /\s/.test(text[i])) i++;
+        if (i < len && text[i] === '{') i++;
+      } else {
+        // Skip ALL consecutive brace arguments for non-prose commands
+        // e.g. \newcommand{\foo}{body}, \setlength{\x}{10pt}
+        while (i < len) {
+          while (i < len && /\s/.test(text[i])) i++;
+          if (i < len && text[i] === '{') {
+            i = skipBracketGroup(text, i, '{', '}');
+          } else {
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    // Skip braces, brackets, digits, punctuation, symbols
+    if (!/[a-zA-Z\u00C0-\u024F]/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    // Extract word — allow apostrophes and accented chars
+    const wordStart = i;
+    while (
+      i < len &&
+      (/[a-zA-Z\u00C0-\u024F]/.test(text[i]) ||
+        (text[i] === "'" && i + 1 < len && /[a-zA-Z\u00C0-\u024F]/.test(text[i + 1])))
+    )
+      i++;
+    const word = text.slice(wordStart, i);
+
+    // Skip very short words, all-caps abbreviations, numbers
+    if (word.length < 2) continue;
+    if (SKIP_PATTERNS.test(word)) continue;
+
+    // Check spelling
+    if (!dict.check(word) && !isCustomOrIgnored(word)) {
+      results.push({
+        from: wordStart,
+        to: i,
+        word,
+      });
+    }
   }
 
   return results;

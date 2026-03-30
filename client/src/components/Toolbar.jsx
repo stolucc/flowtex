@@ -206,7 +206,7 @@ export default function Toolbar({
     { label: 'Format BibTeX', action: onPrettyPrint, disabled: !isBib },
     ...(onBibEnrich ? [{ label: 'Complete Bibliography', action: onBibEnrich }] : []),
     { label: 'Zotero Import', action: () => onZotero?.() },
-    { label: 'ACM TAPS Check', action: () => onTapsCheck?.() },
+    ...(onTapsCheck ? [{ label: 'ACM TAPS Check', action: onTapsCheck }] : []),
     { label: 'Word Count', action: () => onWordCount?.() },
     { label: 'separator' },
     { label: `${githubLink?.autoPush ? '✓ ' : ''}Auto-save`, action: onToggleAutoSync, disabled: !githubLink?.linked },
@@ -350,7 +350,7 @@ export default function Toolbar({
             ))}
         </div>
         {onHistory && (
-          <button className="toolbar-btn" onClick={onHistory} title="Version history">
+          <button className="toolbar-btn toolbar-btn-history" onClick={onHistory} title="Version history">
             <svg
               width="16"
               height="16"

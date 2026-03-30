@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { get, put } from '../api.js';
+import { get, put, post } from '../api.js';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -152,6 +152,7 @@ export default function AdminDashboard({ onBack }) {
     get('/api/admin/stats/system')
       .then((r) => r.json())
       .then((data) => {
+        if (!data?.cpu) return;
         setSystem(data);
         const now = new Date().toLocaleTimeString();
         setCpuHistory((prev) => {
@@ -215,7 +216,7 @@ export default function AdminDashboard({ onBack }) {
     }
   }, [tab]);
 
-  // Live auto-refresh: system stats every 2s, full data every 10s
+  // Live auto-refresh: system stats every 1s, full data (all tabs) every 5s
   useEffect(() => {
     if (!live) return;
     const fastId = setInterval(() => {
@@ -229,6 +230,8 @@ export default function AdminDashboard({ onBack }) {
       clearInterval(slowId);
     };
   }, [live, fetchAll, fetchSystem]);
+
+  const liveTag = live ? <span className="admin-live-indicator">Live</span> : null;
 
   const projectCols = [
     { key: 'name', label: 'Project' },
@@ -350,7 +353,7 @@ export default function AdminDashboard({ onBack }) {
 
       {tab === 'system' && (
         <div className="admin-section">
-          <h2>System Monitor {live && <span className="admin-live-indicator">Updating every 2s</span>}</h2>
+          <h2>System Monitor {liveTag}</h2>
           {system && (
             <>
               <div className="admin-cards">
@@ -421,21 +424,21 @@ export default function AdminDashboard({ onBack }) {
 
       {tab === 'projects' && (
         <div className="admin-section">
-          <h2>Most Active Projects</h2>
+          <h2>Most Active Projects {liveTag}</h2>
           <DataTable columns={projectCols} rows={topProjects} />
         </div>
       )}
 
       {tab === 'users' && (
         <div className="admin-section">
-          <h2>Most Active Users</h2>
+          <h2>Most Active Users {liveTag}</h2>
           <DataTable columns={userCols} rows={topUsers} />
         </div>
       )}
 
       {tab === 'audit' && (
         <div className="admin-section">
-          <h2>Audit Log</h2>
+          <h2>Audit Log {liveTag}</h2>
           <DataTable columns={auditCols} rows={auditLog.entries} />
           {auditLog.pages > 1 && (
             <div className="admin-pagination">
@@ -456,7 +459,7 @@ export default function AdminDashboard({ onBack }) {
       {tab === 'settings' && (
         <div className="admin-section">
           <h2>Settings</h2>
-          {settingsMsg && <div style={{ color: 'var(--green)', marginBottom: 12, fontSize: 13 }}>{settingsMsg}</div>}
+          {settingsMsg && <div style={{ color: settingsMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)', marginBottom: 12, fontSize: 13 }}>{settingsMsg}</div>}
           <div className="admin-setting-row">
             <label className="admin-setting-label">
               Maximum compile time (seconds)
@@ -495,6 +498,99 @@ export default function AdminDashboard({ onBack }) {
                 Save
               </button>
             </div>
+          </div>
+
+          <h3 style={{ marginTop: 28, marginBottom: 12 }}>Email (SMTP)</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            Configure outgoing email for project invitations and password resets. Leave blank to log emails to console (development mode).
+          </p>
+
+          {[
+            { key: 'smtp_host', label: 'SMTP Host', placeholder: 'smtp.example.com', type: 'text' },
+            { key: 'smtp_port', label: 'Port', placeholder: '587', type: 'number', width: 100 },
+            { key: 'smtp_user', label: 'Username', placeholder: 'user@example.com', type: 'text' },
+            { key: 'smtp_pass', label: 'Password', placeholder: '••••••••', type: 'password' },
+            { key: 'smtp_from', label: 'From Address', placeholder: 'FlowTex <noreply@example.com>', type: 'text' },
+          ].map(({ key, label, placeholder, type, width }) => (
+            <div className="admin-setting-row" key={key}>
+              <label className="admin-setting-label">{label}</label>
+              <div className="admin-setting-input">
+                <input
+                  type={type}
+                  value={adminSettings[key] || ''}
+                  onChange={(e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  className="auth-input"
+                  style={{ width: width || 260 }}
+                />
+              </div>
+            </div>
+          ))}
+
+          <div className="admin-setting-row">
+            <label className="admin-setting-label">Use TLS/SSL (port 465)</label>
+            <div className="admin-setting-input">
+              <button
+                type="button"
+                className={`settings-toggle ${adminSettings.smtp_secure === 'true' ? 'on' : ''}`}
+                onClick={() => setAdminSettings((s) => ({ ...s, smtp_secure: s.smtp_secure === 'true' ? 'false' : 'true' }))}
+                role="switch"
+                aria-checked={adminSettings.smtp_secure === 'true'}
+              >
+                <span className="settings-toggle-knob" />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              className="auth-button"
+              onClick={async () => {
+                setSettingsMsg('');
+                const smtpKeys = ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from'];
+                try {
+                  for (const k of smtpKeys) {
+                    if (adminSettings[k] !== undefined && adminSettings[k] !== '') {
+                      const res = await put('/api/admin/settings', { key: k, value: adminSettings[k] });
+                      if (!res.ok) {
+                        const d = await res.json();
+                        setSettingsMsg(`Error: ${d.error || 'Failed to save ' + k}`);
+                        return;
+                      }
+                    }
+                  }
+                  setSettingsMsg('SMTP settings saved');
+                  setTimeout(() => setSettingsMsg(''), 3000);
+                } catch (err) {
+                  setSettingsMsg('Error: ' + (err.message || 'Failed'));
+                }
+              }}
+            >
+              Save SMTP Settings
+            </button>
+            <button
+              className="auth-button"
+              style={{ background: 'var(--bg-hover)' }}
+              onClick={async () => {
+                const to = prompt('Send test email to:');
+                if (!to) return;
+                setSettingsMsg('');
+                try {
+                  const res = await post('/api/admin/settings/test-email', { to });
+                  const d = await res.json();
+                  if (res.ok) {
+                    setSettingsMsg('Test email sent successfully');
+                    setTimeout(() => setSettingsMsg(''), 3000);
+                  } else {
+                    setSettingsMsg('Error: ' + (d.error || 'Failed to send'));
+                  }
+                } catch (err) {
+                  setSettingsMsg('Error: ' + (err.message || 'Failed'));
+                }
+              }}
+            >
+              Send Test Email
+            </button>
           </div>
         </div>
       )}

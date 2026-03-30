@@ -2,8 +2,9 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
-import { sendPasswordResetEmail } from '../utils/email.js';
+import { sendPasswordResetEmail, sendEmailVerificationEmail } from '../utils/email.js';
 import logger from '../logger.js';
+import db from '../db.js';
 import * as authService from '../services/authService.js';
 import { sendError } from '../middleware/errorHandler.js';
 
@@ -48,14 +49,58 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'Name must be 1–200 characters' });
   try {
     const user = await authService.registerUser(email, name, password);
-    req.session.userId = user.id;
-    req.session.userName = user.name;
-    await regenerateSession(req, res);
     await auditLog(user.id, 'register', { ip: req.ip });
-    res.json(user);
+
+    // Send verification email
+    const baseUrl = process.env.APP_URL || 'http://localhost:3001';
+    const token = await authService.createEmailVerificationToken(user.id);
+    if (token) {
+      try {
+        await sendEmailVerificationEmail(user.email, `${baseUrl}/?verify=${token}`);
+      } catch (err) {
+        logger.error({ err }, 'Failed to send verification email');
+      }
+    }
+
+    res.json({ needsVerification: true, email: user.email });
   } catch (err) {
     sendError(res, err);
   }
+});
+
+// Verify email
+router.get('/verify-email', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Verification token is required' });
+  try {
+    const userId = await authService.verifyEmail(token);
+    await auditLog(userId, 'email_verified', { ip: req.ip });
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Resend verification email
+router.post('/resend-verification', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await db.get('SELECT id, email, email_verified FROM users WHERE email = $1', [normalizedEmail]);
+  if (!user || user.email_verified) {
+    // Don't reveal whether user exists or is already verified
+    return res.json({ ok: true });
+  }
+  const token = await authService.createEmailVerificationToken(user.id);
+  if (token) {
+    const baseUrl = process.env.APP_URL || 'http://localhost:3001';
+    try {
+      await sendEmailVerificationEmail(user.email, `${baseUrl}/?verify=${token}`);
+    } catch (err) {
+      logger.error({ err }, 'Failed to send verification email');
+    }
+  }
+  res.json({ ok: true });
 });
 
 // Login
@@ -72,7 +117,9 @@ router.post('/login', async (req, res) => {
   const authResult = await authService.authenticateUser(email, password);
   if (authResult.error) {
     await authService.recordLoginAttempt(normalizedEmail, req.ip, false);
-    if (authResult.user) await auditLog(authResult.user.id, 'login_failed', { ip: req.ip });
+    if (authResult.unverified) {
+      return res.status(authResult.status).json({ error: authResult.error, unverified: true });
+    }
     return res.status(authResult.status).json({ error: authResult.error });
   }
 

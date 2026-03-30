@@ -62,7 +62,16 @@ function filterBibtex(bibtex, excludedFields) {
   return result.trimEnd() + '\n';
 }
 
-export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
+// Extract citation keys from BibTeX string
+function extractBibKeys(bibtex) {
+  const keys = [];
+  const re = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
+  let m;
+  while ((m = re.exec(bibtex)) !== null) keys.push(m[1]);
+  return keys;
+}
+
+export default function ZoteroModal({ onClose, onInsert, bibFileExists, existingBibKeys }) {
   const [status, setStatus] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -189,6 +198,8 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
     });
   };
 
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+
   const handleImport = async () => {
     if (selectedKeys.size === 0) return;
     setImporting(true);
@@ -197,6 +208,17 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
       const data = await res.json();
       if (data.bibtex) {
         const filtered = filterBibtex(data.bibtex, excludedFields);
+        // Check for duplicate keys
+        if (existingBibKeys?.length) {
+          const incoming = extractBibKeys(filtered);
+          const existingSet = new Set(existingBibKeys);
+          const dupes = incoming.filter((k) => existingSet.has(k));
+          if (dupes.length > 0) {
+            setDuplicateWarning({ keys: dupes, bibtex: filtered });
+            setImporting(false);
+            return;
+          }
+        }
         onInsert(filtered);
         onClose();
       }
@@ -453,6 +475,29 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists }) {
               )}
             </div>
 
+            {duplicateWarning && (
+              <div className="zotero-duplicate-warning">
+                <p>
+                  {duplicateWarning.keys.length === 1
+                    ? `The key "${duplicateWarning.keys[0]}" already exists in your .bib file.`
+                    : `${duplicateWarning.keys.length} keys already exist in your .bib file: ${duplicateWarning.keys.join(', ')}`}
+                </p>
+                <div className="zotero-duplicate-actions">
+                  <button className="zotero-cancel-btn" onClick={() => setDuplicateWarning(null)}>
+                    Cancel import
+                  </button>
+                  <button
+                    className="auth-button"
+                    onClick={() => {
+                      onInsert(duplicateWarning.bibtex);
+                      onClose();
+                    }}
+                  >
+                    Import anyway
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="zotero-footer">
               {!bibFileExists && <span className="zotero-warning">No .bib file found — one will be created.</span>}
               <button className="zotero-cancel-btn" onClick={onClose}>

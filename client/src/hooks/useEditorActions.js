@@ -178,6 +178,75 @@ export default function useEditorActions({
     return keys;
   }, [files]);
 
+  const labelKeys = useMemo(() => {
+    // Build a path → file map for fast lookup
+    const fileMap = new Map(files.map((f) => [f.path, f]));
+
+    // Resolve a relative \input/\include path against the directory of the current file
+    function resolvePath(currentPath, included) {
+      const dir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/') + 1) : '';
+      const resolved = dir + included;
+      // Try as-is, then with .tex extension appended
+      return fileMap.has(resolved) ? resolved : fileMap.has(resolved + '.tex') ? resolved + '.tex' : null;
+    }
+
+    // Walk the include tree starting from mainFilePath, collect labels in order
+    const visitedFiles = new Set();
+    const orderedFiles = [];
+
+    function walk(filePath) {
+      if (visitedFiles.has(filePath)) return;
+      visitedFiles.add(filePath);
+      const f = fileMap.get(filePath);
+      if (!f?.content) return;
+      orderedFiles.push(f);
+      // Find all \input{} and \include{} commands (skip commented lines)
+      const includePattern = /^[^%\n]*\\(?:input|include|subfile|subfileinclude)\{([^}]+)\}/gm;
+      let m;
+      while ((m = includePattern.exec(f.content)) !== null) {
+        const resolved = resolvePath(filePath, m[1].trim());
+        if (resolved) walk(resolved);
+      }
+    }
+
+    walk(mainFilePath);
+
+    // Extract labels from the ordered file set
+    const keys = [];
+    const seenLabels = new Set();
+    const labelPattern = /\\label\{([^}]+)\}/g;
+
+    for (const f of orderedFiles) {
+      labelPattern.lastIndex = 0;
+      let match;
+      while ((match = labelPattern.exec(f.content)) !== null) {
+        const key = match[1];
+        if (seenLabels.has(key)) continue;
+        seenLabels.add(key);
+        // Extract nearby context: caption or section heading near the label
+        const nearby = f.content.slice(Math.max(0, match.index - 300), match.index + match[0].length + 200);
+        let detail = '';
+        const captionMatch = nearby.match(/\\caption\{([^}]{1,60})/);
+        const sectionMatch = nearby.match(/\\(?:section|subsection|subsubsection|chapter|paragraph)\{([^}]{1,60})/);
+        if (captionMatch) detail = captionMatch[1].trim();
+        else if (sectionMatch) detail = sectionMatch[1].trim();
+        // Prefix by type
+        if (key.startsWith('fig:')) detail = detail ? 'Fig: ' + detail : 'Figure';
+        else if (key.startsWith('tab:')) detail = detail ? 'Table: ' + detail : 'Table';
+        else if (key.startsWith('sec:')) detail = detail ? 'Sec: ' + detail : 'Section';
+        else if (key.startsWith('eq:')) detail = detail ? 'Eq: ' + detail : 'Equation';
+        else if (key.startsWith('lst:')) detail = detail ? 'Listing: ' + detail : 'Listing';
+        else if (key.startsWith('alg:')) detail = detail ? 'Alg: ' + detail : 'Algorithm';
+        else if (key.startsWith('ch:')) detail = detail ? 'Ch: ' + detail : 'Chapter';
+        else if (key.startsWith('thm:')) detail = detail ? 'Thm: ' + detail : 'Theorem';
+        else if (key.startsWith('lem:')) detail = detail ? 'Lem: ' + detail : 'Lemma';
+        else if (key.startsWith('def:')) detail = detail ? 'Def: ' + detail : 'Definition';
+        keys.push({ label: key, type: 'text', detail, boost: 1 });
+      }
+    }
+    return keys;
+  }, [files, mainFilePath]);
+
   return {
     editorLine,
     setEditorLine,
@@ -196,6 +265,7 @@ export default function useEditorActions({
     handleFormatDocument,
     handleWordCount,
     citeKeys,
+    labelKeys,
     mainFilePath,
   };
 }

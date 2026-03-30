@@ -1,23 +1,37 @@
 import nodemailer from 'nodemailer';
 import logger from '../logger.js';
+import db from '../db.js';
 
 let transporter;
 
-function getTransporter() {
+async function getSmtpSettings() {
+  try {
+    const rows = await db.all("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'");
+    const settings = {};
+    for (const r of rows) settings[r.key] = r.value;
+    return settings;
+  } catch {
+    return {};
+  }
+}
+
+async function getTransporter() {
   if (transporter) return transporter;
 
-  if (process.env.SMTP_HOST) {
-    // Production / configured SMTP
+  // Try DB settings first, fall back to env vars
+  const dbSettings = await getSmtpSettings();
+  const host = dbSettings.smtp_host || process.env.SMTP_HOST;
+  const port = parseInt(dbSettings.smtp_port || process.env.SMTP_PORT || '587');
+  const secure = (dbSettings.smtp_secure || process.env.SMTP_SECURE) === 'true';
+  const user = dbSettings.smtp_user || process.env.SMTP_USER;
+  const pass = dbSettings.smtp_pass || process.env.SMTP_PASS;
+
+  if (host) {
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: process.env.SMTP_USER
-        ? {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          }
-        : undefined,
+      host,
+      port,
+      secure,
+      auth: user ? { user, pass } : undefined,
     });
   } else {
     // Development: log emails to console instead of sending
@@ -37,11 +51,19 @@ function getTransporter() {
   return transporter;
 }
 
-const FROM = process.env.SMTP_FROM || 'FlowTex <noreply@flowtex.local>';
+export function resetTransporter() {
+  transporter = null;
+}
+
+async function getFromAddress() {
+  const dbSettings = await getSmtpSettings();
+  return dbSettings.smtp_from || process.env.SMTP_FROM || 'FlowTex <noreply@flowtex.local>';
+}
 
 export async function sendEmail({ to, subject, text, html }) {
-  const transport = getTransporter();
-  return transport.sendMail({ from: FROM, to, subject, text, html });
+  const transport = await getTransporter();
+  const from = await getFromAddress();
+  return transport.sendMail({ from, to, subject, text, html });
 }
 
 function escapeHtml(str) {
@@ -65,6 +87,22 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
       <p><strong>${safeInviter}</strong> has invited you to collaborate on <strong>${safeProject}</strong>.</p>
       <p><a href="${safeUrl}">Log in to FlowTex</a> to accept the invitation.</p>
       <p>If you were not expecting this invitation, you can safely ignore this email.</p>
+    `,
+  });
+}
+
+export async function sendEmailVerificationEmail(email, verifyUrl) {
+  const safeUrl = escapeHtml(verifyUrl);
+  return sendEmail({
+    to: email,
+    subject: 'Verify your FlowTex email address',
+    text: `Welcome to FlowTex!\n\nPlease verify your email address by clicking the link below (valid for 24 hours):\n\n${verifyUrl}\n\nIf you did not create a FlowTex account, you can safely ignore this email.\n`,
+    html: `
+      <p>Welcome to FlowTex!</p>
+      <p>Please verify your email address by clicking the link below:</p>
+      <p><a href="${safeUrl}">Verify my email</a></p>
+      <p>This link is valid for 24 hours.</p>
+      <p>If you did not create a FlowTex account, you can safely ignore this email.</p>
     `,
   });
 }

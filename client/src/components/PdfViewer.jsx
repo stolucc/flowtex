@@ -793,7 +793,7 @@ const PdfViewer = forwardRef(function PdfViewer(
         {numPages > 0 && (
           <div className="pdf-page-nav">
             <button className="pdf-zoom-btn" onClick={goToPrevPage} title="Previous page" disabled={currentPage <= 1}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="18 15 12 9 6 15" />
               </svg>
             </button>
@@ -806,7 +806,7 @@ const PdfViewer = forwardRef(function PdfViewer(
               title="Next page"
               disabled={currentPage >= numPages}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
@@ -814,26 +814,30 @@ const PdfViewer = forwardRef(function PdfViewer(
         )}
         <div className="pdf-zoom-controls">
           <button className="pdf-zoom-btn" onClick={zoomOut} title="Zoom out" disabled={scale <= MIN_SCALE}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="5" y1="12" x2="19" y2="12" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="8" y1="11" x2="14" y2="11" />
             </svg>
           </button>
           <span className="pdf-zoom-level">{Math.round(scale * 100)}%</span>
           <button className="pdf-zoom-btn" onClick={zoomIn} title="Zoom in" disabled={scale >= MAX_SCALE}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="11" y1="8" x2="11" y2="14" />
+              <line x1="8" y1="11" x2="14" y2="11" />
             </svg>
           </button>
           <button className="pdf-zoom-btn" onClick={fitWidth} title="Fit width">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="3" y1="12" x2="21" y2="12" />
               <polyline points="3,8 3,12 3,16" />
               <polyline points="21,8 21,12 21,16" />
             </svg>
           </button>
           <button className="pdf-zoom-btn" onClick={fitPage} title="Fit page">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
             </svg>
           </button>
@@ -848,7 +852,7 @@ const PdfViewer = forwardRef(function PdfViewer(
             }
             title="Invert colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="9" />
               <path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" />
             </svg>

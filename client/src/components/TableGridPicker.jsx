@@ -157,11 +157,12 @@ function TableGridPicker({ onInsert, onClose, initial }) {
             </div>
           ))}
         </div>
-        {isEditing && <div className="table-builder-editing">Editing table</div>}
       </div>
       <div className="table-builder-opts">
-        <div className="table-opt-row">
-          <label className="table-opt-label">Environment</label>
+        <div className="table-opts-columns">
+          <div className="table-opts-left">
+            <div className="table-opt-row">
+              <label className="table-opt-label">Environment</label>
           <select className="table-opt-select" value={env} onChange={(e) => setEnv(e.target.value)}>
             {TABLE_ENV_OPTIONS.map((e) => (
               <option key={e.value} value={e.value}>
@@ -314,55 +315,74 @@ function TableGridPicker({ onInsert, onClose, initial }) {
             </div>
           </div>
         )}
-        <div className="table-opt-row table-opt-checks">
-          <label className="table-opt-check">
-            <input type="checkbox" checked={headerRow} onChange={() => setHeaderRow((v) => !v)} /> Header row
+        </div>
+        <div className="table-opts-right">
+          <label className="table-opt-toggle">
+            <span className="table-opt-toggle-label">Header row</span>
+            <button className={`table-toggle${headerRow ? ' on' : ''}`} onClick={() => setHeaderRow((v) => !v)} role="switch" aria-checked={headerRow}>
+              <span className="table-toggle-knob" />
+            </button>
           </label>
-          <label className="table-opt-check">
-            <input type="checkbox" checked={boldHeader} onChange={() => setBoldHeader((v) => !v)} /> Bold header
+          <label className="table-opt-toggle">
+            <span className="table-opt-toggle-label">Bold header</span>
+            <button className={`table-toggle${boldHeader ? ' on' : ''}`} onClick={() => setBoldHeader((v) => !v)} role="switch" aria-checked={boldHeader}>
+              <span className="table-toggle-knob" />
+            </button>
           </label>
-          <label className="table-opt-check">
-            <input type="checkbox" checked={caption} onChange={() => setCaption((v) => !v)} /> Caption
+          <label className="table-opt-toggle">
+            <span className="table-opt-toggle-label">Centered</span>
+            <button className={`table-toggle${centering ? ' on' : ''}`} onClick={() => setCentering((v) => !v)} role="switch" aria-checked={centering}>
+              <span className="table-toggle-knob" />
+            </button>
           </label>
-          <label className="table-opt-check">
-            <input type="checkbox" checked={centering} onChange={() => setCentering((v) => !v)} /> Centered
-          </label>
-          <label className="table-opt-check">
-            <input type="checkbox" checked={zebra} onChange={() => setZebra((v) => !v)} /> Zebra stripes
+          <label className="table-opt-toggle">
+            <span className="table-opt-toggle-label">Zebra stripes</span>
+            <button className={`table-toggle${zebra ? ' on' : ''}`} onClick={() => setZebra((v) => !v)} role="switch" aria-checked={zebra}>
+              <span className="table-toggle-knob" />
+            </button>
           </label>
         </div>
-        {caption && (
-          <>
-            <div className="table-opt-row">
-              <label className="table-opt-label">Caption</label>
-              <input
-                className="table-opt-input"
-                type="text"
-                placeholder="Caption here"
-                value={captionText}
-                onChange={(e) => setCaptionText(e.target.value)}
-              />
-            </div>
-            <div className="table-opt-row">
-              <label className="table-opt-label">Label</label>
-              <input
-                className="table-opt-input"
-                type="text"
-                placeholder="tab:mytable"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-          </>
-        )}
-      </div>
-      <div className="table-builder-actions">
-        <button className="table-builder-insert" onClick={handleInsert} disabled={!hasSize}>
-          {isEditing ? 'Update' : 'Insert'}
-        </button>
-        <button className="table-builder-cancel" onClick={onClose}>
-          Cancel
-        </button>
+        </div>
+        <div className="table-opt-caption-group">
+          <label className="table-opt-toggle">
+            <span className="table-opt-toggle-label">Caption</span>
+            <button className={`table-toggle${caption ? ' on' : ''}`} onClick={() => setCaption((v) => !v)} role="switch" aria-checked={caption}>
+              <span className="table-toggle-knob" />
+            </button>
+          </label>
+          {caption && (
+            <>
+              <div className="table-opt-row">
+                <label className="table-opt-label">Caption</label>
+                <input
+                  className="table-opt-input"
+                  type="text"
+                  placeholder="Caption here"
+                  value={captionText}
+                  onChange={(e) => setCaptionText(e.target.value)}
+                />
+              </div>
+              <div className="table-opt-row">
+                <label className="table-opt-label">Label</label>
+                <input
+                  className="table-opt-input"
+                  type="text"
+                  placeholder="tab:mytable"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <div className="table-builder-actions">
+          <button className="table-builder-cancel" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="table-builder-insert" onClick={handleInsert} disabled={!hasSize}>
+            {isEditing ? 'Update' : 'Insert'}
+          </button>
+        </div>
       </div>
       {hasSize && (
         <div className="table-cell-layout">

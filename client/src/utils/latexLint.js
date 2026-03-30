@@ -161,6 +161,10 @@ export default function latexLint(text) {
         if (endMatch && endMatch[1] === verbatimEnv) {
           inVerbatim = false;
           verbatimEnv = null;
+          // Pop the verbatim environment from the stack
+          if (envStack.length > 0 && envStack[envStack.length - 1].name === endMatch[1]) {
+            envStack.pop();
+          }
           i += endMatch[0].length;
           continue;
         }

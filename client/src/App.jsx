@@ -121,6 +121,16 @@ function AppInner() {
     handleRejectChange,
     handleAcceptAllChanges,
     handleRejectAllChanges,
+    reviewing,
+    reviewIndex,
+    reviewCurrentChange,
+    pendingChanges,
+    startReview,
+    stopReview,
+    reviewNext,
+    reviewPrev,
+    acceptAndNext,
+    rejectAndNext,
   } = useTrackedChanges(activeFile, user, sendWsRef, editorRef);
 
   const {
@@ -155,12 +165,14 @@ function AppInner() {
     handleDiff,
   } = useCompilation(project, activeFile, handleSave, editorRef);
 
-  const { githubLink, setGithubLink, autoSyncStatus, handleToggleAutoSync } = useGitHubSync(project);
+  const { githubLink, setGithubLink, hasGithubToken, setHasGithubToken, autoSyncStatus, handleToggleAutoSync } = useGitHubSync(project);
 
   const ui = useUIState();
 
   const [showBoxWarnings, setShowBoxWarnings] = useState(true);
   const [showLintWarnings, setShowLintWarnings] = useState(true);
+  const [groupFilesByType, setGroupFilesByType] = useState(true);
+  const [tapsEnabled, setTapsEnabled] = useState(true);
   const [projectSettingsTab, setProjectSettingsTab] = useState(null);
 
   const {
@@ -181,6 +193,7 @@ function AppInner() {
     handleFormatDocument,
     handleWordCount,
     citeKeys,
+    labelKeys,
     mainFilePath,
   } = useEditorActions({
     project,
@@ -209,6 +222,10 @@ function AppInner() {
       if (stored !== null) setShowBoxWarnings(stored === 'true');
       const lintStored = localStorage.getItem(`flowtex-show-lint-warnings-${project.id}`);
       if (lintStored !== null) setShowLintWarnings(lintStored === 'true');
+      const groupStored = localStorage.getItem(`flowtex-group-files-${project.id}`);
+      if (groupStored !== null) setGroupFilesByType(groupStored !== 'false');
+      const tapsStored = localStorage.getItem(`flowtex-taps-enabled-${project.id}`);
+      if (tapsStored !== null) setTapsEnabled(tapsStored !== 'false');
     }
   }, [project?.id]);
 
@@ -216,6 +233,8 @@ function AppInner() {
     const handler = (e) => {
       if (e.detail.showBoxWarnings !== undefined) setShowBoxWarnings(e.detail.showBoxWarnings);
       if (e.detail.showLintWarnings !== undefined) setShowLintWarnings(e.detail.showLintWarnings);
+      if (e.detail.groupFilesByType !== undefined) setGroupFilesByType(e.detail.groupFilesByType);
+      if (e.detail.tapsEnabled !== undefined) setTapsEnabled(e.detail.tapsEnabled);
     };
     window.addEventListener('flowtex:settings-changed', handler);
     return () => window.removeEventListener('flowtex:settings-changed', handler);
@@ -372,7 +391,7 @@ function AppInner() {
           onGitHubSync={() => ui.setShowGitHubSync(true)}
           onBibEnrich={activeFile?.path?.endsWith('.bib') ? () => ui.setShowBibEnrich(true) : null}
           onZotero={() => ui.setShowZotero(true)}
-          onTapsCheck={handleTapsCheck}
+          onTapsCheck={tapsEnabled ? handleTapsCheck : null}
           onWordCount={handleWordCount}
           onProjectSettings={() => ui.setShowProjectSettings(true)}
           onFormatDocument={handleFormatDocument}
@@ -435,6 +454,7 @@ function AppInner() {
         setTrackChangesMode={setTrackChangesMode}
         githubLink={githubLink}
         setGithubLink={setGithubLink}
+        hasGithubToken={hasGithubToken}
         handleDiff={handleDiff}
         handleSave={handleSave}
         wordCountState={wordCountState}
@@ -468,6 +488,7 @@ function AppInner() {
                   <FileTree
                     files={files}
                     activeFile={activeFile}
+                    groupByType={groupFilesByType}
                     onSelect={switchFile}
                     onCreate={handleCreateFile}
                     onOverwrite={handleOverwriteFile}
@@ -709,16 +730,30 @@ function AppInner() {
                     wordWrap={ui.wordWrap}
                     trackChangesMode={trackChangesMode}
                     trackedChanges={trackedChanges}
+                    reviewingChangeId={reviewCurrentChange?.id || null}
                     onTrackChange={handleTrackChange}
                     onTrackedChangeClick={(changeId, pos) =>
                       setTcPopup((prev) => (prev?.changeId === changeId ? null : { changeId, x: pos.x, y: pos.y }))
                     }
                     onDeleteInsertionChar={handleDeleteInsertionChar}
                     onToggleTrackChanges={() => setTrackChangesMode((m) => !m)}
+                    pendingChangesCount={pendingChanges.length}
+                    reviewing={reviewing}
+                    reviewIndex={reviewIndex}
+                    reviewCurrentChange={reviewCurrentChange}
+                    onStartReview={startReview}
+                    onStopReview={stopReview}
+                    onAcceptAndNext={acceptAndNext}
+                    onRejectAndNext={rejectAndNext}
+                    onAcceptAll={handleAcceptAllChanges}
+                    onRejectAll={handleRejectAllChanges}
+                    onReviewNext={reviewNext}
+                    onReviewPrev={reviewPrev}
                     citeKeys={citeKeys}
-                    autoSaveOn={!!githubLink?.autoPush}
+                    labelKeys={labelKeys}
+                    autoSaveOn={!!hasGithubToken && !!githubLink?.linked && !!githubLink?.autoPush}
                     autoSaveLabel={
-                      githubLink?.linked && githubLink?.autoPush
+                      hasGithubToken && githubLink?.linked && githubLink?.autoPush
                         ? autoSyncStatus === 'saving'
                           ? 'Saving...'
                           : autoSyncStatus === 'error'
@@ -738,15 +773,31 @@ function AppInner() {
                         } else editorRef.current?.goToLine(line, col);
                       }
                     }}
-                    onToggleAutoSave={
-                      githubLink?.linked
-                        ? async () => {
-                            const newVal = !githubLink.autoPush;
-                            await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
-                            setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
-                          }
-                        : null
-                    }
+                    onToggleAutoSave={async () => {
+                      // Always re-check token freshly
+                      let tokenOk = hasGithubToken;
+                      try {
+                        const r = await get('/api/github/token');
+                        const d = await r.json();
+                        tokenOk = !!d.hasToken;
+                        setHasGithubToken(tokenOk);
+                      } catch {}
+
+                      if (!tokenOk) {
+                        // No GitHub account connected — send to GitHub settings
+                        ui.setShowProjectSettings(true);
+                        setProjectSettingsTab('github');
+                        return;
+                      }
+                      if (!githubLink?.linked) {
+                        // GitHub connected but no repo linked — open Git Sync modal
+                        ui.setShowGitHubSync(true);
+                        return;
+                      }
+                      const newVal = !githubLink.autoPush;
+                      await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
+                      setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
+                    }}
                   />
                   <TrackChangesPopup
                     tcPopup={tcPopup}
@@ -762,6 +813,16 @@ function AppInner() {
                     onAccept={handleAcceptChange}
                     onReject={handleRejectChange}
                     onGoToPosition={(pos) => editorRef.current?.goToPosition(pos)}
+                    reviewing={reviewing}
+                    reviewIndex={reviewIndex}
+                    reviewCurrentChange={reviewCurrentChange}
+                    pendingChanges={pendingChanges}
+                    onStartReview={startReview}
+                    onStopReview={stopReview}
+                    onReviewNext={reviewNext}
+                    onReviewPrev={reviewPrev}
+                    onAcceptAndNext={acceptAndNext}
+                    onRejectAndNext={rejectAndNext}
                   />
                 </>
               )}
@@ -820,7 +881,7 @@ function AppInner() {
                   setTimeout(() => editorRef.current?.goToLine(line, col), 50);
                 } else editorRef.current?.goToLine(line, col);
               }}
-              tapsDiagnostics={tapsDiagnostics}
+              tapsDiagnostics={tapsEnabled ? tapsDiagnostics : []}
               showBoxWarnings={showBoxWarnings}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);

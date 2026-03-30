@@ -291,10 +291,38 @@ function makeCiteKeySource(citeKeysRef) {
   };
 }
 
-export default function latexAutocomplete(citeKeysRef) {
+// Label/ref completion — triggers inside \ref{}, \eqref{}, \pageref{}, \autoref{},
+// \cref{}, \Cref{}, \nameref{}, \hyperref[], and similar commands.
+const refCommandPattern = /\\(?:(?:eq|page|auto|name|c|C|v|V)?ref|hyperref)\*?(?:\[.*?\])*\{[^}]*$/;
+
+function makeRefKeySource(labelKeysRef) {
+  return function refKeyCompletionSource(context) {
+    const lineText = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
+    if (!refCommandPattern.test(lineText)) return null;
+
+    const lastBrace = lineText.lastIndexOf('{');
+    const lastComma = lineText.lastIndexOf(',');
+    const keyStart = Math.max(lastBrace, lastComma) + 1;
+    const from = context.pos - (lineText.length - keyStart);
+
+    const keys = labelKeysRef?.current || [];
+    if (keys.length === 0) return null;
+
+    return {
+      from,
+      options: keys,
+      validFor: /^[\w:.@/+-]*$/,
+    };
+  };
+}
+
+export default function latexAutocomplete(citeKeysRef, labelKeysRef) {
   const sources = [envCompletionSource, latexCompletionSource];
   if (citeKeysRef) {
     sources.unshift(makeCiteKeySource(citeKeysRef));
+  }
+  if (labelKeysRef) {
+    sources.unshift(makeRefKeySource(labelKeysRef));
   }
   return autocompletion({
     override: sources,

@@ -85,25 +85,62 @@ export async function registerUser(email, name, password) {
 
   const id = uuid();
   const password_hash = await bcrypt.hash(password, 12);
-  await db.run('INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)', [
+  await db.run('INSERT INTO users (id, email, name, password_hash, email_verified) VALUES ($1, $2, $3, $4, FALSE)', [
     id,
     normalizedEmail,
     name.trim(),
     password_hash,
   ]);
-  return { id, email: normalizedEmail, name: name.trim(), totpEnabled: false, isAdmin: false };
+  return { id, email: normalizedEmail, name: name.trim(), totpEnabled: false, isAdmin: false, emailVerified: false };
+}
+
+export async function createEmailVerificationToken(userId) {
+  // Rate limit: max 3 tokens per hour
+  const recent = await db.get(
+    `SELECT COUNT(*) AS cnt FROM email_verification_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+    [userId],
+  );
+  if (parseInt(recent?.cnt || 0) >= 3) return null;
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  await db.run(
+    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')`,
+    [uuid(), userId, tokenHash],
+  );
+  return token;
+}
+
+export async function verifyEmail(token) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const row = await db.get(
+    `UPDATE email_verification_tokens SET used = TRUE
+     WHERE token_hash = $1 AND used = FALSE AND expires_at > NOW()
+     RETURNING user_id`,
+    [tokenHash],
+  );
+  if (!row) throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
+
+  await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
+  // Invalidate other tokens for this user
+  await db.run('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1', [row.user_id]);
+  return row.user_id;
 }
 
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get(
-    'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin FROM users WHERE email = $1',
+    'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified FROM users WHERE email = $1',
     [normalizedEmail],
   );
   if (!user) return { error: 'Invalid credentials', status: 401 };
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return { error: 'Invalid credentials', status: 401 };
+
+  if (!user.email_verified) {
+    return { error: 'Please verify your email address before signing in. Check your inbox for a verification link.', status: 403, unverified: true, userId: user.id };
+  }
 
   return { user };
 }

@@ -4,6 +4,7 @@ import CompareFilesModal from './CompareFilesModal.jsx';
 import ProjectSettingsModal from './ProjectSettingsModal.jsx';
 import WordCountModal from './WordCountModal.jsx';
 import { get, post, put, patch } from '../api.js';
+import { resolveUsedFiles } from '../utils/texDeps.js';
 
 const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
@@ -26,6 +27,7 @@ export default function ModalContainer({
   setTrackChangesMode,
   githubLink,
   setGithubLink,
+  hasGithubToken,
   handleDiff,
   handleSave,
   wordCountState,
@@ -64,7 +66,7 @@ export default function ModalContainer({
             await patch(`/api/github/link/${project.id}/auto-push`, { enabled: val });
             setGithubLink((prev) => (prev ? { ...prev, autoPush: val } : prev));
           }}
-          githubLinked={!!githubLink?.linked}
+          githubLinked={!!hasGithubToken && !!githubLink?.linked}
           initialTab={projectSettingsTab}
         />
       )}
@@ -154,8 +156,23 @@ export default function ModalContainer({
           <ZoteroModal
             onClose={() => ui.setShowZotero(false)}
             bibFileExists={files.some((f) => f.path.endsWith('.bib'))}
+            existingBibKeys={(() => {
+              const re = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
+              const keys = [];
+              for (const f of files) {
+                if (!f.path.endsWith('.bib') || !f.content) continue;
+                let m;
+                re.lastIndex = 0;
+                while ((m = re.exec(f.content)) !== null) keys.push(m[1]);
+              }
+              return keys;
+            })()}
             onInsert={async (bibtex) => {
-              let bibFile = files.find((f) => f.path.endsWith('.bib'));
+              // Find the first .bib file actually referenced from the main file
+              const mainFile = project?.main_file || 'main.tex';
+              const usedPaths = resolveUsedFiles(files, mainFile);
+              let bibFile = files.find((f) => f.path.endsWith('.bib') && usedPaths.has(f.path))
+                || files.find((f) => f.path.endsWith('.bib'));
               if (!bibFile) {
                 try {
                   const res = await post(`/api/projects/${project.id}/files`, {

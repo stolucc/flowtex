@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { post } from '../api.js';
+import { post, get } from '../api.js';
 
 export default function AuthPage({ onAuth }) {
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('token');
-  const [mode, setMode] = useState(resetToken ? 'reset' : 'login');
+  const verifyToken = urlParams.get('verify');
+  const [mode, setMode] = useState(resetToken ? 'reset' : verifyToken ? 'verifying' : 'login');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -15,31 +16,83 @@ export default function AuthPage({ onAuth }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const [resending, setResending] = useState(false);
+
+  // Handle email verification token from URL
+  useEffect(() => {
+    if (!verifyToken) return;
+    (async () => {
+      try {
+        const res = await get(`/api/auth/verify-email?token=${verifyToken}`);
+        const data = await res.json();
+        if (res.ok) {
+          setSuccess('Email verified successfully! You can now sign in.');
+          setMode('login');
+        } else {
+          setError(data.error || 'Verification failed');
+          setMode('login');
+        }
+      } catch {
+        setError('Verification failed. Please try again.');
+        setMode('login');
+      }
+      window.history.replaceState({}, '', '/');
+    })();
+  }, [verifyToken]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setUnverifiedEmail('');
     setLoading(true);
     try {
-      const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const body =
-        mode === 'login'
-          ? { email, password, ...(mfaRequired ? { totpCode, trustDevice } : {}) }
-          : { email, name, password };
-      const res = await post(endpoint, body);
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Something went wrong');
-      } else if (data.mfaRequired) {
-        setMfaRequired(true);
+      if (mode === 'register') {
+        const res = await post('/api/auth/register', { email, name, password });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Something went wrong');
+        } else if (data.needsVerification) {
+          setMode('check-email');
+          setUnverifiedEmail(data.email);
+        } else {
+          onAuth(data);
+        }
       } else {
-        onAuth(data);
+        // Login
+        const body = { email, password, ...(mfaRequired ? { totpCode, trustDevice } : {}) };
+        const res = await post('/api/auth/login', body);
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.unverified) {
+            setUnverifiedEmail(email);
+          }
+          setError(data.error || 'Something went wrong');
+        } else if (data.mfaRequired) {
+          setMfaRequired(true);
+        } else {
+          onAuth(data);
+        }
       }
     } catch (err) {
       setError(err.message);
     }
     setLoading(false);
+  };
+
+  const handleResendVerification = async () => {
+    if (!unverifiedEmail || resending) return;
+    setResending(true);
+    setError('');
+    setSuccess('');
+    try {
+      await post('/api/auth/resend-verification', { email: unverifiedEmail });
+      setSuccess('Verification email sent! Please check your inbox.');
+    } catch {
+      setError('Failed to resend verification email.');
+    }
+    setResending(false);
   };
 
   const handleForgotPassword = async (e) => {
@@ -105,6 +158,7 @@ export default function AuthPage({ onAuth }) {
     setSuccess('');
     setPassword('');
     setConfirmPassword('');
+    setUnverifiedEmail('');
     window.history.replaceState({}, '', '/');
   };
 
@@ -113,7 +167,31 @@ export default function AuthPage({ onAuth }) {
       <div className="auth-card">
         <h1 className="auth-title">FlowTex</h1>
 
-        {mode === 'reset' ? (
+        {mode === 'verifying' ? (
+          <p className="auth-subtitle">Verifying your email...</p>
+        ) : mode === 'check-email' ? (
+          <>
+            <p className="auth-subtitle">Check your email</p>
+            <div style={{ textAlign: 'center', padding: '8px 0 16px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+              <p>We've sent a verification link to</p>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{unverifiedEmail}</p>
+              <p style={{ marginTop: 12 }}>Click the link in the email to activate your account.</p>
+            </div>
+            {success && <div className="auth-success">{success}</div>}
+            {error && <div className="auth-error">{error}</div>}
+            <button
+              className="auth-button"
+              style={{ background: 'var(--bg-hover)', marginBottom: 8 }}
+              onClick={handleResendVerification}
+              disabled={resending}
+            >
+              {resending ? '...' : 'Resend verification email'}
+            </button>
+            <p className="auth-switch">
+              <button onClick={goToLogin}>Back to sign in</button>
+            </p>
+          </>
+        ) : mode === 'reset' ? (
           <>
             <p className="auth-subtitle">Set a new password</p>
             <form onSubmit={handleResetPassword} className="auth-form">
@@ -230,6 +308,17 @@ export default function AuthPage({ onAuth }) {
               />
               {error && <div className="auth-error">{error}</div>}
               {success && <div className="auth-success">{success}</div>}
+              {unverifiedEmail && (
+                <button
+                  type="button"
+                  className="auth-resend-btn"
+                  onClick={handleResendVerification}
+                  disabled={resending}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, marginBottom: 8, textDecoration: 'underline' }}
+                >
+                  {resending ? 'Sending...' : 'Resend verification email'}
+                </button>
+              )}
               <button type="submit" className="auth-button" disabled={loading}>
                 {loading ? '...' : mode === 'login' ? 'Sign In' : 'Register'}
               </button>
@@ -255,6 +344,7 @@ export default function AuthPage({ onAuth }) {
                     onClick={() => {
                       setMode('register');
                       setError('');
+                      setUnverifiedEmail('');
                     }}
                   >
                     Register

@@ -41,6 +41,8 @@ import {
   tcDeleteGutterExtension,
   buildTcInsertDecorations,
   buildTcDeleteDecorations,
+  setTcReviewHighlightEffect,
+  tcReviewHighlightField,
   setSearchHighlightEffect,
   searchHighlightField,
   spellcheckField,
@@ -74,11 +76,25 @@ const Editor = forwardRef(function Editor(
     wordWrap = true,
     trackChangesMode = false,
     trackedChanges = [],
+    reviewingChangeId = null,
     onTrackChange,
     onTrackedChangeClick,
     onDeleteInsertionChar,
     onToggleTrackChanges,
+    pendingChangesCount = 0,
+    reviewing = false,
+    reviewIndex = 0,
+    reviewCurrentChange = null,
+    onStartReview,
+    onStopReview,
+    onAcceptAndNext,
+    onRejectAndNext,
+    onAcceptAll,
+    onRejectAll,
+    onReviewNext,
+    onReviewPrev,
     citeKeys,
+    labelKeys,
     autoSaveOn,
     autoSaveLabel,
     onToggleAutoSave,
@@ -161,6 +177,8 @@ const Editor = forwardRef(function Editor(
   trackedChangesRef.current = trackedChanges;
   const citeKeysRef = useRef(citeKeys || []);
   citeKeysRef.current = citeKeys || [];
+  const labelKeysRef = useRef(labelKeys || []);
+  labelKeysRef.current = labelKeys || [];
   setSpellMenuRef.current = setSpellMenu;
 
   useImperativeHandle(ref, () => ({
@@ -449,7 +467,7 @@ const Editor = forwardRef(function Editor(
         basicSetup,
         StreamLanguage.define(stex),
         syntaxHighlighting(classHighlighter, { fallback: true }),
-        latexAutocomplete(citeKeysRef),
+        latexAutocomplete(citeKeysRef, labelKeysRef),
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
         fontSizeCompartment.current.of(
           EditorView.theme({
@@ -461,6 +479,7 @@ const Editor = forwardRef(function Editor(
         remoteCursorsField,
         trackedChangesField,
         tcDeletesField,
+        tcReviewHighlightField,
         // Track changes: intercept Backspace/Delete to mark text as deleted instead of removing it
         Prec.high(
           keymap.of([
@@ -1038,6 +1057,23 @@ const Editor = forwardRef(function Editor(
     view.dispatch({ effects });
   }, [trackedChanges]);
 
+  // Review walkthrough highlight
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const docLen = view.state.doc.length;
+    let decos = Decoration.none;
+    if (reviewingChangeId) {
+      const change = trackedChanges.find((c) => c.id === reviewingChangeId);
+      if (change && change.from_pos >= 0 && change.to_pos <= docLen) {
+        decos = Decoration.set([
+          Decoration.mark({ class: 'cm-tc-review-active' }).range(change.from_pos, change.to_pos),
+        ]);
+      }
+    }
+    view.dispatch({ effects: setTcReviewHighlightEffect.of(decos) });
+  }, [reviewingChangeId, trackedChanges]);
+
   // Toggle word wrap
   useEffect(() => {
     const view = viewRef.current;
@@ -1087,10 +1123,10 @@ const Editor = forwardRef(function Editor(
           <button
             className={`editor-header-tc-btn ${autoSaveOn ? 'editor-header-autosave-active' : ''}`}
             onClick={onToggleAutoSave}
-            title={autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Auto-save OFF — click to enable'}
+            title={autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Click to set up auto-save to GitHub'}
           >
             <span className={`editor-autosave-dot ${autoSaveOn ? 'on' : 'off'}`} />
-            {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save OFF'}
+            {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save'}
           </button>
         )}
         <button className="editor-header-btn" onClick={() => cmUndo(viewRef.current)} title="Undo (Cmd+Z)">
@@ -1206,9 +1242,20 @@ const Editor = forwardRef(function Editor(
             Track changes {trackChangesMode ? 'ON' : 'OFF'}
           </button>
         )}
+        {pendingChangesCount > 0 && onStartReview && (
+          <button
+            className={`editor-header-btn ${reviewing ? 'editor-header-btn-active' : ''}`}
+            onClick={reviewing ? onStopReview : onStartReview}
+            title={reviewing ? 'Close review' : `Review ${pendingChangesCount} pending change${pendingChangesCount !== 1 ? 's' : ''}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        )}
         <button
           className={`editor-header-btn ${inverted ? 'editor-header-btn-active' : ''}`}
-          style={{ marginLeft: 'auto' }}
           onClick={() =>
             setInverted((v) => {
               const n = !v;
@@ -1218,12 +1265,57 @@ const Editor = forwardRef(function Editor(
           }
           title="Invert colors"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" />
           </svg>
         </button>
       </div>
+      {reviewing && pendingChangesCount > 0 && (
+        <div className="tc-review-toolbar">
+          <div className="tc-review-toolbar-nav">
+            <button className="tc-review-toolbar-arrow" onClick={onReviewPrev} disabled={reviewIndex <= 0} title="Previous change">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <span className="tc-review-toolbar-counter">
+              {reviewIndex + 1} / {pendingChangesCount}
+            </span>
+            <button className="tc-review-toolbar-arrow" onClick={onReviewNext} disabled={reviewIndex >= pendingChangesCount - 1} title="Next change">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+          {reviewCurrentChange && (
+            <span className="tc-review-toolbar-info">
+              <span className="tc-review-toolbar-author">{reviewCurrentChange.author_name}</span>
+              {reviewCurrentChange.inserted_text && (
+                <span className="tc-review-insert">+{reviewCurrentChange.inserted_text.length > 30 ? reviewCurrentChange.inserted_text.slice(0, 30) + '…' : reviewCurrentChange.inserted_text}</span>
+              )}
+              {reviewCurrentChange.deleted_text && (
+                <span className="tc-review-delete">−{reviewCurrentChange.deleted_text.length > 30 ? reviewCurrentChange.deleted_text.slice(0, 30) + '…' : reviewCurrentChange.deleted_text}</span>
+              )}
+            </span>
+          )}
+          <div className="tc-review-toolbar-actions">
+            <button className="tc-review-toolbar-btn tc-review-toolbar-accept" onClick={() => onAcceptAndNext(reviewCurrentChange?.id)} disabled={!reviewCurrentChange} title="Accept and move to next">
+              Accept
+            </button>
+            <button className="tc-review-toolbar-btn tc-review-toolbar-reject" onClick={() => onRejectAndNext(reviewCurrentChange?.id)} disabled={!reviewCurrentChange} title="Reject and move to next">
+              Reject
+            </button>
+            <span className="tc-review-toolbar-sep" />
+            <button className="tc-review-toolbar-btn tc-review-toolbar-accept-all" onClick={onAcceptAll} title="Accept all changes">
+              Accept All
+            </button>
+            <button className="tc-review-toolbar-btn tc-review-toolbar-reject-all" onClick={onRejectAll} title="Reject all changes">
+              Reject All
+            </button>
+          </div>
+        </div>
+      )}
       {showSymbolPicker && (
         <SymbolPicker
           onInsert={(cmd) => {
