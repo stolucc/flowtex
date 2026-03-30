@@ -8,10 +8,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sqliteDb = new Database(path.join(__dirname, '..', 'underleaf.db'));
+const sqliteDb = new Database(path.join(__dirname, '..', 'flowtex.db'));
 
 const pool = new pg.Pool({
-  database: process.env.PGDATABASE || 'underleaf',
+  database: process.env.PGDATABASE || 'flowtex',
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432'),
   max: 5,

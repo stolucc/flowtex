@@ -56,6 +56,8 @@ export default function Toolbar({
   onPrettyPrint,
   onNewFile,
   onNewFolder,
+  onUndo,
+  onRedo,
   onSearch,
   onHistory,
   onUploadZip,
@@ -85,6 +87,10 @@ export default function Toolbar({
   onWordCount,
   onProjectSettings,
   onFormatDocument,
+  showBoxWarnings,
+  onToggleBoxWarnings,
+  showChat,
+  onToggleChat,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -129,7 +135,7 @@ export default function Toolbar({
       },
     },
     {
-      label: 'Download Used Files as ZIP',
+      label: 'Download for Submission',
       action: () => {
         window.location.href = `/api/projects/${projectId}/zip-used`;
       },
@@ -139,8 +145,10 @@ export default function Toolbar({
   ];
 
   const editMenuItems = [
+    { label: 'Undo', action: onUndo },
+    { label: 'Redo', action: onRedo },
+    { label: 'separator' },
     { label: 'Find & Replace', action: onSearch },
-    { label: 'Pretty Print BibTeX', action: onPrettyPrint, disabled: !isBib },
   ];
 
   const insertMenuItems = [
@@ -174,7 +182,11 @@ export default function Toolbar({
     { label: 'Special Symbol…', action: () => onSymbolPicker?.() },
   ];
 
-  const viewMenuItems = [{ label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments }];
+  const viewMenuItems = [
+    { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
+    { label: `${showChat ? '✓ ' : ''}Chat`, action: onToggleChat },
+    { label: `${showBoxWarnings ? '✓ ' : ''}Overfull/Underfull Warnings`, action: onToggleBoxWarnings },
+  ];
 
   const formatMenuItems = [
     { label: 'Bold', action: () => onInsert?.('\\textbf{', '}') },
@@ -185,13 +197,13 @@ export default function Toolbar({
     { label: 'separator' },
     { label: 'Inline Math', action: () => onInsert?.('$', '$') },
     { label: 'Display Math', action: () => onInsert?.('\\[\n  ', '\n\\]') },
-    { label: 'separator' },
-    { label: 'Format Document', action: onFormatDocument, disabled: !activeFile?.path?.endsWith('.tex') },
   ];
 
   const toolsMenuItems = [
     { label: 'Git Sync', action: () => onGitHubSync?.() },
     { label: 'Compare Files', action: onCompareFiles },
+    { label: 'Format Document', action: onFormatDocument, disabled: !activeFile?.path?.endsWith('.tex') },
+    { label: 'Format BibTeX', action: onPrettyPrint, disabled: !isBib },
     ...(onBibEnrich ? [{ label: 'Complete Bibliography', action: onBibEnrich }] : []),
     { label: 'Zotero Import', action: () => onZotero?.() },
     { label: 'ACM TAPS Check', action: () => onTapsCheck?.() },

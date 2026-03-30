@@ -107,11 +107,16 @@ async function readDiskFilesToProject(projectId, repoDir) {
   function walkDir(dir, prefix) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.name === '.git') continue;
-      // Skip symlinks to prevent reading arbitrary files
+      // Skip symlinks to prevent reading arbitrary files outside the repo
       if (entry.isSymbolicLink()) continue;
       const fullPath = path.join(dir, entry.name);
-      // Verify resolved path stays within repoDir
-      const realPath = fs.realpathSync(fullPath);
+      // Verify resolved path stays within repoDir (catches hardlinks and race conditions)
+      let realPath;
+      try {
+        realPath = fs.realpathSync(fullPath);
+      } catch {
+        continue; // Skip unresolvable paths
+      }
       if (!realPath.startsWith(repoDir + path.sep) && realPath !== repoDir) continue;
       const relPath = prefix ? prefix + '/' + entry.name : entry.name;
       if (entry.isDirectory()) {

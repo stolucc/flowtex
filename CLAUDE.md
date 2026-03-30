@@ -1,6 +1,6 @@
 # FlowTex
 
-Self-hosted collaborative LaTeX editor. Formerly "Underleaf".
+Self-hosted collaborative LaTeX editor.
 
 ## Stack
 
@@ -62,12 +62,12 @@ Build output goes to `client/dist/` which is copied to `server/public/` by the b
 ## Database
 
 - PostgreSQL database name: `flowtex` (configured via `PGDATABASE` in `.env`)
-- Encryption salt in `server/utils/crypto.js` uses legacy `underleaf-salt` string — do NOT change it or existing encrypted tokens break
+- Encryption key derivation in `server/utils/crypto.js` uses `flowtex-salt` — changing it requires re-encrypting all tokens
 - Sessions stored in PostgreSQL via `connect-pg-simple`
 
 ## Important Gotchas
 
-- The `server/utils/crypto.js` salt and dev fallback key reference the old "underleaf" name — this is intentional for backward compatibility with existing encrypted data
+- The `server/utils/crypto.js` salt and dev fallback key must not be changed without running `server/migrate-salt.js` first
 - `server/db.js` fallback database name must match `.env` PGDATABASE
 - localStorage keys use `flowtex-` prefix (font-size, editor-inverted, pdf-inverted, spell-language, custom-dictionary)
 - When adding new CSS, use existing variables from `:root` — check `app.css` for available `--bg-*`, `--text-*`, `--accent`, `--border`, `--radius`

@@ -80,6 +80,46 @@ router.get('/texlive-distributions', (req, res) => {
   res.json(detectTexDistributions());
 });
 
+// --- LaTeX formatters (must be before /:projectId routes) ---
+router.get('/formatters', (req, res) => {
+  res.json(detectFormatters());
+});
+
+router.post('/format', async (req, res) => {
+  const { content, formatter } = req.body;
+  if (!content) return res.status(400).json({ error: 'No content provided' });
+
+  const formatters = detectFormatters();
+  const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));
+  if (!fmt) return res.status(400).json({ error: 'No formatter available' });
+
+  try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-fmt-'));
+    const tmpFile = path.join(tmpDir, 'input.tex');
+    fs.writeFileSync(tmpFile, content);
+
+    let formatted;
+    if (fmt.id === 'latexindent') {
+      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '-o', '-'], { timeout: 10000 });
+      formatted = stdout;
+    } else if (fmt.id === 'texfmt') {
+      const { stdout } = await execFileAsync(fmt.path, ['--stdin'], { timeout: 10000, input: content });
+      formatted = stdout;
+    } else {
+      return res.status(400).json({ error: 'Unknown formatter' });
+    }
+
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+
+    res.json({ formatted });
+  } catch (err) {
+    logger.error({ err }, 'Format error');
+    // Strip internal paths from error messages
+    const safeMsg = (err.message || 'Formatting failed').replace(/\/[^\s:]+\//g, '');
+    res.status(500).json({ error: safeMsg });
+  }
+});
+
 // Compile a project (returns final result)
 router.post('/:projectId', async (req, res) => {
   try {
@@ -91,13 +131,14 @@ router.post('/:projectId', async (req, res) => {
 
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
 
-    const project = await db.get('SELECT main_file, tex_distribution FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
     const mainFile = project?.main_file || 'main.tex';
 
     const { pdfPath, log } = await compileProject(projectId, mainFile, null, {
       files,
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
+      compiler: project?.compiler,
     });
 
     res.json({ success: true, log });
@@ -128,7 +169,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
 
   try {
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
-    const project = await db.get('SELECT main_file, tex_distribution FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
     const mainFile = project?.main_file || 'main.tex';
 
     const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
@@ -142,8 +183,10 @@ router.get('/:projectId/compile-stream', async (req, res) => {
         files,
         userId: req.session.userId,
         texDistribution: project?.tex_distribution,
+        compiler: project?.compiler,
         onBeforeCompile: () => {
-          send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile}...\n` });
+          const compilerName = project?.compiler || 'pdflatex';
+          send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile} with ${compilerName}...\n` });
         },
       },
     );
@@ -222,44 +265,76 @@ router.get('/:projectId/syncinverse', async (req, res) => {
   }
 });
 
-// ChkTeX lint endpoint
+// Lint endpoint — supports ChkTeX and lacheck
 router.post('/:projectId/lint', async (req, res) => {
   try {
     const { projectId } = req.params;
     if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-    const { content, filename } = req.body;
+    const { content, filename, linter } = req.body;
     if (!content) return res.json({ diagnostics: [] });
+    // Only allow known linter values
+    if (linter && linter !== 'chktex' && linter !== 'lacheck') {
+      return res.status(400).json({ error: 'Invalid linter' });
+    }
 
     // Write content to temp file
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chktex-'));
-    const safeFilename = path.basename(filename || 'input.tex');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-'));
+    const safeFilename = path.basename(filename || 'input.tex').replace(/[^a-zA-Z0-9._-]/g, '_');
     const tmpFile = path.join(tmpDir, safeFilename);
     fs.writeFileSync(tmpFile, content);
 
-    try {
-      // Run lacheck for real syntax errors (unmatched braces, environments, etc.)
-      const { stdout, stderr } = await execFileAsync('/opt/local/bin/lacheck', [tmpFile], { timeout: 5000 }).catch(
-        (e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }),
-      );
+    const project = await db.get('SELECT tex_distribution FROM projects WHERE id = $1', [projectId]);
+    const env = { ...process.env, PATH: getTexPaths(project?.tex_distribution) + ':' + (process.env.PATH || '') };
 
+    try {
       const diagnostics = [];
-      const output = stdout || stderr || '';
-      const lines = output.split('\n').filter(Boolean);
-      for (const line of lines) {
-        // Format: "file", line N: message
-        const match = line.match(/line (\d+):\s*(.+)/);
-        if (match) {
-          diagnostics.push({
-            line: parseInt(match[1]),
-            col: 1,
-            len: 0,
-            severity: 'warning',
-            code: 0,
-            message: match[2].trim(),
-          });
+
+      if (linter === 'lacheck') {
+        // Run lacheck for syntax errors (unmatched braces, environments, etc.)
+        const { stdout, stderr } = await execFileAsync('lacheck', [tmpFile], { timeout: 5000, env }).catch(
+          (e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }),
+        );
+        const output = stdout || stderr || '';
+        for (const line of output.split('\n').filter(Boolean)) {
+          const match = line.match(/line (\d+):\s*(.+)/);
+          if (match) {
+            diagnostics.push({
+              line: parseInt(match[1]),
+              col: 1,
+              len: 0,
+              severity: 'warning',
+              code: 0,
+              message: match[2].trim(),
+            });
+          }
+        }
+      } else {
+        // Default: ChkTeX for LaTeX warnings and style checks
+        // -v0 = machine-readable output, -q = quiet, -f = custom format
+        const { stdout, stderr } = await execFileAsync(
+          'chktex',
+          ['-v0', '-q', '-f', '%l:%c:%d:%n:%k:%m\\n', tmpFile],
+          { timeout: 5000, env },
+        ).catch((e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
+
+        const output = stdout || stderr || '';
+        for (const line of output.split('\n').filter(Boolean)) {
+          // Format: line:col:len:code:severity:message
+          const match = line.match(/^(\d+):(\d+):(\d+):(\d+):(\w+):(.+)/);
+          if (match) {
+            diagnostics.push({
+              line: parseInt(match[1]),
+              col: parseInt(match[2]),
+              len: parseInt(match[3]),
+              severity: match[5] === 'Error' ? 'error' : 'warning',
+              code: parseInt(match[4]),
+              message: match[6].trim(),
+            });
+          }
         }
       }
+
       res.json({ diagnostics });
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -276,7 +351,7 @@ router.get('/:projectId/wordcount', async (req, res) => {
     const { projectId } = req.params;
     if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-    const project = await db.get('SELECT main_file, tex_distribution FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
     const mainFile = project?.main_file || 'main.tex';
 
     const projectDir = path.join(PROJECTS_DIR, projectId);
@@ -599,6 +674,14 @@ const KNOWN_FORMATTERS = [
 let _cachedFormatters = null;
 let _formattersCacheTime = 0;
 
+// Allowed directories for formatter executables
+const SAFE_BIN_DIRS = new Set([
+  '/opt/local/bin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/Library/TeX/texbin',
+]);
+
 function detectFormatters() {
   const now = Date.now();
   if (_cachedFormatters && now - _formattersCacheTime < 60000) return _cachedFormatters;
@@ -608,6 +691,11 @@ function detectFormatters() {
     for (const cmd of fmt.commands) {
       try {
         const fullPath = execFileSync('which', [cmd], { encoding: 'utf-8', timeout: 3000 }).trim();
+        // Validate the resolved path is in a known safe directory
+        const dir = path.dirname(fullPath);
+        if (!SAFE_BIN_DIRS.has(dir)) continue;
+        // Reject paths with traversal attempts
+        if (fullPath.includes('..') || fullPath.includes('\0')) continue;
         let version = '';
         try {
           const out = execFileSync(fullPath, ['--version'], { encoding: 'utf-8', timeout: 3000 });
@@ -624,44 +712,5 @@ function detectFormatters() {
   _formattersCacheTime = now;
   return found;
 }
-
-router.get('/formatters', (req, res) => {
-  res.json(detectFormatters());
-});
-
-router.post('/format', requireMember, async (req, res) => {
-  const { content, formatter } = req.body;
-  if (!content) return res.status(400).json({ error: 'No content provided' });
-
-  const formatters = detectFormatters();
-  const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));
-  if (!fmt) return res.status(400).json({ error: 'No formatter available' });
-
-  try {
-    const tmpDir = os.tmpdir();
-    const tmpFile = path.join(tmpDir, `flowtex-format-${Date.now()}.tex`);
-    fs.writeFileSync(tmpFile, content);
-
-    let formatted;
-    if (fmt.id === 'latexindent') {
-      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '-o', '-'], { timeout: 10000 });
-      formatted = stdout;
-    } else if (fmt.id === 'texfmt') {
-      const { stdout } = await execFileAsync(fmt.path, ['--stdin'], { timeout: 10000, input: content });
-      formatted = stdout;
-    } else {
-      return res.status(400).json({ error: 'Unknown formatter' });
-    }
-
-    try { fs.unlinkSync(tmpFile); } catch {}
-    // latexindent creates backup files
-    try { fs.unlinkSync(tmpFile + '.bak'); } catch {}
-
-    res.json({ formatted });
-  } catch (err) {
-    logger.error({ err }, 'Format error');
-    res.status(500).json({ error: err.message || 'Formatting failed' });
-  }
-});
 
 export default router;

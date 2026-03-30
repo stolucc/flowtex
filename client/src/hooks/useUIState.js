@@ -20,6 +20,8 @@ export default function useUIState() {
   const [genPanelHeight, setGenPanelHeight] = useState(150);
   const [genContextMenu, setGenContextMenu] = useState(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   return {
     fileTreeWidth,
@@ -60,5 +62,9 @@ export default function useUIState() {
     setGenContextMenu,
     showProjectSettings,
     setShowProjectSettings,
+    showShortcuts,
+    setShowShortcuts,
+    showAbout,
+    setShowAbout,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import ProjectList from './components/ProjectList.jsx';
 import Editor from './components/Editor.jsx';
 import PdfViewer from './components/PdfViewer.jsx';
@@ -8,20 +8,14 @@ import SyncArrows from './components/SyncArrows.jsx';
 import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
 import AuthPage from './components/AuthPage.jsx';
-import ShareModal from './components/ShareModal.jsx';
-import CompareFilesModal from './components/CompareFilesModal.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import BinaryPreview, { getMimeType } from './components/BinaryPreview.jsx';
 import { TrackChangesPopup, TrackChangesReviewBar } from './components/TrackChangesBar.jsx';
-import ProjectSettingsModal from './components/ProjectSettingsModal.jsx';
-import WordCountModal from './components/WordCountModal.jsx';
+import ModalContainer from './components/ModalContainer.jsx';
+import HistoryView from './components/HistoryView.jsx';
 
-const HistoryPanel = lazy(() => import('./components/HistoryPanel.jsx'));
-const GitHubSyncModal = lazy(() => import('./components/GitHubSyncModal.jsx'));
-const BibEnrichModal = lazy(() => import('./components/BibEnrichModal.jsx'));
-const ZoteroModal = lazy(() => import('./components/ZoteroModal.jsx'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
-import { get, post, put, patch, del, getCsrfToken } from './api.js';
+import { get, post, patch, getCsrfToken } from './api.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage } from './utils/spellcheck.js';
 
@@ -34,8 +28,8 @@ import useComments from './hooks/useComments.js';
 import useGitHubSync from './hooks/useGitHubSync.js';
 import useUIState from './hooks/useUIState.js';
 import useClickOutside from './hooks/useClickOutside.js';
+import useEditorActions from './hooks/useEditorActions.js';
 import { formatSyncDate } from './utils/dateFormat.js';
-import tapsCheck from './utils/tapsChecker.js';
 
 function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
   const ref = React.useRef(null);
@@ -166,18 +160,62 @@ function AppInner() {
   const ui = useUIState();
 
   const [showBoxWarnings, setShowBoxWarnings] = useState(true);
+  const [showLintWarnings, setShowLintWarnings] = useState(true);
   const [projectSettingsTab, setProjectSettingsTab] = useState(null);
+
+  const {
+    editorLine,
+    setEditorLine,
+    pdfClickPos,
+    setPdfClickPos,
+    wordCountState,
+    setWordCountState,
+    handleOverwriteFile,
+    handleSyncForward,
+    handleSyncInverse,
+    handleSyncInverseFromArrow,
+    goBack,
+    handleLogoutFull,
+    tapsDiagnostics,
+    handleTapsCheck,
+    handleFormatDocument,
+    handleWordCount,
+    citeKeys,
+    mainFilePath,
+  } = useEditorActions({
+    project,
+    files,
+    activeFile,
+    switchFile,
+    trackedChanges,
+    setTrackedChanges,
+    setFiles,
+    setActiveFile,
+    editorRef,
+    pdfRef,
+    pdfUrl,
+    setPdfUrl,
+    setConsoleOutput,
+    setComments,
+    projectGoBack,
+    handleLogout,
+    handleSave,
+    setProject,
+  });
 
   useEffect(() => {
     if (project?.id) {
       const stored = localStorage.getItem(`flowtex-show-box-warnings-${project.id}`);
       if (stored !== null) setShowBoxWarnings(stored === 'true');
+      const lintStored = localStorage.getItem(`flowtex-show-lint-warnings-${project.id}`);
+      if (lintStored !== null) setShowLintWarnings(lintStored === 'true');
     }
   }, [project?.id]);
 
   useEffect(() => {
     const handler = (e) => {
       if (e.detail.showBoxWarnings !== undefined) setShowBoxWarnings(e.detail.showBoxWarnings);
+      if (e.detail.showLintWarnings !== undefined) setShowLintWarnings(e.detail.showLintWarnings);
     };
     window.addEventListener('flowtex:settings-changed', handler);
     return () => window.removeEventListener('flowtex:settings-changed', handler);
@@ -216,36 +254,6 @@ function AppInner() {
       .catch(() => {});
   }, [project]);
 
-  const citeKeys = useMemo(() => {
-    const bibFiles = files.filter((f) => f.path.endsWith('.bib') && f.content);
-    const keys = [];
-    const entryPattern = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
-    for (const f of bibFiles) {
-      let match;
-      entryPattern.lastIndex = 0;
-      while ((match = entryPattern.exec(f.content)) !== null) {
-        const entryStart = match.index;
-        const entryKey = match[1];
-        const rest = f.content.slice(entryStart);
-        const titleMatch = rest.match(/title\s*=\s*[{"]\s*([^}"]+)/i);
-        const authorMatch = rest.match(/author\s*=\s*[{"]\s*([^}"]+)/i);
-        const entryType = rest.match(/@(\w+)/)?.[1]?.toLowerCase() || '';
-        let detail = entryType;
-        if (authorMatch) {
-          const firstAuthor = authorMatch[1].split(/\s+and\s+/i)[0].trim();
-          const lastName = firstAuthor.split(',')[0].split(/\s+/).pop();
-          detail = lastName;
-        }
-        if (titleMatch) {
-          const shortTitle = titleMatch[1].length > 40 ? titleMatch[1].slice(0, 40) + '...' : titleMatch[1];
-          detail += detail ? ' — ' + shortTitle : shortTitle;
-        }
-        keys.push({ label: entryKey, type: 'text', detail, boost: 1 });
-      }
-    }
-    return keys;
-  }, [files]);
-
   useEffect(() => {
     const base = project ? `${project.name} — FlowTex` : 'FlowTex';
     document.title = unreadChat > 0 ? `(${unreadChat}) ${base}` : base;
@@ -264,135 +272,6 @@ function AppInner() {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
-
-  // --- Handlers that bridge hooks ---
-
-  const handleOverwriteFile = useCallback(
-    async (fileId, content) => {
-      await put(`/api/projects/files/${fileId}`, { content });
-      setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, content } : f)));
-      const fileTcs = trackedChanges.filter((c) => c.file_id === fileId && c.status === 'pending');
-      for (const tc of fileTcs) await del(`/api/tracked-changes/${tc.id}`);
-      setTrackedChanges((tcs) => tcs.filter((c) => c.file_id !== fileId));
-      const file = files.find((f) => f.id === fileId);
-      if (file) switchFile({ ...file, content });
-    },
-    [files, switchFile, trackedChanges],
-  );
-
-  const [editorLine, setEditorLine] = useState(1);
-  const [pdfClickPos, setPdfClickPos] = useState(null);
-
-  const handleSyncForward = useCallback(async () => {
-    if (!project || !activeFile || !pdfUrl) return;
-    try {
-      const res = await get(
-        `/api/compile/${project.id}/syncforward?line=${editorLine}&column=0&file=${encodeURIComponent(activeFile.path)}`,
-      );
-      if (res.ok) {
-        const data = await res.json();
-        pdfRef.current?.scrollToPosition(data.page, data.v);
-      }
-    } catch {}
-  }, [project, activeFile, pdfUrl, editorLine]);
-
-  const handleSyncInverse = useCallback(
-    async (page, x, y) => {
-      if (!project) return;
-      try {
-        const res = await get(`/api/compile/${project.id}/syncinverse?page=${page}&x=${x}&y=${y}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.file && data.file !== activeFile?.path) {
-            const f = files.find((f) => f.path === data.file);
-            if (f) {
-              switchFile(f);
-              setTimeout(() => editorRef.current?.goToLine(data.line, data.column), 50);
-              return;
-            }
-          }
-          editorRef.current?.goToLine(data.line, data.column);
-        }
-      } catch {}
-    },
-    [project, activeFile, files, switchFile],
-  );
-
-  const handleSyncInverseFromArrow = useCallback(async () => {
-    if (!pdfClickPos || !project) return;
-    await handleSyncInverse(pdfClickPos.page, pdfClickPos.x, pdfClickPos.y);
-  }, [pdfClickPos, project, handleSyncInverse]);
-
-  const goBack = useCallback(() => {
-    projectGoBack();
-    setPdfUrl(null);
-    setComments([]);
-  }, [projectGoBack]);
-
-  const handleLogoutFull = useCallback(async () => {
-    await handleLogout();
-    setProject(null);
-    setFiles([]);
-    setActiveFile(null);
-    setPdfUrl(null);
-  }, [handleLogout]);
-
-  const mainFilePath = project?.main_file || 'main.tex';
-  const tapsDiagnostics = useMemo(() => tapsCheck(files, mainFilePath), [files, mainFilePath]);
-
-  const handleTapsCheck = useCallback(() => {
-    const results = tapsCheck(files, mainFilePath);
-    if (results.length === 0) {
-      setConsoleOutput('ACM TAPS Check: All packages are on the approved list. ✓');
-    } else {
-      const lines = ['ACM TAPS Check: Found ' + results.length + ' issue(s):\n'];
-      for (const r of results) {
-        lines.push(`${r.file}:${r.line}: ${r.message}`);
-      }
-      setConsoleOutput(lines.join('\n'));
-    }
-  }, [files]);
-
-  const handleFormatDocument = useCallback(async () => {
-    const formatter = localStorage.getItem('flowtex-latex-formatter');
-    if (!formatter) {
-      setConsoleOutput('No LaTeX formatter selected. Set one in Project Settings > Editor.');
-      return;
-    }
-    if (!activeFile || !activeFile.path.endsWith('.tex')) return;
-    const content = editorRef.current?.getContent?.();
-    if (!content) return;
-    setConsoleOutput('Formatting...');
-    try {
-      const res = await post('/api/compile/format', { content, formatter });
-      const data = await res.json();
-      if (!res.ok) {
-        setConsoleOutput(`Format error: ${data.error}`);
-        return;
-      }
-      editorRef.current?.replaceContent(data.formatted);
-      setConsoleOutput('Document formatted.');
-    } catch (err) {
-      setConsoleOutput(`Format error: ${err.message}`);
-    }
-  }, [activeFile]);
-
-  const [wordCountState, setWordCountState] = useState({ open: false, loading: false, data: null, error: null });
-
-  const handleWordCount = useCallback(async () => {
-    setWordCountState({ open: true, loading: true, data: null, error: null });
-    try {
-      const res = await get(`/api/compile/${project.id}/wordcount`);
-      const data = await res.json();
-      if (!res.ok) {
-        setWordCountState({ open: true, loading: false, data: null, error: data.error || 'Unknown error' });
-        return;
-      }
-      setWordCountState({ open: true, loading: false, data, error: null });
-    } catch (e) {
-      setWordCountState({ open: true, loading: false, data: null, error: e.message });
-    }
-  }, [project?.id]);
 
   // --- Render ---
 
@@ -469,6 +348,8 @@ function AppInner() {
             editorRef.current?.replaceContent?.(pretty);
             handleSave(pretty);
           }}
+          onUndo={() => editorRef.current?.undo()}
+          onRedo={() => editorRef.current?.redo()}
           onSearch={() => editorRef.current?.openSearch()}
           onHistory={() => ui.setShowHistory(true)}
           onNewFile={() => setNewFileCounter((c) => c + 1)}
@@ -484,11 +365,8 @@ function AppInner() {
           showLineNumbers={ui.showLineNumbers}
           wordWrap={ui.wordWrap}
           onHelp={(topic) => {
-            if (topic === 'shortcuts')
-              alert(
-                'Keyboard Shortcuts:\n\nCtrl/Cmd+S — Save & Compile\nCtrl/Cmd+F — Find & Replace\nCtrl/Cmd+Click — Comment on selection',
-              );
-            else if (topic === 'about') alert('FlowTex — A collaborative LaTeX editor');
+            if (topic === 'shortcuts') ui.setShowShortcuts(true);
+            else if (topic === 'about') ui.setShowAbout(true);
           }}
           onCompareFiles={() => ui.setShowCompareFiles(true)}
           onGitHubSync={() => ui.setShowGitHubSync(true)}
@@ -498,6 +376,14 @@ function AppInner() {
           onWordCount={handleWordCount}
           onProjectSettings={() => ui.setShowProjectSettings(true)}
           onFormatDocument={handleFormatDocument}
+          showBoxWarnings={showBoxWarnings}
+          onToggleBoxWarnings={() => {
+            const newVal = !showBoxWarnings;
+            setShowBoxWarnings(newVal);
+            localStorage.setItem(`flowtex-show-box-warnings-${project?.id}`, newVal);
+          }}
+          showChat={showChat}
+          onToggleChat={() => setShowChat((v) => !v)}
           githubLink={githubLink}
           autoSyncStatus={autoSyncStatus}
           lastSyncAt={githubLink?.lastSyncAt}
@@ -532,216 +418,44 @@ function AppInner() {
           }}
         />
       )}
-      {ui.showShareModal && (
-        <ShareModal
-          projectId={project.id}
-          onClose={() => {
-            ui.setShowShareModal(false);
-            get(`/api/projects/${project.id}/members`)
-              .then((r) => r.json())
-              .then(setMembers)
-              .catch(() => {});
-          }}
-        />
-      )}
-      {ui.showProjectSettings && (
-        <ProjectSettingsModal
-          project={project}
-          files={files}
-          isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
-          onClose={() => {
-            ui.setShowProjectSettings(false);
-            setProjectSettingsTab(null);
-          }}
-          onUpdate={(updated) => setProject((p) => ({ ...p, ...updated }))}
-          trackChangesMode={trackChangesMode}
-          onTrackChangesChange={setTrackChangesMode}
-          autoSaveOn={!!githubLink?.autoPush}
-          onAutoSaveChange={async (val) => {
-            await patch(`/api/github/link/${project.id}/auto-push`, { enabled: val });
-            setGithubLink((prev) => (prev ? { ...prev, autoPush: val } : prev));
-          }}
-          githubLinked={!!githubLink?.linked}
-          initialTab={projectSettingsTab}
-        />
-      )}
-      {wordCountState.open && (
-        <WordCountModal
-          data={wordCountState.data}
-          loading={wordCountState.loading}
-          error={wordCountState.error}
-          onClose={() => setWordCountState((s) => ({ ...s, open: false }))}
-        />
-      )}
-      {ui.showCompareFiles && (
-        <CompareFilesModal
-          projectId={project.id}
-          files={files}
-          onClose={() => ui.setShowCompareFiles(false)}
-          onStartDiff={handleDiff}
-        />
-      )}
-      {ui.showGitHubSync && (
-        <Suspense fallback={null}>
-          <GitHubSyncModal
-            projectId={project.id}
-            projectName={project.name}
-            onClose={() => ui.setShowGitHubSync(false)}
-            onFilesUpdated={(files) => setFiles(files)}
-            onLinkChanged={(linkData) => setGithubLink(linkData)}
-          />
-        </Suspense>
-      )}
-      {ui.showBibEnrich && activeFile?.path?.endsWith('.bib') && (
-        <Suspense fallback={null}>
-          <BibEnrichModal
-            file={activeFile}
-            onClose={() => ui.setShowBibEnrich(false)}
-            onApply={(newContent) => {
-              handleSave(newContent);
-              setFiles((prev) => prev.map((f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
-              setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
-            }}
-          />
-        </Suspense>
-      )}
-      {ui.showZotero && (
-        <Suspense fallback={null}>
-          <ZoteroModal
-            onClose={() => ui.setShowZotero(false)}
-            bibFileExists={files.some((f) => f.path.endsWith('.bib'))}
-            onInsert={async (bibtex) => {
-              let bibFile = files.find((f) => f.path.endsWith('.bib'));
-              if (!bibFile) {
-                try {
-                  const res = await post(`/api/projects/${project.id}/files`, {
-                    path: 'references.bib',
-                    content: bibtex,
-                  });
-                  const newFile = await res.json();
-                  setFiles((prev) => [...prev, newFile]);
-                  switchFile(newFile);
-                } catch (e) {
-                  console.error('Failed to create .bib file', e);
-                }
-                return;
-              }
-              const newContent = bibFile.content.trimEnd() + '\n\n' + bibtex;
-              setFiles((prev) => prev.map((f) => (f.id === bibFile.id ? { ...f, content: newContent } : f)));
-              if (activeFile?.id === bibFile.id) {
-                setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
-                setTimeout(() => editorRef.current?.replaceContent(newContent), 50);
-              }
-              await put(`/api/projects/files/${bibFile.id}`, { content: newContent });
-            }}
-          />
-        </Suspense>
-      )}
+      <ModalContainer
+        project={project}
+        files={files}
+        activeFile={activeFile}
+        user={user}
+        members={members}
+        ui={ui}
+        setProject={setProject}
+        setMembers={setMembers}
+        setFiles={setFiles}
+        setActiveFile={setActiveFile}
+        switchFile={switchFile}
+        editorRef={editorRef}
+        trackChangesMode={trackChangesMode}
+        setTrackChangesMode={setTrackChangesMode}
+        githubLink={githubLink}
+        setGithubLink={setGithubLink}
+        handleDiff={handleDiff}
+        handleSave={handleSave}
+        wordCountState={wordCountState}
+        setWordCountState={setWordCountState}
+        projectSettingsTab={projectSettingsTab}
+        setProjectSettingsTab={setProjectSettingsTab}
+      />
       <div className="main-layout">
         {ui.showHistory && (
-          <>
-            <div
-              className="file-panel history-file-panel"
-              style={{ width: ui.fileTreeWidth, display: 'flex', flexDirection: 'column', flexShrink: 0 }}
-            >
-              <div
-                className="file-tree-header"
-                style={{
-                  padding: '8px 10px',
-                  borderBottom: '1px solid var(--border)',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: 'var(--text-secondary)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
-                Files
-              </div>
-              <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
-                {(ui.historyFiles || files).map((f) => (
-                  <div
-                    key={f.id}
-                    className={`history-file-item ${ui.historySelectedFile?.id === f.id ? 'active' : ''}`}
-                    onClick={() => ui.setHistorySelectedFile({ id: f.id, path: f.path })}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: 13,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {f.path}
-                    </span>
-                    {ui.historyEditedFileIds.includes(f.id) && (
-                      <span className="history-file-edited-badge">Edited</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <Suspense fallback={null}>
-              <HistoryPanel
-                projectId={project.id}
-                currentUserName={user?.name}
-                historyFileId={ui.historySelectedFile?.id}
-                historyFilePath={ui.historySelectedFile?.path}
-                refreshKey={historyVersion}
-                snapshotInterval={project.snapshot_interval_sec || 30}
-                onSnapshotIntervalChange={async (val) => {
-                  await fetch(`/api/projects/${project.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-                    credentials: 'include',
-                    body: JSON.stringify({ snapshot_interval_sec: val }),
-                  });
-                  setProject((p) => ({ ...p, snapshot_interval_sec: val }));
-                }}
-                onClose={() => {
-                  ui.setShowHistory(false);
-                  ui.setHistoryEditedFileIds([]);
-                  ui.setHistoryFiles(null);
-                  ui.setHistorySelectedFile(null);
-                }}
-                onRestore={(restoredFiles) => {
-                  setFiles(restoredFiles);
-                  ui.setShowHistory(false);
-                  ui.setHistoryEditedFileIds([]);
-                  ui.setHistoryFiles(null);
-                  ui.setHistorySelectedFile(null);
-                  const stillExists = restoredFiles.find((f) => f.id === activeFile?.id);
-                  if (stillExists) {
-                    setActiveFile(stillExists);
-                    setTimeout(() => editorRef.current?.replaceContent(stillExists.content), 50);
-                  } else if (restoredFiles.length > 0) {
-                    const mainFile = restoredFiles.find((f) => f.path === (project?.main_file || 'main.tex'));
-                    setActiveFile(mainFile || restoredFiles[0]);
-                    setTimeout(() => editorRef.current?.replaceContent((mainFile || restoredFiles[0]).content), 50);
-                  } else setActiveFile(null);
-                }}
-                onSelectVersion={async (snapshot) => {
-                  ui.setHistorySelectedFile(null);
-                  try {
-                    const res = await get(`/api/history/snapshot/${snapshot.id}`);
-                    const data = await res.json();
-                    ui.setHistoryEditedFileIds(data.editedFileIds || []);
-                    ui.setHistoryFiles(data.files || null);
-                    if (data.editedFileIds?.length > 0) {
-                      const firstEdited = data.files?.find((f) => f.id === data.editedFileIds[0]);
-                      if (firstEdited) ui.setHistorySelectedFile({ id: firstEdited.id, path: firstEdited.path });
-                    }
-                  } catch {
-                    ui.setHistoryEditedFileIds([]);
-                    ui.setHistoryFiles(null);
-                  }
-                }}
-              />
-            </Suspense>
-          </>
+          <HistoryView
+            project={project}
+            files={files}
+            activeFile={activeFile}
+            user={user}
+            ui={ui}
+            historyVersion={historyVersion}
+            setProject={setProject}
+            setFiles={setFiles}
+            setActiveFile={setActiveFile}
+            editorRef={editorRef}
+          />
         )}
         {!ui.showHistory && (
           <>
@@ -1096,7 +810,7 @@ function AppInner() {
               onPdfPositionChange={setPdfClickPos}
               compileLog={compileLog}
               consoleOutput={consoleOutput}
-              lintDiagnostics={lintDiagnostics}
+              lintDiagnostics={showLintWarnings ? lintDiagnostics : []}
               style={ui.pdfWidth ? { flex: 'none', width: ui.pdfWidth } : undefined}
               onGoToLine={(line, col) => editorRef.current?.goToLine(line, col)}
               onGoToFileAndLine={(filePath, line, col) => {

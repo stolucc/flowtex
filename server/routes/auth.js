@@ -13,7 +13,11 @@ function regenerateSession(req, res) {
   return new Promise((resolve, reject) => {
     const { userId, userName } = req.session;
     req.session.regenerate((err) => {
-      if (err) return reject(err);
+      if (err) {
+        // Destroy the broken session to prevent inconsistent state
+        req.session.destroy(() => {});
+        return reject(new Error('Session regeneration failed'));
+      }
       req.session.userId = userId;
       req.session.userName = userName;
       req.session.csrfToken = crypto.randomBytes(32).toString('hex');
@@ -23,7 +27,11 @@ function regenerateSession(req, res) {
         secure: process.env.NODE_ENV === 'production',
       });
       req.session.save((saveErr) => {
-        if (saveErr) return reject(saveErr);
+        if (saveErr) {
+          // Destroy on save failure to prevent half-initialized session
+          req.session.destroy(() => {});
+          return reject(new Error('Session save failed'));
+        }
         resolve();
       });
     });

@@ -65,6 +65,22 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         .then((r) => r.json())
         .then((d) => setGeneratedFiles(d.files || []))
         .catch(() => {});
+
+      // Run server-side linter (ChkTeX/lacheck) after compile
+      const serverLinter = localStorage.getItem(`flowtex-server-linter-${project.id}`) || '';
+      if (serverLinter && activeFile?.path?.endsWith('.tex')) {
+        const content = editorRef.current?.getContent();
+        if (content) {
+          post(`/api/compile/${project.id}/lint`, { content, filename: activeFile.path, linter: serverLinter })
+            .then((r) => r.json())
+            .then((data) => {
+              setLintDiagnostics((data.diagnostics || []).map((d) => ({ ...d, source: serverLinter })));
+            })
+            .catch(() => {});
+        }
+      } else {
+        setLintDiagnostics([]);
+      }
     }
   }, [project, activeFile, handleSave, editorRef]);
 

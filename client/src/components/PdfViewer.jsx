@@ -766,10 +766,11 @@ const PdfViewer = forwardRef(function PdfViewer(
           {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning{warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
         </button>
         <button
-          className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''}`}
+          className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
           onClick={() => togglePanel('console')}
         >
           Console
+          {consoleOutput && showPanel !== 'console' && <span className="console-badge" />}
         </button>
         {url && (
           <a className="pdf-header-btn pdf-download-btn" href={url} download="output.pdf" title="Download PDF">

@@ -139,6 +139,19 @@ export default function latexLint(text) {
     const lineNum = lineIdx + 1;
     let i = 0;
 
+    // Empty line inside a math environment causes a compilation error
+    if (line.trim() === '' && !inVerbatim) {
+      const mathEnv = envStack.findLast((e) => MATH_ENVS.has(e.name));
+      if (mathEnv) {
+        diagnostics.push({
+          line: lineNum,
+          col: 1,
+          severity: 'error',
+          message: `Empty line in ${mathEnv.name} environment — this will cause a compilation error. Remove the blank line.`,
+        });
+      }
+    }
+
     while (i < line.length) {
       const ch = line[i];
 

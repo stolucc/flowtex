@@ -66,23 +66,25 @@ router.get('/stats/timeseries', async (req, res) => {
   const spec = tableMap[metric];
   if (!spec) return res.status(400).json({ error: 'Invalid metric' });
 
+  // spec.table, spec.col, spec.where come from the hardcoded tableMap above (never user input).
+  // days is validated as an integer 1–365 and passed as a parameterized value.
   const rows = await db.all(
     `
     SELECT d::date AS date, COALESCE(c.count, 0)::int AS count
     FROM generate_series(
-      (NOW() - ($1 || ' days')::INTERVAL)::date,
+      (NOW() - make_interval(days => $1))::date,
       NOW()::date,
       '1 day'
     ) d
     LEFT JOIN (
       SELECT date_trunc('day', ${spec.col})::date AS day, COUNT(*)::int AS count
       FROM ${spec.table}
-      WHERE ${spec.col} > NOW() - ($1 || ' days')::INTERVAL ${spec.where || ''}
+      WHERE ${spec.col} > NOW() - make_interval(days => $1) ${spec.where || ''}
       GROUP BY 1
     ) c ON d::date = c.day
     ORDER BY d
   `,
-    [String(days)],
+    [days],
   );
 
   res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
@@ -96,7 +98,7 @@ router.get('/stats/active-users', async (req, res) => {
     `
     SELECT d::date AS date, COUNT(DISTINCT uid)::int AS count
     FROM generate_series(
-      (NOW() - ($1 || ' days')::INTERVAL)::date,
+      (NOW() - make_interval(days => $1))::date,
       NOW()::date,
       '1 day'
     ) d
@@ -112,7 +114,7 @@ router.get('/stats/active-users', async (req, res) => {
     ) u ON TRUE
     GROUP BY 1 ORDER BY 1
   `,
-    [String(days)],
+    [days],
   );
 
   res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));

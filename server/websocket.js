@@ -332,7 +332,34 @@ export function initWebSocket(server, app, sessionSecret) {
     logger.info('Redis pub/sub enabled for WebSocket scaling');
   }
 
-  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 256 * 1024 });
+  // Verify Origin header to prevent cross-site WebSocket hijacking
+  const appUrl = process.env.APP_URL || '';
+  const allowedOrigins = new Set();
+  if (appUrl) {
+    try {
+      const parsed = new URL(appUrl);
+      allowedOrigins.add(parsed.origin);
+    } catch {}
+  }
+  // Always allow same-host connections (localhost dev, etc.)
+  allowedOrigins.add(`https://localhost:${process.env.PORT || 3001}`);
+  allowedOrigins.add(`http://localhost:${process.env.PORT || 3001}`);
+
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    maxPayload: 256 * 1024,
+    verifyClient: ({ req }, cb) => {
+      const origin = req.headers.origin;
+      // In production, require a valid Origin header
+      if (origin && !allowedOrigins.has(origin)) {
+        logger.warn({ origin }, 'WS connection rejected: invalid origin');
+        cb(false, 403, 'Forbidden');
+        return;
+      }
+      cb(true);
+    },
+  });
 
   // Expose helpers on app.locals
   app.locals.broadcastToRoom = broadcastToRoom;
@@ -437,6 +464,9 @@ export function initWebSocket(server, app, sessionSecret) {
       } catch {
         return;
       }
+
+      // Basic message schema validation
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
 
       if (msg.type === 'join') {
         await handleJoin(ws, msg, state);

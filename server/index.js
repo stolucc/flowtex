@@ -69,6 +69,12 @@ app.use(
   }),
 );
 
+// Additional security headers not covered by Helmet defaults
+app.use((req, res, next) => {
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
 // ── CORS — restrict to known origins ────────────────────────────────────
 const allowedOrigins = (
   process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3001,https://localhost:3001'
@@ -107,8 +113,9 @@ const sessionMiddleware = session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  rolling: true, // Reset maxAge on every request (activity-based expiry)
   cookie: {
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours of inactivity
     sameSite: 'lax',
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -176,12 +183,25 @@ const apiLimiter = rateLimit({
   skip: () => skipRateLimit,
 });
 
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many uploads, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => skipRateLimit,
+});
+
 // Auth routes (public, rate-limited)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/auth', authRouter);
+
+// Upload rate limits (stricter — 10 per 15 minutes)
+app.use('/api/projects/from-zip', uploadLimiter);
+app.post('/api/projects/:id/upload-zip', uploadLimiter);
 
 // Protected API routes (general rate limit)
 app.use('/api/', apiLimiter);
@@ -298,7 +318,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
     }
   }
   // Any environment: reject known default/weak secrets
-  const defaults = ['flowtex-dev-secret-change-in-production', 'underleaf-dev-secret-change-in-production'];
+  const defaults = ['flowtex-dev-secret-change-in-production'];
   if (isProduction && defaults.includes(process.env.SESSION_SECRET)) {
     logger.fatal('SESSION_SECRET must be changed from the default in production');
     process.exit(1);

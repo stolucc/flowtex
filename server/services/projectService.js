@@ -266,9 +266,13 @@ async function stripCommonPrefix(created) {
   });
 }
 
-export async function updateProject(projectId, { name, main_file, snapshot_interval_sec, tex_distribution }) {
+export async function updateProject(projectId, { name, main_file, snapshot_interval_sec, tex_distribution, compiler }) {
   if (main_file) {
     if (!isValidFilePath(main_file)) throw new Error('Invalid main file path');
+    if (!main_file.endsWith('.tex')) throw new Error('Main file must be a .tex file');
+    // Verify the file actually exists in the project
+    const fileExists = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, main_file]);
+    if (!fileExists) throw new Error('Main file not found in project');
     await db.run('UPDATE projects SET main_file = $1 WHERE id = $2', [main_file, projectId]);
   }
   if (name && name.trim()) {
@@ -280,6 +284,11 @@ export async function updateProject(projectId, { name, main_file, snapshot_inter
   }
   if (tex_distribution !== undefined) {
     await db.run('UPDATE projects SET tex_distribution = $1 WHERE id = $2', [tex_distribution || null, projectId]);
+  }
+  if (compiler !== undefined) {
+    const valid = ['pdflatex', 'xelatex', 'lualatex'];
+    const val = valid.includes(compiler) ? compiler : 'pdflatex';
+    await db.run('UPDATE projects SET compiler = $1 WHERE id = $2', [val, projectId]);
   }
   return db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
 }

@@ -21,7 +21,24 @@ router.get('/oauth/authorize', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
   req.session.githubOAuthState = state;
   let returnTo = req.query.returnTo || '/';
-  if (!returnTo.startsWith('/') || returnTo.startsWith('//')) returnTo = '/';
+  // Prevent open redirect: must be a relative path, no protocol-relative URLs,
+  // no backslashes, no encoded variants, and no authority component
+  if (
+    !returnTo.startsWith('/') ||
+    returnTo.startsWith('//') ||
+    returnTo.includes('\\') ||
+    returnTo.includes('\0') ||
+    /^\/[^/]*@/.test(returnTo)
+  ) {
+    returnTo = '/';
+  }
+  // Double-check: parse and reject if it resolves to an external host
+  try {
+    const parsed = new URL(returnTo, 'http://localhost');
+    if (parsed.hostname !== 'localhost') returnTo = '/';
+  } catch {
+    returnTo = '/';
+  }
   req.session.githubOAuthReturnTo = returnTo;
   req.session.save(() => {
     const params = new URLSearchParams({

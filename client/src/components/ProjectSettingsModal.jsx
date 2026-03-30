@@ -127,9 +127,21 @@ function EditorSection({
   );
 }
 
-function CompilerSection({ showBoxWarnings, setShowBoxWarnings, texDistribution, setTexDistribution, distributions }) {
+function CompilerSection({ compiler, setCompiler, showBoxWarnings, setShowBoxWarnings, showLintWarnings, setShowLintWarnings, serverLinter, setServerLinter, texDistribution, setTexDistribution, distributions }) {
   return (
     <>
+      <div className="settings-group">
+        <label className="settings-label">Compiler</label>
+        <select
+          className="settings-input"
+          value={compiler}
+          onChange={(e) => setCompiler(e.target.value)}
+        >
+          <option value="pdflatex">pdfLaTeX</option>
+          <option value="xelatex">XeLaTeX</option>
+          <option value="lualatex">LuaLaTeX</option>
+        </select>
+      </div>
       <div className="settings-group">
         <label className="settings-label">TeX Live Distribution</label>
         <select
@@ -150,6 +162,24 @@ function CompilerSection({ showBoxWarnings, setShowBoxWarnings, texDistribution,
           <span className="settings-toggle-label">Show underfull/overfull box warnings</span>
           <Toggle on={showBoxWarnings} onChange={setShowBoxWarnings} />
         </div>
+      </div>
+      <div className="settings-group">
+        <div className="settings-toggle-row">
+          <span className="settings-toggle-label">Client-side linter</span>
+          <Toggle on={showLintWarnings} onChange={setShowLintWarnings} />
+        </div>
+      </div>
+      <div className="settings-group">
+        <label className="settings-label">Server-side Linter</label>
+        <select
+          className="settings-input"
+          value={serverLinter}
+          onChange={(e) => setServerLinter(e.target.value)}
+        >
+          <option value="">None</option>
+          <option value="chktex">ChkTeX</option>
+          <option value="lacheck">lacheck</option>
+        </select>
       </div>
     </>
   );
@@ -224,10 +254,17 @@ export default function ProjectSettingsModal({
     () => localStorage.getItem('flowtex-editor-inverted') === 'true',
   );
   const [pdfInverted, setPdfInverted] = useState(() => localStorage.getItem('flowtex-pdf-inverted') === 'true');
+  const [compiler, setCompiler] = useState(project.compiler || 'pdflatex');
   const [texDistribution, setTexDistribution] = useState(project.tex_distribution || null);
   const [distributions, setDistributions] = useState([]);
   const [latexFormatter, setLatexFormatter] = useState(() => localStorage.getItem('flowtex-latex-formatter') || '');
   const [formatters, setFormatters] = useState([]);
+  const [showLintWarnings, setShowLintWarnings] = useState(
+    () => localStorage.getItem(`flowtex-show-lint-warnings-${project.id}`) !== 'false',
+  );
+  const [serverLinter, setServerLinter] = useState(
+    () => localStorage.getItem(`flowtex-server-linter-${project.id}`) || '',
+  );
   const [activeCategory, setActiveCategory] = useState(initialTab || 'project');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -254,6 +291,7 @@ export default function ProjectSettingsModal({
       if (snapshotInterval !== (project.snapshot_interval_sec || 30)) updates.snapshot_interval_sec = snapshotInterval;
       if ((texDistribution || null) !== (project.tex_distribution || null))
         updates.tex_distribution = texDistribution || '';
+      if (compiler !== (project.compiler || 'pdflatex')) updates.compiler = compiler;
 
       if (Object.keys(updates).length > 0) {
         const res = await patch(`/api/projects/${project.id}`, updates);
@@ -271,8 +309,10 @@ export default function ProjectSettingsModal({
       localStorage.setItem('flowtex-editor-inverted', String(editorInverted));
       localStorage.setItem('flowtex-pdf-inverted', String(pdfInverted));
       localStorage.setItem('flowtex-latex-formatter', latexFormatter);
+      localStorage.setItem(`flowtex-show-lint-warnings-${project.id}`, String(showLintWarnings));
+      localStorage.setItem(`flowtex-server-linter-${project.id}`, serverLinter);
       window.dispatchEvent(
-        new CustomEvent('flowtex:settings-changed', { detail: { showBoxWarnings, editorInverted, pdfInverted, latexFormatter } }),
+        new CustomEvent('flowtex:settings-changed', { detail: { showBoxWarnings, showLintWarnings, serverLinter, editorInverted, pdfInverted, latexFormatter } }),
       );
 
       onClose();
@@ -341,8 +381,14 @@ export default function ProjectSettingsModal({
 
             {activeCategory === 'compiler' && (
               <CompilerSection
+                compiler={compiler}
+                setCompiler={setCompiler}
                 showBoxWarnings={showBoxWarnings}
                 setShowBoxWarnings={setShowBoxWarnings}
+                showLintWarnings={showLintWarnings}
+                setShowLintWarnings={setShowLintWarnings}
+                serverLinter={serverLinter}
+                setServerLinter={setServerLinter}
                 texDistribution={texDistribution}
                 setTexDistribution={setTexDistribution}
                 distributions={distributions}

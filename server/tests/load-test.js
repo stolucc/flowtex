@@ -50,7 +50,7 @@ let sourceProjectFiles = null; // fetched once at startup
 
 // Fetch all files from the source project directly from the database
 async function fetchSourceFiles() {
-  const pool = new pg.Pool({ database: process.env.PGDATABASE || 'underleaf' });
+  const pool = new pg.Pool({ database: process.env.PGDATABASE || 'flowtex' });
   try {
     const { rows } = await pool.query('SELECT path, content, is_binary FROM files WHERE project_id = $1', [
       SOURCE_PROJECT_ID,

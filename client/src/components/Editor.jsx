@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { EditorView, keymap, Decoration } from '@codemirror/view';
+import { undo as cmUndo, redo as cmRedo } from '@codemirror/commands';
 import { EditorState, Compartment, Prec } from '@codemirror/state';
 import { basicSetup } from 'codemirror';
 import { StreamLanguage, syntaxHighlighting } from '@codemirror/language';
@@ -163,6 +164,14 @@ const Editor = forwardRef(function Editor(
   setSpellMenuRef.current = setSpellMenu;
 
   useImperativeHandle(ref, () => ({
+    undo() {
+      const view = viewRef.current;
+      if (view) cmUndo(view);
+    },
+    redo() {
+      const view = viewRef.current;
+      if (view) cmRedo(view);
+    },
     goToLine(line, col) {
       const view = viewRef.current;
       if (!view) return;
@@ -725,7 +734,7 @@ const Editor = forwardRef(function Editor(
             // Hide comment button if doc changed
             setCommentBtn(null);
 
-            // Debounced lint (client-side)
+            // Debounced lint (client-side only; server-side runs on compile)
             if (file?.path?.endsWith('.tex')) {
               clearTimeout(lintTimeout.current);
               lintTimeout.current = setTimeout(() => {
@@ -1084,6 +1093,18 @@ const Editor = forwardRef(function Editor(
             {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save OFF'}
           </button>
         )}
+        <button className="editor-header-btn" onClick={() => cmUndo(viewRef.current)} title="Undo (Cmd+Z)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+        <button className="editor-header-btn" onClick={() => cmRedo(viewRef.current)} title="Redo (Cmd+Shift+Z)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+          </svg>
+        </button>
         <span className="editor-zoom-controls">
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.max(8, s - 1))} title="Zoom out">
             <svg

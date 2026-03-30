@@ -87,12 +87,12 @@ router.patch('/:id', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
   if (member.role !== 'owner') return res.status(403).json({ error: 'Only the owner can modify project settings' });
-  const { name, main_file, snapshot_interval_sec, tex_distribution } = req.body;
-  if (!name && !main_file && snapshot_interval_sec == null && tex_distribution === undefined)
+  const { name, main_file, snapshot_interval_sec, tex_distribution, compiler } = req.body;
+  if (!name && !main_file && snapshot_interval_sec == null && tex_distribution === undefined && compiler === undefined)
     return res.status(400).json({ error: 'Nothing to update' });
   try {
     res.json(
-      await projectService.updateProject(req.params.id, { name, main_file, snapshot_interval_sec, tex_distribution }),
+      await projectService.updateProject(req.params.id, { name, main_file, snapshot_interval_sec, tex_distribution, compiler }),
     );
   } catch (err) {
     sendError(res, err);
@@ -229,8 +229,11 @@ router.get('/files/:fileId/raw', async (req, res) => {
   if (file.is_binary) {
     const buf = Buffer.from(file.content, 'base64');
     res.set('Content-Type', mime);
+    // Force download for SVG (prevents inline script execution); inline for others
     res.set('Content-Disposition', ext === 'svg' ? 'attachment' : 'inline');
-    if (ext === 'svg') res.set('Content-Security-Policy', "sandbox; default-src 'none'");
+    // Sandbox all user-uploaded binary content to prevent embedded scripts
+    res.set('Content-Security-Policy', "sandbox; default-src 'none'");
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Content-Length', buf.length);
     res.send(buf);
   } else {

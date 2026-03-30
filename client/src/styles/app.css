@@ -2730,6 +2730,16 @@ html {
   border-color: var(--text-muted);
 }
 
+.console-badge {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
 .pdf-header-btn.has-errors {
   color: var(--red);
   border-color: var(--red);
@@ -4006,6 +4016,72 @@ html {
 }
 
 /* Word Count Modal */
+/* Shortcuts modal */
+.shortcuts-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 440px;
+  max-width: 90vw;
+}
+.shortcuts-body {
+  padding: 16px 24px 24px;
+}
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.shortcuts-table td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.shortcuts-table tr:last-child td {
+  border-bottom: none;
+}
+.shortcut-key {
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 16px !important;
+  color: var(--text-muted);
+}
+.shortcut-key kbd {
+  display: inline-block;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-primary);
+  min-width: 20px;
+  text-align: center;
+}
+
+/* About modal */
+.about-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 340px;
+  max-width: 90vw;
+}
+.about-body {
+  padding: 16px 24px 24px;
+  text-align: center;
+}
+.about-tagline {
+  color: var(--text-primary);
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.about-version {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
 .wordcount-modal {
   background: var(--bg-surface);
   border: 1px solid var(--border);

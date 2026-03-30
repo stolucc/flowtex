@@ -148,11 +148,18 @@ export function stopCompilation(projectId) {
   return Promise.resolve(false);
 }
 
+// Supported compilers and their latexmk flags
+export const COMPILERS = [
+  { id: 'pdflatex', name: 'pdfLaTeX', flag: '-pdf' },
+  { id: 'xelatex', name: 'XeLaTeX', flag: '-xelatex' },
+  { id: 'lualatex', name: 'LuaLaTeX', flag: '-lualatex' },
+];
+
 export async function compileProject(
   projectId,
   mainFile = 'main.tex',
   onOutput,
-  { files, onBeforeCompile, userId, texDistribution } = {},
+  { files, onBeforeCompile, userId, texDistribution, compiler } = {},
 ) {
   // Sync files to disk before compiling
   if (files) {
@@ -166,10 +173,10 @@ export async function compileProject(
 
   // Each user gets a unique jobname so concurrent compilations don't collide
   const userSuffix = userId ? '_' + userId.slice(0, 8) : '';
-  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution);
+  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution, compiler);
 }
 
-function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000, texDistribution = null) {
+function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000, texDistribution = null, compiler = null) {
   return new Promise((resolve, reject) => {
     const projectDir = path.join(PROJECTS_DIR, projectId);
 
@@ -210,10 +217,14 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
     compileMetrics.active++;
     const compileStartTime = Date.now();
 
+    // Determine the latexmk engine flag based on the selected compiler
+    const compilerEntry = COMPILERS.find((c) => c.id === compiler);
+    const engineFlag = compilerEntry ? compilerEntry.flag : '-pdf';
+
     const child = execFile(
       'latexmk',
       [
-        '-pdf',
+        engineFlag,
         '-synctex=1',
         '-interaction=nonstopmode',
         '-f',

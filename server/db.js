@@ -93,6 +93,8 @@ async function initSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS compiler TEXT NOT NULL DEFAULT 'pdflatex';
+
     CREATE TABLE IF NOT EXISTS files (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

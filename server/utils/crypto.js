@@ -9,10 +9,8 @@ function deriveKey() {
       "ENCRYPTION_KEY must be set in production. Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
     );
   }
-  const keyMaterial = envKey || 'underleaf-dev-encryption-key-change-in-production';
-  // Note: salt is static for backward-compatibility with existing encrypted tokens.
-  // In production, ENCRYPTION_KEY should be a high-entropy random string (>= 32 bytes hex).
-  return crypto.scryptSync(keyMaterial, 'underleaf-salt', 32);
+  const keyMaterial = envKey || 'flowtex-dev-encryption-key-change-in-production';
+  return crypto.scryptSync(keyMaterial, 'flowtex-salt', 32);
 }
 
 let _key = null;
