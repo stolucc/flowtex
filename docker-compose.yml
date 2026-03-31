@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "${PORT:-80}:3001"
+      - "80:3001"
     environment:
       NODE_ENV: production
       PORT: 3001
