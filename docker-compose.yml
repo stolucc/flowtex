@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "${PORT:-3001}:3001"
+      - "${PORT:-80}:3001"
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -17,6 +17,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       APP_URL: ${APP_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DISABLE_TLS_REDIRECT: ${DISABLE_TLS_REDIRECT:-}
       # Redis (optional — uncomment redis service below to enable)
       # REDIS_URL: redis://redis:6379
     depends_on:
