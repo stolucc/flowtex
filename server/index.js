@@ -252,10 +252,13 @@ const clientDistPrimary = path.join(__dirname, '..', 'client', 'dist');
 const clientDistFallback = path.join(__dirname, 'public');
 const clientDist = fs.existsSync(clientDistPrimary) ? clientDistPrimary : clientDistFallback;
 app.use(express.static(clientDist));
+
+// Block common scanner probes — return 404 instead of SPA fallback
+const blockedPathPattern = /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
 app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  }
+  if (req.path.startsWith('/api')) return;
+  if (blockedPathPattern.test(req.path)) return res.status(404).end();
+  res.sendFile(path.join(clientDist, 'index.html'));
 });
 
 // Use HTTPS if certs are available, otherwise fall back to HTTP
