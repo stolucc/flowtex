@@ -35,6 +35,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = 3001;
 
+// Trust reverse proxy (Caddy) — required for secure cookies and correct IP detection
+app.set('trust proxy', 1);
+
 // ── TLS enforcement in production ────────────────────────────────────────
 if (process.env.NODE_ENV === 'production' && !process.env.DISABLE_TLS_REDIRECT) {
   app.use((req, res, next) => {
