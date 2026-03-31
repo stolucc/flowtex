@@ -246,7 +246,9 @@ app.get('/api/ready', async (req, res) => {
 });
 
 // Serve built client in production
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
+const clientDistPrimary = path.join(__dirname, '..', 'client', 'dist');
+const clientDistFallback = path.join(__dirname, 'public');
+const clientDist = fs.existsSync(clientDistPrimary) ? clientDistPrimary : clientDistFallback;
 app.use(express.static(clientDist));
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
