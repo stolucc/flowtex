@@ -83,10 +83,9 @@ const allowedOrigins = (
 app.use(
   cors({
     origin(origin, cb) {
-      // Allow requests with no origin in development (mobile apps, curl, same-origin)
-      // In production, require a valid origin to prevent sandboxed-iframe attacks
-      if (!origin && process.env.NODE_ENV !== 'production') return cb(null, true);
-      if (origin && allowedOrigins.includes(origin)) return cb(null, true);
+      // No Origin header = same-origin request (browser navigation, fetch from same host, curl, healthchecks)
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
       cb(new Error('Not allowed by CORS'));
     },
     credentials: true,
