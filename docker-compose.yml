@@ -1,8 +1,23 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
   app:
     build: .
-    ports:
-      - "80:3001"
+    expose:
+      - "3001"
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -17,7 +32,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       APP_URL: ${APP_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      DISABLE_TLS_REDIRECT: ${DISABLE_TLS_REDIRECT:-}
+      DISABLE_TLS_REDIRECT: "true"
       # Redis (optional — uncomment redis service below to enable)
       # REDIS_URL: redis://redis:6379
     depends_on:
@@ -54,4 +69,6 @@ volumes:
   pgdata:
   compile-workdir:
   git-repos:
+  caddy_data:
+  caddy_config:
   # redisdata:
