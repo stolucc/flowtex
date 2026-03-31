@@ -36,7 +36,7 @@ const app = express();
 const PORT = 3001;
 
 // ── TLS enforcement in production ────────────────────────────────────────
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' && !process.env.DISABLE_TLS_REDIRECT) {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
       return res.redirect(301, `https://${req.headers.host}${req.url}`);
