@@ -105,7 +105,7 @@ router.delete('/token', async (req, res) => {
 router.put('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role !== 'owner') return res.status(403).json({ error: 'Only the owner can link a repo' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot link a repo' });
 
   const { repo, branch } = req.body;
   if (!repo || !repo.includes('/')) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
@@ -136,8 +136,8 @@ router.get('/link/:projectId', async (req, res) => {
 router.patch('/link/:projectId/auto-push', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role !== 'owner') {
-    return res.status(403).json({ error: 'Only the project owner can change auto-push settings' });
+  if (member.role === 'viewer') {
+    return res.status(403).json({ error: 'Viewers cannot change auto-push settings' });
   }
 
   const updated = await gh.updateAutoPush(req.params.projectId, req.body.enabled, req.body.interval);
@@ -148,7 +148,7 @@ router.patch('/link/:projectId/auto-push', async (req, res) => {
 router.delete('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role !== 'owner') return res.status(403).json({ error: 'Only the owner can unlink' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot unlink' });
 
   await gh.unlinkProject(req.params.projectId);
   res.json({ ok: true });

@@ -45,6 +45,9 @@ export default function useWebSocket(
       } else if (msg.type === 'changes') {
         // handled via editorRef in App
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
+      } else if (msg.type === 'tc-delete-mark') {
+        // real-time tracked deletion mark — handled via editorRef in App
+        window.dispatchEvent(new CustomEvent('ws:tc-delete-mark', { detail: msg }));
       } else if (msg.type === 'cursor') {
         setRemoteCursors((prev) => ({
           ...prev,
@@ -66,10 +69,20 @@ export default function useWebSocket(
         setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
       } else if (msg.type === 'tracked-change') {
         if (msg.fileId === activeFileRef.current?.id) {
-          setTrackedChanges((tc) => [...tc, msg.change]);
+          setTrackedChanges((tc) => {
+            const idx = tc.findIndex((c) => c.id === msg.change.id);
+            if (idx >= 0) {
+              const updated = [...tc];
+              updated[idx] = msg.change;
+              return updated;
+            }
+            return [...tc, msg.change];
+          });
         }
       } else if (msg.type === 'tracked-change-resolve') {
         setTrackedChanges((tc) => tc.map((c) => (c.id === msg.changeId ? { ...c, status: msg.status } : c)));
+      } else if (msg.type === 'tracked-change-delete') {
+        setTrackedChanges((tc) => tc.filter((c) => c.id !== msg.changeId));
       } else if (msg.type === 'history_update') {
         setHistoryVersion((v) => (v || 0) + 1);
       } else if (msg.type === 'chat') {

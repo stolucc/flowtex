@@ -244,12 +244,27 @@ function AppInner() {
   // --- Effects that wire hooks together ---
 
   useEffect(() => {
-    const handler = (e) => {
-      editorRef.current?.applyRemoteChanges(e.detail.fileId, e.detail.changes);
+    const changesHandler = (e) => {
+      editorRef.current?.applyRemoteChanges(
+        e.detail.fileId,
+        e.detail.changes,
+        e.detail.tracked,
+        e.detail.deletions,
+      );
     };
-    window.addEventListener('ws:changes', handler);
-    return () => window.removeEventListener('ws:changes', handler);
+    const tcDeleteHandler = (e) => {
+      editorRef.current?.applyRemoteTcDelete(e.detail.fileId, e.detail.from, e.detail.to);
+    };
+    window.addEventListener('ws:changes', changesHandler);
+    window.addEventListener('ws:tc-delete-mark', tcDeleteHandler);
+    return () => {
+      window.removeEventListener('ws:changes', changesHandler);
+      window.removeEventListener('ws:tc-delete-mark', tcDeleteHandler);
+    };
   }, []);
+
+  // TC resolve: editor content is synced via normal OT from resolveTrackedChangeEdit,
+  // so receiving user only needs the status update (handled in useWebSocket)
 
   useEffect(() => {
     if (!project) return;
@@ -717,7 +732,15 @@ function AppInner() {
                     projectId={project?.id}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
-                    onChanges={(changes) => sendWsMessage({ type: 'changes', fileId: activeFile?.id, changes })}
+                    onChanges={(changes, tracked, deletions) =>
+                      sendWsMessage({
+                        type: 'changes',
+                        fileId: activeFile?.id,
+                        changes,
+                        ...(tracked ? { tracked: true } : {}),
+                        ...(deletions ? { deletions } : {}),
+                      })
+                    }
                     onCursorChange={(head, anchor) =>
                       sendWsMessage({ type: 'cursor', fileId: activeFile?.id, head, anchor })
                     }
@@ -738,6 +761,9 @@ function AppInner() {
                       setTcPopup((prev) => (prev?.changeId === changeId ? null : { changeId, x: pos.x, y: pos.y }))
                     }
                     onDeleteInsertionChar={handleDeleteInsertionChar}
+                    onTrackDeletion={(from, to) =>
+                      sendWsMessage({ type: 'tc-delete-mark', fileId: activeFile?.id, from, to })
+                    }
                     onToggleTrackChanges={() => setTrackChangesMode((m) => !m)}
                     pendingChangesCount={pendingChanges.length}
                     reviewing={reviewing}

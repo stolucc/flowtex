@@ -43,11 +43,16 @@ function sanitizeMessage(msg) {
   return sanitized;
 }
 
+// Message types whose string fields should be HTML-sanitized (user-generated display text).
+// Document content (changes, tracked-change) must NOT be sanitized — it's rendered in
+// CodeMirror, not as HTML, and encoding would corrupt LaTeX characters like & < >.
+const SANITIZE_TYPES = new Set(['chat', 'comment', 'comment-reply', 'comment-edit', 'presence']);
+
 function broadcastToRoom(projectId, message, excludeWs) {
-  const sanitized = sanitizeMessage(message);
+  const outMessage = SANITIZE_TYPES.has(message.type) ? sanitizeMessage(message) : message;
   const room = projectRooms.get(projectId);
   if (room) {
-    const data = JSON.stringify(sanitized);
+    const data = JSON.stringify(outMessage);
     for (const client of room) {
       if (client.ws !== excludeWs && client.ws.readyState === 1) {
         client.ws.send(data);
@@ -191,6 +196,8 @@ function handleChanges(msg, state, ws) {
       fileId: msg.fileId,
       changes: msg.changes,
       userId: state.clientEntry.userId,
+      ...(msg.tracked ? { tracked: true } : {}),
+      ...(Array.isArray(msg.deletions) ? { deletions: msg.deletions } : {}),
     },
     ws,
   );
@@ -246,6 +253,15 @@ function handleTrackedChangeResolve(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'tracked-change-resolve', changeId: msg.changeId, status: msg.status }, ws);
 }
 
+function handleTrackedChangeDelete(msg, state, ws) {
+  broadcastToRoom(state.projectId, { type: 'tracked-change-delete', fileId: msg.fileId, changeId: msg.changeId }, ws);
+}
+
+function handleTcDeleteMark(msg, state, ws) {
+  if (typeof msg.from !== 'number' || typeof msg.to !== 'number') return;
+  broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
+}
+
 async function handleChat(msg, state) {
   const id = crypto.randomUUID();
   const text = (msg.text || '').trim().slice(0, 5000);
@@ -281,6 +297,8 @@ const writeTypes = new Set([
   'comment-edit',
   'tracked-change',
   'tracked-change-resolve',
+  'tracked-change-delete',
+  'tc-delete-mark',
 ]);
 
 const messageHandlers = {
@@ -293,6 +311,8 @@ const messageHandlers = {
   'comment-edit': handleCommentEdit,
   'tracked-change': handleTrackedChange,
   'tracked-change-resolve': handleTrackedChangeResolve,
+  'tracked-change-delete': handleTrackedChangeDelete,
+  'tc-delete-mark': handleTcDeleteMark,
   chat: handleChat,
 };
 

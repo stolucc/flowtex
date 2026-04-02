@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { EditorView, keymap, Decoration } from '@codemirror/view';
-import { undo as cmUndo, redo as cmRedo } from '@codemirror/commands';
-import { EditorState, Compartment, Prec } from '@codemirror/state';
+import { undo as cmUndo, redo as cmRedo, invertedEffects } from '@codemirror/commands';
+import { EditorState, ChangeSet, Compartment, Prec } from '@codemirror/state';
 import { basicSetup } from 'codemirror';
 import { StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
@@ -80,6 +80,7 @@ const Editor = forwardRef(function Editor(
     onTrackChange,
     onTrackedChangeClick,
     onDeleteInsertionChar,
+    onTrackDeletion,
     onToggleTrackChanges,
     pendingChangesCount = 0,
     reviewing = false,
@@ -111,17 +112,22 @@ const Editor = forwardRef(function Editor(
   const fontSizeCompartment = useRef(new Compartment());
   const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('flowtex-font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
+  const isResolvingTc = useRef(false);
   const errorHighlightTimer = useRef(null);
   const lintTimeout = useRef(null);
   const spellTimeout = useRef(null);
   const dictRef = useRef(null);
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
-  const tcPendingChanges = useRef(null); // composed ChangeSet for debounce
-  const tcStartDoc = useRef(null); // doc at start of debounce window
-  const tcDebounceTimer = useRef(null);
+  const tcInsertBuffer = useRef({ from: null, to: null, text: '' }); // buffered insertion for debounce
+  const tcInsertTimer = useRef(null);
   const tcDelBuffer = useRef({ from: null, to: null, text: '' });
   const tcDelTimer = useRef(null);
+  // Pending deletion ranges from the transaction filter, piggybacked on the next 'changes' WS message.
+  // Stored as old-doc positions so the collaborator can map them through the ChangeSet locally.
+  const pendingTcDeletions = useRef(null);
+  // When true, tcMarkAsDeleted skips the onTrackDeletion WS broadcast (info is piggybacked instead).
+  const skipTcDeleteBroadcast = useRef(false);
   const [commentBtn, setCommentBtn] = useState(null); // { x, y, from, to }
   const [showSearch, setShowSearch] = useState(false);
   const [lintDiags, setLintDiags] = useState([]);
@@ -156,6 +162,7 @@ const Editor = forwardRef(function Editor(
   const onTrackChangeRef = useRef(onTrackChange);
   const onTrackedChangeClickRef = useRef(onTrackedChangeClick);
   const onDeleteInsertionCharRef = useRef(onDeleteInsertionChar);
+  const onTrackDeletionRef = useRef(onTrackDeletion);
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
   const setSpellMenuRef = useRef(setSpellMenu);
@@ -173,6 +180,7 @@ const Editor = forwardRef(function Editor(
   onTrackChangeRef.current = onTrackChange;
   onTrackedChangeClickRef.current = onTrackedChangeClick;
   onDeleteInsertionCharRef.current = onDeleteInsertionChar;
+  onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
   const citeKeysRef = useRef(citeKeys || []);
@@ -318,11 +326,25 @@ const Editor = forwardRef(function Editor(
       const docLen = view.state.doc.length;
       const clampedFrom = Math.min(Math.max(0, from), docLen);
       const clampedTo = Math.min(Math.max(clampedFrom, to), docLen);
-      isRemoteUpdate.current = true; // don't re-track this change
+      isRemoteUpdate.current = true; // don't re-track AND don't broadcast (used for remote edits)
       try {
         view.dispatch({ changes: { from: clampedFrom, to: clampedTo, insert: text } });
       } finally {
         isRemoteUpdate.current = false;
+      }
+    },
+    // Edit that broadcasts via OT but doesn't create a new tracked change
+    resolveTrackedChangeEdit(from, to, text) {
+      const view = viewRef.current;
+      if (!view) return;
+      const docLen = view.state.doc.length;
+      const clampedFrom = Math.min(Math.max(0, from), docLen);
+      const clampedTo = Math.min(Math.max(clampedFrom, to), docLen);
+      isResolvingTc.current = true;
+      try {
+        view.dispatch({ changes: { from: clampedFrom, to: clampedTo, insert: text } });
+      } finally {
+        isResolvingTc.current = false;
       }
     },
     getTopForPos(pos) {
@@ -347,15 +369,82 @@ const Editor = forwardRef(function Editor(
         ],
       });
     },
-    applyRemoteChanges(fileId, changes) {
+    applyRemoteChanges(fileId, changes, tracked, deletions) {
       const view = viewRef.current;
       if (!view || fileId !== file?.id) return;
+      const prevDocLen = view.state.doc.length;
       isRemoteUpdate.current = true;
       try {
         view.dispatch({ changes });
       } finally {
         isRemoteUpdate.current = false;
       }
+      // If the remote user had track-changes on, mark the inserted ranges immediately
+      if (tracked) {
+        try {
+          const cs = ChangeSet.of(changes, prevDocLen);
+          const insertDecos = [];
+          cs.iterChanges((fromA, toA, fromB, toB, inserted) => {
+            if (inserted.length > 0 && fromB < toB) {
+              insertDecos.push(
+                Decoration.mark({
+                  class: 'cm-tc-insert',
+                  attributes: { 'data-tc-type': 'insert' },
+                }).range(fromB, toB),
+              );
+            }
+          });
+
+          // Compute deletion marks from piggybacked old-doc deletion ranges.
+          // The collaborator maps these through the same ChangeSet that was just applied,
+          // so both users compute identical positions — no separate message needed.
+          const deleteDecos = [];
+          if (Array.isArray(deletions)) {
+            const docLen = view.state.doc.length;
+            for (const d of deletions) {
+              const mappedFrom = Math.max(0, Math.min(cs.mapPos(d.from, 1), docLen));
+              const mappedTo = Math.max(mappedFrom, Math.min(cs.mapPos(d.to, 1), docLen));
+              if (mappedFrom < mappedTo) {
+                deleteDecos.push(
+                  Decoration.mark({
+                    class: 'cm-tc-delete',
+                    attributes: { 'data-tc-type': 'delete' },
+                  }).range(mappedFrom, mappedTo),
+                );
+              }
+            }
+          }
+
+          const effects = [];
+          if (insertDecos.length > 0) {
+            const currentInsert = view.state.field(trackedChangesField);
+            effects.push(setTrackedChangesEffect.of(currentInsert.update({ add: insertDecos, sort: true })));
+          }
+          if (deleteDecos.length > 0) {
+            const currentDelete = view.state.field(tcDeletesField);
+            effects.push(setTcDeletesEffect.of(currentDelete.update({ add: deleteDecos, sort: true })));
+          }
+          if (effects.length > 0) {
+            view.dispatch({ effects });
+          }
+        } catch (e) {
+          // Ignore — decoration is non-critical; DB reconciliation will fix it
+        }
+      }
+    },
+    applyRemoteTcDelete(fileId, from, to) {
+      const view = viewRef.current;
+      if (!view || fileId !== file?.id) return;
+      const docLen = view.state.doc.length;
+      const clampedFrom = Math.max(0, Math.min(from, docLen));
+      const clampedTo = Math.max(clampedFrom, Math.min(to, docLen));
+      if (clampedFrom >= clampedTo) return;
+      const newMark = Decoration.mark({
+        class: 'cm-tc-delete',
+        attributes: { 'data-tc-type': 'delete' },
+      }).range(clampedFrom, clampedTo);
+      const current = view.state.field(tcDeletesField);
+      view.dispatch({ effects: setTcDeletesEffect.of(current.update({ add: [newMark], sort: true })) });
     },
     setRemoteCursors(cursors) {
       const view = viewRef.current;
@@ -402,36 +491,150 @@ const Editor = forwardRef(function Editor(
     },
   }));
 
-  // Mark a range as deleted (for track changes mode)
+  // Debounce delay (ms) for flushing TC buffers to the API.
+  // Set to 0 for immediate flush; increase to batch adjacent keystrokes.
+  const tcFlushDelay = 0;
+
+  // Mark a range as deleted (for track changes mode).
+  // If the range contains tracked insertions, those are actually removed from the document
+  // (they were never part of the original text). Only non-insertion text gets a deletion mark.
   const tcMarkAsDeleted = useCallback((view, from, to, cursorPos) => {
-    const deletedText = view.state.sliceDoc(from, to);
-    if (!deletedText) return;
-    // Add deletion decoration immediately
-    const currentDecos = view.state.field(tcDeletesField);
-    const newMark = Decoration.mark({
-      class: 'cm-tc-delete',
-      attributes: { 'data-tc-type': 'delete' },
-    }).range(from, to);
-    const updated = currentDecos.update({ add: [newMark], sort: true });
-    const dispatchSpec = { effects: setTcDeletesEffect.of(updated) };
-    if (cursorPos !== null && cursorPos !== undefined) {
-      dispatchSpec.selection = { anchor: cursorPos };
+    const state = view.state;
+    const text = state.sliceDoc(from, to);
+    if (!text) return;
+
+    // Split [from, to) into insertion vs non-insertion sub-ranges
+    const insertionRanges = [];
+    const deletionRanges = [];
+    let i = from;
+    while (i < to) {
+      const inIns = isPosInInsertion(state, i);
+      let end = i + 1;
+      while (end < to && isPosInInsertion(state, end) === inIns) end++;
+      if (inIns) insertionRanges.push({ from: i, to: end });
+      else deletionRanges.push({ from: i, to: end });
+      i = end;
     }
-    view.dispatch(dispatchSpec);
-    // Buffer for debounced API call
-    const buf = tcDelBuffer.current;
-    if (buf.from !== null && (from === buf.from - 1 || from === buf.from || to === buf.to || to === buf.to + 1)) {
-      buf.from = Math.min(buf.from, from);
-      buf.to = Math.max(buf.to, to);
-      buf.text = view.state.sliceDoc(buf.from, buf.to);
-    } else {
-      if (buf.from !== null) flushDelBuffer();
-      buf.from = from;
-      buf.to = to;
-      buf.text = deletedText;
+
+    // --- Case 1: No insertions in range — original simple path ---
+    if (insertionRanges.length === 0) {
+      const currentDecos = state.field(tcDeletesField);
+      const newMark = Decoration.mark({
+        class: 'cm-tc-delete',
+        attributes: { 'data-tc-type': 'delete' },
+      }).range(from, to);
+      const updated = currentDecos.update({ add: [newMark], sort: true });
+      const dispatchSpec = { effects: setTcDeletesEffect.of(updated) };
+      if (cursorPos !== null && cursorPos !== undefined) {
+        dispatchSpec.selection = { anchor: cursorPos };
+      }
+      view.dispatch(dispatchSpec);
+      if (!skipTcDeleteBroadcast.current) onTrackDeletionRef.current?.(from, to);
+      // Buffer for API
+      const buf = tcDelBuffer.current;
+      if (buf.from !== null && (from === buf.from - 1 || from === buf.from || to === buf.to || to === buf.to + 1)) {
+        buf.from = Math.min(buf.from, from);
+        buf.to = Math.max(buf.to, to);
+        buf.text = state.sliceDoc(buf.from, buf.to);
+      } else {
+        if (buf.from !== null) flushDelBuffer();
+        buf.from = from;
+        buf.to = to;
+        buf.text = text;
+      }
+      clearTimeout(tcDelTimer.current);
+      tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
+      return;
+    }
+
+    // --- Case 2: Only insertions, no original text — just remove them ---
+    if (deletionRanges.length === 0) {
+      const changes = insertionRanges.map((r) => ({ from: r.from, to: r.to }));
+      const dispatchSpec = { changes };
+      if (cursorPos !== null && cursorPos !== undefined) {
+        dispatchSpec.selection = { anchor: cursorPos };
+      }
+      isResolvingTc.current = true;
+      try {
+        view.dispatch(dispatchSpec);
+      } finally {
+        isResolvingTc.current = false;
+      }
+      for (const r of insertionRanges) {
+        for (let p = r.to - 1; p >= r.from; p--) {
+          onDeleteInsertionCharRef.current?.(p);
+        }
+      }
+      return;
+    }
+
+    // --- Case 3: Mixed — remove insertions from doc, mark original text as deleted ---
+    // Build document changes (remove insertion text)
+    const changes = insertionRanges.map((r) => ({ from: r.from, to: r.to }));
+    const cs = ChangeSet.of(
+      changes.map((c) => ({ from: c.from, to: c.to, insert: '' })),
+      state.doc.length,
+    );
+
+    // Map deletion ranges into post-change coordinate space
+    const mappedDeletionRanges = deletionRanges.map((r) => ({
+      from: cs.mapPos(r.from, 1),
+      to: cs.mapPos(r.to, -1),
+    })).filter((r) => r.from < r.to);
+
+    // Build decorations in post-change space
+    const currentDecos = state.field(tcDeletesField).map(cs);
+    const newMarks = mappedDeletionRanges.map((r) =>
+      Decoration.mark({
+        class: 'cm-tc-delete',
+        attributes: { 'data-tc-type': 'delete' },
+      }).range(r.from, r.to),
+    );
+    const updatedDecos = currentDecos.update({ add: newMarks, sort: true });
+
+    const newCursor =
+      cursorPos !== null && cursorPos !== undefined ? cs.mapPos(cursorPos, 1) : cs.mapPos(from, 1);
+
+    isResolvingTc.current = true;
+    try {
+      view.dispatch({
+        changes,
+        effects: setTcDeletesEffect.of(updatedDecos),
+        selection: { anchor: newCursor },
+      });
+    } finally {
+      isResolvingTc.current = false;
+    }
+
+    // Notify collaborators about deletion marks (skip if piggybacked on changes message)
+    if (!skipTcDeleteBroadcast.current) {
+      for (const r of mappedDeletionRanges) {
+        onTrackDeletionRef.current?.(r.from, r.to);
+      }
+    }
+    // Notify about removed insertion chars (original pre-change positions)
+    for (const r of insertionRanges) {
+      for (let p = r.to - 1; p >= r.from; p--) {
+        onDeleteInsertionCharRef.current?.(p);
+      }
+    }
+    // Buffer the deletion parts for API
+    for (const r of mappedDeletionRanges) {
+      const buf = tcDelBuffer.current;
+      const rText = view.state.sliceDoc(r.from, r.to);
+      if (buf.from !== null && (r.from === buf.from - 1 || r.from === buf.from || r.to === buf.to || r.to === buf.to + 1)) {
+        buf.from = Math.min(buf.from, r.from);
+        buf.to = Math.max(buf.to, r.to);
+        buf.text = view.state.sliceDoc(buf.from, buf.to);
+      } else {
+        if (buf.from !== null) flushDelBuffer();
+        buf.from = r.from;
+        buf.to = r.to;
+        buf.text = rText;
+      }
     }
     clearTimeout(tcDelTimer.current);
-    tcDelTimer.current = setTimeout(flushDelBuffer, 800);
+    tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
   }, []);
 
   const flushDelBuffer = useCallback(() => {
@@ -448,6 +651,20 @@ const Editor = forwardRef(function Editor(
     buf.text = '';
   }, []);
 
+  const flushInsBuffer = useCallback(() => {
+    const buf = tcInsertBuffer.current;
+    if (buf.from === null) return;
+    onTrackChangeRef.current?.({
+      from_pos: buf.from,
+      to_pos: buf.to,
+      inserted_text: buf.text,
+      deleted_text: '',
+    });
+    buf.from = null;
+    buf.to = null;
+    buf.text = '';
+  }, []);
+
   // Create editor when file changes
   useEffect(() => {
     if (!containerRef.current || !file) return;
@@ -456,7 +673,8 @@ const Editor = forwardRef(function Editor(
       viewRef.current.destroy();
     }
     setCommentBtn(null);
-    prevTcIdsRef.current = new Set();
+    prevPendingIdsRef.current = new Set();
+    tcDecorationsBuiltForFileRef.current = null;
 
     commentCompartment.current = new Compartment();
     wrapCompartment.current = new Compartment();
@@ -500,12 +718,14 @@ const Editor = forwardRef(function Editor(
                   return true;
                 }
                 // If char is a tracked insertion, just delete it normally (undo the insertion)
+                // Use isResolvingTc (not isRemoteUpdate) so the deletion is still broadcast via OT
+                // but doesn't get re-tracked as a new tracked change.
                 if (isPosInInsertion(view.state, target)) {
-                  isRemoteUpdate.current = true;
+                  isResolvingTc.current = true;
                   try {
                     view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
                   } finally {
-                    isRemoteUpdate.current = false;
+                    isResolvingTc.current = false;
                   }
                   onDeleteInsertionCharRef.current?.(target);
                   return true;
@@ -529,12 +749,13 @@ const Editor = forwardRef(function Editor(
                 while (target < view.state.doc.length && isPosInDeletion(view.state, target)) target++;
                 if (target >= view.state.doc.length) return true;
                 // If char is a tracked insertion, just delete it normally
+                // Use isResolvingTc so the deletion is broadcast but not re-tracked
                 if (isPosInInsertion(view.state, target)) {
-                  isRemoteUpdate.current = true;
+                  isResolvingTc.current = true;
                   try {
                     view.dispatch({ changes: { from: target, to: target + 1 } });
                   } finally {
-                    isRemoteUpdate.current = false;
+                    isResolvingTc.current = false;
                   }
                   onDeleteInsertionCharRef.current?.(target);
                   return true;
@@ -547,7 +768,7 @@ const Editor = forwardRef(function Editor(
         ),
         // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
         EditorState.transactionFilter.of((tr) => {
-          if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current) return tr;
+          if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current || isResolvingTc.current) return tr;
           let hasDeletion = false;
           tr.changes.iterChanges((fromA, toA) => {
             if (fromA < toA) hasDeletion = true;
@@ -564,25 +785,44 @@ const Editor = forwardRef(function Editor(
               deletionParts.push({ from: fromA, to: toA, text: tr.startState.sliceDoc(fromA, toA) });
             }
           });
-          // Schedule deletion tracking — all deletions become separate tracked changes
-          setTimeout(() => {
-            let offset = 0;
-            for (const ins of insertParts) offset += ins.insert.length;
-            for (const d of deletionParts) {
-              let skip = true;
+          // Store raw deletion ranges (old-doc positions) so the update listener can
+          // piggyback them on the OT 'changes' message.  The collaborator will map
+          // these through the ChangeSet locally — no separate tc-delete-mark needed.
+          {
+            const filteredDels = deletionParts.filter((d) => {
               for (let p = d.from; p < d.to; p++) {
-                if (!isPosInDeletion(tr.startState, p)) {
-                  skip = false;
-                  break;
+                if (!isPosInDeletion(tr.startState, p)) return true;
+              }
+              return false;
+            });
+            pendingTcDeletions.current = filteredDels.length > 0 ? filteredDels : null;
+          }
+          // Schedule local deletion decorations + API buffer (runs after dispatch).
+          // skipTcDeleteBroadcast prevents the duplicate WS send — info is already
+          // piggybacked on the changes message via pendingTcDeletions.
+          queueMicrotask(() => {
+            skipTcDeleteBroadcast.current = true;
+            try {
+              let offset = 0;
+              for (const ins of insertParts) offset += ins.insert.length;
+              for (const d of deletionParts) {
+                let skip = true;
+                for (let p = d.from; p < d.to; p++) {
+                  if (!isPosInDeletion(tr.startState, p)) {
+                    skip = false;
+                    break;
+                  }
+                }
+                if (!skip && viewRef.current) {
+                  const adjFrom = d.from + offset;
+                  const adjTo = d.to + offset;
+                  tcMarkAsDeleted(viewRef.current, adjFrom, adjTo, null);
                 }
               }
-              if (!skip && viewRef.current) {
-                const adjFrom = d.from + offset;
-                const adjTo = d.to + offset;
-                tcMarkAsDeleted(viewRef.current, adjFrom, adjTo, null);
-              }
+            } finally {
+              skipTcDeleteBroadcast.current = false;
             }
-          }, 0);
+          });
           if (insertParts.length === 0) {
             return { selection: tr.selection };
           }
@@ -609,17 +849,41 @@ const Editor = forwardRef(function Editor(
               onTrackedChangeClickRef.current?.(tc.id, { x: event.clientX, y: event.clientY });
               return true;
             }
-            // Also check decorations (for optimistic deletions not yet in array)
-            let found = false;
+            // Also check decorations — DB positions may be stale, but decorations
+            // are mapped through edits and always reflect the current document.
+            let decoRange = null;
             view.state.field(tcDeletesField).between(pos, pos + 1, (from, to) => {
-              if (pos >= from && pos < to) found = true;
+              if (pos >= from && pos < to) decoRange = { from, to, type: 'delete' };
             });
-            if (!found) {
+            if (!decoRange) {
               view.state.field(trackedChangesField).between(pos, pos + 1, (from, to) => {
-                if (pos >= from && pos < to) found = true;
+                if (pos >= from && pos < to) decoRange = { from, to, type: 'insert' };
               });
             }
-            if (found) {
+            if (decoRange) {
+              // Find the best matching pending TC — DB positions may have drifted,
+              // so pick the closest TC of the right type by distance to click position.
+              let bestTc = null;
+              let bestDist = Infinity;
+              for (const c of tcs) {
+                if (c.status !== 'pending') continue;
+                if (decoRange.type === 'delete' && !c.deleted_text) continue;
+                if (decoRange.type === 'insert' && !c.inserted_text) continue;
+                // Distance: 0 if pos is inside the TC's DB range, otherwise gap to nearest edge
+                const dist = pos >= c.from_pos && pos < c.to_pos
+                  ? 0
+                  : Math.min(Math.abs(pos - c.from_pos), Math.abs(pos - c.to_pos));
+                if (dist < bestDist) {
+                  bestDist = dist;
+                  bestTc = c;
+                }
+              }
+              if (bestTc) {
+                event.preventDefault();
+                onTrackedChangeClickRef.current?.(bestTc.id, { x: event.clientX, y: event.clientY });
+                return true;
+              }
+              // Decoration exists but no matching TC yet — just block default menu
               event.preventDefault();
               return true;
             }
@@ -672,17 +936,49 @@ const Editor = forwardRef(function Editor(
         tcDeleteGutterField,
         tcDeleteGutterExtension,
         citeKeyHighlighter,
+        // Make tracked-deletion decorations undoable via CM6's history.
+        // When a setTcDeletesEffect is dispatched (e.g. from tcMarkAsDeleted),
+        // the history records the inverse (previous decoration set) so Cmd+Z restores it.
+        invertedEffects.of((tr) => {
+          const effects = [];
+          for (const e of tr.effects) {
+            if (e.is(setTcDeletesEffect)) {
+              effects.push(setTcDeletesEffect.of(tr.startState.field(tcDeletesField)));
+            }
+          }
+          return effects;
+        }),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            // Map deletion buffer positions through document changes and reset its timer
-            const buf = tcDelBuffer.current;
-            if (buf.from !== null) {
-              buf.from = update.changes.mapPos(buf.from, 1);
-              buf.to = update.changes.mapPos(buf.to, -1);
-              buf.text = update.state.sliceDoc(buf.from, buf.to);
-              // Reset the deletion flush timer — don't flush while positions are still shifting
+          // Clear TC buffers on undo/redo — the history restores decorations directly,
+          // so any pending buffer would create a stale/duplicate tracked change.
+          for (const tr of update.transactions) {
+            if (tr.isUserEvent('undo') || tr.isUserEvent('redo')) {
+              tcDelBuffer.current = { from: null, to: null, text: '' };
               clearTimeout(tcDelTimer.current);
-              tcDelTimer.current = setTimeout(flushDelBuffer, 800);
+              tcInsertBuffer.current = { from: null, to: null, text: '' };
+              clearTimeout(tcInsertTimer.current);
+              break;
+            }
+          }
+
+          if (update.docChanged) {
+            // Map tracked-change buffers through ALL document changes (local + remote)
+            // so positions stay correct regardless of interleaved OT updates.
+            const delBuf = tcDelBuffer.current;
+            if (delBuf.from !== null) {
+              delBuf.from = update.changes.mapPos(delBuf.from, 1);
+              delBuf.to = update.changes.mapPos(delBuf.to, -1);
+              delBuf.text = update.state.sliceDoc(delBuf.from, delBuf.to);
+              clearTimeout(tcDelTimer.current);
+              tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
+            }
+            const insBuf = tcInsertBuffer.current;
+            if (insBuf.from !== null) {
+              insBuf.from = update.changes.mapPos(insBuf.from, 1);
+              insBuf.to = update.changes.mapPos(insBuf.to, -1);
+              insBuf.text = update.state.sliceDoc(insBuf.from, insBuf.to);
+              clearTimeout(tcInsertTimer.current);
+              tcInsertTimer.current = setTimeout(flushInsBuffer, tcFlushDelay);
             }
 
             if (!isRemoteUpdate.current) {
@@ -690,10 +986,15 @@ const Editor = forwardRef(function Editor(
               update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
                 changes.push({ from: fromA, to: toA, insert: inserted.toString() });
               });
-              onChangesRef.current?.(changes);
+              const isTracked = trackChangesModeRef.current && !isResolvingTc.current;
+              // Attach pending deletion ranges (old-doc positions) so collaborator can
+              // compute deletion marks locally after applying the OT change.
+              const dels = pendingTcDeletions.current;
+              pendingTcDeletions.current = null;
+              onChangesRef.current?.(changes, isTracked, dels);
 
-              // Record as tracked change if mode is on (debounced)
-              if (trackChangesModeRef.current) {
+              // Record as tracked change if mode is on (debounced), but not when resolving a TC
+              if (isTracked) {
                 // Add immediate insertion decoration so blue underline appears instantly
                 const insertDecos = [];
                 update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
@@ -715,32 +1016,25 @@ const Editor = forwardRef(function Editor(
                   });
                 }
 
-                if (tcPendingChanges.current) {
-                  tcPendingChanges.current = tcPendingChanges.current.compose(update.changes);
-                } else {
-                  tcStartDoc.current = update.startState.doc;
-                  tcPendingChanges.current = update.changes;
-                }
-                clearTimeout(tcDebounceTimer.current);
-                tcDebounceTimer.current = setTimeout(() => {
-                  const changes = tcPendingChanges.current;
-                  const startDoc = tcStartDoc.current;
-                  tcPendingChanges.current = null;
-                  tcStartDoc.current = null;
-                  if (!changes || !startDoc) return;
-                  // Only handle insertions here — deletions are handled separately via tcMarkAsDeleted
-                  changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-                    const insertedText = inserted.toString();
-                    if (insertedText) {
-                      onTrackChangeRef.current?.({
-                        from_pos: fromB,
-                        to_pos: fromB + insertedText.length,
-                        inserted_text: insertedText,
-                        deleted_text: '',
-                      });
+                // Buffer insertion positions — extend existing buffer if adjacent/overlapping
+                update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+                  if (inserted.length > 0 && fromB < toB) {
+                    const buf = tcInsertBuffer.current;
+                    if (buf.from !== null && fromB <= buf.to && toB >= buf.from) {
+                      // Overlapping or adjacent — extend
+                      buf.from = Math.min(buf.from, fromB);
+                      buf.to = Math.max(buf.to, toB);
+                    } else {
+                      // Disjoint — flush old buffer, start new one
+                      if (buf.from !== null) flushInsBuffer();
+                      buf.from = fromB;
+                      buf.to = toB;
                     }
-                  });
-                }, 800);
+                    buf.text = update.state.sliceDoc(buf.from, buf.to);
+                  }
+                });
+                clearTimeout(tcInsertTimer.current);
+                tcInsertTimer.current = setTimeout(flushInsBuffer, tcFlushDelay);
               }
             }
 
@@ -983,7 +1277,7 @@ const Editor = forwardRef(function Editor(
       clearTimeout(lintTimeout.current);
       clearTimeout(spellTimeout.current);
       clearTimeout(errorHighlightTimer.current);
-      clearTimeout(tcDebounceTimer.current);
+      clearTimeout(tcInsertTimer.current);
       clearTimeout(tcDelTimer.current);
       clearTimeout(tableBuilderUpdateTimeout.current);
       view.destroy();
@@ -1018,44 +1312,106 @@ const Editor = forwardRef(function Editor(
     });
   }, [comments]);
 
-  // Update tracked change decorations
-  // Insertion decorations rebuild whenever the set of pending IDs changes (additions or removals).
-  // Deletion decorations only rebuild on file load or resolution (IDs removed) — because
-  // optimistic deletion decorations in tcDeletesField are already correctly mapped through
-  // document changes, and rebuilding from stale server positions would overwrite them.
-  const prevTcIdsRef = useRef(new Set());
+  // Tracked change decoration management.
+  //
+  // Real-time decorations are added by:
+  //   - Local edits: update listener (insertions) + tcMarkAsDeleted (deletions)
+  //   - Remote edits: applyRemoteChanges (tracked insertions) + applyRemoteTcDelete (deletions)
+  // These auto-map through OT changes via value.map(tr.changes), staying correctly positioned.
+  //
+  // This useEffect handles two cases:
+  //   1. File load — full rebuild from DB positions (correct because doc just loaded too)
+  //   2. TC resolved — selectively remove decorations for no-longer-pending TCs
+  //
+  // It must NOT rebuild on new TC IDs from WS, because those DB positions are relative to
+  // the author's document at save time and may be stale on the collaborator's view.
+  const prevPendingIdsRef = useRef(new Set());
+  const tcDecorationsBuiltForFileRef = useRef(null);
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const currentIds = new Set(trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id));
-    const prevIds = prevTcIdsRef.current;
 
-    const idsChanged =
-      currentIds.size !== prevIds.size ||
-      [...currentIds].some((id) => !prevIds.has(id)) ||
-      [...prevIds].some((id) => !currentIds.has(id));
-    if (!idsChanged) {
-      prevTcIdsRef.current = currentIds;
+    const currentFileId = file?.id;
+    const currentPendingIds = new Set(
+      trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id),
+    );
+    const prevIds = prevPendingIdsRef.current;
+
+    // Case 1: File load — first time we receive TC data for this file.
+    // Always mark the file as "built" on the first call (even if TCs are empty),
+    // so that TCs created during the editing session don't falsely trigger a full rebuild.
+    if (tcDecorationsBuiltForFileRef.current !== currentFileId) {
+      tcDecorationsBuiltForFileRef.current = currentFileId;
+      prevPendingIdsRef.current = currentPendingIds;
+      // Only dispatch if there are actually pending TCs to display
+      if (currentPendingIds.size > 0) {
+        const docLen = view.state.doc.length;
+        view.dispatch({
+          effects: [
+            setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current)),
+            setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current)),
+          ],
+        });
+      }
       return;
     }
 
-    const wasRemoved = [...prevIds].some((id) => !currentIds.has(id));
-    const isInitialLoad = prevIds.size === 0 && currentIds.size > 0;
+    // Detect IDs that were removed (TC resolved via accept/reject)
+    const removedIds = new Set();
+    for (const id of prevIds) {
+      if (!currentPendingIds.has(id)) removedIds.add(id);
+    }
+    prevPendingIdsRef.current = currentPendingIds;
 
-    prevTcIdsRef.current = currentIds;
+    if (removedIds.size === 0) return;
 
-    const docLen = view.state.doc.length;
-    const effects = [
-      setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current)),
-    ];
+    // Case 2: TC resolved — remove decorations for resolved TCs.
+    // Instead of rebuilding all decorations (which would use stale DB positions for remaining
+    // TCs), we filter the existing correctly-mapped decorations to remove only the resolved ones.
+    // We identify them by checking which decorations overlap with the resolved TC's position range.
+    const resolvedTcs = trackedChanges.filter((c) => removedIds.has(c.id));
 
-    // Only rebuild deletion decorations on file load or resolution
-    if (wasRemoved || isInitialLoad) {
-      effects.push(setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current)));
+    // Remove resolved insertion decorations
+    const currentInsertDecos = view.state.field(trackedChangesField);
+    let filteredInserts = currentInsertDecos;
+    for (const tc of resolvedTcs) {
+      if (!tc.inserted_text) continue;
+      // Filter out any insertion decoration that falls within this TC's approximate range
+      const ranges = [];
+      filteredInserts.between(0, view.state.doc.length, (from, to, deco) => {
+        // Keep decorations that don't overlap with any resolved TC
+        let dominated = false;
+        if (from >= tc.from_pos - 2 && to <= tc.to_pos + 2) dominated = true;
+        if (!dominated) ranges.push(deco.range(from, to));
+      });
+      filteredInserts = Decoration.set(ranges, true);
     }
 
-    view.dispatch({ effects });
-  }, [trackedChanges]);
+    // Remove resolved deletion decorations
+    const currentDeleteDecos = view.state.field(tcDeletesField);
+    let filteredDeletes = currentDeleteDecos;
+    for (const tc of resolvedTcs) {
+      if (!tc.deleted_text) continue;
+      const ranges = [];
+      filteredDeletes.between(0, view.state.doc.length, (from, to, deco) => {
+        let dominated = false;
+        if (from >= tc.from_pos - 2 && to <= tc.to_pos + 2) dominated = true;
+        if (!dominated) ranges.push(deco.range(from, to));
+      });
+      filteredDeletes = Decoration.set(ranges, true);
+    }
+
+    const effects = [];
+    if (filteredInserts !== currentInsertDecos) {
+      effects.push(setTrackedChangesEffect.of(filteredInserts));
+    }
+    if (filteredDeletes !== currentDeleteDecos) {
+      effects.push(setTcDeletesEffect.of(filteredDeletes));
+    }
+    if (effects.length > 0) {
+      view.dispatch({ effects });
+    }
+  }, [trackedChanges, file]);
 
   // Review walkthrough highlight
   useEffect(() => {

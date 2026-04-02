@@ -2,11 +2,16 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
 
 export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef) {
-  const [trackChangesMode, setTrackChangesMode] = useState(false);
+  const [trackChangesMode, setTrackChangesMode] = useState(() => localStorage.getItem('flowtex-track-changes') === 'true');
   const [trackedChanges, setTrackedChanges] = useState([]);
   const [tcPopup, setTcPopup] = useState(null);
   const trackedChangesRef = useRef(trackedChanges);
   trackedChangesRef.current = trackedChanges;
+  const trackChangeLock = useRef(Promise.resolve());
+
+  useEffect(() => {
+    localStorage.setItem('flowtex-track-changes', trackChangesMode);
+  }, [trackChangesMode]);
 
   // Load tracked changes for active file
   useEffect(() => {
@@ -35,7 +40,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     post(`/api/tracked-changes/file/${fileId}/adjust-positions`, { afterPos: removeTo, delta });
   }, []);
 
-  const handleTrackChange = useCallback(
+  const doHandleTrackChange = useCallback(
     async (change) => {
       if (!activeFile) return;
       try {
@@ -45,7 +50,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
 
         if (change.deleted_text && !change.inserted_text) {
           for (const existing of myPending) {
-            if (change.from_pos >= existing.from_pos && change.from_pos <= existing.to_pos) {
+            if (change.from_pos >= existing.from_pos && change.from_pos < existing.to_pos) {
               const offset = change.from_pos - existing.from_pos;
               const delLen = change.deleted_text.length;
               const newInserted =
@@ -53,6 +58,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
               if (!newInserted && !existing.deleted_text) {
                 await del(`/api/tracked-changes/${existing.id}`);
                 setTrackedChanges((tc) => tc.filter((c) => c.id !== existing.id));
+                sendWsRef.current?.({ type: 'tracked-change-delete', fileId: activeFile.id, changeId: existing.id });
                 return;
               }
               const res = await patch(`/api/tracked-changes/${existing.id}`, {
@@ -98,18 +104,31 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     [activeFile, user, sendWsRef],
   );
 
+  const handleTrackChange = useCallback(
+    (change) => {
+      // Serialize async calls to prevent overlapping merge logic reading stale state
+      trackChangeLock.current = trackChangeLock.current.then(() => doHandleTrackChange(change)).catch(() => {});
+    },
+    [doHandleTrackChange],
+  );
+
+
   const handleDeleteInsertionChar = useCallback(async (pos) => {
     const tc = trackedChangesRef.current.find(
       (c) => c.status === 'pending' && c.inserted_text && pos >= c.from_pos && pos < c.to_pos,
     );
     if (!tc) return;
+    const fileId = activeFile?.id;
     const offset = pos - tc.from_pos;
     const newInserted = tc.inserted_text.slice(0, offset) + tc.inserted_text.slice(offset + 1);
     if (!newInserted) {
       try {
         await del(`/api/tracked-changes/${tc.id}`);
         setTrackedChanges((tcs) => tcs.filter((c) => c.id !== tc.id));
+        sendWsRef.current?.({ type: 'tracked-change-delete', fileId, changeId: tc.id });
       } catch (e) {}
+      // Adjust positions of other TCs: removing the insertion char shifted the document left by 1
+      adjustOtherChanges(fileId, tc.id, pos, pos + 1);
       return;
     }
     try {
@@ -120,16 +139,20 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
       });
       const updated = await res.json();
       setTrackedChanges((tcs) => tcs.map((c) => (c.id === tc.id ? updated : c)));
+      sendWsRef.current?.({ type: 'tracked-change', fileId, change: updated });
     } catch (e) {}
-  }, []);
+    // Adjust positions of other TCs: removing the insertion char shifted the document left by 1
+    adjustOtherChanges(fileId, tc.id, pos, pos + 1);
+  }, [activeFile, sendWsRef, adjustOtherChanges]);
 
   const handleAcceptChange = useCallback(
     async (changeId) => {
       const change = trackedChangesRef.current.find((c) => c.id === changeId);
       if (!change) return;
-      await post(`/api/tracked-changes/${changeId}/accept`);
+      const resp = await post(`/api/tracked-changes/${changeId}/accept`);
+      if (resp.status === 409) return; // already resolved by another user
       if (change.deleted_text) {
-        editorRef.current?.replaceRange?.(change.from_pos, change.to_pos, '');
+        editorRef.current?.resolveTrackedChangeEdit?.(change.from_pos, change.to_pos, '');
         adjustOtherChanges(change.file_id, changeId, change.from_pos, change.to_pos);
       }
       setTrackedChanges((tc) => tc.map((c) => (c.id === changeId ? { ...c, status: 'accepted' } : c)));
@@ -143,9 +166,10 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     async (changeId) => {
       const change = trackedChangesRef.current.find((c) => c.id === changeId);
       if (!change) return;
-      await post(`/api/tracked-changes/${changeId}/reject`);
+      const resp = await post(`/api/tracked-changes/${changeId}/reject`);
+      if (resp.status === 409) return; // already resolved by another user
       if (change.inserted_text) {
-        editorRef.current?.replaceRange?.(change.from_pos, change.to_pos, '');
+        editorRef.current?.resolveTrackedChangeEdit?.(change.from_pos, change.to_pos, '');
         adjustOtherChanges(change.file_id, changeId, change.from_pos, change.to_pos);
       }
       setTrackedChanges((tc) => tc.map((c) => (c.id === changeId ? { ...c, status: 'rejected' } : c)));
@@ -162,7 +186,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
       .filter((c) => c.status === 'pending' && c.deleted_text)
       .sort((a, b) => b.from_pos - a.from_pos);
     for (const c of pending) {
-      editorRef.current?.replaceRange?.(c.from_pos, c.to_pos, '');
+      editorRef.current?.resolveTrackedChangeEdit?.(c.from_pos, c.to_pos, '');
     }
     setTrackedChanges((tc) => tc.map((c) => (c.status === 'pending' ? { ...c, status: 'accepted' } : c)));
   }, [activeFile, editorRef]);
@@ -174,7 +198,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
       .filter((c) => c.status === 'pending' && c.inserted_text)
       .sort((a, b) => b.from_pos - a.from_pos);
     for (const c of pending) {
-      editorRef.current?.replaceRange?.(c.from_pos, c.to_pos, '');
+      editorRef.current?.resolveTrackedChangeEdit?.(c.from_pos, c.to_pos, '');
     }
     setTrackedChanges((tc) => tc.map((c) => (c.status === 'pending' ? { ...c, status: 'rejected' } : c)));
   }, [activeFile, editorRef]);

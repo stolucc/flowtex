@@ -104,31 +104,31 @@ router.post('/:fileId', async (req, res) => {
   res.json(change);
 });
 
-// Accept a tracked change
+// Accept a tracked change (with optimistic locking to prevent simultaneous accept+reject)
 router.post('/:changeId/accept', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
-  if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
+  if (change.status !== 'pending') return res.status(409).json({ error: 'Change already resolved' });
 
-  await db.run('UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3', [
-    'accepted',
-    req.session.userId,
-    change.id,
-  ]);
+  const result = await db.run(
+    'UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3 AND status = $4',
+    ['accepted', req.session.userId, change.id, 'pending'],
+  );
+  if (result.rowCount === 0) return res.status(409).json({ error: 'Change already resolved' });
   res.json({ ok: true, id: change.id, status: 'accepted' });
 });
 
-// Reject a tracked change
+// Reject a tracked change (with optimistic locking)
 router.post('/:changeId/reject', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
-  if (change.status !== 'pending') return res.status(400).json({ error: 'Change already resolved' });
+  if (change.status !== 'pending') return res.status(409).json({ error: 'Change already resolved' });
 
-  await db.run('UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3', [
-    'rejected',
-    req.session.userId,
-    change.id,
-  ]);
+  const result = await db.run(
+    'UPDATE tracked_changes SET status = $1, resolved_by = $2 WHERE id = $3 AND status = $4',
+    ['rejected', req.session.userId, change.id, 'pending'],
+  );
+  if (result.rowCount === 0) return res.status(409).json({ error: 'Change already resolved' });
   res.json({ ok: true, id: change.id, status: 'rejected' });
 });
 

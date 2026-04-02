@@ -445,13 +445,21 @@ export function applyLintDiagnostics(view, diagnostics) {
 }
 
 export function applySpellcheck(view, misspelled) {
-  const decos = misspelled.map((m) =>
+  // Skip words that overlap with tracked deletion marks — deleted text is going away.
+  // Check if ANY character in the word falls inside a deletion decoration.
+  const filtered = misspelled.filter((m) => {
+    for (let p = m.from; p < m.to; p++) {
+      if (isPosInDeletion(view.state, p)) return false;
+    }
+    return true;
+  });
+  const decos = filtered.map((m) =>
     Decoration.mark({ class: 'cm-spell-error', attributes: { title: `Misspelled: ${m.word}` } }).range(m.from, m.to),
   );
 
   // Build gutter markers — one per line with misspellings
   const lineCounts = new Map();
-  for (const m of misspelled) {
+  for (const m of filtered) {
     const lineNum = view.state.doc.lineAt(m.from).number;
     lineCounts.set(lineNum, (lineCounts.get(lineNum) || 0) + 1);
   }

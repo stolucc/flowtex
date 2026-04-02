@@ -38,7 +38,7 @@
   --yellow: #f9e2af;
   --border: #313244;
   --radius: 6px;
-  --radius-pill: 999px;
+  --radius-pill: 6px;
 }
 
 body {
@@ -6762,9 +6762,14 @@ html {
 }
 
 .admin-section h2 {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   margin-bottom: 12px;
+}
+
+.admin-section h3 {
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .admin-table-wrap {
