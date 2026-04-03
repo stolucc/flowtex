@@ -310,7 +310,15 @@ router.put('/settings', async (req, res) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' });
 
-  const ALLOWED_KEYS = ['compile_timeout', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from'];
+  const ALLOWED_KEYS = [
+    'compile_timeout',
+    'smtp_host',
+    'smtp_port',
+    'smtp_user',
+    'smtp_pass',
+    'smtp_secure',
+    'smtp_from',
+  ];
   if (!ALLOWED_KEYS.includes(key)) return res.status(400).json({ error: 'Unknown setting' });
 
   // Validate

@@ -56,7 +56,15 @@ import {
   citeKeyHighlighter,
   findTableAtCursor,
 } from '../utils/editorExtensions.js';
-import { UndoIcon, ZoomOutIcon, ZoomInIcon, SearchIcon, ContrastIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons.jsx';
+import {
+  UndoIcon,
+  ZoomOutIcon,
+  ZoomInIcon,
+  SearchIcon,
+  ContrastIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from './Icons.jsx';
 
 const Editor = forwardRef(function Editor(
   {
@@ -615,10 +623,12 @@ const Editor = forwardRef(function Editor(
     );
 
     // Map deletion ranges into post-change coordinate space
-    const mappedDeletionRanges = deletionRanges.map((r) => ({
-      from: cs.mapPos(r.from, 1),
-      to: cs.mapPos(r.to, -1),
-    })).filter((r) => r.from < r.to);
+    const mappedDeletionRanges = deletionRanges
+      .map((r) => ({
+        from: cs.mapPos(r.from, 1),
+        to: cs.mapPos(r.to, -1),
+      }))
+      .filter((r) => r.from < r.to);
 
     // Build decorations in post-change space
     const currentDecos = state.field(tcDeletesField).map(cs);
@@ -630,8 +640,7 @@ const Editor = forwardRef(function Editor(
     );
     const updatedDecos = currentDecos.update({ add: newMarks, sort: true });
 
-    const newCursor =
-      cursorPos !== null && cursorPos !== undefined ? cs.mapPos(cursorPos, 1) : cs.mapPos(from, 1);
+    const newCursor = cursorPos !== null && cursorPos !== undefined ? cs.mapPos(cursorPos, 1) : cs.mapPos(from, 1);
 
     isResolvingTc.current = true;
     try {
@@ -660,7 +669,10 @@ const Editor = forwardRef(function Editor(
     for (const r of mappedDeletionRanges) {
       const buf = tcDelBuffer.current;
       const rText = view.state.sliceDoc(r.from, r.to);
-      if (buf.from !== null && (r.from === buf.from - 1 || r.from === buf.from || r.to === buf.to || r.to === buf.to + 1)) {
+      if (
+        buf.from !== null &&
+        (r.from === buf.from - 1 || r.from === buf.from || r.to === buf.to || r.to === buf.to + 1)
+      ) {
         buf.from = Math.min(buf.from, r.from);
         buf.to = Math.max(buf.to, r.to);
         buf.text = view.state.sliceDoc(buf.from, buf.to);
@@ -806,7 +818,8 @@ const Editor = forwardRef(function Editor(
         ),
         // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
         EditorState.transactionFilter.of((tr) => {
-          if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current || isResolvingTc.current) return tr;
+          if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current || isResolvingTc.current)
+            return tr;
           let hasDeletion = false;
           tr.changes.iterChanges((fromA, toA) => {
             if (fromA < toA) hasDeletion = true;
@@ -908,9 +921,10 @@ const Editor = forwardRef(function Editor(
                 if (decoRange.type === 'delete' && !c.deleted_text) continue;
                 if (decoRange.type === 'insert' && !c.inserted_text) continue;
                 // Distance: 0 if pos is inside the TC's DB range, otherwise gap to nearest edge
-                const dist = pos >= c.from_pos && pos < c.to_pos
-                  ? 0
-                  : Math.min(Math.abs(pos - c.from_pos), Math.abs(pos - c.to_pos));
+                const dist =
+                  pos >= c.from_pos && pos < c.to_pos
+                    ? 0
+                    : Math.min(Math.abs(pos - c.from_pos), Math.abs(pos - c.to_pos));
                 if (dist < bestDist) {
                   bestDist = dist;
                   bestTc = c;
@@ -1433,9 +1447,7 @@ const Editor = forwardRef(function Editor(
     if (!view) return;
 
     const currentFileId = file?.id;
-    const currentPendingIds = new Set(
-      trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id),
-    );
+    const currentPendingIds = new Set(trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id));
     const prevIds = prevPendingIdsRef.current;
 
     // Case 1: Full rebuild from DB data.
@@ -1456,7 +1468,9 @@ const Editor = forwardRef(function Editor(
       const docText = view.state.doc.toString();
       view.dispatch({
         effects: [
-          setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current, docText)),
+          setTrackedChangesEffect.of(
+            buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current, docText),
+          ),
           setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current, docText)),
         ],
       });
@@ -1592,7 +1606,9 @@ const Editor = forwardRef(function Editor(
           <button
             className={`editor-header-tc-btn ${autoSaveOn ? 'editor-header-autosave-active' : ''}`}
             onClick={onToggleAutoSave}
-            title={autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Click to set up auto-save to GitHub'}
+            title={
+              autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Click to set up auto-save to GitHub'
+            }
           >
             <span className={`editor-autosave-dot ${autoSaveOn ? 'on' : 'off'}`} />
             {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save'}
@@ -1602,7 +1618,16 @@ const Editor = forwardRef(function Editor(
           <UndoIcon />
         </button>
         <button className="editor-header-btn" onClick={() => cmRedo(viewRef.current)} title="Redo (Cmd+Shift+Z)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
           </svg>
@@ -1673,9 +1698,22 @@ const Editor = forwardRef(function Editor(
           <button
             className={`editor-header-btn ${reviewing ? 'editor-header-btn-active' : ''}`}
             onClick={reviewing ? onStopReview : onStartReview}
-            title={reviewing ? 'Close review' : `Review ${pendingChangesCount} pending change${pendingChangesCount !== 1 ? 's' : ''}`}
+            title={
+              reviewing
+                ? 'Close review'
+                : `Review ${pendingChangesCount} pending change${pendingChangesCount !== 1 ? 's' : ''}`
+            }
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
@@ -1698,13 +1736,23 @@ const Editor = forwardRef(function Editor(
       {reviewing && pendingChangesCount > 0 && (
         <div className="tc-review-toolbar">
           <div className="tc-review-toolbar-nav">
-            <button className="tc-review-toolbar-arrow" onClick={onReviewPrev} disabled={reviewIndex <= 0} title="Previous change">
+            <button
+              className="tc-review-toolbar-arrow"
+              onClick={onReviewPrev}
+              disabled={reviewIndex <= 0}
+              title="Previous change"
+            >
               <ChevronLeftIcon />
             </button>
             <span className="tc-review-toolbar-counter">
               {reviewIndex + 1} / {pendingChangesCount}
             </span>
-            <button className="tc-review-toolbar-arrow" onClick={onReviewNext} disabled={reviewIndex >= pendingChangesCount - 1} title="Next change">
+            <button
+              className="tc-review-toolbar-arrow"
+              onClick={onReviewNext}
+              disabled={reviewIndex >= pendingChangesCount - 1}
+              title="Next change"
+            >
               <ChevronRightIcon />
             </button>
           </div>
@@ -1712,25 +1760,53 @@ const Editor = forwardRef(function Editor(
             <span className="tc-review-toolbar-info">
               <span className="tc-review-toolbar-author">{reviewCurrentChange.author_name}</span>
               {reviewCurrentChange.inserted_text && (
-                <span className="tc-review-insert">+{reviewCurrentChange.inserted_text.length > 30 ? reviewCurrentChange.inserted_text.slice(0, 30) + '…' : reviewCurrentChange.inserted_text}</span>
+                <span className="tc-review-insert">
+                  +
+                  {reviewCurrentChange.inserted_text.length > 30
+                    ? reviewCurrentChange.inserted_text.slice(0, 30) + '…'
+                    : reviewCurrentChange.inserted_text}
+                </span>
               )}
               {reviewCurrentChange.deleted_text && (
-                <span className="tc-review-delete">−{reviewCurrentChange.deleted_text.length > 30 ? reviewCurrentChange.deleted_text.slice(0, 30) + '…' : reviewCurrentChange.deleted_text}</span>
+                <span className="tc-review-delete">
+                  −
+                  {reviewCurrentChange.deleted_text.length > 30
+                    ? reviewCurrentChange.deleted_text.slice(0, 30) + '…'
+                    : reviewCurrentChange.deleted_text}
+                </span>
               )}
             </span>
           )}
           <div className="tc-review-toolbar-actions">
-            <button className="tc-review-toolbar-btn tc-review-toolbar-accept" onClick={() => onAcceptAndNext(reviewCurrentChange?.id)} disabled={!reviewCurrentChange} title="Accept and move to next">
+            <button
+              className="tc-review-toolbar-btn tc-review-toolbar-accept"
+              onClick={() => onAcceptAndNext(reviewCurrentChange?.id)}
+              disabled={!reviewCurrentChange}
+              title="Accept and move to next"
+            >
               Accept
             </button>
-            <button className="tc-review-toolbar-btn tc-review-toolbar-reject" onClick={() => onRejectAndNext(reviewCurrentChange?.id)} disabled={!reviewCurrentChange} title="Reject and move to next">
+            <button
+              className="tc-review-toolbar-btn tc-review-toolbar-reject"
+              onClick={() => onRejectAndNext(reviewCurrentChange?.id)}
+              disabled={!reviewCurrentChange}
+              title="Reject and move to next"
+            >
               Reject
             </button>
             <span className="tc-review-toolbar-sep" />
-            <button className="tc-review-toolbar-btn tc-review-toolbar-accept-all" onClick={onAcceptAll} title="Accept all changes">
+            <button
+              className="tc-review-toolbar-btn tc-review-toolbar-accept-all"
+              onClick={onAcceptAll}
+              title="Accept all changes"
+            >
               Accept All
             </button>
-            <button className="tc-review-toolbar-btn tc-review-toolbar-reject-all" onClick={onRejectAll} title="Reject all changes">
+            <button
+              className="tc-review-toolbar-btn tc-review-toolbar-reject-all"
+              onClick={onRejectAll}
+              title="Reject all changes"
+            >
               Reject All
             </button>
           </div>

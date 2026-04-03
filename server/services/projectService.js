@@ -101,7 +101,10 @@ export async function createProjectFromTemplate(userId, templateId, name) {
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
 
-  const templateFiles = await db.all('SELECT path, content, is_binary FROM user_template_files WHERE template_id = $1', [templateId]);
+  const templateFiles = await db.all(
+    'SELECT path, content, is_binary FROM user_template_files WHERE template_id = $1',
+    [templateId],
+  );
   const id = uuid();
   const safeName = (name || tmpl.name).slice(0, 500).replace(/[\\{}$&#^_%~]/g, '');
 
@@ -114,7 +117,11 @@ export async function createProjectFromTemplate(userId, templateId, name) {
         ? file.content.replace(/__TITLE__/g, safeName).replace(/__AUTHOR__/g, '')
         : file.content;
       await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        uuid(), id, file.path, content, file.is_binary || false,
+        uuid(),
+        id,
+        file.path,
+        content,
+        file.is_binary || false,
       ]);
     }
   });
@@ -181,7 +188,11 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
           for (const f of created) {
             const newPath = f.path.substring(prefix.length);
             if (newPath) {
-              await tx.run('UPDATE user_template_files SET path = $1 WHERE template_id = $2 AND path = $3', [newPath, templateId, f.path]);
+              await tx.run('UPDATE user_template_files SET path = $1 WHERE template_id = $2 AND path = $3', [
+                newPath,
+                templateId,
+                f.path,
+              ]);
             }
           }
         });
@@ -194,11 +205,21 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
     await setTemplateTags(templateId, tagIds);
   }
 
-  const fileCount = await db.get('SELECT COUNT(*) as count FROM user_template_files WHERE template_id = $1', [templateId]);
-  const tags = tagIds && tagIds.length
-    ? await db.all('SELECT id, name, color FROM template_tags WHERE id = ANY($1)', [tagIds])
-    : [];
-  return { id: templateId, name: templateName, description: description || '', category: category || 'General', fileCount: fileCount.count, tags };
+  const fileCount = await db.get('SELECT COUNT(*) as count FROM user_template_files WHERE template_id = $1', [
+    templateId,
+  ]);
+  const tags =
+    tagIds && tagIds.length
+      ? await db.all('SELECT id, name, color FROM template_tags WHERE id = ANY($1)', [tagIds])
+      : [];
+  return {
+    id: templateId,
+    name: templateName,
+    description: description || '',
+    category: category || 'General',
+    fileCount: fileCount.count,
+    tags,
+  };
 }
 
 export async function listAllTemplates() {
@@ -212,12 +233,15 @@ export async function listAllTemplates() {
   `);
   // Attach tags to each template
   if (rows.length) {
-    const tagRows = await db.all(`
+    const tagRows = await db.all(
+      `
       SELECT ttm.template_id, tt.id, tt.name, tt.color
       FROM template_tag_map ttm
       JOIN template_tags tt ON tt.id = ttm.tag_id
       WHERE ttm.template_id = ANY($1)
-    `, [rows.map((r) => r.id)]);
+    `,
+      [rows.map((r) => r.id)],
+    );
     const tagMap = {};
     for (const tr of tagRows) {
       (tagMap[tr.template_id] ||= []).push({ id: tr.id, name: tr.name, color: tr.color });
@@ -565,13 +589,19 @@ export async function uploadBinaryFile(projectId, filePath, buffer) {
   const content = buffer.toString('base64');
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
   if (existing) {
-    await db.run('UPDATE files SET content = $1, is_binary = TRUE, updated_at = NOW() WHERE id = $2', [content, existing.id]);
+    await db.run('UPDATE files SET content = $1, is_binary = TRUE, updated_at = NOW() WHERE id = $2', [
+      content,
+      existing.id,
+    ]);
     await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
     return { id: existing.id, project_id: projectId, path: filePath, content, is_binary: true, updated: true };
   }
   const id = uuid();
   await db.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, TRUE)', [
-    id, projectId, filePath, content,
+    id,
+    projectId,
+    filePath,
+    content,
   ]);
   await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
   return { id, project_id: projectId, path: filePath, content, is_binary: true, updated: false };
@@ -729,10 +759,10 @@ export async function getMyInvitations(userId) {
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'", [
-    inviteId,
-    user.email,
-  ]);
+  const invite = await db.get(
+    "SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'",
+    [inviteId, user.email],
+  );
   if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
 
   await db.transaction(async (tx) => {
@@ -756,10 +786,10 @@ export async function acceptInvitation(inviteId, userId) {
 export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'", [
-    inviteId,
-    user.email,
-  ]);
+  const invite = await db.get(
+    "SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'",
+    [inviteId, user.email],
+  );
   if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
   await db.run("UPDATE project_invitations SET status = 'declined' WHERE id = $1", [invite.id]);
 }

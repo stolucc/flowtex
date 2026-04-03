@@ -129,24 +129,30 @@ function EditorSection({
             </option>
           ))}
         </select>
-        {formatters.length === 0 && (
-          <p className="settings-hint">No LaTeX formatters detected on the server.</p>
-        )}
+        {formatters.length === 0 && <p className="settings-hint">No LaTeX formatters detected on the server.</p>}
       </div>
     </>
   );
 }
 
-function CompilerSection({ compiler, setCompiler, showBoxWarnings, setShowBoxWarnings, showLintWarnings, setShowLintWarnings, serverLinter, setServerLinter, texDistribution, setTexDistribution, distributions }) {
+function CompilerSection({
+  compiler,
+  setCompiler,
+  showBoxWarnings,
+  setShowBoxWarnings,
+  showLintWarnings,
+  setShowLintWarnings,
+  serverLinter,
+  setServerLinter,
+  texDistribution,
+  setTexDistribution,
+  distributions,
+}) {
   return (
     <>
       <div className="settings-group">
         <label className="settings-label">Compiler</label>
-        <select
-          className="settings-input"
-          value={compiler}
-          onChange={(e) => setCompiler(e.target.value)}
-        >
+        <select className="settings-input" value={compiler} onChange={(e) => setCompiler(e.target.value)}>
           <option value="pdflatex">pdfLaTeX</option>
           <option value="xelatex">XeLaTeX</option>
           <option value="lualatex">LuaLaTeX</option>
@@ -181,11 +187,7 @@ function CompilerSection({ compiler, setCompiler, showBoxWarnings, setShowBoxWar
       </div>
       <div className="settings-group">
         <label className="settings-label">Server-side Linter</label>
-        <select
-          className="settings-input"
-          value={serverLinter}
-          onChange={(e) => setServerLinter(e.target.value)}
-        >
+        <select className="settings-input" value={serverLinter} onChange={(e) => setServerLinter(e.target.value)}>
           <option value="">None</option>
           <option value="chktex">ChkTeX</option>
           <option value="lacheck">lacheck</option>
@@ -200,8 +202,8 @@ function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
     return (
       <div className="settings-group">
         <p className="settings-hint">
-          Connect your GitHub account first in Account Settings (gear icon on the dashboard sidebar), then use
-          Tools &gt; Git Sync to link a repository.
+          Connect your GitHub account first in Account Settings (gear icon on the dashboard sidebar), then use Tools
+          &gt; Git Sync to link a repository.
         </p>
       </div>
     );
@@ -227,8 +229,8 @@ function PublishersSection({ tapsEnabled, setTapsEnabled }) {
           <Toggle on={tapsEnabled} onChange={setTapsEnabled} />
         </div>
         <p className="settings-hint">
-          Check that all LaTeX packages used in the project are on the ACM TAPS approved list.
-          Violations appear as warnings in the PDF viewer panel.
+          Check that all LaTeX packages used in the project are on the ACM TAPS approved list. Violations appear as
+          warnings in the PDF viewer panel.
         </p>
       </div>
     </>
@@ -249,16 +251,80 @@ function PdfViewerSection({ pdfInverted, setPdfInverted }) {
 }
 
 const svgIcon = (d) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    {d}
+  </svg>
 );
 
 const CATEGORIES = [
-  { id: 'project', label: 'Project', icon: svgIcon(<><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></>) },
-  { id: 'editor', label: 'Editor', icon: svgIcon(<><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></>) },
-  { id: 'compiler', label: 'Compiler', icon: svgIcon(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>) },
-  { id: 'pdfviewer', label: 'PDF Viewer', icon: svgIcon(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></>) },
-  { id: 'publishers', label: 'Publishers', icon: svgIcon(<><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></>) },
-  { id: 'github', label: 'GitHub', icon: svgIcon(<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>) },
+  {
+    id: 'project',
+    label: 'Project',
+    icon: svgIcon(
+      <>
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      </>,
+    ),
+  },
+  {
+    id: 'editor',
+    label: 'Editor',
+    icon: svgIcon(
+      <>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </>,
+    ),
+  },
+  {
+    id: 'compiler',
+    label: 'Compiler',
+    icon: svgIcon(
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </>,
+    ),
+  },
+  {
+    id: 'pdfviewer',
+    label: 'PDF Viewer',
+    icon: svgIcon(
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+      </>,
+    ),
+  },
+  {
+    id: 'publishers',
+    label: 'Publishers',
+    icon: svgIcon(
+      <>
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </>,
+    ),
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    icon: svgIcon(
+      <>
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </>,
+    ),
+  },
 ];
 
 export default function ProjectSettingsModal({
@@ -352,7 +418,18 @@ export default function ProjectSettingsModal({
       localStorage.setItem(`flowtex-group-files-${project.id}`, String(groupFilesByType));
       localStorage.setItem(`flowtex-taps-enabled-${project.id}`, String(tapsEnabled));
       window.dispatchEvent(
-        new CustomEvent('flowtex:settings-changed', { detail: { showBoxWarnings, showLintWarnings, serverLinter, editorInverted, pdfInverted, latexFormatter, groupFilesByType, tapsEnabled } }),
+        new CustomEvent('flowtex:settings-changed', {
+          detail: {
+            showBoxWarnings,
+            showLintWarnings,
+            serverLinter,
+            editorInverted,
+            pdfInverted,
+            latexFormatter,
+            groupFilesByType,
+            tapsEnabled,
+          },
+        }),
       );
 
       onClose();

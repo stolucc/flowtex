@@ -437,7 +437,17 @@ export default function AdminDashboard({ onBack }) {
       {tab === 'settings' && (
         <div className="admin-section">
           <h2>Settings</h2>
-          {settingsMsg && <div style={{ color: settingsMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)', marginBottom: 12, fontSize: 13 }}>{settingsMsg}</div>}
+          {settingsMsg && (
+            <div
+              style={{
+                color: settingsMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)',
+                marginBottom: 12,
+                fontSize: 13,
+              }}
+            >
+              {settingsMsg}
+            </div>
+          )}
           <div className="admin-setting-row">
             <label className="admin-setting-label">
               Maximum compile time (seconds)
@@ -480,7 +490,8 @@ export default function AdminDashboard({ onBack }) {
 
           <h3 style={{ marginTop: 28, marginBottom: 12 }}>Email (SMTP)</h3>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-            Configure outgoing email for project invitations and password resets. Leave blank to log emails to console (development mode).
+            Configure outgoing email for project invitations and password resets. Leave blank to log emails to console
+            (development mode).
           </p>
 
           {[
@@ -511,7 +522,9 @@ export default function AdminDashboard({ onBack }) {
               <button
                 type="button"
                 className={`settings-toggle ${adminSettings.smtp_secure === 'true' ? 'on' : ''}`}
-                onClick={() => setAdminSettings((s) => ({ ...s, smtp_secure: s.smtp_secure === 'true' ? 'false' : 'true' }))}
+                onClick={() =>
+                  setAdminSettings((s) => ({ ...s, smtp_secure: s.smtp_secure === 'true' ? 'false' : 'true' }))
+                }
                 role="switch"
                 aria-checked={adminSettings.smtp_secure === 'true'}
               >

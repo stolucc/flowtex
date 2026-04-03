@@ -64,7 +64,12 @@ export function TrackChangesReviewBar({
           <button className="tc-walkthrough-close" onClick={onStopReview} title="Exit review">
             &times;
           </button>
-          <button className="tc-walkthrough-arrow" onClick={onReviewPrev} disabled={reviewIndex <= 0} title="Previous change">
+          <button
+            className="tc-walkthrough-arrow"
+            onClick={onReviewPrev}
+            disabled={reviewIndex <= 0}
+            title="Previous change"
+          >
             ‹
           </button>
           <span className="tc-walkthrough-counter">
@@ -81,12 +86,8 @@ export function TrackChangesReviewBar({
         </div>
         <div className="tc-walkthrough-detail">
           <span className="tc-walkthrough-author">{c.author_name}</span>
-          {c.inserted_text && (
-            <span className="tc-review-insert">+{truncate(c.inserted_text, 40)}</span>
-          )}
-          {c.deleted_text && (
-            <span className="tc-review-delete">-{truncate(c.deleted_text, 40)}</span>
-          )}
+          {c.inserted_text && <span className="tc-review-insert">+{truncate(c.inserted_text, 40)}</span>}
+          {c.deleted_text && <span className="tc-review-delete">-{truncate(c.deleted_text, 40)}</span>}
         </div>
         <div className="tc-walkthrough-actions">
           <button className="tc-btn tc-btn-accept" onClick={() => onAcceptAndNext(c.id)}>

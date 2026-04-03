@@ -10,15 +10,20 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/__tests__/**/*.test.js', 'src/**/*.test.js'],
+    include: ['src/**/__tests__/**/*.test.{js,jsx}', 'src/**/*.test.{js,jsx}'],
+    environment: 'happy-dom',
   },
   build: {
     chunkSizeWarningLimit: 2500,
     rollupOptions: {
       output: {
-        manualChunks: {
-          codemirror: ['codemirror', '@codemirror/language', '@codemirror/state', '@codemirror/view', '@codemirror/search', '@codemirror/autocomplete', '@codemirror/commands', '@codemirror/lint'],
-          react: ['react', 'react-dom'],
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react';
+          }
+          if (id.includes('node_modules/codemirror') || id.includes('node_modules/@codemirror/')) {
+            return 'codemirror';
+          }
         },
       },
     },

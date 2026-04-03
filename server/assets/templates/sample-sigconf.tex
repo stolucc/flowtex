@@ -1,0 +1,89 @@
+%%
+%% This is file `sample-sigconf.tex',
+%% based on the ACM Master Article Template.
+%%
+%% For more information, see the ACM LaTeX documentation at:
+%% https://www.acm.org/publications/proceedings-template
+%%
+\documentclass[sigconf]{acmart}
+
+%%
+%% \BibTeX command to typeset BibTeX logo in the docs
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    Bib\TeX}}}
+
+%%
+%% end of the preamble, start of the body of the document source.
+\begin{document}
+
+%%
+%% The "title" command has an optional parameter,
+%% allowing the author to define a "short title" to be used in page headers.
+\title{Your Paper Title}
+
+%%
+%% The "author" command and its associated commands are used to define
+%% the authors and their affiliations.
+\author{First Author}
+\email{first@example.com}
+\affiliation{%
+  \institution{University Name}
+  \city{City}
+  \country{Country}
+}
+
+\author{Second Author}
+\email{second@example.com}
+\affiliation{%
+  \institution{University Name}
+  \city{City}
+  \country{Country}
+}
+
+%%
+%% The abstract is a short summary of the work to be presented in the
+%% article.
+\begin{abstract}
+  A clear and well-documented \LaTeX\ document is presented as an
+  article formatted for publication by ACM in a conference proceedings
+  volume. This document and its sample files can serve as a template
+  for submissions.
+\end{abstract}
+
+%%
+%% Keywords. The author(s) should pick words that accurately describe
+%% the work being presented.
+\keywords{keyword1, keyword2, keyword3}
+
+%%
+%% This command processes the author and affiliation and title
+%% information and builds the first part of the formatted document.
+\maketitle
+
+\section{Introduction}
+Start writing your introduction here.
+
+\section{Related Work}
+Discuss related work in this section.
+
+\section{Methodology}
+Describe your approach here.
+
+\section{Evaluation}
+Present your experimental setup and results.
+
+\section{Discussion}
+Discuss the implications of your findings.
+
+\section{Conclusion}
+Summarize your contributions and future work directions.
+
+%%
+%% The next two lines define the bibliography style to be used, and
+%% the bibliography file.
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
+\endinput

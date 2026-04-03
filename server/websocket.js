@@ -284,11 +284,15 @@ const writeTypes = new Set([
 ]);
 
 function handleTyping(msg, state, ws) {
-  broadcastToRoom(state.projectId, {
-    type: 'typing',
-    userId: state.authenticatedUserId,
-    userName: state.authenticatedUserName,
-  }, ws);
+  broadcastToRoom(
+    state.projectId,
+    {
+      type: 'typing',
+      userId: state.authenticatedUserId,
+      userName: state.authenticatedUserName,
+    },
+    ws,
+  );
 }
 
 const messageHandlers = {
@@ -536,3 +540,28 @@ export function initWebSocket(server, app, sessionSecret) {
 
   return { wss, redisPub, redisSub };
 }
+
+// Test exports — only used in tests
+export const _testing = {
+  unsignCookie,
+  handleChanges,
+  handleCursor,
+  handleComment,
+  handleCommentReply,
+  handleCommentResolve,
+  handleCommentDelete,
+  handleCommentEdit,
+  handleTrackedChange,
+  handleTrackedChangeResolve,
+  handleTrackedChangeDelete,
+  handleTcDeleteMark,
+  handleChat,
+  handleTyping,
+  handleJoin,
+  writeTypes,
+  projectRooms,
+  broadcastToRoom,
+  getRoom,
+  WS_RATE_WINDOW,
+  WS_RATE_MAX,
+};

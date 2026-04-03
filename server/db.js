@@ -440,7 +440,9 @@ function startCleanupJob() {
       // Expired email verification tokens
       await pool.query('DELETE FROM email_verification_tokens WHERE expires_at < NOW()');
       // Resolved tracked changes older than 90 days
-      await pool.query("DELETE FROM tracked_changes WHERE status != 'pending' AND created_at < NOW() - INTERVAL '90 days'");
+      await pool.query(
+        "DELETE FROM tracked_changes WHERE status != 'pending' AND created_at < NOW() - INTERVAL '90 days'",
+      );
       // Project snapshots: keep max 100 per project, delete oldest beyond that
       await pool.query(`
         DELETE FROM project_snapshots WHERE id IN (

@@ -4,20 +4,47 @@ import { ChevronLeftIcon, UploadIcon, TagIcon, CloseIcon } from './Icons.jsx';
 
 const CATEGORY_ICONS = {
   Academic: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
     </svg>
   ),
   Presentation: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="2" y="3" width="20" height="14" rx="2" />
       <line x1="8" y1="21" x2="16" y2="21" />
       <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   ),
   General: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
     </svg>
@@ -65,7 +92,10 @@ export default function TemplateGallery({ onSelect, onBack }) {
   const fetchTemplates = () => {
     get('/api/projects/templates')
       .then((r) => r.json())
-      .then((data) => { setTemplates(data); setLoading(false); })
+      .then((data) => {
+        setTemplates(data);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   };
 
@@ -76,11 +106,13 @@ export default function TemplateGallery({ onSelect, onBack }) {
       .catch(() => {});
   };
 
-  useEffect(() => { fetchTemplates(); fetchTags(); }, []);
+  useEffect(() => {
+    fetchTemplates();
+    fetchTags();
+  }, []);
 
-  const filtered = filterTagId === 'All'
-    ? templates
-    : templates.filter((t) => t.tags?.some((tag) => tag.id === filterTagId));
+  const filtered =
+    filterTagId === 'All' ? templates : templates.filter((t) => t.tags?.some((tag) => tag.id === filterTagId));
 
   const handleSelect = async (template) => {
     setCreating(template.id);
@@ -99,7 +131,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
     try {
       await del(`/api/projects/templates/${tmpl.id}`);
       setTemplates((prev) => prev.filter((t) => t.id !== tmpl.id));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleUpload = async () => {
@@ -136,9 +170,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
   };
 
   const toggleUploadTag = (tagId) => {
-    setUploadTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
-    );
+    setUploadTagIds((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
   };
 
   // Tag management handlers
@@ -156,7 +188,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
       setTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
       setNewTagName('');
       setNewTagColor('#89b4fa');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleUpdateTag = async () => {
@@ -173,12 +207,16 @@ export default function TemplateGallery({ onSelect, onBack }) {
       const updated = await res.json();
       setTags((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       // Also update tags in templates list
-      setTemplates((prev) => prev.map((tmpl) => ({
-        ...tmpl,
-        tags: tmpl.tags?.map((t) => (t.id === updated.id ? updated : t)),
-      })));
+      setTemplates((prev) =>
+        prev.map((tmpl) => ({
+          ...tmpl,
+          tags: tmpl.tags?.map((t) => (t.id === updated.id ? updated : t)),
+        })),
+      );
       setEditingTag(null);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleDeleteTag = async (tagId) => {
@@ -186,13 +224,17 @@ export default function TemplateGallery({ onSelect, onBack }) {
     try {
       await del(`/api/projects/template-tags/${tagId}`);
       setTags((prev) => prev.filter((t) => t.id !== tagId));
-      setTemplates((prev) => prev.map((tmpl) => ({
-        ...tmpl,
-        tags: tmpl.tags?.filter((t) => t.id !== tagId),
-      })));
+      setTemplates((prev) =>
+        prev.map((tmpl) => ({
+          ...tmpl,
+          tags: tmpl.tags?.filter((t) => t.id !== tagId),
+        })),
+      );
       if (filterTagId === tagId) setFilterTagId('All');
       if (editingTag?.id === tagId) setEditingTag(null);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const startEditTag = (tag) => {
@@ -218,12 +260,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
       const res = await put(`/api/projects/templates/${tmpl.id}/tags`, { tagIds: newTagIds });
       if (!res.ok) return;
       const updatedTags = await res.json();
-      setTemplates((prev) => prev.map((t) =>
-        t.id === tmpl.id ? { ...t, tags: updatedTags } : t,
-      ));
+      setTemplates((prev) => prev.map((t) => (t.id === tmpl.id ? { ...t, tags: updatedTags } : t)));
       // Keep context menu open but update its template reference
-      setCtxMenu((prev) => prev ? { ...prev, template: { ...tmpl, tags: updatedTags } } : null);
-    } catch { /* ignore */ }
+      setCtxMenu((prev) => (prev ? { ...prev, template: { ...tmpl, tags: updatedTags } } : null));
+    } catch {
+      /* ignore */
+    }
   };
 
   // Close context menu on click outside
@@ -234,7 +276,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
         setCtxMenu(null);
       }
     };
-    const handleEsc = (e) => { if (e.key === 'Escape') setCtxMenu(null); };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setCtxMenu(null);
+    };
     document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleEsc);
     return () => {
@@ -256,7 +300,13 @@ export default function TemplateGallery({ onSelect, onBack }) {
             <TagIcon size={16} />
             Tags
           </button>
-          <button className="template-upload-btn" onClick={() => { setUploadError(''); setShowUpload(true); }}>
+          <button
+            className="template-upload-btn"
+            onClick={() => {
+              setUploadError('');
+              setShowUpload(true);
+            }}
+          >
             <UploadIcon size={16} />
             Upload Template
           </button>
@@ -296,12 +346,13 @@ export default function TemplateGallery({ onSelect, onBack }) {
               onContextMenu={(e) => handleContextMenu(e, t)}
             >
               <div className="template-card-preview">
-                {t.preloaded
-                  ? <img src={`/thumbnails/${t.id}.png`} alt={`${t.name} preview`} />
-                  : <div className="template-card-preview-placeholder">
-                      {CATEGORY_ICONS[t.category] || CATEGORY_ICONS.General}
-                    </div>
-                }
+                {t.preloaded ? (
+                  <img src={`/thumbnails/${t.id}.png`} alt={`${t.name} preview`} />
+                ) : (
+                  <div className="template-card-preview-placeholder">
+                    {CATEGORY_ICONS[t.category] || CATEGORY_ICONS.General}
+                  </div>
+                )}
               </div>
               <div className="template-card-body">
                 <div className="template-card-name">{t.name}</div>
@@ -322,7 +373,16 @@ export default function TemplateGallery({ onSelect, onBack }) {
               </div>
               {!t.preloaded && (
                 <button className="template-card-delete" onClick={(e) => handleDelete(e, t)} title="Delete template">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   </svg>
@@ -373,7 +433,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
                   {tag.name}
                 </button>
               ))}
-              {tags.length === 0 && <span className="template-upload-hint">No tags yet. Create some in the tag manager.</span>}
+              {tags.length === 0 && (
+                <span className="template-upload-hint">No tags yet. Create some in the tag manager.</span>
+              )}
             </div>
 
             <label className="template-upload-label">ZIP File</label>
@@ -401,12 +463,10 @@ export default function TemplateGallery({ onSelect, onBack }) {
             {uploadError && <div className="template-upload-error">{uploadError}</div>}
 
             <div className="template-upload-actions">
-              <button className="template-upload-cancel" onClick={() => setShowUpload(false)}>Cancel</button>
-              <button
-                className="template-upload-submit"
-                disabled={!uploadFile || uploading}
-                onClick={handleUpload}
-              >
+              <button className="template-upload-cancel" onClick={() => setShowUpload(false)}>
+                Cancel
+              </button>
+              <button className="template-upload-submit" disabled={!uploadFile || uploading} onClick={handleUpload}>
                 {uploading ? 'Uploading...' : 'Upload'}
               </button>
             </div>
@@ -443,8 +503,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
                         ))}
                       </div>
                       <div className="template-tag-row-actions">
-                        <button className="template-tag-save-btn" onClick={handleUpdateTag}>Save</button>
-                        <button className="template-tag-cancel-btn" onClick={() => setEditingTag(null)}>Cancel</button>
+                        <button className="template-tag-save-btn" onClick={handleUpdateTag}>
+                          Save
+                        </button>
+                        <button className="template-tag-cancel-btn" onClick={() => setEditingTag(null)}>
+                          Cancel
+                        </button>
                       </div>
                     </>
                   ) : (
@@ -453,13 +517,35 @@ export default function TemplateGallery({ onSelect, onBack }) {
                       <span className="template-tag-name">{tag.name}</span>
                       <div className="template-tag-row-actions">
                         <button className="template-tag-edit-btn" onClick={() => startEditTag(tag)} title="Edit tag">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
                         </button>
-                        <button className="template-tag-delete-btn" onClick={() => handleDeleteTag(tag.id)} title="Delete tag">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <button
+                          className="template-tag-delete-btn"
+                          onClick={() => handleDeleteTag(tag.id)}
+                          title="Delete tag"
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
                             <polyline points="3 6 5 6 21 6" />
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                           </svg>
@@ -497,7 +583,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
             </div>
 
             <div className="template-upload-actions">
-              <button className="template-upload-cancel" onClick={() => setShowTagManager(false)}>Close</button>
+              <button className="template-upload-cancel" onClick={() => setShowTagManager(false)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -505,15 +593,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
 
       {/* Right-click context menu for tag assignment */}
       {ctxMenu && (
-        <div
-          ref={ctxMenuRef}
-          className="template-ctx-menu"
-          style={{ top: ctxMenu.y, left: ctxMenu.x }}
-        >
+        <div ref={ctxMenuRef} className="template-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
           <div className="template-ctx-menu-header">Tags</div>
-          {tags.length === 0 && (
-            <div className="template-ctx-menu-empty">No tags yet</div>
-          )}
+          {tags.length === 0 && <div className="template-ctx-menu-empty">No tags yet</div>}
           {tags.map((tag) => {
             const active = (ctxMenu.template.tags || []).some((t) => t.id === tag.id);
             return (
@@ -524,7 +606,16 @@ export default function TemplateGallery({ onSelect, onBack }) {
               >
                 <span className="template-ctx-menu-check">
                   {active && (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   )}
@@ -540,7 +631,16 @@ export default function TemplateGallery({ onSelect, onBack }) {
       {/* Toast notification */}
       {toast && (
         <div className={`template-toast template-toast-${toast.type}`}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />

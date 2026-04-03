@@ -172,7 +172,8 @@ function AppInner() {
     handleDiff,
   } = useCompilation(project, activeFile, handleSave, editorRef);
 
-  const { githubLink, setGithubLink, hasGithubToken, setHasGithubToken, autoSyncStatus, handleToggleAutoSync } = useGitHubSync(project);
+  const { githubLink, setGithubLink, hasGithubToken, setHasGithubToken, autoSyncStatus, handleToggleAutoSync } =
+    useGitHubSync(project);
 
   const ui = useUIState();
 
@@ -224,30 +225,35 @@ function AppInner() {
     handleCompile,
   });
 
-  const handleUploadBinary = useCallback(async (file, fileName) => {
-    if (!project) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('path', fileName);
-    try {
-      const res = await fetch(`/api/projects/${project.id}/upload-file`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'X-CSRF-Token': getCsrfToken() },
-        body: formData,
-      });
-      if (!res.ok) return;
-      const result = await res.json();
-      if (result.updated) {
-        setFiles((fs) => fs.map((f) => f.id === result.id ? { ...f, content: result.content, is_binary: true } : f));
-      } else {
-        setFiles((fs) => [...fs, result]);
+  const handleUploadBinary = useCallback(
+    async (file, fileName) => {
+      if (!project) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('path', fileName);
+      try {
+        const res = await fetch(`/api/projects/${project.id}/upload-file`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': getCsrfToken() },
+          body: formData,
+        });
+        if (!res.ok) return;
+        const result = await res.json();
+        if (result.updated) {
+          setFiles((fs) =>
+            fs.map((f) => (f.id === result.id ? { ...f, content: result.content, is_binary: true } : f)),
+          );
+        } else {
+          setFiles((fs) => [...fs, result]);
+        }
+        handleCompile?.();
+      } catch (err) {
+        console.error('Binary upload failed:', err);
       }
-      handleCompile?.();
-    } catch (err) {
-      console.error('Binary upload failed:', err);
-    }
-  }, [project, handleCompile]);
+    },
+    [project, handleCompile],
+  );
 
   useEffect(() => {
     if (project?.id) {
@@ -277,12 +283,7 @@ function AppInner() {
 
   useEffect(() => {
     const changesHandler = (e) => {
-      editorRef.current?.applyRemoteChanges(
-        e.detail.fileId,
-        e.detail.changes,
-        e.detail.tracked,
-        e.detail.deletions,
-      );
+      editorRef.current?.applyRemoteChanges(e.detail.fileId, e.detail.changes, e.detail.tracked, e.detail.deletions);
     };
     const tcDeleteHandler = (e) => {
       editorRef.current?.applyRemoteTcDelete(e.detail.fileId, e.detail.from, e.detail.to);
@@ -349,7 +350,15 @@ function AppInner() {
   // --- Render ---
 
   if (!authChecked) return <div className="auth-loading">Loading...</div>;
-  if (needsSetup) return <SetupWizard onComplete={(u) => { setNeedsSetup(false); setUser(u); }} />;
+  if (needsSetup)
+    return (
+      <SetupWizard
+        onComplete={(u) => {
+          setNeedsSetup(false);
+          setUser(u);
+        }}
+      />
+    );
   if (!user) return <AuthPage onAuth={setUser} />;
   if (showAdmin && user.isAdmin) {
     return (
@@ -555,7 +564,14 @@ function AppInner() {
                     onRename={handleRenameFile}
                     onRenameFolder={handleRenameFolder}
                     onDeleteFolder={handleDeleteFolder}
-                    onSetMainFile={(path) => { handleSetMainFile(path); setPdfUrl(null); setMainFileChanged(true); setCompileLog(''); setConsoleOutput(''); setLintDiagnostics([]); }}
+                    onSetMainFile={(path) => {
+                      handleSetMainFile(path);
+                      setPdfUrl(null);
+                      setMainFileChanged(true);
+                      setCompileLog('');
+                      setConsoleOutput('');
+                      setLintDiagnostics([]);
+                    }}
                     mainFile={project?.main_file || 'main.tex'}
                     startAdding={newFileCounter}
                     startAddingFolder={newFolderCounter}
@@ -887,7 +903,10 @@ function AppInner() {
               ref={pdfRef}
               url={pdfUrl}
               compiling={compiling}
-              onCompile={() => { setMainFileChanged(false); handleCompile(); }}
+              onCompile={() => {
+                setMainFileChanged(false);
+                handleCompile();
+              }}
               onStopCompile={handleStopCompile}
               onCleanCompile={async () => {
                 if (!project || compiling) return;

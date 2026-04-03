@@ -178,7 +178,15 @@ export async function compileProject(
   return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution, compiler);
 }
 
-function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000, texDistribution = null, compiler = null) {
+function _doCompile(
+  projectId,
+  mainFile,
+  onOutput,
+  userSuffix = '',
+  timeoutMs = 120000,
+  texDistribution = null,
+  compiler = null,
+) {
   return new Promise((resolve, reject) => {
     if (compileMetrics.active >= MAX_CONCURRENT_COMPILES) {
       return reject(new Error('Server busy — too many concurrent compilations. Please try again in a moment.'));
@@ -406,12 +414,17 @@ export async function syncFilesToDisk(projectId, files) {
   await Promise.all(writes);
 }
 
+// Test-only exports for internal helpers
+export const _testing = { safePath, recordCompile, fileHashCache, contentHash };
+
 // Recursively remove symlinks from a directory tree
 async function removeSymlinks(dir) {
   let entries;
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
-  } catch { return; }
+  } catch {
+    return;
+  }
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) {

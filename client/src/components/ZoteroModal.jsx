@@ -425,7 +425,9 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
             {/* Field exclusion options */}
             <div className="zotero-fields-section">
               <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions((v) => !v)}>
-                <ChevronRightIcon style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <ChevronRightIcon
+                  style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                />
                 Exclude fields
                 {excludedFields.size > 0 && <span className="zotero-fields-count">{excludedFields.size}</span>}
               </button>

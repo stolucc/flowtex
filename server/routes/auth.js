@@ -267,10 +267,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     await authService.changePassword(req.session.userId, currentPassword, newPassword);
     // Invalidate all other sessions for this user
     const currentSid = req.sessionID;
-    await db.run(
-      `DELETE FROM session WHERE sess->>'userId' = $1 AND sid != $2`,
-      [req.session.userId, currentSid],
-    );
+    await db.run(`DELETE FROM session WHERE sess->>'userId' = $1 AND sid != $2`, [req.session.userId, currentSid]);
     await auditLog(req.session.userId, 'password_changed', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {

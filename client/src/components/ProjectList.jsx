@@ -6,7 +6,18 @@ import MfaSetupModal from './MfaSetupModal.jsx';
 import TemplateGallery from './TemplateGallery.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatRelativeTime } from '../utils/dateFormat.js';
-import { SearchIcon, FileDocumentIcon, UploadIcon, DownloadIcon, HomeIcon, LogoutIcon, TagIcon, UndoIcon, TrashIcon, DropdownCaretIcon } from './Icons.jsx';
+import {
+  SearchIcon,
+  FileDocumentIcon,
+  UploadIcon,
+  DownloadIcon,
+  HomeIcon,
+  LogoutIcon,
+  TagIcon,
+  UndoIcon,
+  TrashIcon,
+  DropdownCaretIcon,
+} from './Icons.jsx';
 
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
@@ -513,8 +524,22 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 </svg>
                 Import from GitHub
               </button>
-              <button onClick={() => { setShowNewMenu(false); setShowTemplates(true); }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <button
+                onClick={() => {
+                  setShowNewMenu(false);
+                  setShowTemplates(true);
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <rect x="3" y="3" width="7" height="7" />
                   <rect x="14" y="3" width="7" height="7" />
                   <rect x="3" y="14" width="7" height="7" />

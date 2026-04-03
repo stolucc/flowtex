@@ -163,190 +163,244 @@ function TableGridPicker({ onInsert, onClose, initial }) {
           <div className="table-opts-left">
             <div className="table-opt-row">
               <label className="table-opt-label">Environment</label>
-          <select className="table-opt-select" value={env} onChange={(e) => setEnv(e.target.value)}>
-            {TABLE_ENV_OPTIONS.map((e) => (
-              <option key={e.value} value={e.value}>
-                {e.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="table-opt-row">
-          <label className="table-opt-label">Alignment</label>
-          <div className="table-opt-btns">
-            {[
-              ['l', 'Left'],
-              ['c', 'Center'],
-              ['r', 'Right'],
-            ].map(([v, l]) => (
-              <button
-                key={v}
-                className={`table-opt-btn ${alignment === v ? 'active' : ''}`}
-                onClick={() => setAlignment(v)}
-                title={l}
-              >
-                {l[0]}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="table-opt-row">
-          <label className="table-opt-label">Booktabs</label>
-          <div className="table-vlines-icons">
-            <button
-              className={`table-vline-icon${borders === 'booktabs' ? ' active' : ''}`}
-              title="Booktabs (toprule/midrule/bottomrule)"
-              onClick={() => {
-                setBorders('booktabs');
-                setVlines(Array(cols + 1).fill(false));
-              }}
-            >
-              <svg width="20" height="16" viewBox="0 0 20 16">
-                <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
-                <line x1="2" y1="1" x2="18" y2="1" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
-                <line x1="2" y1="5.5" x2="18" y2="5.5" stroke="var(--accent, #4fc3f7)" strokeWidth="1" />
-                <line x1="2" y1="15" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
-              </svg>
-            </button>
-            <span className="table-vlines-sep" />
-          </div>
-        </div>
-        <div className="table-opt-row">
-          <label className="table-opt-label">Horizontal lines</label>
-          <div className={`table-vlines-icons${borders === 'booktabs' ? ' disabled' : ''}`}>
-            {[
-              { mode: 'none', title: 'None', lines: [] },
-              { mode: 'outside', title: 'Top & Bottom', lines: [[1, 15]] },
-              {
-                mode: 'header',
-                title: 'Top, Header & Bottom',
-                lines: [
-                  [1, 15],
-                  [5.5, null],
-                ],
-              },
-              {
-                mode: 'all',
-                title: 'All',
-                lines: [
-                  [1, 15],
-                  [5.5, null],
-                  [10, null],
-                ],
-              },
-            ].map(({ mode, title, lines: hlines }) => (
-              <button
-                key={mode}
-                className={`table-vline-icon${borders === mode ? ' active' : ''}`}
-                title={title}
-                disabled={borders === 'booktabs'}
-                onClick={() => setBorders(mode)}
-              >
-                <svg width="20" height="16" viewBox="0 0 20 16">
-                  <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
-                  {hlines.map((hl, i) => {
-                    if (hl[1] !== null) {
-                      return (
-                        <React.Fragment key={i}>
-                          <line x1="2" y1={hl[0]} x2="18" y2={hl[0]} stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                          <line x1="2" y1={hl[1]} x2="18" y2={hl[1]} stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                        </React.Fragment>
-                      );
-                    }
-                    return (
-                      <line
-                        key={i}
-                        x1="2"
-                        y1={hl[0]}
-                        x2="18"
-                        y2={hl[0]}
-                        stroke="var(--accent, #4fc3f7)"
-                        strokeWidth="1.5"
-                      />
-                    );
-                  })}
-                </svg>
-              </button>
-            ))}
-          </div>
-        </div>
-        {hasSize && (
-          <div className="table-opt-row">
-            <label className="table-opt-label">Vertical lines</label>
-            <div className={`table-vlines-icons${borders === 'booktabs' ? ' disabled' : ''}`}>
-              {['none', 'outside', 'all'].map((mode) => {
-                const current = vlines.every((v) => v)
-                  ? 'all'
-                  : vlines[0] && vlines[cols] && vlines.slice(1, cols).every((v) => !v)
-                    ? 'outside'
-                    : 'none';
-                return (
+              <select className="table-opt-select" value={env} onChange={(e) => setEnv(e.target.value)}>
+                {TABLE_ENV_OPTIONS.map((e) => (
+                  <option key={e.value} value={e.value}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="table-opt-row">
+              <label className="table-opt-label">Alignment</label>
+              <div className="table-opt-btns">
+                {[
+                  ['l', 'Left'],
+                  ['c', 'Center'],
+                  ['r', 'Right'],
+                ].map(([v, l]) => (
+                  <button
+                    key={v}
+                    className={`table-opt-btn ${alignment === v ? 'active' : ''}`}
+                    onClick={() => setAlignment(v)}
+                    title={l}
+                  >
+                    {l[0]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="table-opt-row">
+              <label className="table-opt-label">Booktabs</label>
+              <div className="table-vlines-icons">
+                <button
+                  className={`table-vline-icon${borders === 'booktabs' ? ' active' : ''}`}
+                  title="Booktabs (toprule/midrule/bottomrule)"
+                  onClick={() => {
+                    setBorders('booktabs');
+                    setVlines(Array(cols + 1).fill(false));
+                  }}
+                >
+                  <svg width="20" height="16" viewBox="0 0 20 16">
+                    <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
+                    <line x1="2" y1="1" x2="18" y2="1" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
+                    <line x1="2" y1="5.5" x2="18" y2="5.5" stroke="var(--accent, #4fc3f7)" strokeWidth="1" />
+                    <line x1="2" y1="15" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
+                  </svg>
+                </button>
+                <span className="table-vlines-sep" />
+              </div>
+            </div>
+            <div className="table-opt-row">
+              <label className="table-opt-label">Horizontal lines</label>
+              <div className={`table-vlines-icons${borders === 'booktabs' ? ' disabled' : ''}`}>
+                {[
+                  { mode: 'none', title: 'None', lines: [] },
+                  { mode: 'outside', title: 'Top & Bottom', lines: [[1, 15]] },
+                  {
+                    mode: 'header',
+                    title: 'Top, Header & Bottom',
+                    lines: [
+                      [1, 15],
+                      [5.5, null],
+                    ],
+                  },
+                  {
+                    mode: 'all',
+                    title: 'All',
+                    lines: [
+                      [1, 15],
+                      [5.5, null],
+                      [10, null],
+                    ],
+                  },
+                ].map(({ mode, title, lines: hlines }) => (
                   <button
                     key={mode}
-                    className={`table-vline-icon${current === mode ? ' active' : ''}`}
-                    title={mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    className={`table-vline-icon${borders === mode ? ' active' : ''}`}
+                    title={title}
                     disabled={borders === 'booktabs'}
-                    onClick={() => {
-                      if (mode === 'all') setVlines(Array(cols + 1).fill(true));
-                      else if (mode === 'outside') setVlines([true, ...Array(Math.max(0, cols - 1)).fill(false), true]);
-                      else setVlines(Array(cols + 1).fill(false));
-                    }}
+                    onClick={() => setBorders(mode)}
                   >
                     <svg width="20" height="16" viewBox="0 0 20 16">
                       <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
-                      {mode === 'outside' && (
-                        <>
-                          <line x1="2" y1="1" x2="2" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                          <line x1="18" y1="1" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                        </>
-                      )}
-                      {mode === 'all' && (
-                        <>
-                          <line x1="2" y1="1" x2="2" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                          <line x1="7.5" y1="1" x2="7.5" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="1.5" />
-                          <line x1="12.5" y1="1" x2="12.5" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="1.5" />
-                          <line x1="18" y1="1" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
-                        </>
-                      )}
+                      {hlines.map((hl, i) => {
+                        if (hl[1] !== null) {
+                          return (
+                            <React.Fragment key={i}>
+                              <line
+                                x1="2"
+                                y1={hl[0]}
+                                x2="18"
+                                y2={hl[0]}
+                                stroke="var(--accent, #4fc3f7)"
+                                strokeWidth="2"
+                              />
+                              <line
+                                x1="2"
+                                y1={hl[1]}
+                                x2="18"
+                                y2={hl[1]}
+                                stroke="var(--accent, #4fc3f7)"
+                                strokeWidth="2"
+                              />
+                            </React.Fragment>
+                          );
+                        }
+                        return (
+                          <line
+                            key={i}
+                            x1="2"
+                            y1={hl[0]}
+                            x2="18"
+                            y2={hl[0]}
+                            stroke="var(--accent, #4fc3f7)"
+                            strokeWidth="1.5"
+                          />
+                        );
+                      })}
                     </svg>
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
+            {hasSize && (
+              <div className="table-opt-row">
+                <label className="table-opt-label">Vertical lines</label>
+                <div className={`table-vlines-icons${borders === 'booktabs' ? ' disabled' : ''}`}>
+                  {['none', 'outside', 'all'].map((mode) => {
+                    const current = vlines.every((v) => v)
+                      ? 'all'
+                      : vlines[0] && vlines[cols] && vlines.slice(1, cols).every((v) => !v)
+                        ? 'outside'
+                        : 'none';
+                    return (
+                      <button
+                        key={mode}
+                        className={`table-vline-icon${current === mode ? ' active' : ''}`}
+                        title={mode.charAt(0).toUpperCase() + mode.slice(1)}
+                        disabled={borders === 'booktabs'}
+                        onClick={() => {
+                          if (mode === 'all') setVlines(Array(cols + 1).fill(true));
+                          else if (mode === 'outside')
+                            setVlines([true, ...Array(Math.max(0, cols - 1)).fill(false), true]);
+                          else setVlines(Array(cols + 1).fill(false));
+                        }}
+                      >
+                        <svg width="20" height="16" viewBox="0 0 20 16">
+                          <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
+                          {mode === 'outside' && (
+                            <>
+                              <line x1="2" y1="1" x2="2" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
+                              <line x1="18" y1="1" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
+                            </>
+                          )}
+                          {mode === 'all' && (
+                            <>
+                              <line x1="2" y1="1" x2="2" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
+                              <line
+                                x1="7.5"
+                                y1="1"
+                                x2="7.5"
+                                y2="15"
+                                stroke="var(--accent, #4fc3f7)"
+                                strokeWidth="1.5"
+                              />
+                              <line
+                                x1="12.5"
+                                y1="1"
+                                x2="12.5"
+                                y2="15"
+                                stroke="var(--accent, #4fc3f7)"
+                                strokeWidth="1.5"
+                              />
+                              <line x1="18" y1="1" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2" />
+                            </>
+                          )}
+                        </svg>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-        </div>
-        <div className="table-opts-right">
-          <label className="table-opt-toggle">
-            <span className="table-opt-toggle-label">Header row</span>
-            <button className={`table-toggle${headerRow ? ' on' : ''}`} onClick={() => setHeaderRow((v) => !v)} role="switch" aria-checked={headerRow}>
-              <span className="table-toggle-knob" />
-            </button>
-          </label>
-          <label className="table-opt-toggle">
-            <span className="table-opt-toggle-label">Bold header</span>
-            <button className={`table-toggle${boldHeader ? ' on' : ''}`} onClick={() => setBoldHeader((v) => !v)} role="switch" aria-checked={boldHeader}>
-              <span className="table-toggle-knob" />
-            </button>
-          </label>
-          <label className="table-opt-toggle">
-            <span className="table-opt-toggle-label">Centered</span>
-            <button className={`table-toggle${centering ? ' on' : ''}`} onClick={() => setCentering((v) => !v)} role="switch" aria-checked={centering}>
-              <span className="table-toggle-knob" />
-            </button>
-          </label>
-          <label className="table-opt-toggle">
-            <span className="table-opt-toggle-label">Zebra stripes</span>
-            <button className={`table-toggle${zebra ? ' on' : ''}`} onClick={() => setZebra((v) => !v)} role="switch" aria-checked={zebra}>
-              <span className="table-toggle-knob" />
-            </button>
-          </label>
-        </div>
+          <div className="table-opts-right">
+            <label className="table-opt-toggle">
+              <span className="table-opt-toggle-label">Header row</span>
+              <button
+                className={`table-toggle${headerRow ? ' on' : ''}`}
+                onClick={() => setHeaderRow((v) => !v)}
+                role="switch"
+                aria-checked={headerRow}
+              >
+                <span className="table-toggle-knob" />
+              </button>
+            </label>
+            <label className="table-opt-toggle">
+              <span className="table-opt-toggle-label">Bold header</span>
+              <button
+                className={`table-toggle${boldHeader ? ' on' : ''}`}
+                onClick={() => setBoldHeader((v) => !v)}
+                role="switch"
+                aria-checked={boldHeader}
+              >
+                <span className="table-toggle-knob" />
+              </button>
+            </label>
+            <label className="table-opt-toggle">
+              <span className="table-opt-toggle-label">Centered</span>
+              <button
+                className={`table-toggle${centering ? ' on' : ''}`}
+                onClick={() => setCentering((v) => !v)}
+                role="switch"
+                aria-checked={centering}
+              >
+                <span className="table-toggle-knob" />
+              </button>
+            </label>
+            <label className="table-opt-toggle">
+              <span className="table-opt-toggle-label">Zebra stripes</span>
+              <button
+                className={`table-toggle${zebra ? ' on' : ''}`}
+                onClick={() => setZebra((v) => !v)}
+                role="switch"
+                aria-checked={zebra}
+              >
+                <span className="table-toggle-knob" />
+              </button>
+            </label>
+          </div>
         </div>
         <div className="table-opt-caption-group">
           <label className="table-opt-toggle">
             <span className="table-opt-toggle-label">Caption</span>
-            <button className={`table-toggle${caption ? ' on' : ''}`} onClick={() => setCaption((v) => !v)} role="switch" aria-checked={caption}>
+            <button
+              className={`table-toggle${caption ? ' on' : ''}`}
+              onClick={() => setCaption((v) => !v)}
+              role="switch"
+              aria-checked={caption}
+            >
               <span className="table-toggle-knob" />
             </button>
           </label>

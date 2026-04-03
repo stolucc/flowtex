@@ -148,7 +148,12 @@ export async function authenticateUser(email, password) {
   if (!valid) return { error: 'Invalid credentials', status: 401 };
 
   if (!user.email_verified) {
-    return { error: 'Please verify your email address before signing in. Check your inbox for a verification link.', status: 403, unverified: true, userId: user.id };
+    return {
+      error: 'Please verify your email address before signing in. Check your inbox for a verification link.',
+      status: 403,
+      unverified: true,
+      userId: user.id,
+    };
   }
 
   return { user };

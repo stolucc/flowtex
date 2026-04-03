@@ -109,7 +109,9 @@ router.post('/format', async (req, res) => {
       return res.status(400).json({ error: 'Unknown formatter' });
     }
 
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
 
     res.json({ formatted });
   } catch (err) {
@@ -131,7 +133,9 @@ router.post('/:projectId', async (req, res) => {
 
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
 
-    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
+      projectId,
+    ]);
     const mainFile = project?.main_file || 'main.tex';
 
     const { pdfPath, log } = await compileProject(projectId, mainFile, null, {
@@ -176,7 +180,9 @@ router.get('/:projectId/compile-stream', async (req, res) => {
 
   try {
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
-    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
+      projectId,
+    ]);
     const mainFile = project?.main_file || 'main.tex';
 
     const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
@@ -299,9 +305,10 @@ router.post('/:projectId/lint', async (req, res) => {
 
       if (linter === 'lacheck') {
         // Run lacheck for syntax errors (unmatched braces, environments, etc.)
-        const { stdout, stderr } = await execFileAsync('lacheck', [tmpFile], { timeout: 5000, env }).catch(
-          (e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }),
-        );
+        const { stdout, stderr } = await execFileAsync('lacheck', [tmpFile], { timeout: 5000, env }).catch((e) => ({
+          stdout: e.stdout || '',
+          stderr: e.stderr || '',
+        }));
         const output = stdout || stderr || '';
         for (const line of output.split('\n').filter(Boolean)) {
           const match = line.match(/line (\d+):\s*(.+)/);
@@ -319,11 +326,10 @@ router.post('/:projectId/lint', async (req, res) => {
       } else {
         // Default: ChkTeX for LaTeX warnings and style checks
         // -v0 = machine-readable output, -q = quiet, -f = custom format
-        const { stdout, stderr } = await execFileAsync(
-          'chktex',
-          ['-v0', '-q', '-f', '%l:%c:%d:%n:%k:%m\\n', tmpFile],
-          { timeout: 5000, env },
-        ).catch((e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
+        const { stdout, stderr } = await execFileAsync('chktex', ['-v0', '-q', '-f', '%l:%c:%d:%n:%k:%m\\n', tmpFile], {
+          timeout: 5000,
+          env,
+        }).catch((e) => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
 
         const output = stdout || stderr || '';
         for (const line of output.split('\n').filter(Boolean)) {
@@ -358,7 +364,9 @@ router.get('/:projectId/wordcount', async (req, res) => {
     const { projectId } = req.params;
     if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [projectId]);
+    const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
+      projectId,
+    ]);
     const mainFile = project?.main_file || 'main.tex';
 
     const projectDir = path.join(PROJECTS_DIR, projectId);
@@ -689,12 +697,7 @@ let _cachedFormatters = null;
 let _formattersCacheTime = 0;
 
 // Allowed directories for formatter executables
-const SAFE_BIN_DIRS = new Set([
-  '/opt/local/bin',
-  '/usr/local/bin',
-  '/usr/bin',
-  '/Library/TeX/texbin',
-]);
+const SAFE_BIN_DIRS = new Set(['/opt/local/bin', '/usr/local/bin', '/usr/bin', '/Library/TeX/texbin']);
 
 function detectFormatters() {
   const now = Date.now();

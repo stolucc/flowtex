@@ -28,10 +28,10 @@ export default async function seedPreloadedTemplates() {
       // Assign default tag based on category
       const tag = await tx.get('SELECT id FROM template_tags WHERE name = $1', [tmpl.category]);
       if (tag) {
-        await tx.run(
-          'INSERT INTO template_tag_map (template_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-          [tmpl.id, tag.id],
-        );
+        await tx.run('INSERT INTO template_tag_map (template_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+          tmpl.id,
+          tag.id,
+        ]);
       }
     });
   }

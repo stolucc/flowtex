@@ -44,8 +44,22 @@ const STYLE_EXTS = ['.sty', '.cls', '.clo', '.bst', '.def', '.fd', '.cfg', '.bbx
 const FILE_CATEGORIES = [
   { key: 'tex', label: 'TeX Files', test: (p) => p.endsWith('.tex') },
   { key: 'bib', label: 'Bibliography', test: (p) => p.endsWith('.bib') },
-  { key: 'images', label: 'Images', test: (p) => { const ext = p.substring(p.lastIndexOf('.')).toLowerCase(); return IMAGE_EXTS.includes(ext) || ext === '.pdf'; } },
-  { key: 'style', label: 'Style Files', test: (p) => { const ext = p.substring(p.lastIndexOf('.')).toLowerCase(); return STYLE_EXTS.includes(ext); } },
+  {
+    key: 'images',
+    label: 'Images',
+    test: (p) => {
+      const ext = p.substring(p.lastIndexOf('.')).toLowerCase();
+      return IMAGE_EXTS.includes(ext) || ext === '.pdf';
+    },
+  },
+  {
+    key: 'style',
+    label: 'Style Files',
+    test: (p) => {
+      const ext = p.substring(p.lastIndexOf('.')).toLowerCase();
+      return STYLE_EXTS.includes(ext);
+    },
+  },
 ];
 
 function categorizeFiles(files) {

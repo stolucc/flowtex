@@ -129,8 +129,8 @@ export default function ShareModal({ projectId, onClose }) {
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 className="confirm-title">Remove Member</h3>
             <p className="confirm-message">
-              Are you sure you want to remove <strong>{confirmRemove.name}</strong> from this project?
-              They will lose access immediately.
+              Are you sure you want to remove <strong>{confirmRemove.name}</strong> from this project? They will lose
+              access immediately.
             </p>
             <div className="confirm-actions">
               <button className="confirm-cancel-btn" onClick={() => setConfirmRemove(null)}>

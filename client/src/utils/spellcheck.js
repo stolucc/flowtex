@@ -126,13 +126,36 @@ const PROSE_COMMANDS = new Set([
 
 // Environments whose body is not prose (math, code, etc.)
 const SKIP_ENVIRONMENTS = new Set([
-  'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
-  'multline', 'multline*', 'flalign', 'flalign*', 'eqnarray', 'eqnarray*',
-  'math', 'displaymath', 'array', 'matrix', 'pmatrix', 'bmatrix',
-  'vmatrix', 'Vmatrix', 'cases',
-  'verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt',
-  'tikzpicture', 'pgfpicture',
-  'filecontents', 'filecontents*',
+  'equation',
+  'equation*',
+  'align',
+  'align*',
+  'gather',
+  'gather*',
+  'multline',
+  'multline*',
+  'flalign',
+  'flalign*',
+  'eqnarray',
+  'eqnarray*',
+  'math',
+  'displaymath',
+  'array',
+  'matrix',
+  'pmatrix',
+  'bmatrix',
+  'vmatrix',
+  'Vmatrix',
+  'cases',
+  'verbatim',
+  'verbatim*',
+  'lstlisting',
+  'minted',
+  'alltt',
+  'tikzpicture',
+  'pgfpicture',
+  'filecontents',
+  'filecontents*',
 ]);
 
 function skipBracketGroup(text, i, open, close) {
@@ -140,7 +163,10 @@ function skipBracketGroup(text, i, open, close) {
   let depth = 1;
   i++;
   while (i < text.length && depth > 0) {
-    if (text[i] === '\\') { i += 2; continue; } // skip escaped chars
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    } // skip escaped chars
     if (text[i] === open) depth++;
     else if (text[i] === close) depth--;
     i++;

@@ -79,26 +79,86 @@ export default function ModalContainer({
         />
       )}
       {ui.showShortcuts && (
-        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) ui.setShowShortcuts(false); }}>
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) ui.setShowShortcuts(false);
+          }}
+        >
           <div className="modal shortcuts-modal">
             <div className="modal-header">
               <h2>Keyboard Shortcuts</h2>
-              <button className="modal-close" onClick={() => ui.setShowShortcuts(false)}>&times;</button>
+              <button className="modal-close" onClick={() => ui.setShowShortcuts(false)}>
+                &times;
+              </button>
             </div>
             <div className="shortcuts-body">
               <table className="shortcuts-table">
                 <tbody>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd></td><td>Save &amp; Compile</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>F</kbd></td><td>Find &amp; Replace</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Z</kbd></td><td>Undo</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></td><td>Redo</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>B</kbd></td><td>Bold selection</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>I</kbd></td><td>Italicize selection</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + Click</td><td>Comment on selection</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>/</kbd></td><td>Toggle comment</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Tab</kbd></td><td>Indent selection</td></tr>
-                  <tr><td className="shortcut-key"><kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>Unindent selection</td></tr>
-                  <tr><td className="shortcut-key">Click on PDF</td><td>Jump to source (SyncTeX)</td></tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd>
+                    </td>
+                    <td>Save &amp; Compile</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>F</kbd>
+                    </td>
+                    <td>Find &amp; Replace</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Z</kbd>
+                    </td>
+                    <td>Undo</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd>
+                    </td>
+                    <td>Redo</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>B</kbd>
+                    </td>
+                    <td>Bold selection</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>I</kbd>
+                    </td>
+                    <td>Italicize selection</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + Click
+                    </td>
+                    <td>Comment on selection</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>/</kbd>
+                    </td>
+                    <td>Toggle comment</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Tab</kbd>
+                    </td>
+                    <td>Indent selection</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">
+                      <kbd>Shift</kbd> + <kbd>Tab</kbd>
+                    </td>
+                    <td>Unindent selection</td>
+                  </tr>
+                  <tr>
+                    <td className="shortcut-key">Click on PDF</td>
+                    <td>Jump to source (SyncTeX)</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -106,11 +166,18 @@ export default function ModalContainer({
         </div>
       )}
       {ui.showAbout && (
-        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) ui.setShowAbout(false); }}>
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) ui.setShowAbout(false);
+          }}
+        >
           <div className="modal about-modal">
             <div className="modal-header">
               <h2>About FlowTex</h2>
-              <button className="modal-close" onClick={() => ui.setShowAbout(false)}>&times;</button>
+              <button className="modal-close" onClick={() => ui.setShowAbout(false)}>
+                &times;
+              </button>
             </div>
             <div className="about-body">
               <p className="about-tagline">A collaborative LaTeX editor</p>
@@ -171,8 +238,9 @@ export default function ModalContainer({
               // Find the first .bib file actually referenced from the main file
               const mainFile = project?.main_file || 'main.tex';
               const usedPaths = resolveUsedFiles(files, mainFile);
-              let bibFile = files.find((f) => f.path.endsWith('.bib') && usedPaths.has(f.path))
-                || files.find((f) => f.path.endsWith('.bib'));
+              let bibFile =
+                files.find((f) => f.path.endsWith('.bib') && usedPaths.has(f.path)) ||
+                files.find((f) => f.path.endsWith('.bib'));
               if (!bibFile) {
                 try {
                   const res = await post(`/api/projects/${project.id}/files`, {

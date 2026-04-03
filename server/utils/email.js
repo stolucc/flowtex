@@ -27,7 +27,11 @@ async function getTransporter() {
   const user = dbSettings.smtp_user || process.env.SMTP_USER;
   let pass = process.env.SMTP_PASS;
   if (dbSettings.smtp_pass) {
-    try { pass = decrypt(dbSettings.smtp_pass); } catch { pass = dbSettings.smtp_pass; }
+    try {
+      pass = decrypt(dbSettings.smtp_pass);
+    } catch {
+      pass = dbSettings.smtp_pass;
+    }
   }
 
   if (host) {

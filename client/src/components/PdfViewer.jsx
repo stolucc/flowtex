@@ -1,6 +1,16 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
-import { ChevronLeftIcon, SearchIcon, DropdownCaretIcon, RedoIcon, TrashIcon, DownloadIcon, ZoomOutIcon, ZoomInIcon, ContrastIcon } from './Icons.jsx';
+import {
+  ChevronLeftIcon,
+  SearchIcon,
+  DropdownCaretIcon,
+  RedoIcon,
+  TrashIcon,
+  DownloadIcon,
+  ZoomOutIcon,
+  ZoomInIcon,
+  ContrastIcon,
+} from './Icons.jsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
@@ -270,7 +280,6 @@ const PdfViewer = forwardRef(function PdfViewer(
   // Render pages with virtualization: create all placeholder wrappers, but only
   // render canvases for pages near the viewport. IntersectionObserver triggers
   // on-demand rendering; far-off-screen canvases are destroyed on scroll.
-
 
   useEffect(() => {
     if (!url || !containerRef.current) return;
@@ -718,7 +727,8 @@ const PdfViewer = forwardRef(function PdfViewer(
           className={`pdf-header-btn ${warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
           onClick={() => togglePanel('warnings')}
         >
-          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning{warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
+          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning
+          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
         </button>
         <button
           className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
@@ -735,7 +745,16 @@ const PdfViewer = forwardRef(function PdfViewer(
         {numPages > 0 && (
           <div className="pdf-page-nav">
             <button className="pdf-zoom-btn" onClick={goToPrevPage} title="Previous page" disabled={currentPage <= 1}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polyline points="18 15 12 9 6 15" />
               </svg>
             </button>
@@ -748,7 +767,16 @@ const PdfViewer = forwardRef(function PdfViewer(
               title="Next page"
               disabled={currentPage >= numPages}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
@@ -763,14 +791,32 @@ const PdfViewer = forwardRef(function PdfViewer(
             <ZoomInIcon />
           </button>
           <button className="pdf-zoom-btn" onClick={fitWidth} title="Fit width">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="3" y1="12" x2="21" y2="12" />
               <polyline points="3,8 3,12 3,16" />
               <polyline points="21,8 21,12 21,16" />
             </svg>
           </button>
           <button className="pdf-zoom-btn" onClick={fitPage} title="Fit page">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <rect x="3" y="3" width="18" height="18" rx="2" />
             </svg>
           </button>
@@ -836,72 +882,74 @@ const PdfViewer = forwardRef(function PdfViewer(
             ))}
         </div>
       )}
-      {!helpDetail && showPanel === 'warnings' && warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) + hiddenBoxCount > 0 && (
-        <div className="pdf-log-panel warnings">
-          {hiddenBoxCount > 0 && (
-            <div className="pdf-log-hidden-notice clickable" onClick={() => onOpenSettings?.('compiler')}>
-              {hiddenBoxCount} overfull/underfull box warning{hiddenBoxCount !== 1 ? 's' : ''} hidden — click to open
-              settings
-            </div>
-          )}
-          {(tapsDiagnostics || []).map((w, i) => (
-            <LogItem
-              key={`taps-${i}`}
-              className="pdf-log-item warning taps clickable"
-              onClick={() => onGoToFileAndLine?.(w.file, w.line)}
-              tag={
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" style={{ marginRight: 3, verticalAlign: -1 }}>
-                    <polygon points="12,1 23,12 12,23 1,12" fill="#2065AC" />
-                  </svg>
-                  TAPS
-                </>
-              }
-              file={w.file}
-              line={w.line}
-              message={w.message}
-            />
-          ))}
-          {lintWarnings.map((w, i) => (
-            <LogItem
-              key={`lint-${i}`}
-              className="pdf-log-item warning clickable"
-              onClick={() => onGoToLine?.(w.line, w.col)}
-              tag="lint"
-              line={w.line}
-              message={w.message}
-              help={getErrorHelp(w.message)}
-              onShowHelp={setHelpDetail}
-            />
-          ))}
-          {warnings
-            .filter((w) => !w.isSystemFile)
-            .map((w, i) => (
+      {!helpDetail &&
+        showPanel === 'warnings' &&
+        warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) + hiddenBoxCount > 0 && (
+          <div className="pdf-log-panel warnings">
+            {hiddenBoxCount > 0 && (
+              <div className="pdf-log-hidden-notice clickable" onClick={() => onOpenSettings?.('compiler')}>
+                {hiddenBoxCount} overfull/underfull box warning{hiddenBoxCount !== 1 ? 's' : ''} hidden — click to open
+                settings
+              </div>
+            )}
+            {(tapsDiagnostics || []).map((w, i) => (
               <LogItem
-                key={`compile-${i}`}
-                className={`pdf-log-item warning ${w.line ? 'clickable' : ''}`}
-                onClick={() => w.line && (w.file ? onGoToFileAndLine?.(w.file, w.line) : onGoToLine?.(w.line))}
+                key={`taps-${i}`}
+                className="pdf-log-item warning taps clickable"
+                onClick={() => onGoToFileAndLine?.(w.file, w.line)}
+                tag={
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" style={{ marginRight: 3, verticalAlign: -1 }}>
+                      <polygon points="12,1 23,12 12,23 1,12" fill="#2065AC" />
+                    </svg>
+                    TAPS
+                  </>
+                }
                 file={w.file}
                 line={w.line}
-                message={w.text}
-                help={getErrorHelp(w.text)}
+                message={w.message}
+              />
+            ))}
+            {lintWarnings.map((w, i) => (
+              <LogItem
+                key={`lint-${i}`}
+                className="pdf-log-item warning clickable"
+                onClick={() => onGoToLine?.(w.line, w.col)}
+                tag="lint"
+                line={w.line}
+                message={w.message}
+                help={getErrorHelp(w.message)}
                 onShowHelp={setHelpDetail}
               />
             ))}
-          {warnings
-            .filter((w) => w.isSystemFile)
-            .map((w, i) => (
-              <LogItem
-                key={`system-${i}`}
-                className="pdf-log-item system-error"
-                file={w.file}
-                line={w.line}
-                message={w.text}
-                tag="package"
-              />
-            ))}
-        </div>
-      )}
+            {warnings
+              .filter((w) => !w.isSystemFile)
+              .map((w, i) => (
+                <LogItem
+                  key={`compile-${i}`}
+                  className={`pdf-log-item warning ${w.line ? 'clickable' : ''}`}
+                  onClick={() => w.line && (w.file ? onGoToFileAndLine?.(w.file, w.line) : onGoToLine?.(w.line))}
+                  file={w.file}
+                  line={w.line}
+                  message={w.text}
+                  help={getErrorHelp(w.text)}
+                  onShowHelp={setHelpDetail}
+                />
+              ))}
+            {warnings
+              .filter((w) => w.isSystemFile)
+              .map((w, i) => (
+                <LogItem
+                  key={`system-${i}`}
+                  className="pdf-log-item system-error"
+                  file={w.file}
+                  line={w.line}
+                  message={w.text}
+                  tag="package"
+                />
+              ))}
+          </div>
+        )}
       {!helpDetail && showPanel === 'errors' && errors.length === 0 && lintErrors.length === 0 && (
         <div className="pdf-log-panel empty">No errors</div>
       )}
@@ -914,15 +962,16 @@ const PdfViewer = forwardRef(function PdfViewer(
       {showPanel === 'console' && <ConsolePanel output={consoleOutput} compiling={compiling} />}
       {!mainFileExists && !url && !compiling && (
         <div className="pdf-no-main-file-banner">
-          No main file found. Right-click a <code>.tex</code> file in the file tree and select "Set as Main File" to compile your project.
+          No main file found. Right-click a <code>.tex</code> file in the file tree and select "Set as Main File" to
+          compile your project.
         </div>
       )}
       {mainFileChanged && !compiling && (
-        <div className="pdf-recompile-banner">
-          Main file changed. Click "PDF" to recompile with the new main file.
-        </div>
+        <div className="pdf-recompile-banner">Main file changed. Click "PDF" to recompile with the new main file.</div>
       )}
-      {!url && !compiling && mainFileExists && !mainFileChanged && <div className="pdf-placeholder">Click "PDF" to generate PDF</div>}
+      {!url && !compiling && mainFileExists && !mainFileChanged && (
+        <div className="pdf-placeholder">Click "PDF" to generate PDF</div>
+      )}
       {error && <div className="pdf-error">{error}</div>}
       <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />
     </div>

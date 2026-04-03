@@ -63,21 +63,27 @@ router.post('/template-tags', requireAdmin, async (req, res) => {
   try {
     const tag = await projectService.createTemplateTag(req.body.name, req.body.color);
     res.json(tag);
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 router.put('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
     const tag = await projectService.updateTemplateTag(req.params.tagId, req.body.name, req.body.color);
     res.json(tag);
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 router.delete('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
     await projectService.deleteTemplateTag(req.params.tagId);
     res.json({ ok: true });
-  } catch (err) { sendError(res, err); }
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // List available templates (built-in + user-uploaded)
@@ -91,7 +97,12 @@ router.post('/from-template', async (req, res) => {
   if (!templateId) return res.status(400).json({ error: 'templateId required' });
   try {
     const project = await projectService.createProjectFromTemplate(req.session.userId, templateId, name);
-    await auditLog(req.session.userId, 'project_create', { targetType: 'project', targetId: project.id, detail: `template:${templateId}`, ip: req.ip });
+    await auditLog(req.session.userId, 'project_create', {
+      targetType: 'project',
+      targetId: project.id,
+      detail: `template:${templateId}`,
+      ip: req.ip,
+    });
     res.json(project);
   } catch (err) {
     sendError(res, err);
@@ -105,13 +116,20 @@ router.post('/templates/upload', upload.single('file'), async (req, res) => {
     const { name, description, category } = req.body;
     let tagIds = [];
     if (req.body.tagIds) {
-      try { tagIds = JSON.parse(req.body.tagIds); } catch {
+      try {
+        tagIds = JSON.parse(req.body.tagIds);
+      } catch {
         return res.status(400).json({ error: 'Invalid tagIds format' });
       }
       if (!Array.isArray(tagIds)) return res.status(400).json({ error: 'tagIds must be an array' });
     }
     const tmpl = await projectService.createTemplateFromZip(
-      req.session.userId, req.file.buffer, name || req.file.originalname, description, category, tagIds,
+      req.session.userId,
+      req.file.buffer,
+      name || req.file.originalname,
+      description,
+      category,
+      tagIds,
     );
     await auditLog(req.session.userId, 'template_upload', { targetType: 'template', targetId: tmpl.id, ip: req.ip });
     res.json(tmpl);
@@ -198,8 +216,18 @@ router.patch('/:id', async (req, res) => {
   if (!name && !main_file && snapshot_interval_sec == null && tex_distribution === undefined && compiler === undefined)
     return res.status(400).json({ error: 'Nothing to update' });
   try {
-    const updated = await projectService.updateProject(req.params.id, { name, main_file, snapshot_interval_sec, tex_distribution, compiler });
-    await auditLog(req.session.userId, 'project_update', { targetType: 'project', targetId: req.params.id, ip: req.ip });
+    const updated = await projectService.updateProject(req.params.id, {
+      name,
+      main_file,
+      snapshot_interval_sec,
+      tex_distribution,
+      compiler,
+    });
+    await auditLog(req.session.userId, 'project_update', {
+      targetType: 'project',
+      targetId: req.params.id,
+      ip: req.ip,
+    });
     res.json(updated);
   } catch (err) {
     sendError(res, err);
@@ -211,7 +239,11 @@ router.delete('/:id', async (req, res) => {
   if (!member) return;
   if (member.role === 'owner') {
     await projectService.deleteProject(req.params.id);
-    await auditLog(req.session.userId, 'project_delete', { targetType: 'project', targetId: req.params.id, ip: req.ip });
+    await auditLog(req.session.userId, 'project_delete', {
+      targetType: 'project',
+      targetId: req.params.id,
+      ip: req.ip,
+    });
   } else {
     await projectService.removeMember(req.params.id, req.session.userId);
     await auditLog(req.session.userId, 'project_leave', { targetType: 'project', targetId: req.params.id, ip: req.ip });
@@ -268,7 +300,12 @@ router.post('/:id/members', async (req, res) => {
     } catch (err) {
       logger.warn({ err }, 'Failed to push invitation via WS');
     }
-    await auditLog(req.session.userId, 'member_invite', { targetType: 'project', targetId: req.params.id, detail: JSON.stringify({ email, role: role || 'editor' }), ip: req.ip });
+    await auditLog(req.session.userId, 'member_invite', {
+      targetType: 'project',
+      targetId: req.params.id,
+      detail: JSON.stringify({ email, role: role || 'editor' }),
+      ip: req.ip,
+    });
     res.json(invitation);
   } catch (err) {
     sendError(res, err);
@@ -444,7 +481,11 @@ router.post('/:id/archive', async (req, res) => {
   if (!member) return;
   if (member.role === 'owner') {
     await projectService.archiveProject(req.params.id);
-    await auditLog(req.session.userId, 'project_archive', { targetType: 'project', targetId: req.params.id, ip: req.ip });
+    await auditLog(req.session.userId, 'project_archive', {
+      targetType: 'project',
+      targetId: req.params.id,
+      ip: req.ip,
+    });
   } else {
     await projectService.removeMember(req.params.id, req.session.userId);
     await auditLog(req.session.userId, 'project_leave', { targetType: 'project', targetId: req.params.id, ip: req.ip });
@@ -454,7 +495,11 @@ router.post('/:id/archive', async (req, res) => {
 router.post('/:id/unarchive', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.unarchiveProject(req.params.id);
-  await auditLog(req.session.userId, 'project_unarchive', { targetType: 'project', targetId: req.params.id, ip: req.ip });
+  await auditLog(req.session.userId, 'project_unarchive', {
+    targetType: 'project',
+    targetId: req.params.id,
+    ip: req.ip,
+  });
   res.json({ ok: true });
 });
 router.post('/:id/trash', async (req, res) => {

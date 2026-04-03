@@ -10,8 +10,12 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     Promise.all([
-      get('/api/auth/me').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      get('/api/setup/status').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      get('/api/auth/me')
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+      get('/api/setup/status')
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
     ]).then(([u, setup]) => {
       setUser(u);
       if (setup?.needsSetup) setNeedsSetup(true);
@@ -32,7 +36,11 @@ export function AuthProvider({ children }) {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  return <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

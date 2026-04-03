@@ -105,7 +105,9 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose, onTy
       {typers.length > 0 && (
         <div className="chat-typing-indicator">
           <span className="chat-typing-dots">
-            <span /><span /><span />
+            <span />
+            <span />
+            <span />
           </span>
           <span className="chat-typing-text">
             {typers.length === 1

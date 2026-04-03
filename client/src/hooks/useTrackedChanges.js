@@ -2,7 +2,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
 
 export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef) {
-  const [trackChangesMode, setTrackChangesMode] = useState(() => localStorage.getItem('flowtex-track-changes') === 'true');
+  const [trackChangesMode, setTrackChangesMode] = useState(
+    () => localStorage.getItem('flowtex-track-changes') === 'true',
+  );
   const [trackedChanges, setTrackedChanges] = useState([]);
   const [tcPopup, setTcPopup] = useState(null);
   const trackedChangesRef = useRef(trackedChanges);
@@ -112,122 +114,129 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
     [doHandleTrackChange],
   );
 
-
-  const handleDeleteInsertionChar = useCallback((pos) => {
-    const tc = trackedChangesRef.current.find(
-      (c) => c.status === 'pending' && c.inserted_text && pos >= c.from_pos && pos < c.to_pos,
-    );
-    if (!tc) return;
-    const fileId = activeFile?.id;
-    const offset = pos - tc.from_pos;
-    const newInserted = tc.inserted_text.slice(0, offset) + tc.inserted_text.slice(offset + 1);
-
-    // Update local state AND ref immediately so rapid backspaces see current state
-    if (!newInserted && !tc.deleted_text) {
-      trackedChangesRef.current = trackedChangesRef.current.filter((c) => c.id !== tc.id);
-      setTrackedChanges(trackedChangesRef.current);
-    } else {
-      trackedChangesRef.current = trackedChangesRef.current.map((c) =>
-        c.id === tc.id ? { ...c, inserted_text: newInserted, to_pos: tc.from_pos + newInserted.length } : c,
+  const handleDeleteInsertionChar = useCallback(
+    (pos) => {
+      const tc = trackedChangesRef.current.find(
+        (c) => c.status === 'pending' && c.inserted_text && pos >= c.from_pos && pos < c.to_pos,
       );
-      setTrackedChanges(trackedChangesRef.current);
-    }
+      if (!tc) return;
+      const fileId = activeFile?.id;
+      const offset = pos - tc.from_pos;
+      const newInserted = tc.inserted_text.slice(0, offset) + tc.inserted_text.slice(offset + 1);
 
-    // Adjust positions of other TCs: removing the insertion char shifted the document left by 1
-    adjustOtherChanges(fileId, tc.id, pos, pos + 1);
-
-    // Persist to server in background
-    (async () => {
+      // Update local state AND ref immediately so rapid backspaces see current state
       if (!newInserted && !tc.deleted_text) {
-        try {
-          await del(`/api/tracked-changes/${tc.id}`);
-          sendWsRef.current?.({ type: 'tracked-change-delete', fileId, changeId: tc.id });
-        } catch {}
+        trackedChangesRef.current = trackedChangesRef.current.filter((c) => c.id !== tc.id);
+        setTrackedChanges(trackedChangesRef.current);
       } else {
-        try {
-          const res = await patch(`/api/tracked-changes/${tc.id}`, {
-            from_pos: tc.from_pos,
-            to_pos: tc.from_pos + newInserted.length,
-            inserted_text: newInserted,
-          });
-          const updated = await res.json();
-          sendWsRef.current?.({ type: 'tracked-change', fileId, change: updated });
-        } catch {}
+        trackedChangesRef.current = trackedChangesRef.current.map((c) =>
+          c.id === tc.id ? { ...c, inserted_text: newInserted, to_pos: tc.from_pos + newInserted.length } : c,
+        );
+        setTrackedChanges(trackedChangesRef.current);
       }
-    })();
-  }, [activeFile, sendWsRef, adjustOtherChanges]);
+
+      // Adjust positions of other TCs: removing the insertion char shifted the document left by 1
+      adjustOtherChanges(fileId, tc.id, pos, pos + 1);
+
+      // Persist to server in background
+      (async () => {
+        if (!newInserted && !tc.deleted_text) {
+          try {
+            await del(`/api/tracked-changes/${tc.id}`);
+            sendWsRef.current?.({ type: 'tracked-change-delete', fileId, changeId: tc.id });
+          } catch {}
+        } else {
+          try {
+            const res = await patch(`/api/tracked-changes/${tc.id}`, {
+              from_pos: tc.from_pos,
+              to_pos: tc.from_pos + newInserted.length,
+              inserted_text: newInserted,
+            });
+            const updated = await res.json();
+            sendWsRef.current?.({ type: 'tracked-change', fileId, change: updated });
+          } catch {}
+        }
+      })();
+    },
+    [activeFile, sendWsRef, adjustOtherChanges],
+  );
 
   // Clean up tracked insertions that no longer match the document after undo.
   // `docText` is the full document text after the undo.
-  const handleUndoInsertions = useCallback((docText) => {
-    if (!activeFile) return;
-    const fileId = activeFile.id;
-    const myPending = trackedChangesRef.current.filter(
-      (tc) => tc.status === 'pending' && tc.author_id === user?.id && tc.inserted_text,
-    );
-    const toDelete = [];
-    const toShrink = [];
-    for (const tc of myPending) {
-      // Check if the inserted text still exists at the expected position
-      const docSlice = docText.slice(tc.from_pos, tc.to_pos);
-      if (docSlice === tc.inserted_text) continue; // still matches, nothing to do
+  const handleUndoInsertions = useCallback(
+    (docText) => {
+      if (!activeFile) return;
+      const fileId = activeFile.id;
+      const myPending = trackedChangesRef.current.filter(
+        (tc) => tc.status === 'pending' && tc.author_id === user?.id && tc.inserted_text,
+      );
+      const toDelete = [];
+      const toShrink = [];
+      for (const tc of myPending) {
+        // Check if the inserted text still exists at the expected position
+        const docSlice = docText.slice(tc.from_pos, tc.to_pos);
+        if (docSlice === tc.inserted_text) continue; // still matches, nothing to do
 
-      // Find how much of the inserted text is still present (search near the position)
-      // Simple approach: check if a prefix of the inserted text is still at from_pos
-      let matchLen = 0;
-      for (let i = 0; i < tc.inserted_text.length; i++) {
-        if (tc.from_pos + i < docText.length && docText[tc.from_pos + i] === tc.inserted_text[i]) {
-          matchLen = i + 1;
-        } else {
-          break;
+        // Find how much of the inserted text is still present (search near the position)
+        // Simple approach: check if a prefix of the inserted text is still at from_pos
+        let matchLen = 0;
+        for (let i = 0; i < tc.inserted_text.length; i++) {
+          if (tc.from_pos + i < docText.length && docText[tc.from_pos + i] === tc.inserted_text[i]) {
+            matchLen = i + 1;
+          } else {
+            break;
+          }
         }
-      }
 
-      if (matchLen === 0 && !tc.deleted_text) {
-        toDelete.push(tc.id);
-      } else if (matchLen < tc.inserted_text.length) {
-        const newInserted = tc.inserted_text.slice(0, matchLen);
-        if (!newInserted && !tc.deleted_text) {
+        if (matchLen === 0 && !tc.deleted_text) {
           toDelete.push(tc.id);
-        } else {
-          toShrink.push({ tc, newInserted });
+        } else if (matchLen < tc.inserted_text.length) {
+          const newInserted = tc.inserted_text.slice(0, matchLen);
+          if (!newInserted && !tc.deleted_text) {
+            toDelete.push(tc.id);
+          } else {
+            toShrink.push({ tc, newInserted });
+          }
         }
       }
-    }
 
-    // Update local state immediately so UI reflects the change
-    if (toDelete.length > 0) {
-      const deleteSet = new Set(toDelete);
-      setTrackedChanges((tcs) => tcs.filter((c) => !deleteSet.has(c.id)));
-    }
-    if (toShrink.length > 0) {
-      setTrackedChanges((tcs) => tcs.map((c) => {
-        const s = toShrink.find((x) => x.tc.id === c.id);
-        return s ? { ...c, inserted_text: s.newInserted, to_pos: c.from_pos + s.newInserted.length } : c;
-      }));
-    }
+      // Update local state immediately so UI reflects the change
+      if (toDelete.length > 0) {
+        const deleteSet = new Set(toDelete);
+        setTrackedChanges((tcs) => tcs.filter((c) => !deleteSet.has(c.id)));
+      }
+      if (toShrink.length > 0) {
+        setTrackedChanges((tcs) =>
+          tcs.map((c) => {
+            const s = toShrink.find((x) => x.tc.id === c.id);
+            return s ? { ...c, inserted_text: s.newInserted, to_pos: c.from_pos + s.newInserted.length } : c;
+          }),
+        );
+      }
 
-    // Persist to server and notify collaborators in background
-    (async () => {
-      for (const id of toDelete) {
-        try {
-          await del(`/api/tracked-changes/${id}`);
-          sendWsRef.current?.({ type: 'tracked-change-delete', fileId, changeId: id });
-        } catch {}
-      }
-      for (const { tc, newInserted } of toShrink) {
-        try {
-          const res = await patch(`/api/tracked-changes/${tc.id}`, {
-            from_pos: tc.from_pos,
-            to_pos: tc.from_pos + newInserted.length,
-            inserted_text: newInserted,
-          });
-          const updated = await res.json();
-          sendWsRef.current?.({ type: 'tracked-change', fileId, change: updated });
-        } catch {}
-      }
-    })();
-  }, [activeFile, user, sendWsRef]);
+      // Persist to server and notify collaborators in background
+      (async () => {
+        for (const id of toDelete) {
+          try {
+            await del(`/api/tracked-changes/${id}`);
+            sendWsRef.current?.({ type: 'tracked-change-delete', fileId, changeId: id });
+          } catch {}
+        }
+        for (const { tc, newInserted } of toShrink) {
+          try {
+            const res = await patch(`/api/tracked-changes/${tc.id}`, {
+              from_pos: tc.from_pos,
+              to_pos: tc.from_pos + newInserted.length,
+              inserted_text: newInserted,
+            });
+            const updated = await res.json();
+            sendWsRef.current?.({ type: 'tracked-change', fileId, change: updated });
+          } catch {}
+        }
+      })();
+    },
+    [activeFile, user, sendWsRef],
+  );
 
   const handleAcceptChange = useCallback(
     async (changeId) => {
@@ -291,9 +300,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
   const [reviewing, setReviewing] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
 
-  const pendingChanges = trackedChanges
-    .filter((c) => c.status === 'pending')
-    .sort((a, b) => a.from_pos - b.from_pos);
+  const pendingChanges = trackedChanges.filter((c) => c.status === 'pending').sort((a, b) => a.from_pos - b.from_pos);
 
   // Clamp index when pending list shrinks
   useEffect(() => {
@@ -310,9 +317,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
   const startReview = useCallback(() => {
     setReviewing(true);
     setReviewIndex(0);
-    const first = trackedChanges
-      .filter((c) => c.status === 'pending')
-      .sort((a, b) => a.from_pos - b.from_pos)[0];
+    const first = trackedChanges.filter((c) => c.status === 'pending').sort((a, b) => a.from_pos - b.from_pos)[0];
     if (first) editorRef.current?.goToPosition(first.from_pos);
   }, [trackedChanges, editorRef]);
 
@@ -323,9 +328,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
 
   const goToReviewIndex = useCallback(
     (idx) => {
-      const sorted = trackedChanges
-        .filter((c) => c.status === 'pending')
-        .sort((a, b) => a.from_pos - b.from_pos);
+      const sorted = trackedChanges.filter((c) => c.status === 'pending').sort((a, b) => a.from_pos - b.from_pos);
       if (sorted[idx]) {
         setReviewIndex(idx);
         editorRef.current?.goToPosition(sorted[idx].from_pos);

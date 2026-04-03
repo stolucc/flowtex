@@ -109,7 +109,9 @@ app.use(
 
 // ── Session ─────────────────────────────────────────────────────────────
 if (!process.env.SESSION_SECRET) {
-  logger.fatal("SESSION_SECRET must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\"");
+  logger.fatal(
+    "SESSION_SECRET must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\"",
+  );
   process.exit(1);
 }
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -157,7 +159,13 @@ app.use((req, res, next) => {
   });
 
   // Verify on state-changing requests
-  const csrfExempt = ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password', '/api/setup/init'];
+  const csrfExempt = [
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/forgot-password',
+    '/api/auth/reset-password',
+    '/api/setup/init',
+  ];
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')) {
     if (csrfExempt.includes(req.path)) {
       // For CSRF-exempt endpoints, validate Origin header to prevent cross-site login attacks
@@ -281,7 +289,8 @@ app.use((err, req, res, _next) => {
 });
 
 // Block common scanner probes — return 404 instead of SPA fallback
-const blockedPathPattern = /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
+const blockedPathPattern =
+  /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) return;
   if (blockedPathPattern.test(req.path)) return res.status(404).end();

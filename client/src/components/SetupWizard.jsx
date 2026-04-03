@@ -35,7 +35,10 @@ export default function SetupWizard({ onComplete }) {
     setLoading(true);
     try {
       const res = await post('/api/setup/init', {
-        email, name, password, appUrl,
+        email,
+        name,
+        password,
+        appUrl,
         smtpHost: smtpHost || undefined,
         smtpPort: smtpPort ? Number(smtpPort) : undefined,
         smtpUser: smtpUser || undefined,
@@ -64,14 +67,22 @@ export default function SetupWizard({ onComplete }) {
         </p>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <div style={{
-            flex: 1, height: 3, borderRadius: 2,
-            background: 'var(--accent)',
-          }} />
-          <div style={{
-            flex: 1, height: 3, borderRadius: 2,
-            background: step >= 2 ? 'var(--accent)' : 'var(--border)',
-          }} />
+          <div
+            style={{
+              flex: 1,
+              height: 3,
+              borderRadius: 2,
+              background: 'var(--accent)',
+            }}
+          />
+          <div
+            style={{
+              flex: 1,
+              height: 3,
+              borderRadius: 2,
+              background: step >= 2 ? 'var(--accent)' : 'var(--border)',
+            }}
+          />
         </div>
 
         {error && <div className="auth-error">{error}</div>}
@@ -81,19 +92,19 @@ export default function SetupWizard({ onComplete }) {
             <>
               <label>
                 Name
-                <input type="text" value={name} onChange={e => setName(e.target.value)} autoFocus />
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
               </label>
               <label>
                 Email
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
               </label>
               <label>
                 Password
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               </label>
               <label>
                 Confirm password
-                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
               </label>
               <button type="submit">Continue</button>
             </>
@@ -103,8 +114,12 @@ export default function SetupWizard({ onComplete }) {
             <>
               <label>
                 App URL
-                <input type="url" value={appUrl} onChange={e => setAppUrl(e.target.value)}
-                  placeholder="https://flowtex.example.com" />
+                <input
+                  type="url"
+                  value={appUrl}
+                  onChange={(e) => setAppUrl(e.target.value)}
+                  placeholder="https://flowtex.example.com"
+                />
               </label>
 
               <details style={{ marginTop: 8 }}>
@@ -114,34 +129,49 @@ export default function SetupWizard({ onComplete }) {
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <label>
                     SMTP host
-                    <input type="text" value={smtpHost} onChange={e => setSmtpHost(e.target.value)}
-                      placeholder="smtp.gmail.com" />
+                    <input
+                      type="text"
+                      value={smtpHost}
+                      onChange={(e) => setSmtpHost(e.target.value)}
+                      placeholder="smtp.gmail.com"
+                    />
                   </label>
                   <label>
                     SMTP port
-                    <input type="number" value={smtpPort} onChange={e => setSmtpPort(e.target.value)}
-                      placeholder="587" />
+                    <input
+                      type="number"
+                      value={smtpPort}
+                      onChange={(e) => setSmtpPort(e.target.value)}
+                      placeholder="587"
+                    />
                   </label>
                   <label>
                     SMTP user
-                    <input type="text" value={smtpUser} onChange={e => setSmtpUser(e.target.value)}
-                      placeholder="user@gmail.com" />
+                    <input
+                      type="text"
+                      value={smtpUser}
+                      onChange={(e) => setSmtpUser(e.target.value)}
+                      placeholder="user@gmail.com"
+                    />
                   </label>
                   <label>
                     SMTP password
-                    <input type="password" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} />
+                    <input type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
                   </label>
                   <label>
                     From address
-                    <input type="email" value={smtpFrom} onChange={e => setSmtpFrom(e.target.value)}
-                      placeholder="noreply@example.com" />
+                    <input
+                      type="email"
+                      value={smtpFrom}
+                      onChange={(e) => setSmtpFrom(e.target.value)}
+                      placeholder="noreply@example.com"
+                    />
                   </label>
                 </div>
               </details>
 
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button type="button" onClick={() => setStep(1)}
-                  style={{ flex: 1, background: 'var(--bg-secondary)' }}>
+                <button type="button" onClick={() => setStep(1)} style={{ flex: 1, background: 'var(--bg-secondary)' }}>
                   Back
                 </button>
                 <button type="submit" disabled={loading} style={{ flex: 2 }}>

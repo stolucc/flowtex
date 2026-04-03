@@ -111,7 +111,8 @@ router.put('/link/:projectId', async (req, res) => {
   if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot link a repo' });
 
   const { repo, branch } = req.body;
-  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim())) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim()))
+    return res.status(400).json({ error: 'Repo must be in owner/repo format' });
   if (branch && (!/^[a-zA-Z0-9._\/-]+$/.test(branch) || branch.startsWith('-'))) {
     return res.status(400).json({ error: 'Invalid branch name' });
   }
@@ -210,7 +211,8 @@ router.post('/pull/:projectId', async (req, res) => {
 
 router.post('/import', async (req, res) => {
   const { repo, branch } = req.body;
-  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim())) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim()))
+    return res.status(400).json({ error: 'Repo must be in owner/repo format' });
 
   try {
     const project = await gh.importFromGitHub(req.session.userId, repo, branch);

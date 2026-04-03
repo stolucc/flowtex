@@ -297,7 +297,7 @@ After controlling for test suite size, we find that coverage still has a signifi
 Projects that adopted CI experienced significant improvements in both release frequency and code quality metrics:
 
 \\begin{itemize}
-    \\item Release frequency increased by ${(docIndex % 5) + 2}.${(docIndex % 10)}$\\times$ on average
+    \\item Release frequency increased by ${(docIndex % 5) + 2}.${docIndex % 10}$\\times$ on average
     \\item Median time-to-fix for critical bugs decreased from ${14 + (docIndex % 7)} days to ${6 + (docIndex % 4)} days
     \\item Build failure rate stabilized at ${8 + (docIndex % 12)}\\% after initial adoption
     \\item Pull request merge time decreased by ${30 + (docIndex % 20)}\\%
@@ -422,7 +422,12 @@ async function setupTestData() {
         [userId, `loadtest_user_${i}@test.local`, `LoadTest User ${i}`, 'not-a-real-hash'],
       );
       const sess = JSON.stringify({
-        cookie: { originalMaxAge: 86400000, expires: new Date(Date.now() + 86400000).toISOString(), httpOnly: true, path: '/' },
+        cookie: {
+          originalMaxAge: 86400000,
+          expires: new Date(Date.now() + 86400000).toISOString(),
+          httpOnly: true,
+          path: '/',
+        },
         userId,
         csrfToken,
       });
@@ -442,10 +447,10 @@ async function setupTestData() {
       projectIds.push(projectId);
       fileIds.push(fileId);
 
-      await client.query(
-        `INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [projectId, `LoadTest Project ${d}`],
-      );
+      await client.query(`INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+        projectId,
+        `LoadTest Project ${d}`,
+      ]);
       await client.query(
         `INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, 'main.tex', $3) ON CONFLICT DO NOTHING`,
         [fileId, projectId, generateDocument(d)],
@@ -478,10 +483,18 @@ async function cleanupTestData() {
   try {
     await client.query('BEGIN');
     // Delete in dependency order
-    await client.query(`DELETE FROM session WHERE sid IN (SELECT sid FROM session WHERE (sess::jsonb->>'userId') IN (SELECT id FROM users WHERE email LIKE 'loadtest_user_%@test.local'))`);
-    await client.query(`DELETE FROM tracked_changes WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`);
-    await client.query(`DELETE FROM files WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`);
-    await client.query(`DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`);
+    await client.query(
+      `DELETE FROM session WHERE sid IN (SELECT sid FROM session WHERE (sess::jsonb->>'userId') IN (SELECT id FROM users WHERE email LIKE 'loadtest_user_%@test.local'))`,
+    );
+    await client.query(
+      `DELETE FROM tracked_changes WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`,
+    );
+    await client.query(
+      `DELETE FROM files WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`,
+    );
+    await client.query(
+      `DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`,
+    );
     await client.query(`DELETE FROM projects WHERE name LIKE 'LoadTest Project %'`);
     await client.query(`DELETE FROM users WHERE email LIKE 'loadtest_user_%@test.local'`);
     await client.query('COMMIT');
@@ -502,7 +515,7 @@ const metrics = {
   messagesReceived: 0,
   errors: 0,
   keystrokesSent: 0,
-  latencies: [],       // round-trip if we can measure
+  latencies: [], // round-trip if we can measure
   connectLatencies: [],
   compilesStarted: 0,
   compilesSucceeded: 0,
@@ -526,7 +539,8 @@ function reportMetrics() {
     const avgCompileMs = metrics.compileLatencies.length
       ? (metrics.compileLatencies.reduce((a, b) => a + b, 0) / metrics.compileLatencies.length).toFixed(0)
       : 'N/A';
-    line += `\n  Compiles: ${metrics.compilesStarted} started, ${metrics.compilesSucceeded} ok, ` +
+    line +=
+      `\n  Compiles: ${metrics.compilesStarted} started, ${metrics.compilesSucceeded} ok, ` +
       `${metrics.compilesFailed} failed, ${metrics.compilesRateLimited} rate-limited | ` +
       `Avg compile: ${avgCompileMs}ms`;
   }
@@ -578,11 +592,13 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
 
       // Send a CodeMirror-style change
       const change = { from: cursorPos, insert: char };
-      ws.send(JSON.stringify({
-        type: 'changes',
-        fileId,
-        changes: [change],
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'changes',
+          fileId,
+          changes: [change],
+        }),
+      );
       metrics.messagesSent++;
       metrics.keystrokesSent++;
       cursorPos++;
@@ -595,12 +611,14 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
 
       // Also send cursor update every ~10 chars
       if (metrics.keystrokesSent % 10 === 0) {
-        ws.send(JSON.stringify({
-          type: 'cursor',
-          fileId,
-          head: cursorPos,
-          anchor: cursorPos,
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'cursor',
+            fileId,
+            head: cursorPos,
+            anchor: cursorPos,
+          }),
+        );
         metrics.messagesSent++;
       }
 
@@ -637,14 +655,20 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
 async function pollDbMetrics() {
   try {
     const [connResult, lockResult, txResult] = await Promise.all([
-      pool.query(`SELECT count(*) as total, count(*) FILTER (WHERE state = 'active') as active,
+      pool.query(
+        `SELECT count(*) as total, count(*) FILTER (WHERE state = 'active') as active,
                          count(*) FILTER (WHERE state = 'idle') as idle,
                          count(*) FILTER (WHERE wait_event_type = 'Lock') as waiting
-                  FROM pg_stat_activity WHERE datname = $1`, [process.env.PGDATABASE || 'flowtex']),
+                  FROM pg_stat_activity WHERE datname = $1`,
+        [process.env.PGDATABASE || 'flowtex'],
+      ),
       pool.query(`SELECT count(*) as locks FROM pg_locks WHERE NOT granted`),
-      pool.query(`SELECT xact_commit, xact_rollback, tup_inserted, tup_updated, tup_deleted,
+      pool.query(
+        `SELECT xact_commit, xact_rollback, tup_inserted, tup_updated, tup_deleted,
                          blks_hit, blks_read
-                  FROM pg_stat_database WHERE datname = $1`, [process.env.PGDATABASE || 'flowtex']),
+                  FROM pg_stat_database WHERE datname = $1`,
+        [process.env.PGDATABASE || 'flowtex'],
+      ),
     ]);
 
     const conn = connResult.rows[0];
@@ -653,10 +677,10 @@ async function pollDbMetrics() {
 
     console.log(
       `  DB: ${conn.total} connections (${conn.active} active, ${conn.idle} idle, ${conn.waiting} waiting) | ` +
-      `${locks.locks} blocked locks | ` +
-      `commits: ${tx.xact_commit}, rollbacks: ${tx.xact_rollback} | ` +
-      `inserts: ${tx.tup_inserted}, updates: ${tx.tup_updated} | ` +
-      `cache hit ratio: ${tx.blks_hit && tx.blks_read !== undefined ? ((Number(tx.blks_hit) / (Number(tx.blks_hit) + Number(tx.blks_read) || 1)) * 100).toFixed(1) : 'N/A'}%`,
+        `${locks.locks} blocked locks | ` +
+        `commits: ${tx.xact_commit}, rollbacks: ${tx.xact_rollback} | ` +
+        `inserts: ${tx.tup_inserted}, updates: ${tx.tup_updated} | ` +
+        `cache hit ratio: ${tx.blks_hit && tx.blks_read !== undefined ? ((Number(tx.blks_hit) / (Number(tx.blks_hit) + Number(tx.blks_read) || 1)) * 100).toFixed(1) : 'N/A'}%`,
     );
   } catch (err) {
     console.error(`  DB metrics error: ${err.message}`);
@@ -723,7 +747,11 @@ function startCompileSchedulers(projectIds, sessionIds, csrfTokens) {
 
     const t = setTimeout(doCompile, initialDelay);
     timers.push(t);
-    timers.push({ stop() { stopped = true; } });
+    timers.push({
+      stop() {
+        stopped = true;
+      },
+    });
   }
   return timers;
 }
@@ -776,7 +804,11 @@ async function main() {
   for (let i = 0; i < NUM_USERS; i++) {
     const projectIdx = i % NUM_DOCS;
     const userHandle = await createSimulatedUser(
-      userIds[i], sessionIds[i], projectIds[projectIdx], fileIds[projectIdx], i,
+      userIds[i],
+      sessionIds[i],
+      projectIds[projectIdx],
+      fileIds[projectIdx],
+      i,
     );
     users.push(userHandle);
 
@@ -830,14 +862,16 @@ async function main() {
       const dUpdates = Number(final.tup_updated) - Number(initialDbStats.tup_updated);
       console.log(
         `\n  DB totals during test: ${dCommits} commits (${(dCommits / elapsed).toFixed(0)}/s), ` +
-        `${dRollbacks} rollbacks, ${dInserts} inserts, ${dUpdates} updates`,
+          `${dRollbacks} rollbacks, ${dInserts} inserts, ${dUpdates} updates`,
       );
     } catch {}
   }
 
   const totalKeystrokesPerSec = (metrics.keystrokesSent / ((Date.now() - metrics.startTime) / 1000)).toFixed(1);
   console.log(`  Keystroke throughput: ${totalKeystrokesPerSec} keystrokes/sec across ${NUM_USERS} users`);
-  console.log(`  Avg connect latency: ${metrics.connectLatencies.length ? (metrics.connectLatencies.reduce((a, b) => a + b, 0) / metrics.connectLatencies.length).toFixed(0) : 'N/A'}ms`);
+  console.log(
+    `  Avg connect latency: ${metrics.connectLatencies.length ? (metrics.connectLatencies.reduce((a, b) => a + b, 0) / metrics.connectLatencies.length).toFixed(0) : 'N/A'}ms`,
+  );
 
   // Cleanup
   await cleanupTestData();

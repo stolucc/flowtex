@@ -172,7 +172,15 @@ export default function AuthPage({ onAuth }) {
         ) : mode === 'check-email' ? (
           <>
             <p className="auth-subtitle">Check your email</p>
-            <div style={{ textAlign: 'center', padding: '8px 0 16px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '8px 0 16px',
+                fontSize: 14,
+                lineHeight: 1.6,
+                color: 'var(--text-secondary)',
+              }}
+            >
               <p>We've sent a verification link to</p>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{unverifiedEmail}</p>
               <p style={{ marginTop: 12 }}>Click the link in the email to activate your account.</p>
@@ -314,7 +322,15 @@ export default function AuthPage({ onAuth }) {
                   className="auth-resend-btn"
                   onClick={handleResendVerification}
                   disabled={resending}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, marginBottom: 8, textDecoration: 'underline' }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent)',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    marginBottom: 8,
+                    textDecoration: 'underline',
+                  }}
                 >
                   {resending ? 'Sending...' : 'Resend verification email'}
                 </button>

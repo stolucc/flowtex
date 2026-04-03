@@ -54,9 +54,7 @@ export default function HistoryView({
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {f.path}
               </span>
-              {ui.historyEditedFileIds.includes(f.id) && (
-                <span className="history-file-edited-badge">Edited</span>
-              )}
+              {ui.historyEditedFileIds.includes(f.id) && <span className="history-file-edited-badge">Edited</span>}
             </div>
           ))}
         </div>

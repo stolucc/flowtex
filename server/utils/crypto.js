@@ -18,10 +18,10 @@ export async function initCrypto() {
     _salt = row.value;
   } else {
     _salt = crypto.randomBytes(32).toString('hex');
-    await db.run(
-      'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
-      ['encryption_salt', _salt],
-    );
+    await db.run('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [
+      'encryption_salt',
+      _salt,
+    ]);
     // Re-read in case of race condition (another process inserted first)
     const check = await db.get('SELECT value FROM settings WHERE key = $1', ['encryption_salt']);
     if (check) _salt = check.value;
