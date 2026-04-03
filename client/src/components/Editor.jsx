@@ -56,6 +56,7 @@ import {
   citeKeyHighlighter,
   findTableAtCursor,
 } from '../utils/editorExtensions.js';
+import { UndoIcon, ZoomOutIcon, ZoomInIcon, SearchIcon, ContrastIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons.jsx';
 
 const Editor = forwardRef(function Editor(
   {
@@ -80,6 +81,7 @@ const Editor = forwardRef(function Editor(
     onTrackChange,
     onTrackedChangeClick,
     onDeleteInsertionChar,
+    onUndoInsertions,
     onTrackDeletion,
     onToggleTrackChanges,
     pendingChangesCount = 0,
@@ -162,6 +164,7 @@ const Editor = forwardRef(function Editor(
   const onTrackChangeRef = useRef(onTrackChange);
   const onTrackedChangeClickRef = useRef(onTrackedChangeClick);
   const onDeleteInsertionCharRef = useRef(onDeleteInsertionChar);
+  const onUndoInsertionsRef = useRef(onUndoInsertions);
   const onTrackDeletionRef = useRef(onTrackDeletion);
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
@@ -180,6 +183,7 @@ const Editor = forwardRef(function Editor(
   onTrackChangeRef.current = onTrackChange;
   onTrackedChangeClickRef.current = onTrackedChangeClick;
   onDeleteInsertionCharRef.current = onDeleteInsertionChar;
+  onUndoInsertionsRef.current = onUndoInsertions;
   onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
@@ -362,10 +366,11 @@ const Editor = forwardRef(function Editor(
       const view = viewRef.current;
       if (!view) return;
       const docLen = view.state.doc.length;
+      const docText = view.state.doc.toString();
       view.dispatch({
         effects: [
-          setTrackedChangesEffect.of(buildTcInsertDecorations(changes, docLen, currentUserNameRef.current)),
-          setTcDeletesEffect.of(buildTcDeleteDecorations(changes, docLen, currentUserNameRef.current)),
+          setTrackedChangesEffect.of(buildTcInsertDecorations(changes, docLen, currentUserNameRef.current, docText)),
+          setTcDeletesEffect.of(buildTcDeleteDecorations(changes, docLen, currentUserNameRef.current, docText)),
         ],
       });
     },
@@ -490,6 +495,39 @@ const Editor = forwardRef(function Editor(
       setSpellLang(code);
     },
   }));
+
+  // Compute corrected TC positions by finding each TC's text in the current document.
+  // Returns an array of { id, from_pos, to_pos } for all pending TCs whose text can be located.
+  const computeTcPositions = useCallback((docText) => {
+    const tcs = trackedChangesRef.current;
+    if (!tcs || tcs.length === 0) return null;
+    const pending = tcs.filter((tc) => tc.status === 'pending');
+    if (pending.length === 0) return null;
+
+    const positions = [];
+    for (const tc of pending) {
+      const text = tc.inserted_text || tc.deleted_text;
+      if (!text) continue;
+      // Check if the stored position still matches
+      const from = Math.max(0, Math.min(tc.from_pos, docText.length));
+      const to = Math.max(from, Math.min(tc.to_pos, docText.length));
+      if (docText.slice(from, to) === text) {
+        positions.push({ id: tc.id, from_pos: from, to_pos: to });
+        continue;
+      }
+      // Search nearby for the text
+      const searchFrom = Math.max(0, tc.from_pos - 80);
+      const searchTo = Math.min(docText.length, tc.from_pos + 80 + text.length);
+      const region = docText.slice(searchFrom, searchTo);
+      const idx = region.indexOf(text);
+      if (idx !== -1) {
+        const correctedFrom = searchFrom + idx;
+        positions.push({ id: tc.id, from_pos: correctedFrom, to_pos: correctedFrom + text.length });
+      }
+      // If not found, skip — don't send stale position
+    }
+    return positions.length > 0 ? positions : null;
+  }, []);
 
   // Debounce delay (ms) for flushing TC buffers to the API.
   // Set to 0 for immediate flush; increase to batch adjacent keystrokes.
@@ -951,12 +989,19 @@ const Editor = forwardRef(function Editor(
         EditorView.updateListener.of((update) => {
           // Clear TC buffers on undo/redo — the history restores decorations directly,
           // so any pending buffer would create a stale/duplicate tracked change.
+          // Also clean up tracked insertions that were removed by undo.
           for (const tr of update.transactions) {
             if (tr.isUserEvent('undo') || tr.isUserEvent('redo')) {
               tcDelBuffer.current = { from: null, to: null, text: '' };
               clearTimeout(tcDelTimer.current);
               tcInsertBuffer.current = { from: null, to: null, text: '' };
               clearTimeout(tcInsertTimer.current);
+
+              // Check which pending tracked insertions no longer match the document after undo
+              if (trackChangesModeRef.current && tr.docChanged) {
+                const doc = update.state.doc.toString();
+                onUndoInsertionsRef.current?.(doc);
+              }
               break;
             }
           }
@@ -1041,7 +1086,7 @@ const Editor = forwardRef(function Editor(
             const content = update.state.doc.toString();
             clearTimeout(saveTimeout.current);
             saveTimeout.current = setTimeout(() => {
-              onSaveRef.current(content);
+              onSaveRef.current(content, computeTcPositions(content));
             }, 1000);
 
             // Hide comment button if doc changed
@@ -1073,6 +1118,9 @@ const Editor = forwardRef(function Editor(
             }, 1500);
           }
           const sel = update.state.selection.main;
+          // Persist cursor position for restore on reload
+          const fid = file?.id;
+          if (fid) sessionStorage.setItem(`flowtex-cursor-${fid}`, String(sel.head));
           if (sel.from !== sel.to) {
             onSelectionChangeRef.current?.({ from: sel.from, to: sel.to });
             // Show comment button near selection end
@@ -1117,7 +1165,8 @@ const Editor = forwardRef(function Editor(
               key: 'Mod-s',
               run: (view) => {
                 clearTimeout(saveTimeout.current);
-                onSaveRef.current(view.state.doc.toString());
+                const content = view.state.doc.toString();
+                onSaveRef.current(content, computeTcPositions(content));
                 onCompileRef.current?.();
                 return true;
               },
@@ -1244,6 +1293,40 @@ const Editor = forwardRef(function Editor(
 
     viewRef.current = view;
 
+    // Build TC decorations immediately if data is already available (eliminates race condition
+    // where the separate TC useEffect fires before the view is ready or after refs are reset)
+    const tcs = trackedChangesRef.current || [];
+    const pendingTcs = tcs.filter((c) => c.status === 'pending');
+    if (pendingTcs.length > 0) {
+      const docLen = view.state.doc.length;
+      const docText = view.state.doc.toString();
+      view.dispatch({
+        effects: [
+          setTrackedChangesEffect.of(buildTcInsertDecorations(tcs, docLen, currentUserNameRef.current, docText)),
+          setTcDeletesEffect.of(buildTcDeleteDecorations(tcs, docLen, currentUserNameRef.current, docText)),
+        ],
+      });
+      tcDecorationsBuiltForFileRef.current = file?.id;
+      prevPendingIdsRef.current = new Set(pendingTcs.map((c) => c.id));
+    }
+
+    // Restore saved cursor position for this file
+    const cursorKey = `flowtex-cursor-${file.id}`;
+    const savedCursor = sessionStorage.getItem(cursorKey);
+    if (savedCursor) {
+      const pos = Math.min(parseInt(savedCursor, 10), view.state.doc.length);
+      if (pos > 0) {
+        view.dispatch({
+          selection: { anchor: pos },
+          effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+        });
+      }
+    }
+
+    // Broadcast initial cursor position so other users can jump to us
+    const initialSel = view.state.selection.main;
+    onCursorChangeRef.current?.(initialSel.head, initialSel.anchor);
+
     const handleScroll = () => onScrollRef.current?.();
     view.scrollDOM.addEventListener('scroll', handleScroll);
 
@@ -1271,9 +1354,27 @@ const Editor = forwardRef(function Editor(
       applySpellcheck(v, misspelled);
     }, 800);
 
+    // Flush pending save immediately (e.g. on file switch or unmount)
+    const flushPendingSave = () => {
+      if (saveTimeout.current) {
+        clearTimeout(saveTimeout.current);
+        saveTimeout.current = null;
+        const v = viewRef.current;
+        if (v) {
+          const content = v.state.doc.toString();
+          onSaveRef.current?.(content, computeTcPositions(content));
+        }
+      }
+    };
+
+    // Save on page reload/close so DB content stays in sync with TC positions
+    const handleBeforeUnload = () => flushPendingSave();
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      flushPendingSave();
       view.scrollDOM.removeEventListener('scroll', handleScroll);
-      clearTimeout(saveTimeout.current);
       clearTimeout(lintTimeout.current);
       clearTimeout(spellTimeout.current);
       clearTimeout(errorHighlightTimer.current);
@@ -1337,22 +1438,34 @@ const Editor = forwardRef(function Editor(
     );
     const prevIds = prevPendingIdsRef.current;
 
-    // Case 1: File load — first time we receive TC data for this file.
-    // Always mark the file as "built" on the first call (even if TCs are empty),
-    // so that TCs created during the editing session don't falsely trigger a full rebuild.
-    if (tcDecorationsBuiltForFileRef.current !== currentFileId) {
+    // Case 1: Full rebuild from DB data.
+    // Triggers: file changed, OR new TC IDs appeared when we had none previously
+    // (i.e. TC API data arrived after the editor was created with empty TCs).
+    const isNewFile = tcDecorationsBuiltForFileRef.current !== currentFileId;
+    const addedIds = new Set();
+    for (const id of currentPendingIds) {
+      if (!prevIds.has(id)) addedIds.add(id);
+    }
+
+    const needsRebuild = currentPendingIds.size > 0 && (isNewFile || (addedIds.size > 0 && prevIds.size === 0));
+
+    if (needsRebuild) {
       tcDecorationsBuiltForFileRef.current = currentFileId;
       prevPendingIdsRef.current = currentPendingIds;
-      // Only dispatch if there are actually pending TCs to display
-      if (currentPendingIds.size > 0) {
-        const docLen = view.state.doc.length;
-        view.dispatch({
-          effects: [
-            setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current)),
-            setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current)),
-          ],
-        });
-      }
+      const docLen = view.state.doc.length;
+      const docText = view.state.doc.toString();
+      view.dispatch({
+        effects: [
+          setTrackedChangesEffect.of(buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current, docText)),
+          setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current, docText)),
+        ],
+      });
+      return;
+    }
+    // If file is new but no pending TCs, just update tracking refs (don't mark as "built"
+    // so that when TCs arrive later, we'll know we still need to build them)
+    if (isNewFile && currentPendingIds.size === 0) {
+      prevPendingIdsRef.current = currentPendingIds;
       return;
     }
 
@@ -1486,10 +1599,7 @@ const Editor = forwardRef(function Editor(
           </button>
         )}
         <button className="editor-header-btn" onClick={() => cmUndo(viewRef.current)} title="Undo (Cmd+Z)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="1 4 1 10 7 10" />
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-          </svg>
+          <UndoIcon />
         </button>
         <button className="editor-header-btn" onClick={() => cmRedo(viewRef.current)} title="Redo (Cmd+Shift+Z)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1499,56 +1609,17 @@ const Editor = forwardRef(function Editor(
         </button>
         <span className="editor-zoom-controls">
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.max(8, s - 1))} title="Zoom out">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              <line x1="8" y1="11" x2="14" y2="11" />
-            </svg>
+            <ZoomOutIcon />
           </button>
           <span className="editor-zoom-label" title="Font size">
             {fontSize}px
           </span>
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.min(32, s + 1))} title="Zoom in">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              <line x1="11" y1="8" x2="11" y2="14" />
-              <line x1="8" y1="11" x2="14" y2="11" />
-            </svg>
+            <ZoomInIcon />
           </button>
         </span>
         <button className="editor-header-btn" onClick={() => setShowSearch(true)} title="Find & Replace (Cmd+F)">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <SearchIcon />
         </button>
         <button
           className={`editor-header-btn ${tableBuilder ? 'editor-header-btn-active' : ''}`}
@@ -1621,27 +1692,20 @@ const Editor = forwardRef(function Editor(
           }
           title="Invert colors"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" />
-          </svg>
+          <ContrastIcon />
         </button>
       </div>
       {reviewing && pendingChangesCount > 0 && (
         <div className="tc-review-toolbar">
           <div className="tc-review-toolbar-nav">
             <button className="tc-review-toolbar-arrow" onClick={onReviewPrev} disabled={reviewIndex <= 0} title="Previous change">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
+              <ChevronLeftIcon />
             </button>
             <span className="tc-review-toolbar-counter">
               {reviewIndex + 1} / {pendingChangesCount}
             </span>
             <button className="tc-review-toolbar-arrow" onClick={onReviewNext} disabled={reviewIndex >= pendingChangesCount - 1} title="Next change">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
+              <ChevronRightIcon />
             </button>
           </div>
           {reviewCurrentChange && (

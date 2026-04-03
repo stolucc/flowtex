@@ -174,27 +174,37 @@ export class TcDeleteGutterMarker extends GutterMarker {
 export const tcInsertMarkerInstance = new TcInsertGutterMarker();
 export const tcDeleteMarkerInstance = new TcDeleteGutterMarker();
 
+function rebuildGutterMarkers(decoField, markerInstance, tr) {
+  const decos = tr.state.field(decoField);
+  const lines = new Set();
+  const doc = tr.state.doc;
+  decos.between(0, doc.length, (from, to) => {
+    // Skip zero-width (collapsed) decorations — they occur when undo removes
+    // the decorated text but the decoration range persists as from === to.
+    if (from < to) lines.add(doc.lineAt(from).from);
+  });
+  const markers = [];
+  for (const lineStart of [...lines].sort((a, b) => a - b)) {
+    markers.push(markerInstance.range(lineStart));
+  }
+  return RangeSet.of(markers);
+}
+
 export const tcInsertGutterField = StateField.define({
   create() {
     return RangeSet.empty;
   },
   update(value, tr) {
+    // Rebuild on effect or any document change (undo can collapse decoration ranges)
     for (const e of tr.effects) {
       if (e.is(setTrackedChangesEffect)) {
-        // Rebuild gutter markers from insertion decorations
-        const lines = new Set();
-        const doc = tr.state.doc;
-        e.value.between(0, doc.length, (from) => {
-          lines.add(doc.lineAt(from).from);
-        });
-        const markers = [];
-        for (const lineStart of [...lines].sort((a, b) => a - b)) {
-          markers.push(tcInsertMarkerInstance.range(lineStart));
-        }
-        return RangeSet.of(markers);
+        return rebuildGutterMarkers(trackedChangesField, tcInsertMarkerInstance, tr);
       }
     }
-    return value.map(tr.changes);
+    if (tr.docChanged) {
+      return rebuildGutterMarkers(trackedChangesField, tcInsertMarkerInstance, tr);
+    }
+    return value;
   },
 });
 
@@ -205,19 +215,13 @@ export const tcDeleteGutterField = StateField.define({
   update(value, tr) {
     for (const e of tr.effects) {
       if (e.is(setTcDeletesEffect)) {
-        const lines = new Set();
-        const doc = tr.state.doc;
-        e.value.between(0, doc.length, (from) => {
-          lines.add(doc.lineAt(from).from);
-        });
-        const markers = [];
-        for (const lineStart of [...lines].sort((a, b) => a - b)) {
-          markers.push(tcDeleteMarkerInstance.range(lineStart));
-        }
-        return RangeSet.of(markers);
+        return rebuildGutterMarkers(tcDeletesField, tcDeleteMarkerInstance, tr);
       }
     }
-    return value.map(tr.changes);
+    if (tr.docChanged) {
+      return rebuildGutterMarkers(tcDeletesField, tcDeleteMarkerInstance, tr);
+    }
+    return value;
   },
 });
 
@@ -231,53 +235,91 @@ export const tcDeleteGutterExtension = gutter({
   markers: (view) => view.state.field(tcDeleteGutterField),
 });
 
-export function buildTcInsertDecorations(trackedChanges, docLength, currentUserName) {
+// Search for `text` near `pos` in `docText`, returning the start index or -1.
+// Searches within ±maxDrift characters of pos.
+function findTextNear(docText, pos, text, maxDrift = 50) {
+  const searchFrom = Math.max(0, pos - maxDrift);
+  const searchTo = Math.min(docText.length, pos + maxDrift + text.length);
+  const region = docText.slice(searchFrom, searchTo);
+  const idx = region.indexOf(text);
+  if (idx === -1) return -1;
+  return searchFrom + idx;
+}
+
+// Resolve the actual document range for a tracked change's text.
+// Returns { from, to } or null if the text can't be located.
+function resolveTcRange(tc, textField, docLength, docText) {
+  const text = tc[textField];
+  if (!text) return null;
+  let from = Math.max(0, Math.min(tc.from_pos, docLength));
+  let to = Math.max(from, Math.min(tc.to_pos, docLength));
+  if (docText && to <= docText.length) {
+    const actual = docText.slice(from, to);
+    if (actual !== text) {
+      const found = findTextNear(docText, from, text);
+      if (found === -1) return null;
+      from = found;
+      to = found + text.length;
+    }
+  }
+  return from < to ? { from, to } : null;
+}
+
+export function buildTcInsertDecorations(trackedChanges, docLength, currentUserName, docText) {
   const decos = [];
   for (const tc of trackedChanges || []) {
     if (tc.status !== 'pending') continue;
     if (!tc.inserted_text) continue;
     try {
-      const from = Math.max(0, Math.min(tc.from_pos, docLength));
-      const to = Math.max(from, Math.min(tc.to_pos, docLength));
-      if (from < to) {
-        decos.push(
-          Decoration.mark({
-            class: 'cm-tc-insert',
-            attributes: {
-              'data-tc-id': tc.id,
-              'data-tc-author': tc.author_name,
-              title: `Inserted by ${tc.author_name === currentUserName ? 'You' : tc.author_name}`,
-            },
-          }).range(from, to),
-        );
-      }
+      const range = resolveTcRange(tc, 'inserted_text', docLength, docText);
+      if (!range) continue;
+      decos.push(
+        Decoration.mark({
+          class: 'cm-tc-insert',
+          attributes: {
+            'data-tc-id': tc.id,
+            'data-tc-author': tc.author_name,
+            title: `Inserted by ${tc.author_name === currentUserName ? 'You' : tc.author_name}`,
+          },
+        }).range(range.from, range.to),
+      );
     } catch (e) {}
   }
   decos.sort((a, b) => a.from - b.from);
   return Decoration.set(decos, true);
 }
 
-export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserName) {
+export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserName, docText) {
+  // First, collect all resolved insert ranges so we can exclude overlaps.
+  // A position that is marked as inserted by one TC must NOT also be marked as deleted.
+  const insertRanges = [];
+  for (const tc of trackedChanges || []) {
+    if (tc.status !== 'pending') continue;
+    if (!tc.inserted_text) continue;
+    const range = resolveTcRange(tc, 'inserted_text', docLength, docText);
+    if (range) insertRanges.push(range);
+  }
+
   const decos = [];
   for (const tc of trackedChanges || []) {
     if (tc.status !== 'pending') continue;
     if (!tc.deleted_text) continue;
     try {
-      // Deletions always use from_pos..to_pos
-      const from = Math.max(0, Math.min(tc.from_pos, docLength));
-      const to = Math.max(from, Math.min(tc.to_pos, docLength));
-      if (from < to) {
-        decos.push(
-          Decoration.mark({
-            class: 'cm-tc-delete',
-            attributes: {
-              'data-tc-id': tc.id,
-              'data-tc-author': tc.author_name,
-              title: `Deleted by ${tc.author_name === currentUserName ? 'You' : tc.author_name}`,
-            },
-          }).range(from, to),
-        );
-      }
+      const range = resolveTcRange(tc, 'deleted_text', docLength, docText);
+      if (!range) continue;
+      // Skip if this delete range overlaps with any insert range
+      const overlaps = insertRanges.some((ir) => range.from < ir.to && range.to > ir.from);
+      if (overlaps) continue;
+      decos.push(
+        Decoration.mark({
+          class: 'cm-tc-delete',
+          attributes: {
+            'data-tc-id': tc.id,
+            'data-tc-author': tc.author_name,
+            title: `Deleted by ${tc.author_name === currentUserName ? 'You' : tc.author_name}`,
+          },
+        }).range(range.from, range.to),
+      );
     } catch (e) {}
   }
   decos.sort((a, b) => a.from - b.from);

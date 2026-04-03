@@ -22,34 +22,11 @@ function getRoom(projectId) {
   return projectRooms.get(projectId);
 }
 
-// ── Message sanitization ────────────────────────────────────────────────
-function sanitizeString(str) {
-  if (typeof str !== 'string') return str;
-  return str.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
-}
-
-function sanitizeValue(val) {
-  if (typeof val === 'string') return sanitizeString(val);
-  if (Array.isArray(val)) return val.map(sanitizeValue);
-  if (val && typeof val === 'object') return sanitizeMessage(val);
-  return val;
-}
-
-function sanitizeMessage(msg) {
-  const sanitized = {};
-  for (const [key, val] of Object.entries(msg)) {
-    sanitized[key] = sanitizeValue(val);
-  }
-  return sanitized;
-}
-
-// Message types whose string fields should be HTML-sanitized (user-generated display text).
-// Document content (changes, tracked-change) must NOT be sanitized — it's rendered in
-// CodeMirror, not as HTML, and encoding would corrupt LaTeX characters like & < >.
-const SANITIZE_TYPES = new Set(['chat', 'comment', 'comment-reply', 'comment-edit', 'presence']);
+// React's JSX escaping handles output encoding — server-side HTML encoding
+// would cause double-encoding. Message length limits are enforced in handlers.
 
 function broadcastToRoom(projectId, message, excludeWs) {
-  const outMessage = SANITIZE_TYPES.has(message.type) ? sanitizeMessage(message) : message;
+  const outMessage = message;
   const room = projectRooms.get(projectId);
   if (room) {
     const data = JSON.stringify(outMessage);
@@ -65,7 +42,7 @@ function broadcastToRoom(projectId, message, excludeWs) {
         REDIS_CHANNEL,
         JSON.stringify({
           projectId,
-          message: sanitized,
+          message: outMessage,
           fromServer: SERVER_ID,
         }),
       )
@@ -204,6 +181,8 @@ function handleChanges(msg, state, ws) {
 }
 
 function handleCursor(msg, state, ws) {
+  if (typeof msg.head !== 'number' || typeof msg.anchor !== 'number') return;
+  if (typeof msg.fileId !== 'string') return;
   state.clientEntry.cursor = { fileId: msg.fileId, head: msg.head, anchor: msg.anchor };
   broadcastToRoom(
     state.projectId,
@@ -245,6 +224,8 @@ function handleCommentEdit(msg, state, ws) {
 }
 
 function handleTrackedChange(msg, state, ws) {
+  if (!msg.change || typeof msg.fileId !== 'string') return;
+  if (JSON.stringify(msg.change).length > 10000) return;
   broadcastToRoom(state.projectId, { type: 'tracked-change', fileId: msg.fileId, change: msg.change }, ws);
 }
 
@@ -254,6 +235,7 @@ function handleTrackedChangeResolve(msg, state, ws) {
 }
 
 function handleTrackedChangeDelete(msg, state, ws) {
+  if (typeof msg.changeId !== 'string' || typeof msg.fileId !== 'string') return;
   broadcastToRoom(state.projectId, { type: 'tracked-change-delete', fileId: msg.fileId, changeId: msg.changeId }, ws);
 }
 
@@ -301,6 +283,14 @@ const writeTypes = new Set([
   'tc-delete-mark',
 ]);
 
+function handleTyping(msg, state, ws) {
+  broadcastToRoom(state.projectId, {
+    type: 'typing',
+    userId: state.authenticatedUserId,
+    userName: state.authenticatedUserName,
+  }, ws);
+}
+
 const messageHandlers = {
   changes: handleChanges,
   cursor: handleCursor,
@@ -314,6 +304,7 @@ const messageHandlers = {
   'tracked-change-delete': handleTrackedChangeDelete,
   'tc-delete-mark': handleTcDeleteMark,
   chat: handleChat,
+  typing: handleTyping,
 };
 
 // ── Main export ─────────────────────────────────────────────────────────
@@ -365,14 +356,24 @@ export function initWebSocket(server, app, sessionSecret) {
   allowedOrigins.add(`https://localhost:${process.env.PORT || 3001}`);
   allowedOrigins.add(`http://localhost:${process.env.PORT || 3001}`);
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const wss = new WebSocketServer({
     server,
     path: '/ws',
     maxPayload: 256 * 1024,
     verifyClient: ({ req }, cb) => {
       const origin = req.headers.origin;
-      // In production, require a valid Origin header
-      if (origin && !allowedOrigins.has(origin)) {
+      // Require Origin header in production to prevent CSWSH
+      if (!origin) {
+        if (isProduction) {
+          logger.warn('WS connection rejected: missing origin');
+          cb(false, 403, 'Forbidden');
+          return;
+        }
+        cb(true);
+        return;
+      }
+      if (!allowedOrigins.has(origin)) {
         logger.warn({ origin }, 'WS connection rejected: invalid origin');
         cb(false, 403, 'Forbidden');
         return;
@@ -381,9 +382,20 @@ export function initWebSocket(server, app, sessionSecret) {
     },
   });
 
+  // Send a message to a specific user across all their WS connections
+  function sendToUser(userId, message) {
+    const data = JSON.stringify(message);
+    for (const client of wss.clients) {
+      if (client._flowtexUserId === userId && client.readyState === 1) {
+        client.send(data);
+      }
+    }
+  }
+
   // Expose helpers on app.locals
   app.locals.broadcastToRoom = broadcastToRoom;
   app.locals.disconnectUserFromProject = disconnectUserFromProject;
+  app.locals.sendToUser = sendToUser;
 
   // Expose live stats
   app.getLiveStats = () => ({
@@ -448,6 +460,7 @@ export function initWebSocket(server, app, sessionSecret) {
       return;
     }
     wsConnectionCounts.set(authenticatedUserId, currentCount + 1);
+    ws._flowtexUserId = authenticatedUserId;
     ws.on('close', () => {
       const c = (wsConnectionCounts.get(authenticatedUserId) || 1) - 1;
       if (c <= 0) wsConnectionCounts.delete(authenticatedUserId);

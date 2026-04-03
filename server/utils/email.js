@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import logger from '../logger.js';
 import db from '../db.js';
+import { decrypt } from '../utils/crypto.js';
 
 let transporter;
 
@@ -24,7 +25,10 @@ async function getTransporter() {
   const port = parseInt(dbSettings.smtp_port || process.env.SMTP_PORT || '587');
   const secure = (dbSettings.smtp_secure || process.env.SMTP_SECURE) === 'true';
   const user = dbSettings.smtp_user || process.env.SMTP_USER;
-  const pass = dbSettings.smtp_pass || process.env.SMTP_PASS;
+  let pass = process.env.SMTP_PASS;
+  if (dbSettings.smtp_pass) {
+    try { pass = decrypt(dbSettings.smtp_pass); } catch { pass = dbSettings.smtp_pass; }
+  }
 
   if (host) {
     transporter = nodemailer.createTransport({

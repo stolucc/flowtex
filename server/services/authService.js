@@ -37,12 +37,21 @@ export function validatePassword(password) {
   return null;
 }
 
-export async function isAccountLocked(email) {
+export async function isAccountLocked(email, ip) {
   const result = await db.get(
     `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - INTERVAL '${LOCKOUT_WINDOW_MINUTES} minutes'`,
     [email],
   );
-  return parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS;
+  if (parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS) return true;
+  // Also lock out by IP to prevent cross-account brute force
+  if (ip) {
+    const ipResult = await db.get(
+      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - INTERVAL '${LOCKOUT_WINDOW_MINUTES} minutes'`,
+      [ip],
+    );
+    if (parseInt(ipResult?.cnt || 0) >= MAX_FAILED_ATTEMPTS * 3) return true;
+  }
+  return false;
 }
 
 export async function recordLoginAttempt(email, ip, success) {

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
+import { HomeIcon, LogoutIcon } from './Icons.jsx';
 
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   const ref = useRef(null);
@@ -227,20 +228,7 @@ export default function Toolbar({
     <div className="toolbar">
       <div className="toolbar-left">
         <button className="toolbar-back" onClick={onBack}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ marginRight: 5, verticalAlign: -2 }}
-          >
-            <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <polyline points="9 22 9 12 15 12 15 22" />
-          </svg>
+          <HomeIcon style={{ marginRight: 5, verticalAlign: -2 }} />
           Home
         </button>
         <span ref={menuBarRef} className="toolbar-menu-bar">
@@ -391,20 +379,7 @@ export default function Toolbar({
         )}
         {onLogout && (
           <button className="toolbar-btn toolbar-btn-logout" onClick={onLogout} title="Log out">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+            <LogoutIcon size={18} />
           </button>
         )}
       </div>

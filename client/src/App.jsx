@@ -14,6 +14,7 @@ import BinaryPreview, { getMimeType } from './components/BinaryPreview.jsx';
 import { TrackChangesPopup, TrackChangesReviewBar } from './components/TrackChangesBar.jsx';
 import ModalContainer from './components/ModalContainer.jsx';
 import HistoryView from './components/HistoryView.jsx';
+import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
 import { get, post, patch, getCsrfToken } from './api.js';
@@ -93,6 +94,7 @@ function AppInner() {
   const sendWsRef = useRef(null);
 
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [mainFileChanged, setMainFileChanged] = useState(false);
 
   const {
     comments,
@@ -118,6 +120,7 @@ function AppInner() {
     setTcPopup,
     handleTrackChange,
     handleDeleteInsertionChar,
+    handleUndoInsertions,
     handleAcceptChange,
     handleRejectChange,
     handleAcceptAllChanges,
@@ -143,7 +146,9 @@ function AppInner() {
     setUnreadChat,
     showChat,
     setShowChat,
+    typingUsers,
     sendWsMessage,
+    wsConnected,
   } = useWebSocket(user, project, activeFileRef, { setComments, setTrackedChanges, setHistoryVersion });
 
   sendWsRef.current = sendWsMessage;
@@ -163,6 +168,7 @@ function AppInner() {
     activeGenFile,
     setActiveGenFile,
     handleCompile,
+    handleStopCompile,
     handleDiff,
   } = useCompilation(project, activeFile, handleSave, editorRef);
 
@@ -173,7 +179,7 @@ function AppInner() {
   const [showBoxWarnings, setShowBoxWarnings] = useState(true);
   const [showLintWarnings, setShowLintWarnings] = useState(true);
   const [groupFilesByType, setGroupFilesByType] = useState(true);
-  const [tapsEnabled, setTapsEnabled] = useState(true);
+  const [tapsEnabled, setTapsEnabled] = useState(false);
   const [projectSettingsTab, setProjectSettingsTab] = useState(null);
 
   const {
@@ -215,7 +221,33 @@ function AppInner() {
     handleLogout,
     handleSave,
     setProject,
+    handleCompile,
   });
+
+  const handleUploadBinary = useCallback(async (file, fileName) => {
+    if (!project) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('path', fileName);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/upload-file`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
+        body: formData,
+      });
+      if (!res.ok) return;
+      const result = await res.json();
+      if (result.updated) {
+        setFiles((fs) => fs.map((f) => f.id === result.id ? { ...f, content: result.content, is_binary: true } : f));
+      } else {
+        setFiles((fs) => [...fs, result]);
+      }
+      handleCompile?.();
+    } catch (err) {
+      console.error('Binary upload failed:', err);
+    }
+  }, [project, handleCompile]);
 
   useEffect(() => {
     if (project?.id) {
@@ -255,11 +287,17 @@ function AppInner() {
     const tcDeleteHandler = (e) => {
       editorRef.current?.applyRemoteTcDelete(e.detail.fileId, e.detail.from, e.detail.to);
     };
+    const removedHandler = () => {
+      alert('You have been removed from this project.');
+      goBack();
+    };
     window.addEventListener('ws:changes', changesHandler);
     window.addEventListener('ws:tc-delete-mark', tcDeleteHandler);
+    window.addEventListener('ws:removed-from-project', removedHandler);
     return () => {
       window.removeEventListener('ws:changes', changesHandler);
       window.removeEventListener('ws:tc-delete-mark', tcDeleteHandler);
+      window.removeEventListener('ws:removed-from-project', removedHandler);
     };
   }, []);
 
@@ -345,18 +383,7 @@ function AppInner() {
       {ui.showHistory ? (
         <div className="history-toolbar">
           <button className="history-back-btn" onClick={() => ui.setShowHistory(false)}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ChevronLeftIcon />
             Back to editor
           </button>
           <span className="history-toolbar-title">History — {project.name}</span>
@@ -444,12 +471,26 @@ function AppInner() {
           }}
           onUserClick={(u) => {
             const cursor = remoteCursors[u.id];
-            if (cursor) {
-              if (cursor.fileId !== activeFile?.id) {
-                const f = files.find((f) => f.id === cursor.fileId);
-                if (f) switchFile(f);
+            if (!cursor) return;
+            if (cursor.fileId === activeFile?.id) {
+              editorRef.current?.goToPosition(cursor.head);
+            } else {
+              const f = files.find((f) => f.id === cursor.fileId);
+              if (f) {
+                switchFile(f);
+                // Wait for editor to mount with the new file before jumping
+                const tryJump = (attempts = 0) => {
+                  const view = editorRef.current;
+                  if (view && attempts < 20) {
+                    setTimeout(() => {
+                      editorRef.current?.goToPosition(cursor.head);
+                    }, 100);
+                  } else if (attempts < 20) {
+                    setTimeout(() => tryJump(attempts + 1), 50);
+                  }
+                };
+                tryJump();
               }
-              setTimeout(() => editorRef.current?.goToPosition(cursor.head), 50);
             }
           }}
         />
@@ -509,11 +550,12 @@ function AppInner() {
                     onSelect={switchFile}
                     onCreate={handleCreateFile}
                     onOverwrite={handleOverwriteFile}
+                    onUploadBinary={handleUploadBinary}
                     onDelete={handleDeleteFile}
                     onRename={handleRenameFile}
                     onRenameFolder={handleRenameFolder}
                     onDeleteFolder={handleDeleteFolder}
-                    onSetMainFile={handleSetMainFile}
+                    onSetMainFile={(path) => { handleSetMainFile(path); setPdfUrl(null); setMainFileChanged(true); setCompileLog(''); setConsoleOutput(''); setLintDiagnostics([]); }}
                     mainFile={project?.main_file || 'main.tex'}
                     startAdding={newFileCounter}
                     startAddingFolder={newFolderCounter}
@@ -598,20 +640,7 @@ function AppInner() {
                               ui.setGenContextMenu({ x: e.clientX, y: e.clientY, name: gf.name });
                             }}
                           >
-                            <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              style={{ flexShrink: 0, opacity: 0.5 }}
-                            >
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                            </svg>
+                            <FileDocumentIcon />
                             <span className="generated-file-name">{stripJobSuffix(gf.name)}</span>
                           </div>
                         ))}
@@ -646,18 +675,7 @@ function AppInner() {
               </>
             ) : (
               <button className="files-toggle-btn" onClick={() => ui.setShowFiles(true)} title="Show files">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
+                <FolderIcon />
               </button>
             )}
             {ui.showComments ? (
@@ -696,6 +714,11 @@ function AppInner() {
                 </svg>
               </button>
             )}
+            {project && !wsConnected && (
+              <div className="ws-disconnected-banner">
+                Connection lost — reconnecting. Changes are saved locally and will sync when the connection is restored.
+              </div>
+            )}
             <div className="editor-area">
               {activeGenFile ? (
                 <div className="generated-file-viewer">
@@ -703,19 +726,7 @@ function AppInner() {
                     <span className="editor-header-filename">{stripJobSuffix(activeGenFile.name)}</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>generated file (read-only)</span>
                     <button className="editor-header-btn" onClick={() => setActiveGenFile(null)} title="Close">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
+                      <CloseIcon />
                     </button>
                   </div>
                   <pre className="generated-file-content">{activeGenFile.content}</pre>
@@ -761,6 +772,7 @@ function AppInner() {
                       setTcPopup((prev) => (prev?.changeId === changeId ? null : { changeId, x: pos.x, y: pos.y }))
                     }
                     onDeleteInsertionChar={handleDeleteInsertionChar}
+                    onUndoInsertions={handleUndoInsertions}
                     onTrackDeletion={(from, to) =>
                       sendWsMessage({ type: 'tc-delete-mark', fileId: activeFile?.id, from, to })
                     }
@@ -875,20 +887,18 @@ function AppInner() {
               ref={pdfRef}
               url={pdfUrl}
               compiling={compiling}
-              onCompile={handleCompile}
-              onStopCompile={async () => {
-                if (project) await post(`/api/compile/${project.id}/stop`);
-              }}
+              onCompile={() => { setMainFileChanged(false); handleCompile(); }}
+              onStopCompile={handleStopCompile}
               onCleanCompile={async () => {
-                if (!project) return;
+                if (!project || compiling) return;
                 setConsoleOutput('Cleaning generated files...\n');
                 const res = await post(`/api/compile/${project.id}/clean`);
                 const data = await res.json();
                 setConsoleOutput(`Deleted ${data.deleted} generated file(s). Recompiling from scratch...\n`);
-                handleCompile();
+                await handleCompile();
               }}
               onCleanFiles={async () => {
-                if (!project) return;
+                if (!project || compiling) return;
                 const res = await post(`/api/compile/${project.id}/clean`);
                 const data = await res.json();
                 setConsoleOutput(`Deleted ${data.deleted} generated file(s).`);
@@ -911,6 +921,8 @@ function AppInner() {
               }}
               tapsDiagnostics={tapsEnabled ? tapsDiagnostics : []}
               showBoxWarnings={showBoxWarnings}
+              mainFileExists={files.some((f) => f.path === mainFilePath)}
+              mainFileChanged={mainFileChanged}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);
                 ui.setShowProjectSettings(true);
@@ -922,6 +934,8 @@ function AppInner() {
                 currentUser={user}
                 onSend={(text) => sendWsMessage({ type: 'chat', text })}
                 onClose={() => setShowChat(false)}
+                onTyping={() => sendWsMessage({ type: 'typing' })}
+                typingUsers={typingUsers}
               />
             ) : (
               <button

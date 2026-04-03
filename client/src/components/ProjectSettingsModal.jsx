@@ -301,7 +301,7 @@ export default function ProjectSettingsModal({
     () => localStorage.getItem(`flowtex-group-files-${project.id}`) !== 'false',
   );
   const [tapsEnabled, setTapsEnabled] = useState(
-    () => localStorage.getItem(`flowtex-taps-enabled-${project.id}`) !== 'false',
+    () => localStorage.getItem(`flowtex-taps-enabled-${project.id}`) === 'true',
   );
   const [activeCategory, setActiveCategory] = useState(initialTab || 'project');
   const [saving, setSaving] = useState(false);

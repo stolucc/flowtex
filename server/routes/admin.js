@@ -3,6 +3,7 @@ import os from 'os';
 import db from '../db.js';
 import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail } from '../utils/email.js';
+import { encrypt } from '../utils/crypto.js';
 
 const router = Router();
 
@@ -331,9 +332,10 @@ router.put('/settings', async (req, res) => {
     }
   }
 
+  const storeValue = key === 'smtp_pass' ? encrypt(String(value)) : String(value);
   await db.run(
     'INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()',
-    [key, String(value)],
+    [key, storeValue],
   );
 
   // Reset cached email transporter when any SMTP setting changes

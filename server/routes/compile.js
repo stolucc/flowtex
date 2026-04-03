@@ -163,7 +163,14 @@ router.get('/:projectId/compile-stream', async (req, res) => {
     Connection: 'keep-alive',
   });
 
+  let clientDisconnected = false;
+  res.on('close', () => {
+    clientDisconnected = true;
+    stopCompilation(projectId).catch(() => {});
+  });
+
   const send = (event, data) => {
+    if (clientDisconnected) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -196,7 +203,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
     send('done', { success: false, log: stripPaths(err.message) });
   }
 
-  res.end();
+  if (!clientDisconnected) res.end();
 });
 
 // Stop compilation
@@ -431,8 +438,15 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     Connection: 'keep-alive',
   });
 
+  let clientDisconnected = false;
+  res.on('close', () => {
+    clientDisconnected = true;
+    stopCompilation(projectId).catch(() => {});
+  });
+
   const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
   const send = (event, data) => {
+    if (clientDisconnected) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -447,7 +461,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     ]);
     if (!oldFile || !newFile) {
       send('done', { success: false, log: 'File not found' });
-      res.end();
+      if (!clientDisconnected) res.end();
       return;
     }
 
@@ -464,7 +478,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
       send('output', { text: `Diff error: ${stripPaths(diffErr.message)}\n` });
       if (diffErr.stderr) send('output', { text: stripPaths(diffErr.stderr) + '\n' });
       send('done', { success: false, log: stripPaths(diffErr.message) });
-      res.end();
+      if (!clientDisconnected) res.end();
       return;
     }
 
@@ -510,7 +524,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     send('done', { success: false, log: stripPaths(err.message) });
   }
 
-  res.end();
+  if (!clientDisconnected) res.end();
 });
 
 // Serve diff PDF

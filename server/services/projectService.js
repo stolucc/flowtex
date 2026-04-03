@@ -2,12 +2,13 @@ import { v4 as uuid } from 'uuid';
 import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 import db from '../db.js';
-import { isProjectMember } from '../middleware/auth.js';
+import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
+const MAX_ZIP_RATIO = 100; // reject if decompressed/compressed > 100x
 
 export function isValidFilePath(filePath) {
   if (!filePath || typeof filePath !== 'string') return false;
@@ -96,10 +97,233 @@ export async function listUserProjects(userId) {
   return projects;
 }
 
+export async function createProjectFromTemplate(userId, templateId, name) {
+  const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
+  if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
+
+  const templateFiles = await db.all('SELECT path, content, is_binary FROM user_template_files WHERE template_id = $1', [templateId]);
+  const id = uuid();
+  const safeName = (name || tmpl.name).slice(0, 500).replace(/[\\{}$&#^_%~]/g, '');
+
+  await db.transaction(async (tx) => {
+    await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, safeName]);
+    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [id, userId, 'owner']);
+
+    for (const file of templateFiles) {
+      const content = tmpl.preloaded
+        ? file.content.replace(/__TITLE__/g, safeName).replace(/__AUTHOR__/g, '')
+        : file.content;
+      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+        uuid(), id, file.path, content, file.is_binary || false,
+      ]);
+    }
+  });
+
+  return { id, name: safeName };
+}
+
+export async function createTemplateFromZip(userId, buffer, originalName, description, category, tagIds) {
+  const zip = new AdmZip(buffer);
+  const entries = zip.getEntries();
+  const fileEntries = entries.filter((e) => !e.isDirectory);
+
+  if (fileEntries.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
+  }
+  const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
+  if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
+    throw new Error('ZIP decompressed size too large');
+  }
+  if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
+    throw new Error('ZIP compression ratio too high (possible zip bomb)');
+  }
+
+  const templateName = (originalName || 'Untitled Template').replace(/\.zip$/i, '');
+  const templateId = uuid();
+  const created = [];
+
+  await db.transaction(async (tx) => {
+    await tx.run(
+      'INSERT INTO user_templates (id, name, description, category, created_by) VALUES ($1, $2, $3, $4, $5)',
+      [templateId, templateName, description || '', category || 'General', userId],
+    );
+
+    let actualTotal = 0;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      let entryPath = entry.entryName;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
+      if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
+      if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
+
+      const ext = entryPath.substring(entryPath.lastIndexOf('.')).toLowerCase();
+      const isBinary = BINARY_EXTS.has(ext);
+      const rawData = entry.getData();
+      actualTotal += rawData.length;
+      if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
+      const content = isBinary ? rawData.toString('base64') : rawData.toString('utf8');
+
+      await tx.run(
+        'INSERT INTO user_template_files (id, template_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)',
+        [uuid(), templateId, entryPath, content, isBinary],
+      );
+      created.push({ id: uuid(), path: entryPath, templateId });
+    }
+  });
+
+  // Strip common prefix from template files
+  if (created.length > 1) {
+    const firstSlash = created[0].path.indexOf('/');
+    if (firstSlash > 0) {
+      const prefix = created[0].path.substring(0, firstSlash + 1);
+      if (created.every((f) => f.path.startsWith(prefix))) {
+        await db.transaction(async (tx) => {
+          for (const f of created) {
+            const newPath = f.path.substring(prefix.length);
+            if (newPath) {
+              await tx.run('UPDATE user_template_files SET path = $1 WHERE template_id = $2 AND path = $3', [newPath, templateId, f.path]);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // Set tags if provided
+  if (tagIds && tagIds.length) {
+    await setTemplateTags(templateId, tagIds);
+  }
+
+  const fileCount = await db.get('SELECT COUNT(*) as count FROM user_template_files WHERE template_id = $1', [templateId]);
+  const tags = tagIds && tagIds.length
+    ? await db.all('SELECT id, name, color FROM template_tags WHERE id = ANY($1)', [tagIds])
+    : [];
+  return { id: templateId, name: templateName, description: description || '', category: category || 'General', fileCount: fileCount.count, tags };
+}
+
+export async function listAllTemplates() {
+  const rows = await db.all(`
+    SELECT ut.id, ut.name, ut.description, ut.category, ut.created_by, ut.preloaded,
+           u.name as author_name,
+           (SELECT COUNT(*) FROM user_template_files WHERE template_id = ut.id) as "fileCount"
+    FROM user_templates ut
+    LEFT JOIN users u ON u.id = ut.created_by
+    ORDER BY ut.preloaded DESC, ut.created_at DESC
+  `);
+  // Attach tags to each template
+  if (rows.length) {
+    const tagRows = await db.all(`
+      SELECT ttm.template_id, tt.id, tt.name, tt.color
+      FROM template_tag_map ttm
+      JOIN template_tags tt ON tt.id = ttm.tag_id
+      WHERE ttm.template_id = ANY($1)
+    `, [rows.map((r) => r.id)]);
+    const tagMap = {};
+    for (const tr of tagRows) {
+      (tagMap[tr.template_id] ||= []).push({ id: tr.id, name: tr.name, color: tr.color });
+    }
+    for (const row of rows) {
+      row.tags = tagMap[row.id] || [];
+    }
+  }
+  return rows;
+}
+
+export async function deleteUserTemplate(templateId, userId) {
+  const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
+  if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
+  if (tmpl.created_by !== userId) throw Object.assign(new Error('Not your template'), { status: 403 });
+  await db.run('DELETE FROM user_templates WHERE id = $1', [templateId]);
+}
+
+// --- Template tags ---
+
+const MAX_TAG_NAME_LENGTH = 50;
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
+
+function validateTagColor(color) {
+  if (color && !HEX_COLOR_RE.test(color)) {
+    throw Object.assign(new Error('Invalid color format (use hex e.g. #89b4fa)'), { status: 400 });
+  }
+}
+
+function validateTagName(name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) throw Object.assign(new Error('Tag name required'), { status: 400 });
+  if (trimmed.length > MAX_TAG_NAME_LENGTH) {
+    throw Object.assign(new Error(`Tag name too long (max ${MAX_TAG_NAME_LENGTH} chars)`), { status: 400 });
+  }
+  return trimmed;
+}
+
+export async function listTemplateTags() {
+  return db.all('SELECT id, name, color FROM template_tags ORDER BY name');
+}
+
+export async function createTemplateTag(name, color) {
+  const trimmed = validateTagName(name);
+  validateTagColor(color);
+  const safeColor = color || '#89b4fa';
+  // Limit total number of tags
+  const { count } = await db.get('SELECT COUNT(*) as count FROM template_tags');
+  if (parseInt(count, 10) >= 100) {
+    throw Object.assign(new Error('Maximum number of tags reached (100)'), { status: 400 });
+  }
+  const id = uuid();
+  try {
+    await db.run('INSERT INTO template_tags (id, name, color) VALUES ($1, $2, $3)', [id, trimmed, safeColor]);
+  } catch (err) {
+    if (err.code === '23505') throw Object.assign(new Error('Tag already exists'), { status: 409 });
+    throw err;
+  }
+  return { id, name: trimmed, color: safeColor };
+}
+
+export async function updateTemplateTag(tagId, name, color) {
+  const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
+  if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
+  const trimmed = validateTagName(name);
+  validateTagColor(color);
+  const safeColor = color || tag.color;
+  try {
+    await db.run('UPDATE template_tags SET name = $1, color = $2 WHERE id = $3', [trimmed, safeColor, tagId]);
+  } catch (err) {
+    if (err.code === '23505') throw Object.assign(new Error('Tag already exists'), { status: 409 });
+    throw err;
+  }
+  return { id: tagId, name: trimmed, color: safeColor };
+}
+
+export async function deleteTemplateTag(tagId) {
+  const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
+  if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
+  await db.run('DELETE FROM template_tags WHERE id = $1', [tagId]);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_TAGS_PER_TEMPLATE = 20;
+
+export async function setTemplateTags(templateId, tagIds) {
+  if (tagIds.length > MAX_TAGS_PER_TEMPLATE) {
+    throw Object.assign(new Error(`Too many tags (max ${MAX_TAGS_PER_TEMPLATE})`), { status: 400 });
+  }
+  for (const id of tagIds) {
+    if (typeof id !== 'string' || !UUID_RE.test(id)) {
+      throw Object.assign(new Error('Invalid tag ID'), { status: 400 });
+    }
+  }
+  await db.transaction(async (tx) => {
+    await tx.run('DELETE FROM template_tag_map WHERE template_id = $1', [templateId]);
+    for (const tagId of tagIds) {
+      await tx.run('INSERT INTO template_tag_map (template_id, tag_id) VALUES ($1, $2)', [templateId, tagId]);
+    }
+  });
+}
+
 export async function createProject(userId, name) {
   const id = uuid();
   const fileId = uuid();
-  const safeName = (name || 'Untitled').slice(0, 500);
+  const safeName = (name || 'Untitled').slice(0, 500).replace(/[\\{}$&#^_%~]/g, '');
   const defaultContent = `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
 
@@ -144,6 +368,9 @@ export async function createProjectFromZip(userId, buffer, originalName) {
     throw new Error(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
     );
+  }
+  if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
+    throw new Error('ZIP compression ratio too high (possible zip bomb)');
   }
 
   const projectName = (originalName || 'Uploaded Project').replace(/\.zip$/i, '');
@@ -203,6 +430,9 @@ export async function uploadZipToProject(projectId, buffer) {
     throw new Error(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
     );
+  }
+  if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
+    throw new Error('ZIP compression ratio too high (possible zip bomb)');
   }
 
   await db.transaction(async (tx) => {
@@ -329,6 +559,24 @@ export async function getProjectFiles(projectId) {
   return db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
 }
 
+export async function uploadBinaryFile(projectId, filePath, buffer) {
+  if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
+  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
+  const content = buffer.toString('base64');
+  const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
+  if (existing) {
+    await db.run('UPDATE files SET content = $1, is_binary = TRUE, updated_at = NOW() WHERE id = $2', [content, existing.id]);
+    await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+    return { id: existing.id, project_id: projectId, path: filePath, content, is_binary: true, updated: true };
+  }
+  const id = uuid();
+  await db.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, TRUE)', [
+    id, projectId, filePath, content,
+  ]);
+  await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+  return { id, project_id: projectId, path: filePath, content, is_binary: true, updated: false };
+}
+
 export async function createFile(projectId, filePath, content) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (content && content.length > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
@@ -345,10 +593,11 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
-export async function updateFileContent(fileId, content, userId) {
+export async function updateFileContent(fileId, content, userId, tcPositions) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
-  if (file.content === content) return { ok: true, newSnapshot: false };
+  const hasTcUpdates = Array.isArray(tcPositions) && tcPositions.length > 0;
+  if (file.content === content && !hasTcUpdates) return { ok: true, newSnapshot: false };
 
   const user = userId ? await db.get('SELECT id, name FROM users WHERE id = $1', [userId]) : null;
   const authorId = user?.id || null;
@@ -358,6 +607,18 @@ export async function updateFileContent(fileId, content, userId) {
   await db.transaction(async (tx) => {
     await tx.run('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2', [content, file.id]);
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
+
+    // Atomically update tracked change positions so DB stays consistent with saved content
+    if (Array.isArray(tcPositions)) {
+      for (const tc of tcPositions) {
+        if (tc.id && typeof tc.from_pos === 'number' && typeof tc.to_pos === 'number') {
+          await tx.run(
+            'UPDATE tracked_changes SET from_pos = $1, to_pos = $2 WHERE id = $3 AND file_id = $4 AND status = $5',
+            [tc.from_pos, tc.to_pos, tc.id, fileId, 'pending'],
+          );
+        }
+      }
+    }
 
     const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [file.project_id]);
     const intervalSec = proj?.snapshot_interval_sec || 30;
@@ -431,20 +692,21 @@ export async function inviteMember(projectId, email, role, inviterId) {
 
   const existingInvite = await db.get(
     "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending'",
-    [projectId, email],
+    [projectId, normalizedEmail],
   );
   if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
 
   const id = uuid();
   await db.run(
     "INSERT INTO project_invitations (id, project_id, email, role, inviter_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (project_id, email) DO UPDATE SET role = $4, inviter_id = $5, status = 'pending'",
-    [id, projectId, email, assignedRole, inviterId],
+    [id, projectId, normalizedEmail, assignedRole, inviterId],
   );
   return { id, email, role: assignedRole, status: 'pending' };
 }
 
 export async function removeMember(projectId, userId) {
   await db.run('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
+  invalidateMembership(projectId, userId);
 }
 
 // --- Invitations ---
@@ -458,7 +720,7 @@ export async function getMyInvitations(userId) {
      FROM project_invitations pi
      JOIN projects p ON p.id = pi.project_id
      JOIN users u ON u.id = pi.inviter_id
-     WHERE pi.email = $1 AND pi.status = 'pending'
+     WHERE LOWER(pi.email) = LOWER($1) AND pi.status = 'pending'
      ORDER BY pi.created_at DESC`,
     [user.email],
   );
@@ -467,7 +729,7 @@ export async function getMyInvitations(userId) {
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [
+  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'", [
     inviteId,
     user.email,
   ]);
@@ -487,13 +749,14 @@ export async function acceptInvitation(inviteId, userId) {
       ]);
     }
   });
+  invalidateMembership(invite.project_id, user.id);
   return { ok: true, projectId: invite.project_id };
 }
 
 export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND email = $2 AND status = 'pending'", [
+  const invite = await db.get("SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'", [
     inviteId,
     user.email,
   ]);

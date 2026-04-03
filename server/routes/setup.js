@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { registerUser } from '../services/authService.js';
+import { encrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
 
 const router = Router();
@@ -46,7 +47,7 @@ router.post('/init', async (req, res) => {
     if (smtpHost) settings.push(['smtp_host', smtpHost]);
     if (smtpPort) settings.push(['smtp_port', String(smtpPort)]);
     if (smtpUser) settings.push(['smtp_user', smtpUser]);
-    if (smtpPass) settings.push(['smtp_pass', smtpPass]);
+    if (smtpPass) settings.push(['smtp_pass', encrypt(smtpPass)]);
     if (smtpFrom) settings.push(['smtp_from', smtpFrom]);
 
     for (const [key, value] of settings) {
@@ -56,7 +57,10 @@ router.post('/init', async (req, res) => {
       );
     }
 
-    // Log the user in
+    // Log the user in with session regeneration to prevent fixation
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => (err ? reject(err) : resolve()));
+    });
     req.session.userId = result.id;
     req.session.userName = name.trim();
 

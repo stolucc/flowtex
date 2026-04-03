@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Avatar from './Avatar.jsx';
 import { getColor } from './Avatar.jsx';
+import { CloseIcon } from './Icons.jsx';
 
-export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
+export default function ChatPanel({ messages, currentUser, onSend, onClose, onTyping, typingUsers }) {
   const [text, setText] = useState('');
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const lastTypingSentRef = useRef(0);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     if (listRef.current) {
@@ -27,24 +30,33 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const handleInput = (e) => {
+    setText(e.target.value);
+    if (onTyping && Date.now() - lastTypingSentRef.current > 2000) {
+      lastTypingSentRef.current = Date.now();
+      onTyping();
+    }
+  };
+
+  // Filter out self and stale typing indicators (>3s old)
+  const now = Date.now();
+  const typers = Object.entries(typingUsers || {})
+    .filter(([uid, info]) => uid !== currentUser?.id && now - info.ts < 3000)
+    .map(([, info]) => info.userName);
+
+  // Auto-expire typing indicators
+  useEffect(() => {
+    if (typers.length === 0) return;
+    const timer = setTimeout(() => setTick((t) => t + 1), 3100);
+    return () => clearTimeout(timer);
+  }, [typingUsers]);
+
   return (
     <div className="chat-panel">
       <div className="chat-header">
         <span>Chat</span>
         <button className="chat-close-btn" onClick={onClose} title="Close chat">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <CloseIcon />
         </button>
       </div>
       <div className="chat-messages" ref={listRef}>
@@ -90,6 +102,18 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
           );
         })}
       </div>
+      {typers.length > 0 && (
+        <div className="chat-typing-indicator">
+          <span className="chat-typing-dots">
+            <span /><span /><span />
+          </span>
+          <span className="chat-typing-text">
+            {typers.length === 1
+              ? `${typers[0]} is typing`
+              : `${typers.slice(0, 2).join(' and ')}${typers.length > 2 ? ` and ${typers.length - 2} more` : ''} are typing`}
+          </span>
+        </div>
+      )}
       <form className="chat-input-bar" onSubmit={handleSubmit}>
         <input
           ref={inputRef}
@@ -97,10 +121,10 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose }) {
           className="chat-input"
           placeholder="Type a message..."
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleInput}
           autoFocus
         />
-        <button type="submit" className="chat-send-btn" disabled={!text.trim()}>
+        <button type="submit" className="chat-send-btn">
           <svg
             width="16"
             height="16"

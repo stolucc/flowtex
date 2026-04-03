@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { get, post, del } from '../api.js';
+import { SearchIcon, FolderIcon, ChevronRightIcon } from './Icons.jsx';
 
 const ITEM_TYPE_LABELS = {
   journalArticle: 'Journal Article',
@@ -250,18 +251,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
             setPage(0);
           }}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
+          <FolderIcon size={14} />
           <span className="zotero-collection-name">{col.name}</span>
           <span className="zotero-collection-count">{col.numItems}</span>
         </div>
@@ -329,19 +319,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
           <div className="zotero-browser">
             <div className="zotero-toolbar">
               <div className="zotero-search">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
+                <SearchIcon />
                 <input
                   type="text"
                   placeholder="Search library..."
@@ -447,19 +425,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
             {/* Field exclusion options */}
             <div className="zotero-fields-section">
               <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions((v) => !v)}>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
-                >
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
+                <ChevronRightIcon style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                 Exclude fields
                 {excludedFields.size > 0 && <span className="zotero-fields-count">{excludedFields.size}</span>}
               </button>

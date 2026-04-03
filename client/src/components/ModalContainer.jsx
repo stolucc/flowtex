@@ -4,7 +4,7 @@ import CompareFilesModal from './CompareFilesModal.jsx';
 import ProjectSettingsModal from './ProjectSettingsModal.jsx';
 import WordCountModal from './WordCountModal.jsx';
 import { get, post, put, patch } from '../api.js';
-import { resolveUsedFiles } from '../utils/texDeps.js';
+import { resolveUsedFiles } from '@shared/texDeps.js';
 
 const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));

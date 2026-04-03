@@ -21,6 +21,7 @@ export default function useEditorActions({
   handleLogout,
   handleSave,
   setProject,
+  handleCompile,
 }) {
   const [editorLine, setEditorLine] = useState(1);
   const [pdfClickPos, setPdfClickPos] = useState(null);
@@ -35,8 +36,10 @@ export default function useEditorActions({
       setTrackedChanges((tcs) => tcs.filter((c) => c.file_id !== fileId));
       const file = files.find((f) => f.id === fileId);
       if (file) switchFile({ ...file, content });
+      // Trigger recompile since file content changed on the server
+      handleCompile?.();
     },
-    [files, switchFile, trackedChanges],
+    [files, switchFile, trackedChanges, handleCompile],
   );
 
   const handleSyncForward = useCallback(async () => {

@@ -109,16 +109,18 @@ export default function useProject(user) {
     }
     get(`/api/projects/${project.id}/members`)
       .then((r) => r.json())
-      .then(setMembers)
-      .catch(() => {});
+      .then((data) => setMembers(Array.isArray(data) ? data : []))
+      .catch(() => setMembers([]));
   }, [project]);
 
   // File operations
   const handleSave = useCallback(
-    async (content) => {
+    async (content, tcPositions) => {
       const file = activeFile;
       if (!file) return;
-      await put(`/api/projects/files/${file.id}`, { content });
+      const body = { content };
+      if (Array.isArray(tcPositions) && tcPositions.length > 0) body.tcPositions = tcPositions;
+      await put(`/api/projects/files/${file.id}`, body);
       setActiveFile((f) => (f?.id === file.id ? { ...f, content } : f));
       setFiles((fs) => fs.map((f) => (f.id === file.id ? { ...f, content } : f)));
     },

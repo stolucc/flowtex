@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
 
 export default function useCompilation(project, activeFile, handleSave, editorRef) {
@@ -10,9 +10,28 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   const [generatedFiles, setGeneratedFiles] = useState([]);
   const [activeGenFile, setActiveGenFile] = useState(null);
   const compileSourceRef = useRef(null);
+  const compilingRef = useRef(false);
+
+  // Keep ref in sync with state so callbacks can read current value
+  useEffect(() => {
+    compilingRef.current = compiling;
+  }, [compiling]);
+
+  // Clean up EventSource on unmount
+  useEffect(() => {
+    return () => {
+      if (compileSourceRef.current) {
+        compileSourceRef.current.close();
+        compileSourceRef.current = null;
+      }
+    };
+  }, []);
 
   const handleCompile = useCallback(async () => {
     if (!project) return;
+    // Prevent double-compile
+    if (compilingRef.current) return;
+
     if (activeFile) {
       const currentContent = editorRef.current?.getContent();
       if (currentContent != null) {
@@ -87,6 +106,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   const handleDiff = useCallback(
     (oldFileId, newFileId) => {
       if (!project) return;
+      if (compilingRef.current) return;
       setCompiling(true);
       setConsoleOutput('');
 
@@ -119,6 +139,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       });
 
       evtSource.onerror = () => {
+        if (compileSourceRef.current !== evtSource) return;
         evtSource.close();
         compileSourceRef.current = null;
         setCompiling(false);
@@ -126,6 +147,20 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     },
     [project],
   );
+
+  const handleStopCompile = useCallback(async () => {
+    if (!project) return;
+    // Close the EventSource first to prevent auto-reconnect
+    if (compileSourceRef.current) {
+      compileSourceRef.current.close();
+      compileSourceRef.current = null;
+    }
+    setCompiling(false);
+    setConsoleOutput((prev) => prev + '\n--- Compilation stopped ---\n');
+    try {
+      await post(`/api/compile/${project.id}/stop`);
+    } catch {}
+  }, [project]);
 
   return {
     compiling,
@@ -142,6 +177,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     activeGenFile,
     setActiveGenFile,
     handleCompile,
+    handleStopCompile,
     handleDiff,
   };
 }

@@ -9,6 +9,7 @@ export default function ShareModal({ projectId, onClose }) {
   const [role, setRole] = useState('editor');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(null); // { userId, name }
 
   useEffect(() => {
     get(`/api/projects/${projectId}/members`)
@@ -34,9 +35,13 @@ export default function ShareModal({ projectId, onClose }) {
     }
   };
 
-  const handleRemove = async (userId) => {
-    await del(`/api/projects/${projectId}/members/${userId}`);
-    setMembers((m) => m.filter((u) => u.id !== userId));
+  const handleRemove = async () => {
+    if (!confirmRemove) return;
+    const res = await del(`/api/projects/${projectId}/members/${confirmRemove.userId}`);
+    if (res.ok) {
+      setMembers((m) => m.filter((u) => u.id !== confirmRemove.userId));
+    }
+    setConfirmRemove(null);
   };
 
   const handleCancelInvite = async (inviteId) => {
@@ -78,7 +83,11 @@ export default function ShareModal({ projectId, onClose }) {
               </div>
               <span className="member-role">{m.role}</span>
               {m.role !== 'owner' && (
-                <button className="member-remove" onClick={() => handleRemove(m.id)} title="Remove">
+                <button
+                  className="member-remove"
+                  onClick={() => setConfirmRemove({ userId: m.id, name: m.name })}
+                  title="Remove"
+                >
                   &times;
                 </button>
               )}
@@ -114,6 +123,26 @@ export default function ShareModal({ projectId, onClose }) {
           Close
         </button>
       </div>
+
+      {confirmRemove && (
+        <div className="confirm-overlay" onClick={() => setConfirmRemove(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-title">Remove Member</h3>
+            <p className="confirm-message">
+              Are you sure you want to remove <strong>{confirmRemove.name}</strong> from this project?
+              They will lose access immediately.
+            </p>
+            <div className="confirm-actions">
+              <button className="confirm-cancel-btn" onClick={() => setConfirmRemove(null)}>
+                Cancel
+              </button>
+              <button className="confirm-remove-btn" onClick={handleRemove}>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

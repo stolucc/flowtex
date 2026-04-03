@@ -52,6 +52,9 @@ router.get('/oauth/authorize', (req, res) => {
 });
 
 router.get('/oauth/callback', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.redirect('/?error=session_expired');
+  }
   const { code, state } = req.query;
   if (!code || !state || state !== req.session.githubOAuthState) {
     return res.status(400).send('Invalid OAuth callback. <a href="/">Go back</a>');
@@ -108,7 +111,7 @@ router.put('/link/:projectId', async (req, res) => {
   if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot link a repo' });
 
   const { repo, branch } = req.body;
-  if (!repo || !repo.includes('/')) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim())) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
   if (branch && (!/^[a-zA-Z0-9._\/-]+$/.test(branch) || branch.startsWith('-'))) {
     return res.status(400).json({ error: 'Invalid branch name' });
   }
@@ -207,7 +210,7 @@ router.post('/pull/:projectId', async (req, res) => {
 
 router.post('/import', async (req, res) => {
   const { repo, branch } = req.body;
-  if (!repo || !repo.includes('/')) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
+  if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim())) return res.status(400).json({ error: 'Repo must be in owner/repo format' });
 
   try {
     const project = await gh.importFromGitHub(req.session.userId, repo, branch);

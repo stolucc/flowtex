@@ -5,6 +5,10 @@ const pool = new pg.Pool({
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432', 10),
   max: 20,
+  min: 2,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  statement_timeout: 30000,
   ssl:
     process.env.PGSSLMODE === 'require' || process.env.PGSSLMODE === 'verify-full'
       ? { rejectUnauthorized: process.env.PGSSLMODE === 'verify-full' }
@@ -259,6 +263,55 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_project_invitations_email ON project_invitations(email);
     CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
 
+    -- Templates (preloaded + user-uploaded)
+    CREATE TABLE IF NOT EXISTS user_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'General',
+      created_by TEXT REFERENCES users(id) ON DELETE CASCADE,
+      preloaded BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    ALTER TABLE user_templates ADD COLUMN IF NOT EXISTS preloaded BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE user_templates ALTER COLUMN created_by DROP NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_user_templates_created_by ON user_templates(created_by);
+
+    CREATE TABLE IF NOT EXISTS user_template_files (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL REFERENCES user_templates(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      is_binary BOOLEAN NOT NULL DEFAULT FALSE,
+      UNIQUE(template_id, path)
+    );
+
+    -- Template tags (global, shared across all users)
+    CREATE TABLE IF NOT EXISTS template_tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#89b4fa',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Seed default template tags
+    INSERT INTO template_tags (id, name, color) VALUES
+      ('tag-academic', 'Academic', '#89b4fa'),
+      ('tag-presentation', 'Presentation', '#a6e3a1'),
+      ('tag-general', 'General', '#cba6f7')
+    ON CONFLICT DO NOTHING;
+
+    -- Many-to-many: templates <-> tags
+    CREATE TABLE IF NOT EXISTS template_tag_map (
+      template_id TEXT NOT NULL REFERENCES user_templates(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES template_tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (template_id, tag_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_template_tag_map_tag ON template_tag_map(tag_id);
+
+    -- Drop legacy table if it exists
+    DROP TABLE IF EXISTS builtin_template_tag_map;
+
     -- Audit log for sensitive actions
     CREATE TABLE IF NOT EXISTS audit_log (
       id SERIAL PRIMARY KEY,
@@ -342,6 +395,25 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, created_at);
+
+    -- Session userId lookup (for logout-all / password reset)
+    CREATE INDEX IF NOT EXISTS idx_session_userid ON session((sess->>'userId'));
+
+    -- Password reset token lookup by hash
+    CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token_hash) WHERE used = FALSE;
+
+    -- Email verification token lookup by user
+    CREATE INDEX IF NOT EXISTS idx_email_verification_user ON email_verification_tokens(user_id);
+
+    -- Invitation queries use LOWER(email) + status
+    CREATE INDEX IF NOT EXISTS idx_project_invitations_email_lower ON project_invitations(LOWER(email)) WHERE status = 'pending';
+
+    -- Tracked changes filtered by status
+    CREATE INDEX IF NOT EXISTS idx_tracked_changes_file_status ON tracked_changes(file_id, status);
+
+    -- TOTP code expiry cleanup
+    CREATE INDEX IF NOT EXISTS idx_used_totp_expires ON used_totp_codes(expires_at);
   `);
 
   // Bootstrap admin from env var
@@ -354,5 +426,38 @@ async function initSchema() {
 
 // Initialize schema — called before server starts
 db.initSchema = initSchema;
+
+// Periodic cleanup of unbounded tables (runs every 6 hours)
+function startCleanupJob() {
+  async function cleanup() {
+    try {
+      // Audit log: keep 90 days
+      await pool.query("DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'");
+      // Login attempts: keep 30 days
+      await pool.query("DELETE FROM login_attempts WHERE created_at < NOW() - INTERVAL '30 days'");
+      // Expired password reset tokens
+      await pool.query('DELETE FROM password_reset_tokens WHERE expires_at < NOW()');
+      // Expired email verification tokens
+      await pool.query('DELETE FROM email_verification_tokens WHERE expires_at < NOW()');
+      // Resolved tracked changes older than 90 days
+      await pool.query("DELETE FROM tracked_changes WHERE status != 'pending' AND created_at < NOW() - INTERVAL '90 days'");
+      // Project snapshots: keep max 100 per project, delete oldest beyond that
+      await pool.query(`
+        DELETE FROM project_snapshots WHERE id IN (
+          SELECT id FROM (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY created_at DESC) AS rn
+            FROM project_snapshots
+          ) ranked WHERE rn > 100
+        )
+      `);
+    } catch (err) {
+      console.error('DB cleanup error:', err.message);
+    }
+  }
+  // Run once after 1 minute, then every 6 hours
+  setTimeout(cleanup, 60000);
+  setInterval(cleanup, 6 * 60 * 60 * 1000).unref();
+}
+db.startCleanupJob = startCleanupJob;
 
 export default db;

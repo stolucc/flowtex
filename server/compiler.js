@@ -47,6 +47,7 @@ export const TEX_PATHS = [
 export function getTexPaths(distro) {
   if (!distro) return TEX_PATHS;
   const year = String(distro);
+  if (!/^\d{4}$/.test(year)) return TEX_PATHS; // must be a 4-digit year
   const distPaths = [
     `/usr/local/texlive/${year}/bin/universal-darwin`,
     `/usr/local/texlive/${year}/bin/x86_64-darwin`,
@@ -103,6 +104,7 @@ export function detectTexDistributions() {
 
 // Track active compilations so they can be stopped
 const activeCompilations = new Map();
+const MAX_CONCURRENT_COMPILES = parseInt(process.env.MAX_CONCURRENT_COMPILES || '10', 10);
 
 // Compilation metrics
 export const compileMetrics = {
@@ -178,6 +180,10 @@ export async function compileProject(
 
 function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 120000, texDistribution = null, compiler = null) {
   return new Promise((resolve, reject) => {
+    if (compileMetrics.active >= MAX_CONCURRENT_COMPILES) {
+      return reject(new Error('Server busy — too many concurrent compilations. Please try again in a moment.'));
+    }
+
     const projectDir = path.join(PROJECTS_DIR, projectId);
 
     // Validate mainFile path
@@ -228,12 +234,12 @@ function _doCompile(projectId, mainFile, onOutput, userSuffix = '', timeoutMs = 
         '-synctex=1',
         '-interaction=nonstopmode',
         '-f',
-        '--shell-restricted',
+        '--no-shell-escape',
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
         mainFile,
       ],
-      { cwd: projectDir, timeout: timeoutMs, env },
+      { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
       (error, stdout, stderr) => {
         activeCompilations.delete(projectId);
         compileMetrics.active--;
@@ -380,6 +386,9 @@ export async function syncFilesToDisk(projectId, files) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   await fsp.mkdir(projectDir, { recursive: true });
 
+  // Remove any symlinks in the project directory (could be created by TeX packages)
+  await removeSymlinks(projectDir);
+
   const writes = files.map(async (file) => {
     const filePath = safePath(projectDir, file.path);
     const buf = file.is_binary && file.content ? Buffer.from(file.content, 'base64') : file.content;
@@ -395,4 +404,20 @@ export async function syncFilesToDisk(projectId, files) {
   });
 
   await Promise.all(writes);
+}
+
+// Recursively remove symlinks from a directory tree
+async function removeSymlinks(dir) {
+  let entries;
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch { return; }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      await fsp.unlink(fullPath).catch(() => {});
+    } else if (entry.isDirectory()) {
+      await removeSymlinks(fullPath);
+    }
+  }
 }

@@ -110,7 +110,7 @@ router.post('/login', async (req, res) => {
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  if (await authService.isAccountLocked(normalizedEmail)) {
+  if (await authService.isAccountLocked(normalizedEmail, req.ip)) {
     return res.status(429).json({ error: 'Too many failed attempts. Please try again in 15 minutes.' });
   }
 
@@ -234,6 +234,8 @@ router.post('/reset-password', async (req, res) => {
   if (!token || !password) return res.status(400).json({ error: 'Token and new password are required' });
   try {
     const userId = await authService.resetPassword(token, password);
+    // Invalidate all sessions for this user (attacker may hold a stolen session)
+    await db.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [userId]);
     await auditLog(userId, 'password_reset', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
@@ -263,6 +265,12 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
   try {
     await authService.changePassword(req.session.userId, currentPassword, newPassword);
+    // Invalidate all other sessions for this user
+    const currentSid = req.sessionID;
+    await db.run(
+      `DELETE FROM session WHERE sess->>'userId' = $1 AND sid != $2`,
+      [req.session.userId, currentSid],
+    );
     await auditLog(req.session.userId, 'password_changed', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {

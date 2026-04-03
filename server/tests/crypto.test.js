@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { encrypt, decrypt } from '../utils/crypto.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { encrypt, decrypt, _setSaltForTesting } from '../utils/crypto.js';
 
 describe('encrypt / decrypt', () => {
+  beforeAll(() => {
+    _setSaltForTesting('test-salt-for-unit-tests');
+  });
   it('round-trips a string', () => {
     const original = 'ghp_SuperSecretToken12345';
     const encrypted = encrypt(original);

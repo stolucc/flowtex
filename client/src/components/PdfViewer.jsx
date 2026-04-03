@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
+import { ChevronLeftIcon, SearchIcon, DropdownCaretIcon, RedoIcon, TrashIcon, DownloadIcon, ZoomOutIcon, ZoomInIcon, ContrastIcon } from './Icons.jsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
@@ -30,7 +31,7 @@ function ConsolePanel({ output, compiling }) {
         <pre className="pdf-console-output">{output}</pre>
       ) : (
         <div className="pdf-console-empty">
-          {compiling ? 'Starting compilation...' : 'No output yet. Click "Build PDF" to compile.'}
+          {compiling ? 'Starting compilation...' : 'No output yet. Click "PDF" to compile.'}
         </div>
       )}
       {compiling && <div className="pdf-console-spinner">&#9679; Running...</div>}
@@ -81,18 +82,7 @@ function HelpPanel({ help, onBack }) {
     <div className="pdf-help-panel">
       <div className="pdf-help-header">
         <button className="pdf-help-back" onClick={onBack}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
+          <ChevronLeftIcon />
           Back
         </button>
       </div>
@@ -121,19 +111,7 @@ function HelpPanel({ help, onBack }) {
 
         <div className="pdf-help-links">
           <a href={help.searchUrl} target="_blank" rel="noopener noreferrer" className="pdf-help-link">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+            <SearchIcon />
             Search TeX Stack Exchange
           </a>
           <a
@@ -188,6 +166,8 @@ const PdfViewer = forwardRef(function PdfViewer(
     tapsDiagnostics,
     showBoxWarnings = true,
     onOpenSettings,
+    mainFileExists = true,
+    mainFileChanged = false,
   },
   ref,
 ) {
@@ -668,17 +648,16 @@ const PdfViewer = forwardRef(function PdfViewer(
                 Compiling...
               </>
             ) : (
-              'Build PDF'
+              'PDF'
             )}
           </button>
           <button className="compile-menu-toggle" onClick={() => setShowCompileMenu(!showCompileMenu)}>
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M2 3l3 4 3-4z" />
-            </svg>
+            <DropdownCaretIcon />
           </button>
           {showCompileMenu && (
             <div className="compile-dropdown-menu">
               <button
+                disabled={compiling}
                 onClick={() => {
                   setShowCompileMenu(false);
                   onCompile?.();
@@ -696,51 +675,27 @@ const PdfViewer = forwardRef(function PdfViewer(
                 >
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
-                Build PDF
+                PDF
               </button>
               <button
+                disabled={compiling}
                 onClick={() => {
                   setShowCompileMenu(false);
                   onCleanCompile?.();
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                Build PDF from scratch
+                <RedoIcon />
+                PDF from scratch
               </button>
               <div className="compile-dropdown-separator" />
               <button
+                disabled={compiling}
                 onClick={() => {
                   setShowCompileMenu(false);
                   onCleanFiles?.();
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                </svg>
+                <TrashIcon />
                 Clear generated files
               </button>
             </div>
@@ -774,20 +729,7 @@ const PdfViewer = forwardRef(function PdfViewer(
         </button>
         {url && (
           <a className="pdf-header-btn pdf-download-btn" href={url} download="output.pdf" title="Download PDF">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            <DownloadIcon />
           </a>
         )}
         {numPages > 0 && (
@@ -814,20 +756,11 @@ const PdfViewer = forwardRef(function PdfViewer(
         )}
         <div className="pdf-zoom-controls">
           <button className="pdf-zoom-btn" onClick={zoomOut} title="Zoom out" disabled={scale <= MIN_SCALE}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              <line x1="8" y1="11" x2="14" y2="11" />
-            </svg>
+            <ZoomOutIcon />
           </button>
           <span className="pdf-zoom-level">{Math.round(scale * 100)}%</span>
           <button className="pdf-zoom-btn" onClick={zoomIn} title="Zoom in" disabled={scale >= MAX_SCALE}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              <line x1="11" y1="8" x2="11" y2="14" />
-              <line x1="8" y1="11" x2="14" y2="11" />
-            </svg>
+            <ZoomInIcon />
           </button>
           <button className="pdf-zoom-btn" onClick={fitWidth} title="Fit width">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -852,10 +785,7 @@ const PdfViewer = forwardRef(function PdfViewer(
             }
             title="Invert colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 3v18a9 9 0 0 1 0-18z" fill="currentColor" />
-            </svg>
+            <ContrastIcon />
           </button>
         </div>
       </div>
@@ -982,7 +912,17 @@ const PdfViewer = forwardRef(function PdfViewer(
         (tapsDiagnostics?.length || 0) === 0 &&
         hiddenBoxCount === 0 && <div className="pdf-log-panel empty">No warnings</div>}
       {showPanel === 'console' && <ConsolePanel output={consoleOutput} compiling={compiling} />}
-      {!url && !compiling && <div className="pdf-placeholder">Click "Build PDF" to generate PDF</div>}
+      {!mainFileExists && !url && !compiling && (
+        <div className="pdf-no-main-file-banner">
+          No main file found. Right-click a <code>.tex</code> file in the file tree and select "Set as Main File" to compile your project.
+        </div>
+      )}
+      {mainFileChanged && !compiling && (
+        <div className="pdf-recompile-banner">
+          Main file changed. Click "PDF" to recompile with the new main file.
+        </div>
+      )}
+      {!url && !compiling && mainFileExists && !mainFileChanged && <div className="pdf-placeholder">Click "PDF" to generate PDF</div>}
       {error && <div className="pdf-error">{error}</div>}
       <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />
     </div>

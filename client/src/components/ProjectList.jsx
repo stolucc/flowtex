@@ -3,8 +3,10 @@ import { get, post, del, getCsrfToken } from '../api.js';
 import Avatar from './Avatar.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import MfaSetupModal from './MfaSetupModal.jsx';
+import TemplateGallery from './TemplateGallery.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatRelativeTime } from '../utils/dateFormat.js';
+import { SearchIcon, FileDocumentIcon, UploadIcon, DownloadIcon, HomeIcon, LogoutIcon, TagIcon, UndoIcon, TrashIcon, DropdownCaretIcon } from './Icons.jsx';
 
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
@@ -40,6 +42,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newMenuRef = useRef(null);
   const zipInputRef = useRef(null);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [showGitHubImport, setShowGitHubImport] = useState(false);
   const [ghImportRepo, setGhImportRepo] = useState('');
   const [ghImportBranch, setGhImportBranch] = useState('');
@@ -61,6 +64,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       .then((r) => r.json())
       .then(setTags)
       .catch(() => {});
+  }, []);
+
+  // Listen for real-time invitation pushes via WebSocket
+  useEffect(() => {
+    const handler = (e) => {
+      setInvitations((inv) => {
+        if (inv.some((i) => i.id === e.detail.id)) return inv;
+        return [e.detail, ...inv];
+      });
+    };
+    window.addEventListener('ws:invitation', handler);
+    return () => window.removeEventListener('ws:invitation', handler);
   }, []);
 
   const handleCreate = async (e) => {
@@ -132,6 +147,8 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  const isOwner = (project) => project.owner_id === user?.id;
+
   const handleDelete = async (id) => {
     await del(`/api/projects/${id}`);
     setProjects((ps) => ps.filter((p) => p.id !== id));
@@ -140,7 +157,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const handleTrash = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/trash`);
-    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
+    if (isOwner(project)) {
+      setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
+    } else {
+      setProjects((ps) => ps.filter((p) => p.id !== project.id));
+    }
   };
 
   const handleRestore = async (e, project) => {
@@ -152,7 +173,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const handleArchive = async (e, project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/archive`);
-    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
+    if (isOwner(project)) {
+      setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
+    } else {
+      setProjects((ps) => ps.filter((p) => p.id !== project.id));
+    }
   };
 
   const handleUnarchive = async (e, project) => {
@@ -174,8 +199,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   const confirmDeleteProject = (e, project) => {
     e.stopPropagation();
+    const owned = isOwner(project);
     setConfirmDelete({
-      message: `Are you sure you want to permanently delete "${project.name}"?`,
+      message: owned
+        ? `Are you sure you want to permanently delete "${project.name}"?`
+        : `Leave "${project.name}"? You will lose access to this project.`,
       onConfirm: () => {
         handleDelete(project.id);
         setConfirmDelete(null);
@@ -184,18 +212,32 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   const handleAcceptInvite = async (inviteId) => {
-    const res = await post(`/api/projects/invitations/${inviteId}/accept`);
-    if (res.ok) {
-      setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
-      const projRes = await get('/api/projects');
-      setProjects(await projRes.json());
+    try {
+      const res = await post(`/api/projects/invitations/${inviteId}/accept`);
+      if (res.ok) {
+        setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+        const projRes = await get('/api/projects');
+        setProjects(await projRes.json());
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to accept invitation');
+      }
+    } catch (err) {
+      alert('Failed to accept invitation');
     }
   };
 
   const handleDeclineInvite = async (inviteId) => {
-    const res = await post(`/api/projects/invitations/${inviteId}/decline`);
-    if (res.ok) {
-      setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+    try {
+      const res = await post(`/api/projects/invitations/${inviteId}/decline`);
+      if (res.ok) {
+        setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to decline invitation');
+      }
+    } catch (err) {
+      alert('Failed to decline invitation');
     }
   };
 
@@ -344,21 +386,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     {
       id: 'all',
       label: 'All Projects',
-      icon: (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          <polyline points="9 22 9 12 15 12 15 22" />
-        </svg>
-      ),
+      icon: <HomeIcon />,
     },
     {
       id: 'yours',
@@ -423,33 +451,20 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     {
       id: 'deleted',
       label: 'Deleted Projects',
-      icon: (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-          <path d="M10 11v6" />
-          <path d="M14 11v6" />
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-        </svg>
-      ),
+      icon: <TrashIcon size={16} />,
     },
   ];
+
+  if (showTemplates) {
+    return <TemplateGallery onSelect={onSelect} onBack={() => setShowTemplates(false)} />;
+  }
 
   return (
     <div className="dashboard">
       <div className="dashboard-sidebar">
         <div className="dashboard-logo">
           <h1>FlowTex</h1>
-          <p>An online LaTeX editor</p>
+          <p>Make Your Tex Flow</p>
         </div>
 
         <div className="new-project-btn-group" ref={newMenuRef}>
@@ -470,9 +485,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             New Project
           </button>
           <button className="new-project-menu-toggle" onClick={() => setShowNewMenu(!showNewMenu)}>
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M2 3l3 4 3-4z" />
-            </svg>
+            <DropdownCaretIcon />
           </button>
           {showNewMenu && (
             <div className="new-project-dropdown-menu">
@@ -482,19 +495,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   handleCreate({ preventDefault: () => {} });
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
+                <FileDocumentIcon size={14} />
                 Blank Project
               </button>
               <button
@@ -503,20 +504,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   zipInputRef.current?.click();
                 }}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
+                <UploadIcon />
                 Upload ZIP
               </button>
               <button onClick={openGitHubImport}>
@@ -524,6 +512,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                 </svg>
                 Import from GitHub
+              </button>
+              <button onClick={() => { setShowNewMenu(false); setShowTemplates(true); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                </svg>
+                From Template
               </button>
             </div>
           )}
@@ -657,20 +654,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               </svg>
             </button>
             <button className="sidebar-icon-btn" onClick={onLogout} title="Log out">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
+              <LogoutIcon />
             </button>
           </div>
         )}
@@ -685,19 +669,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           </h2>
         </div>
         <div className="project-search-bar">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <SearchIcon />
           <input
             type="text"
             placeholder="Search projects..."
@@ -715,37 +687,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               }}
               title="Download"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
+              <DownloadIcon />
               Download
             </button>
             <div className="bulk-tag-wrapper" ref={bulkTagRef}>
               <button className="bulk-action-btn" onClick={() => setShowBulkTagMenu((v) => !v)} title="Assign tag">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-                  <line x1="7" y1="7" x2="7.01" y2="7" />
-                </svg>
+                <TagIcon />
                 Tag
               </button>
               {showBulkTagMenu && (
@@ -828,19 +775,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   }}
                   title="Restore"
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="1 4 1 10 7 10" />
-                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                  </svg>
+                  <UndoIcon />
                   Restore
                 </button>
                 <button
@@ -858,21 +793,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   }
                   title="Delete permanently"
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    <path d="M10 11v6" />
-                    <path d="M14 11v6" />
-                  </svg>
+                  <TrashIcon />
                   Delete permanently
                 </button>
               </>
@@ -892,21 +813,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 }
                 title="Delete"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                </svg>
+                <TrashIcon />
                 Delete
               </button>
             )}
@@ -916,7 +823,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           </div>
         )}
 
-        {invitations.length > 0 && filter === 'all' && (
+        {invitations.length > 0 && (
           <div className="invitations-section">
             <h3 className="invitations-title">Pending Invitations</h3>
             <div className="invitations-list">
@@ -1039,41 +946,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     {filter === 'deleted' ? (
                       <>
                         <button className="project-action-btn" onClick={(e) => handleRestore(e, p)} title="Restore">
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="1 4 1 10 7 10" />
-                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                          </svg>
+                          <UndoIcon size={15} />
                         </button>
                         <button
                           className="project-action-btn project-action-danger"
                           onClick={(e) => confirmDeleteProject(e, p)}
                           title="Delete permanently"
                         >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                          </svg>
+                          <TrashIcon size={15} />
                         </button>
                       </>
                     ) : (
@@ -1101,20 +981,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                           }}
                           title="Download ZIP"
                         >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
+                          <DownloadIcon size={15} />
                         </button>
                         {p.archived ? (
                           <button
@@ -1169,22 +1036,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                           }}
                           title="Delete"
                         >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                          </svg>
+                          <TrashIcon size={15} />
                         </button>
                       </>
                     )}

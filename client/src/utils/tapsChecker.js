@@ -3,7 +3,7 @@
  * Checks project files against TAPS requirements.
  * Returns an array of { file, line, severity, message }.
  */
-import { resolveUsedFiles } from './texDeps.js';
+import { resolveUsedFiles } from '@shared/texDeps.js';
 
 const APPROVED_PACKAGES = new Set([
   'abstract',

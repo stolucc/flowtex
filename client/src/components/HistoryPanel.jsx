@@ -3,6 +3,7 @@ import { get, post } from '../api.js';
 import { getColor } from './Avatar.jsx';
 import lineDiff from '../utils/lineDiff.js';
 import { formatRelativeTime as formatDate } from '../utils/dateFormat.js';
+import { CloseIcon, UndoIcon } from './Icons.jsx';
 
 function formatTime(dateStr) {
   const d = new Date(dateStr);
@@ -389,19 +390,7 @@ export default function HistoryPanel({
               <option value={600}>10 min</option>
             </select>
             <button className="history-close-btn" onClick={onClose} title="Close history">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
+              <CloseIcon />
             </button>
           </div>
         </div>
@@ -439,19 +428,7 @@ export default function HistoryPanel({
         <div className="modal-overlay" onClick={() => setConfirmRestore(false)}>
           <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>
             <div className="history-restore-modal-icon">
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
+              <UndoIcon size={32} stroke="var(--accent)" />
             </div>
             <h2>Restore to this snapshot?</h2>
             <p className="history-restore-modal-desc">

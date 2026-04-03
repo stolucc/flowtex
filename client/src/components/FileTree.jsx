@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
+import { CloseIcon, FolderIcon } from './Icons.jsx';
 
 function buildTree(files, emptyFolders) {
   const root = { name: '', children: {}, files: [] };
@@ -99,6 +100,7 @@ export default function FileTree({
   onDownload,
   onPrettyPrint,
   onCollapse,
+  onUploadBinary,
 }) {
   const [newFileName, setNewFileName] = useState('');
   const [adding, setAdding] = useState(false);
@@ -326,11 +328,7 @@ export default function FileTree({
       ];
       const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
       if (binaryExts.includes(ext) && !file.type.startsWith('text/')) {
-        if (existing) {
-          onOverwrite?.(existing.id, '');
-        } else {
-          onCreate(file.name, '');
-        }
+        onUploadBinary?.(file, file.name);
       } else {
         const reader = new FileReader();
         reader.onload = () => {
@@ -343,7 +341,7 @@ export default function FileTree({
         reader.readAsText(file);
       }
     },
-    [onCreate, onOverwrite],
+    [onCreate, onOverwrite, onUploadBinary],
   );
 
   const pendingDrops = useRef([]);
@@ -399,18 +397,7 @@ export default function FileTree({
             <div className="file-tree-item file-tree-folder" style={{ paddingLeft: 8 + depth * 14 }}>
               <span className="file-tree-folder-arrow">▾</span>
               <span className="file-tree-folder-icon">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
+                <FolderIcon size={14} />
               </span>
               <form
                 className="file-tree-rename-form"
@@ -440,18 +427,7 @@ export default function FileTree({
             >
               <span className="file-tree-folder-arrow">{collapsed ? '▸' : '▾'}</span>
               <span className="file-tree-folder-icon">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
+                <FolderIcon size={14} />
               </span>
               <span className="file-tree-name">{node.name}</span>
               <button
@@ -580,18 +556,7 @@ export default function FileTree({
             }}
             title="New folder"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
+            <FolderIcon size={14} />
           </button>
           <button
             className="file-tree-add"
@@ -606,19 +571,7 @@ export default function FileTree({
           </button>
           {onCollapse && (
             <button className="file-tree-add" onClick={onCollapse} title="Close file panel">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
+              <CloseIcon />
             </button>
           )}
         </div>

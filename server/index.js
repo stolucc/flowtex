@@ -58,7 +58,7 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'ws:', 'wss:'],
+        connectSrc: ["'self'", ...(isProduction ? [] : ['ws:', 'wss:'])],
         fontSrc: ["'self'", 'data:'],
         objectSrc: ["'self'", 'blob:'],
         frameSrc: ["'self'", 'blob:'],
@@ -108,7 +108,11 @@ app.use(
 );
 
 // ── Session ─────────────────────────────────────────────────────────────
-const SESSION_SECRET = process.env.SESSION_SECRET || 'flowtex-dev-secret-change-in-production';
+if (!process.env.SESSION_SECRET) {
+  logger.fatal("SESSION_SECRET must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\"");
+  process.exit(1);
+}
+const SESSION_SECRET = process.env.SESSION_SECRET;
 const PgStore = pgSession(session);
 const sessionMiddleware = session({
   name: '__session',
@@ -125,6 +129,20 @@ const sessionMiddleware = session({
   },
 });
 app.use(sessionMiddleware);
+
+// Enforce absolute session lifetime (7 days) regardless of activity
+const ABSOLUTE_SESSION_MAX = 7 * 24 * 60 * 60 * 1000;
+app.use((req, res, next) => {
+  if (req.session.userId && req.session.createdAt) {
+    if (Date.now() - req.session.createdAt > ABSOLUTE_SESSION_MAX) {
+      return req.session.destroy(() => res.status(401).json({ error: 'Session expired' }));
+    }
+  }
+  if (req.session.userId && !req.session.createdAt) {
+    req.session.createdAt = Date.now();
+  }
+  next();
+});
 
 // ── CSRF protection via double-submit token ─────────────────────────────
 app.use((req, res, next) => {
@@ -210,6 +228,7 @@ app.use('/api/setup', setupRouter);
 // Upload rate limits (stricter — 10 per 15 minutes)
 app.use('/api/projects/from-zip', uploadLimiter);
 app.post('/api/projects/:id/upload-zip', uploadLimiter);
+app.post('/api/projects/:id/upload-file', uploadLimiter);
 
 // Protected API routes (general rate limit)
 app.use('/api/', apiLimiter);
@@ -235,7 +254,7 @@ app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+  res.json({ status: 'ok' });
 });
 
 app.get('/api/ready', async (req, res) => {
@@ -252,6 +271,14 @@ const clientDistPrimary = path.join(__dirname, '..', 'client', 'dist');
 const clientDistFallback = path.join(__dirname, 'public');
 const clientDist = fs.existsSync(clientDistPrimary) ? clientDistPrimary : clientDistFallback;
 app.use(express.static(clientDist));
+
+// Global error handler — catches unhandled errors in route handlers
+app.use((err, req, res, _next) => {
+  logger.error({ err, method: req.method, url: req.url }, 'Unhandled route error');
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({ error: 'Internal server error' });
+  }
+});
 
 // Block common scanner probes — return 404 instead of SPA fallback
 const blockedPathPattern = /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
@@ -330,14 +357,8 @@ process.on('SIGINT', () => shutdown('SIGINT'));
       process.exit(1);
     }
   }
-  // Any environment: reject known default/weak secrets
-  const defaults = ['flowtex-dev-secret-change-in-production'];
-  if (isProduction && defaults.includes(process.env.SESSION_SECRET)) {
-    logger.fatal('SESSION_SECRET must be changed from the default in production');
-    process.exit(1);
-  }
   // Warn on short secrets (< 32 bytes = 64 hex chars)
-  if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32) {
+  if (process.env.SESSION_SECRET.length < 32) {
     logger.warn('SESSION_SECRET is very short (< 32 chars) — use at least 64 hex chars');
   }
   if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
@@ -349,9 +370,14 @@ process.on('SIGINT', () => shutdown('SIGINT'));
   }
 }
 
-// Initialize database schema, then start server
+// Initialize database schema, seed templates, then start server
+import seedPreloadedTemplates from './utils/seedTemplates.js';
+import { initCrypto } from './utils/crypto.js';
 db.initSchema()
+  .then(() => initCrypto())
+  .then(() => seedPreloadedTemplates())
   .then(() => {
+    db.startCleanupJob();
     server.listen(PORT, () => {
       const proto = useHttps ? 'https' : 'http';
       logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);
