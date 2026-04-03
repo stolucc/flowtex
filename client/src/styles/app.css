@@ -1842,12 +1842,15 @@ html {
 
 /* Connection lost banner */
 .ws-disconnected-banner {
-  background: #d97706;
-  color: #fff;
+  background: var(--bg-surface);
+  border: 1px solid var(--yellow);
+  border-radius: var(--radius);
+  color: var(--yellow);
   text-align: center;
-  padding: 6px 12px;
+  padding: 12px 16px;
+  margin: 8px 12px;
   font-size: 13px;
-  font-weight: 500;
+  line-height: 1.5;
   z-index: 100;
   flex-shrink: 0;
 }
@@ -3451,8 +3454,8 @@ html {
 }
 
 .pdf-stop-btn {
-  background: var(--red, #e06c75);
-  color: #fff;
+  background: var(--yellow, #f9e2af);
+  color: #1e1e2e;
   border: none;
   width: 28px;
   height: 28px;
@@ -3531,9 +3534,9 @@ html {
 }
 
 .pdf-header-btn.active {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .console-badge {
@@ -4862,6 +4865,46 @@ html {
 .modal-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Shared simple modal header (shortcuts, about) */
+.shortcuts-modal .modal-header,
+.about-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.shortcuts-modal .modal-header h2,
+.about-modal .modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+.shortcuts-modal .modal-close,
+.about-modal .modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.shortcuts-modal .modal-close:hover,
+.about-modal .modal-close:hover {
+  color: var(--text-primary);
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 
 /* Word Count Modal */

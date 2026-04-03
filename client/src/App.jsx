@@ -921,6 +921,7 @@ function AppInner() {
                 const res = await post(`/api/compile/${project.id}/clean`);
                 const data = await res.json();
                 setConsoleOutput(`Deleted ${data.deleted} generated file(s).`);
+                setPdfUrl(null);
                 setGeneratedFiles([]);
                 setActiveGenFile(null);
               }}

@@ -19,6 +19,8 @@ vi.mock('../compiler.js', () => ({
   synctexInverse: vi.fn(),
   stopCompilation: vi.fn(),
   syncFilesToDisk: vi.fn(),
+  invalidateFileCache: vi.fn(),
+  GENERATED_EXTS: new Set(['.aux', '.log', '.fls', '.fdb_latexmk', '.synctex.gz', '.synctex', '.bbl', '.blg', '.out', '.toc', '.lof', '.lot', '.nav', '.snm', '.vrb', '.idx', '.ind', '.ilg', '.glo', '.gls', '.glg', '.cb', '.cb2', '.bcf', '.run.xml', '.xdv']),
   TEX_PATHS: '/usr/local/texlive/bin',
   getTexPaths: vi.fn(() => '/usr/local/texlive/bin'),
   detectTexDistributions: vi.fn(() => [{ id: 'texlive2024', name: 'TeX Live 2024' }]),
@@ -442,18 +444,19 @@ describe('POST /:projectId/clean', () => {
     expect(res.body).toEqual({ deleted: 0 });
   });
 
-  it('only deletes files for the current user', async () => {
+  it('deletes all generated files regardless of user suffix', async () => {
     fs.existsSync.mockReturnValueOnce(true);
     fs.readdirSync.mockReturnValueOnce([
       'main_user-1.aux',
-      'main_otheruse.aux', // different user
+      'main_otheruse.aux',
+      'main.aux', // unsuffixed
     ]);
     fs.unlinkSync.mockReturnValue(undefined);
 
     const res = mockRes();
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
-    expect(res.body.deleted).toBe(1);
+    expect(res.body.deleted).toBe(3);
   });
 
   it('returns 403 for non-members', async () => {

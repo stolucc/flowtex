@@ -186,6 +186,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const pageInfoRef = useRef([]);
   const pdfDocRef = useRef(null);
   const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [fitMode, setFitMode] = useState(null); // 'width' | 'page' | null
   const visualScaleRef = useRef(DEFAULT_SCALE); // tracks live pinch scale for CSS transform
   const commitTimerRef = useRef(null);
   const baseScaleOnPinchRef = useRef(DEFAULT_SCALE); // the committed scale when pinch started
@@ -558,6 +559,7 @@ const PdfViewer = forwardRef(function PdfViewer(
         container.style.transform = '';
         container.style.transformOrigin = '';
         baseScaleOnPinchRef.current = newVisual;
+        setFitMode(null);
         setScale(newVisual);
       }, 200);
     };
@@ -601,11 +603,12 @@ const PdfViewer = forwardRef(function PdfViewer(
     baseScaleOnPinchRef.current = s;
     setScale(s);
   }, []);
-  const zoomIn = () => commitScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE));
-  const zoomOut = () => commitScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE));
+  const zoomIn = () => { setFitMode(null); commitScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE)); };
+  const zoomOut = () => { setFitMode(null); commitScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE)); };
 
   const fitWidth = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
+    setFitMode('width');
     pdfDocRef.current.getPage(1).then((page) => {
       const vp = page.getViewport({ scale: 1 });
       const containerWidth = containerRef.current.clientWidth - 32; // subtract padding
@@ -615,6 +618,7 @@ const PdfViewer = forwardRef(function PdfViewer(
 
   const fitPage = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
+    setFitMode('page');
     pdfDocRef.current.getPage(1).then((page) => {
       const vp = page.getViewport({ scale: 1 });
       const containerWidth = containerRef.current.clientWidth - 32;
@@ -790,7 +794,7 @@ const PdfViewer = forwardRef(function PdfViewer(
           <button className="pdf-zoom-btn" onClick={zoomIn} title="Zoom in" disabled={scale >= MAX_SCALE}>
             <ZoomInIcon />
           </button>
-          <button className="pdf-zoom-btn" onClick={fitWidth} title="Fit width">
+          <button className={`pdf-zoom-btn ${fitMode === 'width' ? 'active' : ''}`} onClick={fitWidth} title="Fit width">
             <svg
               width="14"
               height="14"
@@ -806,7 +810,7 @@ const PdfViewer = forwardRef(function PdfViewer(
               <polyline points="21,8 21,12 21,16" />
             </svg>
           </button>
-          <button className="pdf-zoom-btn" onClick={fitPage} title="Fit page">
+          <button className={`pdf-zoom-btn ${fitMode === 'page' ? 'active' : ''}`} onClick={fitPage} title="Fit page">
             <svg
               width="14"
               height="14"

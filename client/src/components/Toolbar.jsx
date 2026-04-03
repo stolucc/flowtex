@@ -220,7 +220,6 @@ export default function Toolbar({
 
   const helpMenuItems = [
     { label: 'Keyboard Shortcuts', action: () => onHelp?.('shortcuts') },
-    { label: 'LaTeX Reference', action: () => window.open('https://www.overleaf.com/learn', '_blank') },
     { label: 'About FlowTex', action: () => onHelp?.('about') },
   ];
 
