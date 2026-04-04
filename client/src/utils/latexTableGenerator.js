@@ -78,55 +78,43 @@ export function extractColParts(spec, maxCols) {
 export default function generateLatexTable({
   rows,
   cols,
-  alignment,
+  colSettings,
   borders,
   headerRow,
   caption,
+  captionPos = 'top',
+  captionVAlign = 'center',
   captionText,
   label,
   env,
+  placement = 'htbp',
   centering,
   boldHeader,
   zebra,
   cells,
-  rawColSpec,
   longtablePreamble,
-  alignments,
   merges,
   vlines,
+  booktabsSep,
+  clines,
 }) {
-  // Build column spec: preserve original if column count unchanged, otherwise generate new
+  // Build column spec from per-column settings
+  const sideCaption = (captionPos === 'left' || captionPos === 'right') && env !== 'longtable';
+  // Derive a default alignment for multicolumn/multirow fallback
+  const alignment = colSettings?.[0]?.align || 'c';
   let colSpec;
-  if (rawColSpec && alignments && alignments.length === cols) {
-    // Rebuild from original spec: strip all | then re-add based on current vlines
-    const stripped = rawColSpec.replace(/\|/g, '');
-    const vl = vlines || Array(cols + 1).fill(false);
-    // Parse individual column specs from stripped string
-    const colParts = extractColParts(stripped, cols);
-    let spec = '';
-    for (let c = 0; c < colParts.length; c++) {
-      if (vl[c]) spec += '|';
-      spec += colParts[c];
-    }
-    if (vl[colParts.length]) spec += '|';
-    colSpec = spec;
-  } else {
-    // Build per-column spec
+  {
     let colSpecs;
     if (env === 'tabularx') {
       colSpecs = Array(cols).fill('X');
     } else {
-      // Account for \tabcolsep padding (~6pt per side per column)
-      const totalWidth = Math.max(0.5, 0.97 - cols * 0.035);
-      const colWidth = (totalWidth / cols).toFixed(2);
-      const w = `${colWidth}\\textwidth`;
-      if (alignment === 'c') {
-        colSpecs = Array(cols).fill(`>{\\centering\\arraybackslash}p{${w}}`);
-      } else if (alignment === 'r') {
-        colSpecs = Array(cols).fill(`>{\\raggedleft\\arraybackslash}p{${w}}`);
-      } else {
-        colSpecs = Array(cols).fill(`p{${w}}`);
-      }
+      colSpecs = Array.from({ length: cols }, (_, i) => {
+        const cs = colSettings?.[i] || { align: 'c' };
+        if (cs.align === 'p' && cs.width) {
+          return `p{${cs.width}}`;
+        }
+        return cs.align || 'l';
+      });
     }
     // Interleave with vertical lines
     const vl = vlines || Array(cols + 1).fill(false);
@@ -149,14 +137,25 @@ export default function generateLatexTable({
 
   // Preamble — float wrapper
   const needsFloat = caption || label;
+  const isSide = (captionPos === 'left' || captionPos === 'right') && env !== 'longtable' && needsFloat;
   if (needsFloat && env !== 'longtable') {
-    lines.push('\\begin{table}[htbp]');
-    if (centering) lines.push('\\centering');
-    if (zebra) lines.push('\\rowcolors{2}{gray!10}{}');
-    if (caption) lines.push(`\\caption{${capText}}`);
-    if (label) lines.push(`\\label{${label || 'tab:mytable'}}`);
+    if (isSide) {
+      // floatrow package: \ttabbox with capposition=beside
+      lines.push(`\\begin{table}[${placement}]`);
+      lines.push(`\\floatsetup{capposition=beside,capbesideposition={${captionPos},${captionVAlign}}}`);
+      if (zebra) lines.push('\\rowcolors{2}{gray!10}{}');
+      // \ttabbox{caption}{tabular} — caption and tabular go inside handleInsert closing
+    } else {
+      if (captionPos === 'bottom') {
+        lines.push('\\begingroup\\floatsetup[table]{capposition=bottom}');
+      }
+      lines.push(`\\begin{table}[${placement}]`);
+      if (centering) lines.push('\\centering');
+      if (zebra) lines.push('\\rowcolors{2}{gray!10}{}');
+      if (caption && captionPos !== 'bottom') lines.push(`\\caption{${capText}}`);
+      if (label && captionPos !== 'bottom') lines.push(`\\label{${label || 'tab:mytable'}}`);
+    }
   } else {
-    if (centering) lines.push('\\begin{center}');
     if (zebra) lines.push('\\rowcolors{2}{gray!10}{}');
   }
 
@@ -166,19 +165,74 @@ export default function generateLatexTable({
     lines.push('\\renewcommand{\\arraystretch}{1.3}');
   }
 
+  // Side caption: wrap in \ttabbox{caption}{tabular}
+  if (isSide) {
+    let capBlock = '';
+    if (caption) capBlock += `\\caption{${capText}}`;
+    if (label) capBlock += `\\label{${label || 'tab:mytable'}}`;
+    lines.push(`\\ttabbox{${capBlock}}{%`);
+  }
+
   // Begin environment
   if (env === 'tabularx') {
-    lines.push(`\\begin{tabularx}{\\textwidth}{${colSpec}}`);
+    const tabularxWidth = sideCaption ? '0.55\\textwidth' : '\\textwidth';
+    lines.push(`\\begin{tabularx}{${tabularxWidth}}{${colSpec}}`);
   } else if (env === 'longtable') {
-    lines.push(`\\begin{longtable}{${colSpec}}`);
+    // longtable uses [c], [l], or [r] for horizontal alignment, not [htbp]
+    const ltAlign = placement === 'l' || placement === 'r' ? placement : 'c';
+    lines.push(`\\begin{longtable}[${ltAlign}]{${colSpec}}`);
     if (longtablePreamble) {
       // Preserve existing longtable preamble (caption, firsthead, endhead, endfoot, endlastfoot)
       lines.push(longtablePreamble.trim());
     } else {
+      // Build the header row content for reuse in firsthead/endhead
+      const headerParts = [];
+      if (headerRow) {
+        for (let c = 0; c < cols; c++) {
+          const existingRow = cells && cells[0];
+          let content = existingRow && c < existingRow.length && existingRow[c] != null ? existingRow[c] : '';
+          if (content) {
+            if (boldHeader && !/\\textbf\{/.test(content)) content = `\\textbf{${content}}`;
+            else if (!boldHeader && /\\textbf\{/.test(content)) content = content.replace(/\\textbf\{(.*?)\}/, '$1');
+          } else {
+            const text = `Header ${c + 1}`;
+            content = boldHeader ? `\\textbf{${text}}` : text;
+          }
+          headerParts.push(content);
+        }
+      }
+      const headerLine = headerParts.join(' & ') + ' \\\\';
+      const topRule = isBooktabs ? '\\toprule' : (hlineTop ? '\\hline' : '');
+      const midRule = isBooktabs ? '\\midrule' : (hlineHeader ? '\\hline' : '');
+
+      // \endfirsthead — first page header with full caption
       if (caption) lines.push(`\\caption{${capText}}`);
       if (label) lines.push(`\\label{${label || 'tab:mytable'}}`);
-      if (isBooktabs) lines.push('\\toprule');
-      else if (hlineTop) lines.push('\\hline');
+      if (caption || label) lines.push('\\\\');
+      if (topRule) lines.push(topRule);
+      if (headerRow) {
+        lines.push(headerLine);
+        if (midRule) lines.push(midRule);
+      }
+      lines.push('\\endfirsthead');
+
+      // \endhead — continuation pages header
+      if (topRule) lines.push(topRule);
+      if (headerRow) {
+        lines.push(headerLine);
+        if (midRule) lines.push(midRule);
+      }
+      lines.push('\\endhead');
+
+      // \endfoot — bottom of each page (except last)
+      if (isBooktabs) lines.push('\\midrule');
+      else if (hlineBottom) lines.push('\\hline');
+      lines.push('\\endfoot');
+
+      // \endlastfoot — bottom of last page
+      if (isBooktabs) lines.push('\\bottomrule');
+      else if (hlineBottom) lines.push('\\hline');
+      lines.push('\\endlastfoot');
     }
   } else {
     lines.push(`\\begin{${env}}{${colSpec}}`);
@@ -188,8 +242,8 @@ export default function generateLatexTable({
   else if (hlineTop && env !== 'longtable') lines.push('\\hline');
 
   // Rows — preserve existing cell content where available
-  // For longtable with preamble, skip the header row (it's already in the preamble)
-  const startRow = longtablePreamble && headerRow ? 1 : 0;
+  // For longtable, skip the header row (it's in the preamble sections)
+  const startRow = env === 'longtable' && headerRow ? 1 : 0;
   const activeMerges = merges || [];
   for (let r = startRow; r < rows; r++) {
     const isHeader = headerRow && r === 0;
@@ -289,18 +343,48 @@ export default function generateLatexTable({
       else if (isHeader && hlineHeader) lines.push('\\hline');
       else if (!isHeader && hlineAll && r < rows - 1) lines.push('\\hline');
     }
+    // Booktabs body-row separator (between non-header rows, not after last row)
+    if (isBooktabs && !isHeader && !isLastRow && booktabsSep && booktabsSep !== 'none' && !needsCline) {
+      if (booktabsSep === 'midrule') lines.push('\\midrule');
+      else if (booktabsSep === 'addlinespace') lines.push('\\addlinespace');
+    }
+
+    // User-defined partial horizontal rules (\cline or \cmidrule)
+    const activeClines = clines || [];
+    const rowClines = activeClines.filter((cl) => cl.row === r);
+    for (const cl of rowClines) {
+      const from = cl.fromCol + 1; // 1-based
+      const to = cl.toCol + 1;
+      if (isBooktabs) {
+        const trim = cl.trim ? `(${cl.trim})` : '';
+        lines.push(`\\cmidrule${trim}{${from}-${to}}`);
+      } else {
+        lines.push(`\\cline{${from}-${to}}`);
+      }
+    }
   }
 
-  if (isBooktabs && !longtablePreamble) lines.push('\\bottomrule');
-  else if (hlineBottom && !longtablePreamble) lines.push('\\hline');
+  // longtable bottom rule is in \endlastfoot; for preserved preamble, also skip
+  if (env !== 'longtable') {
+    if (isBooktabs) lines.push('\\bottomrule');
+    else if (hlineBottom) lines.push('\\hline');
+  }
 
   // End environment
   lines.push(`\\end{${env === 'tabularx' ? 'tabularx' : env}}`);
 
   if (needsFloat && env !== 'longtable') {
+    if (isSide) {
+      // Close \ttabbox second brace
+      lines.push('}');
+    } else {
+      if (caption && captionPos === 'bottom') lines.push(`\\caption{${capText}}`);
+      if (label && captionPos === 'bottom') lines.push(`\\label{${label || 'tab:mytable'}}`);
+    }
     lines.push('\\end{table}');
-  } else if (centering && env !== 'longtable') {
-    lines.push('\\end{center}');
+    if (captionPos === 'bottom') {
+      lines.push('\\endgroup');
+    }
   }
 
   // Reset arraystretch if we changed it (float/center groups handle scoping, but be safe for longtable)

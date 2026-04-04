@@ -1221,7 +1221,7 @@ export function getStructure(tree) {
  * Parse a table from its AST node(s) into structured data.
  * Accepts the result of findTableAtPos() or a single environment node.
  */
-export function parseTable(tableInfo, source) {
+export function parseTable(tableInfo, source, preambleSource) {
   const inner = tableInfo.inner || tableInfo;
   const outer = tableInfo.outer || null;
   const text = source.slice(tableInfo.from ?? inner.from, tableInfo.to ?? inner.to);
@@ -1234,8 +1234,10 @@ export function parseTable(tableInfo, source) {
     headerRow: false,
     boldHeader: false,
     caption: false,
+    captionPos: 'top',
     captionText: '',
     label: '',
+    placement: 'htbp',
     centering: false,
     zebra: false,
     booktabs: false,
@@ -1243,6 +1245,7 @@ export function parseTable(tableInfo, source) {
     cols: 0,
     cells: [],
     merges: [], // Array of { row, col, rowSpan, colSpan, align }
+    clines: [], // Array of { row, fromCol, toCol } — partial horizontal rules after a row (0-based)
     // Position info for replacement
     from: tableInfo.from ?? inner.from,
     to: tableInfo.to ?? inner.to,
@@ -1261,19 +1264,27 @@ export function parseTable(tableInfo, source) {
 
   if (colSpecArg) {
     result.rawColSpec = colSpecArg.text;
-    // Parse custom column types from preamble
-    const customTypes = parseCustomColumnTypes(source);
+    // Parse custom column types from preamble (use main file preamble if provided)
+    const customTypes = parseCustomColumnTypes(preambleSource || source);
     result.customColumnTypes = customTypes.size > 0 ? Object.fromEntries(customTypes) : undefined;
     parseColumnSpec(colSpecArg.text, result, customTypes);
   }
 
   // ── Scan the outer float wrapper for caption, label, centering ──
   if (outer) {
+    // Detect float placement [htbp], [H], etc.
+    const outerArgs = outer.args || [];
+    const optArg = outerArgs.find((a) => a.type === N.OPTIONAL);
+    if (optArg && optArg.text) {
+      result.placement = optArg.text.trim();
+    }
+    let captionFrom = null;
     walk(outer, (node) => {
       if (node === inner) return false; // don't recurse into the tabular itself
       if (node.type === N.COMMAND) {
         if (node.name === 'caption' || node.name === 'caption*') {
           result.caption = true;
+          captionFrom = node.from;
           const arg = node.args.find((a) => a.type === N.GROUP);
           result.captionText = arg ? arg.text : '';
         }
@@ -1289,6 +1300,59 @@ export function parseTable(tableInfo, source) {
         }
       }
     });
+    // Detect caption position
+    // Check for floatrow \floatsetup inside or before the table
+    const outerText = source.slice(outer.from, outer.to);
+    const lookbackStart = Math.max(0, outer.from - 200);
+    const beforeText = source.slice(lookbackStart, outer.from);
+    // Try inside the table first (new format), then before (legacy)
+    const besideMatch =
+      outerText.match(/\\floatsetup(?:\[table\])?\{[^}]*capbesideposition=\{(\w+),(\w+)/) ||
+      beforeText.match(/\\floatsetup\[table\]\{[^}]*capbesideposition=\{(\w+),(\w+)/);
+    const besideInBefore = besideMatch && !outerText.match(/\\floatsetup(?:\[table\])?\{[^}]*capbesideposition=/);
+    if (besideMatch) {
+      result.captionPos = besideMatch[1] === 'left' ? 'left' : 'right';
+      result.captionVAlign = besideMatch[2] || 'center';
+      // If legacy format (before the table), expand replacement range
+      if (besideInBefore) {
+        const floatsetupIdx = beforeText.lastIndexOf('\\floatsetup');
+        if (floatsetupIdx >= 0) {
+          result.from = lookbackStart + floatsetupIdx;
+        }
+      }
+      // Detect caption/label from \ttabbox{...} if walker didn't find them
+      if (!result.caption) {
+        const ttabMatch = outerText.match(/\\ttabbox\s*\{\\caption\{([^}]*)\}/);
+        if (ttabMatch) {
+          result.caption = true;
+          result.captionText = ttabMatch[1];
+        }
+      }
+      if (!result.label) {
+        const ttabLabel = outerText.match(/\\label\{([^}]*)\}/);
+        if (ttabLabel) result.label = ttabLabel[1];
+      }
+    } else {
+      // Check for \begingroup\floatsetup[table]{capposition=bottom} before the table
+      const bottomGroupMatch = beforeText.match(/\\begingroup\s*\\floatsetup\[table\]\{capposition=bottom\}\s*$/);
+      if (bottomGroupMatch) {
+        result.captionPos = 'bottom';
+        // Expand from to include the \begingroup\floatsetup
+        const groupIdx = beforeText.lastIndexOf('\\begingroup');
+        if (groupIdx >= 0) {
+          result.from = lookbackStart + groupIdx;
+        }
+        // Expand to to include the \endgroup after \end{table}
+        const afterStart = outer.to;
+        const afterText = source.slice(afterStart, afterStart + 50);
+        const endgroupMatch = afterText.match(/^\s*\\endgroup/);
+        if (endgroupMatch) {
+          result.to = afterStart + endgroupMatch[0].length;
+        }
+      } else if (result.caption && captionFrom !== null) {
+        result.captionPos = captionFrom < inner.from ? 'top' : 'bottom';
+      }
+    }
   }
 
   // Also check inside longtable for caption/label (they go inside)
@@ -1321,9 +1385,11 @@ export function parseTable(tableInfo, source) {
  */
 function parseColumnSpec(spec, result, customTypes) {
   const alignments = [];
+  const colWidths = []; // track p{width} values per column
   const vlinePositions = []; // track which positions have |
   let hasVerticalBars = false;
   let pendingVline = false;
+  let pendingModifier = ''; // content of >{ ... } before a column
   let i = 0;
 
   while (i < spec.length) {
@@ -1341,28 +1407,65 @@ function parseColumnSpec(spec, result, customTypes) {
     // Simple alignment: l, c, r, X (tabularx)
     if ('lcrX'.includes(ch)) {
       alignments.push(ch === 'X' ? 'c' : ch);
+      colWidths.push(null);
+      pendingModifier = '';
       i++;
       continue;
     }
 
-    // Paragraph columns: p{width}, m{width}, b{width}
-    // Also uppercase variants as fallback (when not defined via \newcolumntype)
+    // Paragraph columns: p{width}, m{width}, b{width} and uppercase P{}, M{}, B{}
     if (
-      'pmbPMBLRC'.includes(ch) &&
+      'pmbPMB'.includes(ch) &&
       !(customTypes && customTypes.has(ch)) &&
       i + 1 < spec.length &&
       spec[i + 1] === '{'
     ) {
-      const align = ch === 'R' ? 'r' : ch === 'C' || ch === 'P' ? 'c' : 'l';
-      alignments.push(align);
+      // For paragraph-type columns, store 'p' as alignment so the table
+      // builder knows it's a fixed-width column (not just left-aligned).
+      alignments.push('p');
+      pendingModifier = '';
       i++;
-      // Skip {width}
+      // Extract {width}
+      let width = '';
       if (i < spec.length && spec[i] === '{') {
         let depth = 1;
         i++;
         while (i < spec.length && depth > 0) {
           if (spec[i] === '{') depth++;
-          if (spec[i] === '}') depth--;
+          else if (spec[i] === '}') depth--;
+          if (depth > 0) width += spec[i];
+          i++;
+        }
+      }
+      colWidths.push(width || null);
+      continue;
+    }
+
+    // Common custom column types (L, R, C from ragged2e, S from siunitx, W/D from array)
+    // that are NOT in customTypes (e.g. defined in another file). Treat as simple alignment.
+    if ('LRCSDW'.includes(ch) && !(customTypes && customTypes.has(ch))) {
+      const fallbackAlign = ch === 'R' ? 'r' : ch === 'L' ? 'l' : 'c';
+      alignments.push(fallbackAlign);
+      colWidths.push(null);
+      pendingModifier = '';
+      i++;
+      // Skip optional [...] (e.g. S[table-format=2.1])
+      if (i < spec.length && spec[i] === '[') {
+        let depth = 1;
+        i++;
+        while (i < spec.length && depth > 0) {
+          if (spec[i] === '[') depth++;
+          else if (spec[i] === ']') depth--;
+          i++;
+        }
+      }
+      // Skip optional {arg} (some custom types take a width or format arg)
+      if (i < spec.length && spec[i] === '{') {
+        let depth = 1;
+        i++;
+        while (i < spec.length && depth > 0) {
+          if (spec[i] === '{') depth++;
+          else if (spec[i] === '}') depth--;
           i++;
         }
       }
@@ -1371,16 +1474,20 @@ function parseColumnSpec(spec, result, customTypes) {
 
     // Column modifier: >{...} or <{...} or @{...} or !{...}
     if ('><!@'.includes(ch)) {
+      const isPrefix = ch === '>';
+      let modContent = '';
       i++;
       if (i < spec.length && spec[i] === '{') {
         let depth = 1;
         i++;
         while (i < spec.length && depth > 0) {
           if (spec[i] === '{') depth++;
-          if (spec[i] === '}') depth--;
+          else if (spec[i] === '}') depth--;
+          if (depth > 0) modContent += spec[i];
           i++;
         }
       }
+      if (isPrefix) pendingModifier = modContent;
       continue;
     }
 
@@ -1446,11 +1553,16 @@ function parseColumnSpec(spec, result, customTypes) {
   result.alignments = alignments;
   result.cols = alignments.length || result.cols;
 
-  // Determine dominant alignment
+  // Always export colWidths so mixed p/l/c/r columns preserve width info
+  result.colWidths = colWidths;
   if (alignments.length > 0) {
+    // Determine dominant alignment (ignoring 'p' for this purpose)
     const counts = { l: 0, c: 0, r: 0 };
-    for (const a of alignments) counts[a] = (counts[a] || 0) + 1;
-    result.alignment = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    for (const a of alignments) {
+      if (a !== 'p') counts[a] = (counts[a] || 0) + 1;
+    }
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    result.alignment = sorted[0]?.[1] > 0 ? sorted[0][0] : 'p';
   }
 
   // Build vlines array: cols+1 booleans
@@ -1515,6 +1627,17 @@ function parseTableRows(envNode, source, result) {
 
   // Detect booktabs from full body (including preamble)
   result.booktabs = /\\toprule|\\midrule|\\bottomrule/.test(body);
+  if (result.booktabs) result.borders = 'booktabs';
+
+  // Detect booktabs body-row separator (\midrule or \addlinespace between data rows)
+  if (result.booktabs) {
+    // Count midrules/addlinespace in the body after the header midrule
+    const afterHeader = body.replace(/.*?\\midrule/, ''); // strip up to first midrule (header separator)
+    const bodyMidrules = (afterHeader.match(/\\midrule/g) || []).length;
+    const bodyAddline = (afterHeader.match(/\\addlinespace/g) || []).length;
+    if (bodyAddline > 0) result.booktabsSep = 'addlinespace';
+    else if (bodyMidrules > 0) result.booktabsSep = 'midrule';
+  }
 
   // For longtable: strip preamble sections (\caption, \endfirsthead, \endhead, \endfoot, \endlastfoot)
   // Data rows appear after the last of these markers.
@@ -1563,19 +1686,46 @@ function parseTableRows(envNode, source, result) {
   const rows = splitTableRows(body);
 
   const dataRows = [];
+  const parsedClines = []; // { row (0-based data row index), fromCol, toCol }
   for (const rowText of rows) {
     const trimmed = rowText.trim();
     // Skip empty rows and rows that are just \hline / \toprule / etc.
     if (!trimmed) continue;
-    if (/^\\(?:hline|toprule|midrule|bottomrule|cline\{[^}]*\}|addlinespace(?:\[[^\]]*\])?)$/.test(trimmed)) continue;
+
+    // Capture \cline{from-to} and \cmidrule(trim){from-to} — associate with previous data row
+    // Always extract clines first (they may share a split-row with the next data row)
+    // Allow optional whitespace before the brace group (some editors/formatters insert spaces)
+    const clineRe = /\\(?:cline|cmidrule(?:\(([^)]*)\))?)\s*\{(\d+)-(\d+)\}/g;
+    let cm;
+    clineRe.lastIndex = 0;
+    while ((cm = clineRe.exec(trimmed)) !== null) {
+      const trim = cm[1] || ''; // e.g. 'lr', 'l', 'r', or ''
+      const fromCol = parseInt(cm[2], 10) - 1; // convert to 0-based
+      const toCol = parseInt(cm[3], 10) - 1;
+      // Associate with previous data row (clines appear after the row they belong to)
+      if (dataRows.length > 0) {
+        parsedClines.push({ row: dataRows.length - 1, fromCol, toCol, trim });
+      }
+    }
+
+    // Always strip cline/cmidrule commands from text (unconditionally, not just when regex matched above)
+    const clineStripRe = /\\(?:cline|cmidrule(?:\([^)]*\))?)\s*\{[^}]*\}\s*/g;
+    const strippedOfClines = trimmed.replace(clineStripRe, '').trim();
+    const strippedOfRules = strippedOfClines
+      .replace(/\\(?:hline|toprule|midrule|bottomrule|addlinespace(?:\[[^\]]*\])?)\s*/g, '')
+      .trim();
+    if (!strippedOfRules) continue;
 
     // Remove leading/trailing \hline etc. from the row
-    const cleaned = trimmed
+    const cleaned = strippedOfClines
       .replace(/^\\(?:hline|toprule|midrule|bottomrule)\s*/g, '')
       .replace(/\s*\\(?:hline|toprule|midrule|bottomrule)\s*$/g, '')
       .trim();
 
     if (!cleaned) continue;
+
+    // Skip stray column-spec lines (e.g. |p{3cm}|l|c|) that aren't real data rows
+    if (/^[|lcrpmbXPMBLRCSW>\s{}<>\\.\d}]+$/.test(cleaned) && !cleaned.includes('&') && /[lcr]|p\{/.test(cleaned)) continue;
 
     // Split on & (respecting brace nesting)
     const cells = splitOnAmpersand(cleaned);
@@ -1648,6 +1798,7 @@ function parseTableRows(envNode, source, result) {
   }
 
   result.merges = merges;
+  result.clines = parsedClines;
   result.cells = dataRows;
   result.rows = dataRows.length;
   if (dataRows.length > 0) {

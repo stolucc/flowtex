@@ -8,24 +8,44 @@ export const TABLE_ENV_OPTIONS = [
   { value: 'array', label: 'array (math mode)' },
 ];
 
-function TableGridPicker({ onInsert, onClose, initial }) {
+function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const MAX_ROWS = 12;
   const MAX_COLS = 12;
   const [hover, setHover] = useState({ r: 0, c: 0 });
   const [rows, setRows] = useState(initial?.rows || 0);
   const [cols, setCols] = useState(initial?.cols || 0);
   const [sizeConfirmed, setSizeConfirmed] = useState(!!initial?.cells);
-  const [alignment, setAlignment] = useState(initial?.alignment || 'c');
+  const [placement, setPlacement] = useState(initial?.placement || 'htbp');
+  // Per-column alignment: array of { align: 'l'|'c'|'r'|'p', width?: string }
+  const [colSettings, setColSettings] = useState(() => {
+    if (initial?.alignments && initial.alignments.length > 0) {
+      // Merge alignments with colWidths: 'p' columns get their width from colWidths
+      const widths = initial.colWidths || [];
+      return initial.alignments.map((a, i) => {
+        if (a === 'p' && widths[i]) return { align: 'p', width: widths[i] };
+        return { align: a };
+      });
+    }
+    const n = initial?.cols || 0;
+    return Array.from({ length: n }, () => ({ align: initial?.alignment || 'c' }));
+  });
   const [borders, setBorders] = useState(initial?.borders || 'none');
   const [headerRow, setHeaderRow] = useState(initial?.headerRow ?? true);
   const [caption, setCaption] = useState(initial?.caption || false);
   const [captionText, setCaptionText] = useState(initial?.captionText || '');
   const [label, setLabel] = useState(initial?.label || '');
+  const [captionPos, setCaptionPos] = useState(initial?.captionPos || 'top');
+  const [captionVAlign, setCaptionVAlign] = useState(initial?.captionVAlign || 'center');
   const [env, setEnv] = useState(initial?.env || 'tabular');
   const [centering, setCentering] = useState(initial?.centering ?? true);
   const [boldHeader, setBoldHeader] = useState(initial?.boldHeader || false);
   const [zebra, setZebra] = useState(initial?.zebra || false);
+  // Booktabs row separator: 'none' | 'midrule' | 'addlinespace'
+  const [booktabsSep, setBooktabsSep] = useState(initial?.booktabsSep || 'none');
   const [merges, setMerges] = useState(initial?.merges || []);
+  // Partial horizontal rules: array of { row, fromCol, toCol } (0-based)
+  const [clines, setClines] = useState(initial?.clines || []);
   // Vertical lines: array of cols+1 booleans (left edge, between each col, right edge)
   const [vlines, setVlines] = useState(() => {
     if (initial?.vlines) return initial.vlines;
@@ -48,8 +68,11 @@ function TableGridPicker({ onInsert, onClose, initial }) {
         break;
       }
     }
-    for (const row of initial.cells) {
+    for (let r = 0; r < initial.cells.length; r++) {
+      const row = initial.cells[r];
       if (!row) continue;
+      // Skip header row — its content is auto-generated and shouldn't prevent column removal
+      if (headerRow && r === 0) continue;
       for (let c = row.length - 1; c >= 0; c--) {
         if (row[c] != null && row[c].trim().length > 0 && c + 1 > minCols) {
           minCols = c + 1;
@@ -57,6 +80,9 @@ function TableGridPicker({ onInsert, onClose, initial }) {
         }
       }
     }
+    // Cap to grid size so the builder is never stuck
+    minRows = Math.min(minRows, MAX_ROWS);
+    minCols = Math.min(minCols, MAX_COLS);
   }
 
   const handleGridClick = (r, c) => {
@@ -70,6 +96,12 @@ function TableGridPicker({ onInsert, onClose, initial }) {
       if (prev.length === needed) return prev;
       if (prev.length < needed) return [...prev, ...Array(needed - prev.length).fill(false)];
       return prev.slice(0, needed);
+    });
+    // Resize colSettings to match new column count
+    setColSettings((prev) => {
+      const defaultAlign = prev.length > 0 ? prev[prev.length - 1].align : 'c';
+      if (prev.length < newCols) return [...prev, ...Array(newCols - prev.length).fill({ align: defaultAlign })];
+      return prev.slice(0, newCols);
     });
   };
 
@@ -109,22 +141,25 @@ function TableGridPicker({ onInsert, onClose, initial }) {
     const table = generateLatexTable({
       rows,
       cols,
-      alignment,
+      colSettings,
       borders,
       headerRow,
       caption,
+      captionPos,
+      captionVAlign,
       captionText,
       label,
       env,
+      placement,
       centering,
       boldHeader,
       zebra,
       cells,
-      rawColSpec: initial?.rawColSpec,
       longtablePreamble: initial?.longtablePreamble,
-      alignments: initial?.alignments,
       merges,
       vlines,
+      booktabsSep,
+      clines,
     });
     onInsert(table);
     onClose();
@@ -138,22 +173,25 @@ function TableGridPicker({ onInsert, onClose, initial }) {
         </div>
         <div
           className="table-grid"
-          onMouseEnter={() => setSizeConfirmed(false)}
-          onMouseLeave={() => {
-            setHover({ r: 0, c: 0 });
-            setSizeConfirmed(hasSize);
-          }}
+          onMouseLeave={() => setHover({ r: 0, c: 0 })}
         >
           {Array.from({ length: MAX_ROWS }, (_, r) => (
             <div key={r} className="table-grid-row">
-              {Array.from({ length: MAX_COLS }, (_, c) => (
-                <div
-                  key={c}
-                  className={`table-grid-cell ${r < (hover.r || rows) && c < (hover.c || cols) ? 'active' : ''}${isEditing && r < minRows && c < minCols ? ' locked' : ''}`}
-                  onMouseEnter={() => setHover({ r: Math.max(r + 1, minRows), c: Math.max(c + 1, minCols) })}
-                  onClick={() => handleGridClick(r + 1, c + 1)}
-                />
-              ))}
+              {Array.from({ length: MAX_COLS }, (_, c) => {
+                const hr = hover.r || rows;
+                const hc = hover.c || cols;
+                const active = sizeConfirmed
+                  ? (r < rows && c < cols) || (hover.r > 0 && r < hover.r && c < hover.c)
+                  : r < hr && c < hc;
+                return (
+                  <div
+                    key={c}
+                    className={`table-grid-cell ${active ? 'active' : ''}${isEditing && r < minRows && c < minCols ? ' locked' : ''}`}
+                    onMouseEnter={() => setHover({ r: Math.max(r + 1, minRows), c: Math.max(c + 1, minCols) })}
+                    onClick={() => handleGridClick(r + 1, c + 1)}
+                  />
+                );
+              })}
             </div>
           ))}
         </div>
@@ -163,7 +201,13 @@ function TableGridPicker({ onInsert, onClose, initial }) {
           <div className="table-opts-left">
             <div className="table-opt-row">
               <label className="table-opt-label">Environment</label>
-              <select className="table-opt-select" value={env} onChange={(e) => setEnv(e.target.value)}>
+              <select className="table-opt-select" value={env} onChange={(e) => {
+                setEnv(e.target.value);
+                if (e.target.value === 'longtable' && (captionPos === 'left' || captionPos === 'right')) {
+                  setCaptionPos('top');
+                  setCaptionVAlign('center');
+                }
+              }}>
                 {TABLE_ENV_OPTIONS.map((e) => (
                   <option key={e.value} value={e.value}>
                     {e.label}
@@ -171,25 +215,17 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                 ))}
               </select>
             </div>
-            <div className="table-opt-row">
-              <label className="table-opt-label">Alignment</label>
-              <div className="table-opt-btns">
-                {[
-                  ['l', 'Left'],
-                  ['c', 'Center'],
-                  ['r', 'Right'],
-                ].map(([v, l]) => (
-                  <button
-                    key={v}
-                    className={`table-opt-btn ${alignment === v ? 'active' : ''}`}
-                    onClick={() => setAlignment(v)}
-                    title={l}
-                  >
-                    {l[0]}
-                  </button>
-                ))}
+            {env !== 'longtable' && (
+              <div className="table-opt-row">
+                <label className="table-opt-label">Placement</label>
+                <select className="table-opt-select" value={placement} onChange={(e) => setPlacement(e.target.value)}>
+                  <option value="htbp">Auto [htbp]</option>
+                  <option value="H">Here [H]</option>
+                  <option value="t">Top [t]</option>
+                  <option value="b">Bottom [b]</option>
+                </select>
               </div>
-            </div>
+            )}
             <div className="table-opt-row">
               <label className="table-opt-label">Booktabs</label>
               <div className="table-vlines-icons">
@@ -197,8 +233,12 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                   className={`table-vline-icon${borders === 'booktabs' ? ' active' : ''}`}
                   title="Booktabs (toprule/midrule/bottomrule)"
                   onClick={() => {
-                    setBorders('booktabs');
-                    setVlines(Array(cols + 1).fill(false));
+                    if (borders === 'booktabs') {
+                      setBorders('none');
+                    } else {
+                      setBorders('booktabs');
+                      setVlines(Array(cols + 1).fill(false));
+                    }
                   }}
                 >
                   <svg width="20" height="16" viewBox="0 0 20 16">
@@ -206,6 +246,33 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                     <line x1="2" y1="1" x2="18" y2="1" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
                     <line x1="2" y1="5.5" x2="18" y2="5.5" stroke="var(--accent, #4fc3f7)" strokeWidth="1" />
                     <line x1="2" y1="15" x2="18" y2="15" stroke="var(--accent, #4fc3f7)" strokeWidth="2.5" />
+                  </svg>
+                </button>
+                <span className="table-vlines-sep" />
+                <button
+                  className={`table-vline-icon${booktabsSep === 'addlinespace' && borders === 'booktabs' ? ' active' : ''}`}
+                  title="\addlinespace between rows"
+                  disabled={borders !== 'booktabs'}
+                  onClick={() => setBooktabsSep(booktabsSep === 'addlinespace' ? 'none' : 'addlinespace')}
+                >
+                  <svg width="20" height="16" viewBox="0 0 20 16">
+                    <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
+                    <line x1="2" y1="3" x2="18" y2="3" stroke="var(--accent, #4fc3f7)" strokeWidth="1.2" />
+                    <line x1="2" y1="13" x2="18" y2="13" stroke="var(--accent, #4fc3f7)" strokeWidth="1.2" />
+                    <path d="M6 7 L10 9 L14 7" fill="none" stroke="var(--accent, #4fc3f7)" strokeWidth="1" opacity="0.6" />
+                  </svg>
+                </button>
+                <button
+                  className={`table-vline-icon${booktabsSep === 'midrule' && borders === 'booktabs' ? ' active' : ''}`}
+                  title="\midrule between rows"
+                  disabled={borders !== 'booktabs'}
+                  onClick={() => setBooktabsSep(booktabsSep === 'midrule' ? 'none' : 'midrule')}
+                >
+                  <svg width="20" height="16" viewBox="0 0 20 16">
+                    <rect x="2" y="1" width="16" height="14" fill="none" stroke="#888" strokeWidth="1" />
+                    <line x1="2" y1="3" x2="18" y2="3" stroke="var(--accent, #4fc3f7)" strokeWidth="1.2" />
+                    <line x1="2" y1="8" x2="18" y2="8" stroke="var(--accent, #4fc3f7)" strokeWidth="1" />
+                    <line x1="2" y1="13" x2="18" y2="13" stroke="var(--accent, #4fc3f7)" strokeWidth="1.2" />
                   </svg>
                 </button>
                 <span className="table-vlines-sep" />
@@ -237,7 +304,7 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                 ].map(({ mode, title, lines: hlines }) => (
                   <button
                     key={mode}
-                    className={`table-vline-icon${borders === mode ? ' active' : ''}`}
+                    className={`table-vline-icon${borders === mode && borders !== 'booktabs' ? ' active' : ''}`}
                     title={title}
                     disabled={borders === 'booktabs'}
                     onClick={() => setBorders(mode)}
@@ -297,7 +364,7 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                     return (
                       <button
                         key={mode}
-                        className={`table-vline-icon${current === mode ? ' active' : ''}`}
+                        className={`table-vline-icon${current === mode && borders !== 'booktabs' ? ' active' : ''}`}
                         title={mode.charAt(0).toUpperCase() + mode.slice(1)}
                         disabled={borders === 'booktabs'}
                         onClick={() => {
@@ -368,13 +435,14 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                 <span className="table-toggle-knob" />
               </button>
             </label>
-            <label className="table-opt-toggle">
+            <label className={`table-opt-toggle${captionPos === 'left' || captionPos === 'right' ? ' disabled' : ''}`}>
               <span className="table-opt-toggle-label">Centered</span>
               <button
-                className={`table-toggle${centering ? ' on' : ''}`}
-                onClick={() => setCentering((v) => !v)}
+                className={`table-toggle${centering && captionPos !== 'left' && captionPos !== 'right' ? ' on' : ''}`}
+                onClick={() => { if (captionPos !== 'left' && captionPos !== 'right') setCentering((v) => !v); }}
                 role="switch"
-                aria-checked={centering}
+                aria-checked={centering && captionPos !== 'left' && captionPos !== 'right'}
+                disabled={captionPos === 'left' || captionPos === 'right'}
               >
                 <span className="table-toggle-knob" />
               </button>
@@ -407,6 +475,34 @@ function TableGridPicker({ onInsert, onClose, initial }) {
           {caption && (
             <>
               <div className="table-opt-row">
+                <label className="table-opt-label">Position</label>
+                <div className="caption-pos-grid">
+                  {[
+                    ['top', 'center', 'Top', <svg key="t" width="18" height="14" viewBox="0 0 18 14"><rect x="2" y="4" width="14" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="4" y1="1.5" x2="14" y2="1.5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['bottom', 'center', 'Bottom', <svg key="b" width="18" height="14" viewBox="0 0 18 14"><rect x="2" y="1" width="14" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="4" y1="12.5" x2="14" y2="12.5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['left', 'top', 'Top left', <svg key="lt" width="18" height="14" viewBox="0 0 18 14"><rect x="6" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="2" y1="2" x2="2" y2="5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['left', 'center', 'Center left', <svg key="lc" width="18" height="14" viewBox="0 0 18 14"><rect x="6" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="2" y1="4.5" x2="2" y2="9.5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['left', 'bottom', 'Bottom left', <svg key="lb" width="18" height="14" viewBox="0 0 18 14"><rect x="6" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="2" y1="9" x2="2" y2="12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['right', 'top', 'Top right', <svg key="rt" width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="16" y1="2" x2="16" y2="5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['right', 'center', 'Center right', <svg key="rc" width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="16" y1="4.5" x2="16" y2="9.5" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                    ['right', 'bottom', 'Bottom right', <svg key="rb" width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="16" y1="9" x2="16" y2="12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
+                  ].map(([pos, valign, title, icon]) => (
+                    <button
+                      key={title}
+                      className={`table-opt-btn ${captionPos === pos && captionVAlign === valign ? 'active' : ''}`}
+                      onClick={() => {
+                        setCaptionPos(pos);
+                        setCaptionVAlign(valign);
+                      }}
+                      title={title}
+                      disabled={(env === 'longtable' || multiColumn) && (pos === 'left' || pos === 'right')}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="table-opt-row">
                 <label className="table-opt-label">Caption</label>
                 <input
                   className="table-opt-input"
@@ -429,7 +525,27 @@ function TableGridPicker({ onInsert, onClose, initial }) {
             </>
           )}
         </div>
+        {(borders === 'booktabs' || captionPos === 'left' || captionPos === 'right' || placement === 'H' || zebra) && (
+          <div className="table-pkg-notice">
+            {borders === 'booktabs' && <span>Requires <code>\usepackage{'{'}booktabs{'}'}</code></span>}
+            {(captionPos === 'left' || captionPos === 'right') && <span>Requires <code>\usepackage{'{'}floatrow{'}'}</code></span>}
+            {placement === 'H' && <span>Requires <code>\usepackage{'{'}float{'}'}</code></span>}
+            {zebra && <span>Requires <code>\usepackage[table]{'{'}xcolor{'}'}</code></span>}
+          </div>
+        )}
         <div className="table-builder-actions">
+          {onDelete && !confirmDelete && (
+            <button className="table-builder-delete" onClick={() => setConfirmDelete(true)}>
+              Delete
+            </button>
+          )}
+          {confirmDelete && (
+            <span className="table-delete-confirm">
+              <span className="table-delete-confirm-label">Delete table?</span>
+              <button className="table-delete-confirm-yes" onClick={onDelete}>Yes</button>
+              <button className="table-delete-confirm-no" onClick={() => setConfirmDelete(false)}>No</button>
+            </span>
+          )}
           <button className="table-builder-cancel" onClick={onClose}>
             Cancel
           </button>
@@ -449,7 +565,7 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                   const { r1, c1, r2, c2 } = normalizeSelection(selection);
                   setMerges((prev) => [
                     ...prev,
-                    { row: r1, col: c1, rowSpan: r2 - r1 + 1, colSpan: c2 - c1 + 1, align: alignment },
+                    { row: r1, col: c1, rowSpan: r2 - r1 + 1, colSpan: c2 - c1 + 1, align: colSettings[c1]?.align || 'c' },
                   ]);
                   setSelection(null);
                 }}
@@ -457,6 +573,121 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                 Merge
               </button>
             )}
+            {selection && (() => {
+              const { r1, c1, r2, c2 } = normalizeSelection(selection);
+              if (r1 !== r2) return null;
+              if (c1 === 0 && c2 === cols - 1) return null;
+              const existing = clines.find((cl) => cl.row === r1 && cl.fromCol === c1 && cl.toCol === c2);
+              const isBt = borders === 'booktabs';
+              if (existing) {
+                return (
+                  <>
+                    {isBt && (
+                      <select
+                        className="table-opt-select table-cline-trim-select"
+                        value={existing.trim || ''}
+                        onChange={(e) => {
+                          const trim = e.target.value;
+                          setClines((prev) => prev.map((cl) =>
+                            cl === existing ? { ...cl, trim } : cl
+                          ));
+                        }}
+                      >
+                        <option value="">no trim</option>
+                        <option value="lr">trim (lr)</option>
+                        <option value="l">trim (l)</option>
+                        <option value="r">trim (r)</option>
+                      </select>
+                    )}
+                    <button
+                      className="table-merge-btn"
+                      onClick={() => {
+                        setClines((prev) => prev.filter((cl) => cl !== existing));
+                        setSelection(null);
+                      }}
+                    >
+                      Remove rule
+                    </button>
+                  </>
+                );
+              }
+              return (
+                <>
+                  {isBt && (
+                    <select
+                      className="table-opt-select table-cline-trim-select"
+                      id="cline-new-trim"
+                      defaultValue="lr"
+                    >
+                      <option value="">no trim</option>
+                      <option value="lr">trim (lr)</option>
+                      <option value="l">trim (l)</option>
+                      <option value="r">trim (r)</option>
+                    </select>
+                  )}
+                  <button
+                    className="table-merge-btn"
+                    onClick={() => {
+                      const trimVal = isBt ? (document.getElementById('cline-new-trim')?.value || 'lr') : '';
+                      setClines((prev) => [...prev, { row: r1, fromCol: c1, toCol: c2, trim: trimVal }]);
+                      setSelection(null);
+                    }}
+                  >
+                    {isBt ? '\\cmidrule' : '\\cline'}
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+          <div className="table-col-headers" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+            {Array.from({ length: cols }, (_, c) => {
+              const cs = colSettings[c] || { align: 'c' };
+              return (
+                <div key={c} className="table-col-header">
+                  <div className="table-col-align-btns">
+                    {['l', 'c', 'r', 'p'].map((a) => (
+                      <button
+                        key={a}
+                        className={`table-col-align-btn${cs.align === a ? ' active' : ''}`}
+                        onClick={() => {
+                          setColSettings((prev) => {
+                            const next = [...prev];
+                            while (next.length <= c) next.push({ align: 'c' });
+                            if (a === 'p' && !next[c].width) {
+                              const sideC = captionPos === 'left' || captionPos === 'right';
+                              const base = sideC ? 0.55 : 0.97;
+                              const total = Math.max(0.3, base - cols * 0.035);
+                              next[c] = { align: 'p', width: `${(total / cols).toFixed(2)}\\textwidth` };
+                            } else {
+                              next[c] = { ...next[c], align: a };
+                            }
+                            return next;
+                          });
+                        }}
+                        title={a === 'p' ? 'Fixed width' : a === 'l' ? 'Left' : a === 'c' ? 'Center' : 'Right'}
+                      >
+                        {a.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  {cs.align === 'p' && (
+                    <input
+                      className="table-col-width-input"
+                      type="text"
+                      value={cs.width || ''}
+                      onChange={(e) => {
+                        setColSettings((prev) => {
+                          const next = [...prev];
+                          next[c] = { ...next[c], width: e.target.value };
+                          return next;
+                        });
+                      }}
+                      placeholder="e.g. 3cm"
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div
             className="table-cell-preview"
@@ -476,6 +707,12 @@ function TableGridPicker({ onInsert, onClose, initial }) {
                 if (merge) {
                   if (merge.colSpan > 1) style.gridColumn = `span ${merge.colSpan}`;
                   if (merge.rowSpan > 1) style.gridRow = `span ${merge.rowSpan}`;
+                }
+                // Check if a cline covers this cell's bottom edge
+                const effectiveColEnd = merge ? c + (merge.colSpan || 1) - 1 : c;
+                const hasClineBelow = clines.some((cl) => cl.row === r && cl.fromCol <= c && cl.toCol >= effectiveColEnd);
+                if (hasClineBelow) {
+                  style.borderBottom = '2px solid var(--accent)';
                 }
                 return (
                   <div
