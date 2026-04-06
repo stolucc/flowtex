@@ -7,6 +7,7 @@ import { basicSetup } from 'codemirror';
 import { StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { classHighlighter } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
+import { bibtex } from '../utils/bibtexMode.js';
 import latexLint from '../utils/latexLint.js';
 import {
   getDictionary,
@@ -21,6 +22,7 @@ import latexAutocomplete from '../utils/latexCompletions.js';
 import SymbolPicker from './SymbolPicker.jsx';
 import SearchPanel from './SearchPanel.jsx';
 import TableGridPicker from './TableGridPicker.jsx';
+import FigureBuilder from './FigureBuilder.jsx';
 import {
   commentHighlighter,
   CursorWidget,
@@ -55,6 +57,12 @@ import {
   applySpellcheck,
   citeKeyHighlighter,
   findTableAtCursor,
+  tableGutterField,
+  tableGutterExtension,
+  updateTableGutterMarkers,
+  findFigureAtCursor,
+  updateFigureGutterMarkers,
+  latexFoldService,
 } from '../utils/editorExtensions.js';
 import {
   UndoIcon,
@@ -153,10 +161,14 @@ const Editor = forwardRef(function Editor(
     return () => window.removeEventListener('flowtex:settings-changed', handler);
   }, []);
   const [tableBuilder, setTableBuilder] = useState(null); // null | { initial?, replaceFrom?, replaceTo? }
+  const [figureBuilder, setFigureBuilder] = useState(null);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const tableBuilderRef = useRef(null);
+  const figureBuilderRef = useRef(null);
   tableBuilderRef.current = tableBuilder;
+  figureBuilderRef.current = figureBuilder;
   const tableBuilderUpdateTimeout = useRef(null);
+  const figureBuilderUpdateTimeout = useRef(null);
 
   const onGoToFileRef = useRef(onGoToFile);
   const projectFilesRef = useRef(projectFiles);
@@ -502,6 +514,12 @@ const Editor = forwardRef(function Editor(
       setLanguage(code);
       setSpellLang(code);
     },
+    zoomIn() {
+      setFontSize((s) => Math.min(32, s + 1));
+    },
+    zoomOut() {
+      setFontSize((s) => Math.max(8, s - 1));
+    },
   }));
 
   // Compute corrected TC positions by finding each TC's text in the current document.
@@ -733,8 +751,9 @@ const Editor = forwardRef(function Editor(
       doc: file.content || '',
       extensions: [
         basicSetup,
-        StreamLanguage.define(stex),
+        StreamLanguage.define(file?.path?.endsWith('.bib') ? bibtex : stex),
         syntaxHighlighting(classHighlighter, { fallback: true }),
+        latexFoldService,
         latexAutocomplete(citeKeysRef, labelKeysRef),
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
         fontSizeCompartment.current.of(
@@ -748,6 +767,8 @@ const Editor = forwardRef(function Editor(
         trackedChangesField,
         tcDeletesField,
         tcReviewHighlightField,
+        tableGutterField,
+        tableGutterExtension,
         // Track changes: intercept Backspace/Delete to mark text as deleted instead of removing it
         Prec.high(
           keymap.of([
@@ -1106,6 +1127,10 @@ const Editor = forwardRef(function Editor(
             // Hide comment button if doc changed
             setCommentBtn(null);
 
+            // Update table and figure gutter markers
+            updateTableGutterMarkers(update.view);
+            updateFigureGutterMarkers(update.view);
+
             // Debounced lint (client-side only; server-side runs on compile)
             if (file?.path?.endsWith('.tex')) {
               clearTimeout(lintTimeout.current);
@@ -1119,17 +1144,19 @@ const Editor = forwardRef(function Editor(
               }, 1000);
             }
 
-            // Debounced spellcheck — reuse doc string from lint timeout if both fire
-            clearTimeout(spellTimeout.current);
-            spellTimeout.current = setTimeout(async () => {
-              const v = viewRef.current;
-              if (!v) return;
-              if (!dictRef.current) dictRef.current = await getDictionary();
-              if (!dictRef.current) return;
-              const docStr = v.state.doc.toString();
-              const misspelled = spellcheckText(docStr, dictRef.current);
-              applySpellcheck(v, misspelled);
-            }, 1500);
+            // Debounced spellcheck (skip .bib files)
+            if (!file?.path?.endsWith('.bib')) {
+              clearTimeout(spellTimeout.current);
+              spellTimeout.current = setTimeout(async () => {
+                const v = viewRef.current;
+                if (!v) return;
+                if (!dictRef.current) dictRef.current = await getDictionary();
+                if (!dictRef.current) return;
+                const docStr = v.state.doc.toString();
+                const misspelled = spellcheckText(docStr, dictRef.current);
+                applySpellcheck(v, misspelled);
+              }, 1500);
+            }
           }
           const sel = update.state.selection.main;
           // Persist cursor position for restore on reload
@@ -1162,11 +1189,13 @@ const Editor = forwardRef(function Editor(
               clearTimeout(tableBuilderUpdateTimeout.current);
               const view = update.view;
               tableBuilderUpdateTimeout.current = setTimeout(() => {
-                const parsed = findTableAtCursor(view);
+                const parsed = findTableAtCursor(view, projectFilesRef.current);
                 if (parsed) {
                   const prev = tableBuilderRef.current;
                   if (prev && (parsed.from !== prev.replaceFrom || parsed.to !== prev.replaceTo)) {
-                    setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
+                    const doc = view.state.doc.toString();
+                    const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
+                    setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
                   }
                 }
               }, 200);
@@ -1246,6 +1275,25 @@ const Editor = forwardRef(function Editor(
             backgroundColor: '#5c7cfa',
             cursor: 'pointer',
           },
+          '.cm-table-gutter': {
+            width: '16px',
+            borderRight: 'none',
+          },
+          '.cm-table-gutter .cm-gutterElement': {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0',
+          },
+          '.cm-table-gutter-marker': {
+            display: 'inline-flex',
+            cursor: 'pointer',
+            opacity: '0.4',
+            transition: 'opacity 0.15s',
+          },
+          '.cm-table-gutter-marker:hover': {
+            opacity: '1',
+          },
           '.cm-activeLineGutter': { backgroundColor: '#f0f0f0' },
           '.cm-activeLine': { backgroundColor: 'transparent' },
           '.cm-cursor': { borderLeftColor: '#1e1e1e' },
@@ -1324,6 +1372,10 @@ const Editor = forwardRef(function Editor(
       prevPendingIdsRef.current = new Set(pendingTcs.map((c) => c.id));
     }
 
+    // Initial table and figure gutter markers
+    updateTableGutterMarkers(view);
+    updateFigureGutterMarkers(view);
+
     // Restore saved cursor position for this file
     const cursorKey = `flowtex-cursor-${file.id}`;
     const savedCursor = sessionStorage.getItem(cursorKey);
@@ -1358,15 +1410,17 @@ const Editor = forwardRef(function Editor(
         onLintDiagnosticsRef.current?.(diagnostics);
       }, 300);
     }
-    // Initial spellcheck
-    setTimeout(async () => {
-      const v = viewRef.current;
-      if (!v) return;
-      if (!dictRef.current) dictRef.current = await getDictionary();
-      if (!dictRef.current) return;
-      const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
-      applySpellcheck(v, misspelled);
-    }, 800);
+    // Initial spellcheck (skip .bib files)
+    if (!file?.path?.endsWith('.bib')) {
+      setTimeout(async () => {
+        const v = viewRef.current;
+        if (!v) return;
+        if (!dictRef.current) dictRef.current = await getDictionary();
+        if (!dictRef.current) return;
+        const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
+        applySpellcheck(v, misspelled);
+      }, 800);
+    }
 
     // Flush pending save immediately (e.g. on file switch or unmount)
     const flushPendingSave = () => {
@@ -1381,12 +1435,42 @@ const Editor = forwardRef(function Editor(
       }
     };
 
+    // Table gutter click: open table builder
+    const handleOpenTableBuilder = () => {
+      const v = viewRef.current;
+      if (!v) return;
+      const doc = v.state.doc.toString();
+      const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
+      const parsed = findTableAtCursor(v, projectFilesRef.current);
+      if (parsed) {
+        setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
+      } else {
+        setTableBuilder({ multiColumn });
+      }
+    };
+    view.dom.addEventListener('open-table-builder', handleOpenTableBuilder);
+
+    // Figure gutter click: open figure builder
+    const handleOpenFigureBuilder = () => {
+      const v = viewRef.current;
+      if (!v) return;
+      const parsed = findFigureAtCursor(v);
+      if (parsed) {
+        setFigureBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
+      } else {
+        setFigureBuilder({});
+      }
+    };
+    view.dom.addEventListener('open-figure-builder', handleOpenFigureBuilder);
+
     // Save on page reload/close so DB content stays in sync with TC positions
     const handleBeforeUnload = () => flushPendingSave();
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      view.dom.removeEventListener('open-table-builder', handleOpenTableBuilder);
+      view.dom.removeEventListener('open-figure-builder', handleOpenFigureBuilder);
       flushPendingSave();
       view.scrollDOM.removeEventListener('scroll', handleScroll);
       clearTimeout(lintTimeout.current);
@@ -1395,12 +1479,14 @@ const Editor = forwardRef(function Editor(
       clearTimeout(tcInsertTimer.current);
       clearTimeout(tcDelTimer.current);
       clearTimeout(tableBuilderUpdateTimeout.current);
+      clearTimeout(figureBuilderUpdateTimeout.current);
       view.destroy();
     };
   }, [file?.id]);
 
-  // Re-run spellcheck when language changes
+  // Re-run spellcheck when language changes (skip .bib files)
   useEffect(() => {
+    if (file?.path?.endsWith('.bib')) return;
     const run = async () => {
       const v = viewRef.current;
       if (!v) return;
@@ -1607,11 +1693,14 @@ const Editor = forwardRef(function Editor(
             className={`editor-header-tc-btn ${autoSaveOn ? 'editor-header-autosave-active' : ''}`}
             onClick={onToggleAutoSave}
             title={
-              autoSaveOn ? autoSaveLabel || 'Auto-save ON — click to disable' : 'Click to set up auto-save to GitHub'
+              autoSaveOn ? autoSaveLabel || 'GitHub Sync ON — click to disable' : 'Click to set up GitHub Sync'
             }
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 4, verticalAlign: -2 }}>
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+            </svg>
             <span className={`editor-autosave-dot ${autoSaveOn ? 'on' : 'off'}`} />
-            {autoSaveOn ? autoSaveLabel || 'Auto-save ON' : 'Auto-save'}
+            {autoSaveOn ? autoSaveLabel || 'Sync ON' : 'Sync'}
           </button>
         )}
         <button className="editor-header-btn" onClick={() => cmUndo(viewRef.current)} title="Undo (Cmd+Z)">
@@ -1658,11 +1747,13 @@ const Editor = forwardRef(function Editor(
               setTableBuilder({});
               return;
             }
-            const parsed = findTableAtCursor(view);
+            const doc = view.state.doc.toString();
+            const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
+            const parsed = findTableAtCursor(view, projectFilesRef.current);
             if (parsed) {
-              setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
+              setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
             } else {
-              setTableBuilder({});
+              setTableBuilder({ multiColumn });
             }
           }}
           title="Insert table"
@@ -1684,6 +1775,49 @@ const Editor = forwardRef(function Editor(
             <line x1="15" y1="3" x2="15" y2="21" />
           </svg>
         </button>
+        <button
+          className={`editor-header-btn ${figureBuilder ? 'editor-header-btn-active' : ''}`}
+          onClick={() => {
+            if (figureBuilder) {
+              setFigureBuilder(null);
+              return;
+            }
+            const view = viewRef.current;
+            if (!view) {
+              setFigureBuilder({});
+              return;
+            }
+            const parsed = findFigureAtCursor(view);
+            if (parsed) {
+              setFigureBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to });
+            } else {
+              setFigureBuilder({});
+            }
+          }}
+          title="Insert figure"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
+        <button
+          className="editor-header-btn"
+          onClick={() => setShowSymbolPicker(true)}
+          title="Insert symbol"
+        >
+          <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1 }}>Ω</span>
+        </button>
         {onToggleTrackChanges && (
           <button
             className={`editor-header-tc-btn ${trackChangesMode ? 'editor-header-tc-active' : ''}`}
@@ -1691,7 +1825,7 @@ const Editor = forwardRef(function Editor(
             title={trackChangesMode ? 'Track changes ON — click to disable' : 'Track changes OFF — click to enable'}
           >
             <span className={`editor-autosave-dot ${trackChangesMode ? 'on' : 'off'}`} />
-            Track changes {trackChangesMode ? 'ON' : 'OFF'}
+            Track changes{trackChangesMode ? ' ON' : ''}
           </button>
         )}
         {pendingChangesCount > 0 && onStartReview && (
@@ -1828,6 +1962,7 @@ const Editor = forwardRef(function Editor(
         <TableGridPicker
           key={`${tableBuilder.replaceFrom ?? 'new'}-${tableBuilder.replaceTo ?? 'new'}`}
           initial={tableBuilder.initial}
+          multiColumn={tableBuilder.multiColumn}
           onInsert={(table) => {
             const view = viewRef.current;
             if (view) {
@@ -1838,6 +1973,39 @@ const Editor = forwardRef(function Editor(
             }
           }}
           onClose={() => setTableBuilder(null)}
+          onDelete={tableBuilder.replaceFrom != null ? () => {
+            const view = viewRef.current;
+            if (view) {
+              view.dispatch({ changes: { from: tableBuilder.replaceFrom, to: tableBuilder.replaceTo, insert: '' } });
+              view.focus();
+            }
+            setTableBuilder(null);
+          } : null}
+        />
+      )}
+      {figureBuilder && (
+        <FigureBuilder
+          key={`fig-${figureBuilder.replaceFrom ?? 'new'}-${figureBuilder.replaceTo ?? 'new'}`}
+          initial={figureBuilder.initial}
+          projectFiles={projectFilesRef.current}
+          onInsert={(latex) => {
+            const view = viewRef.current;
+            if (view) {
+              const from = figureBuilder.replaceFrom != null ? figureBuilder.replaceFrom : view.state.selection.main.from;
+              const to = figureBuilder.replaceTo != null ? figureBuilder.replaceTo : view.state.selection.main.to;
+              view.dispatch({ changes: { from, to, insert: latex } });
+              view.focus();
+            }
+          }}
+          onClose={() => setFigureBuilder(null)}
+          onDelete={figureBuilder.replaceFrom != null ? () => {
+            const view = viewRef.current;
+            if (view) {
+              view.dispatch({ changes: { from: figureBuilder.replaceFrom, to: figureBuilder.replaceTo, insert: '' } });
+              view.focus();
+            }
+            setFigureBuilder(null);
+          } : null}
         />
       )}
       <div className={`editor-container ${inverted ? 'editor-inverted' : ''}`} ref={containerRef} />

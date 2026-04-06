@@ -1,6 +1,105 @@
 import { EditorView, Decoration, ViewPlugin, WidgetType, gutter, GutterMarker } from '@codemirror/view';
 import { StateEffect, StateField, RangeSet } from '@codemirror/state';
-import { parse as parseLatex, findTableAtPos, parseTable } from './latexParser.js';
+import { foldService } from '@codemirror/language';
+import { parse as parseLatex, findTableAtPos, parseTable, findFigureAtPos, parseFigure } from './latexParser.js';
+
+// ─── LaTeX folding ──────────────────────────────────────────────────────────
+
+const SECTION_LEVELS = {
+  'part': 0, 'part*': 0,
+  'chapter': 1, 'chapter*': 1,
+  'section': 2, 'section*': 2,
+  'subsection': 3, 'subsection*': 3,
+  'subsubsection': 4, 'subsubsection*': 4,
+  'paragraph': 5, 'paragraph*': 5,
+  'subparagraph': 6, 'subparagraph*': 6,
+};
+
+const SECTION_RE = /\\((?:sub){0,3}(?:section|paragraph)\*?|chapter\*?|part\*?)\s*\{/;
+const BEGIN_RE = /\\begin\{([^}]+)\}/;
+const END_RE_CACHE = {};
+
+function getEndRe(envName) {
+  if (!END_RE_CACHE[envName]) {
+    END_RE_CACHE[envName] = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}');
+  }
+  return END_RE_CACHE[envName];
+}
+
+export const latexFoldService = foldService.of((state, lineStart) => {
+  const line = state.doc.lineAt(lineStart);
+  const text = line.text;
+
+  // Environment folding: \begin{env} ... \end{env}
+  const beginMatch = text.match(BEGIN_RE);
+  if (beginMatch) {
+    const envName = beginMatch[1];
+    const endRe = getEndRe(envName);
+    // Search forward for matching \end
+    let depth = 0;
+    const beginInnerRe = new RegExp('\\\\begin\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
+    for (let i = line.number + 1; i <= state.doc.lines; i++) {
+      const l = state.doc.line(i);
+      // Count nested begins on this line
+      const begins = l.text.match(beginInnerRe);
+      if (begins) depth += begins.length;
+      if (endRe.test(l.text)) {
+        if (depth === 0) {
+          // Fold from end of \begin line to start of \end line
+          if (l.from > line.to) {
+            return { from: line.to, to: l.from - 1 };
+          }
+          return null;
+        }
+        depth--;
+      }
+    }
+  }
+
+  // Section folding: \section{...} folds to next section of same or higher level
+  const secMatch = text.match(SECTION_RE);
+  if (secMatch) {
+    const level = SECTION_LEVELS[secMatch[1]];
+    if (level === undefined) return null;
+    // Search forward for next section of same or higher level, or \end{document}
+    for (let i = line.number + 1; i <= state.doc.lines; i++) {
+      const l = state.doc.line(i);
+      const nextSec = l.text.match(SECTION_RE);
+      if (nextSec) {
+        const nextLevel = SECTION_LEVELS[nextSec[1]];
+        if (nextLevel !== undefined && nextLevel <= level) {
+          // Fold up to the line before this section (skip trailing blank lines)
+          let endLine = i - 1;
+          while (endLine > line.number && state.doc.line(endLine).text.trim() === '') endLine--;
+          const foldEnd = state.doc.line(endLine).to;
+          if (foldEnd > line.to) {
+            return { from: line.to, to: foldEnd };
+          }
+          return null;
+        }
+      }
+      // Stop at \end{document}
+      if (/\\end\{document\}/.test(l.text)) {
+        let endLine = i - 1;
+        while (endLine > line.number && state.doc.line(endLine).text.trim() === '') endLine--;
+        const foldEnd = state.doc.line(endLine).to;
+        if (foldEnd > line.to) {
+          return { from: line.to, to: foldEnd };
+        }
+        return null;
+      }
+    }
+    // No next section found — fold to end of document
+    let endLine = state.doc.lines;
+    while (endLine > line.number && state.doc.line(endLine).text.trim() === '') endLine--;
+    const foldEnd = state.doc.line(endLine).to;
+    if (foldEnd > line.to) {
+      return { from: line.to, to: foldEnd };
+    }
+  }
+
+  return null;
+});
 
 export function buildCommentDecorations(comments, docLength) {
   const widgets = [];
@@ -550,6 +649,236 @@ export const citeKeyHighlighter = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// ─── Float gutter icons (tables & figures) ──────────────────────────────────
+// Single gutter column showing table/figure icons. Clicking opens the builder.
+
+const TABLE_BEGIN_RE =
+  /\\begin\{(tabular\*?|tabularx|tabulary|tabu|longtabu|array|longtable|supertabular\*?|NiceTabular\*?|NiceArray|table\*?)\}/g;
+const FIGURE_BEGIN_RE = /\\begin\{(figure\*?)\}/g;
+
+const TABLE_ICON =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #4fc3f7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+  '<rect x="3" y="3" width="18" height="18" rx="2"/>' +
+  '<line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>' +
+  '<line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+
+const FIGURE_ICON =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #4fc3f7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+  '<rect x="3" y="3" width="18" height="18" rx="2"/>' +
+  '<circle cx="8.5" cy="8.5" r="1.5"/>' +
+  '<polyline points="21 15 16 10 5 21"/></svg>';
+
+class FloatGutterMarker extends GutterMarker {
+  constructor(pos, kind) {
+    super();
+    this.floatPos = pos;
+    this.kind = kind; // 'table' | 'figure'
+  }
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'cm-float-gutter-marker';
+    el.innerHTML = this.kind === 'table' ? TABLE_ICON : FIGURE_ICON;
+    el.title = this.kind === 'table' ? 'Edit table' : 'Edit figure';
+    return el;
+  }
+}
+
+export const setFloatGutterEffect = StateEffect.define();
+
+export const floatGutterField = StateField.define({
+  create() {
+    return RangeSet.empty;
+  },
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setFloatGutterEffect)) return e.value;
+    }
+    return value.map(tr.changes);
+  },
+});
+
+export const floatGutterExtension = gutter({
+  class: 'cm-float-gutter',
+  markers: (view) => view.state.field(floatGutterField),
+  domEventHandlers: {
+    mousedown(view, line) {
+      const markers = view.state.field(floatGutterField);
+      let found = null;
+      markers.between(line.from, line.from + 1, (from, to, marker) => {
+        found = marker;
+      });
+      if (found) {
+        view.dispatch({ selection: { anchor: found.floatPos } });
+        const event = found.kind === 'table' ? 'open-table-builder' : 'open-figure-builder';
+        view.dom.dispatchEvent(new CustomEvent(event, { bubbles: true }));
+      }
+      return true;
+    },
+  },
+});
+
+export function updateFloatGutterMarkers(view) {
+  const doc = view.state.doc.toString();
+  const markers = [];
+  const seenLines = new Set();
+
+  // Tables: find float wrappers first, then standalone tabulars
+  const FLOAT_RE = /\\begin\{(table\*?)\}/g;
+  const floatRanges = [];
+  let fm;
+  while ((fm = FLOAT_RE.exec(doc)) !== null) {
+    const envName = fm[1];
+    const endRe = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
+    endRe.lastIndex = fm.index + fm[0].length;
+    const endMatch = endRe.exec(doc);
+    if (endMatch) {
+      floatRanges.push({ from: fm.index, to: endMatch.index + endMatch[0].length });
+      const lineNum = view.state.doc.lineAt(fm.index).number;
+      if (!seenLines.has(lineNum)) {
+        seenLines.add(lineNum);
+        const lineInfo = view.state.doc.line(lineNum);
+        markers.push(new FloatGutterMarker(fm.index, 'table').range(lineInfo.from));
+      }
+    }
+  }
+  TABLE_BEGIN_RE.lastIndex = 0;
+  let m;
+  while ((m = TABLE_BEGIN_RE.exec(doc)) !== null) {
+    if (/^table\*?$/.test(m[1])) continue;
+    const inside = floatRanges.some((r) => m.index >= r.from && m.index < r.to);
+    if (inside) continue;
+    const lineNum = view.state.doc.lineAt(m.index).number;
+    if (seenLines.has(lineNum)) continue;
+    seenLines.add(lineNum);
+    const lineInfo = view.state.doc.line(lineNum);
+    markers.push(new FloatGutterMarker(m.index, 'table').range(lineInfo.from));
+  }
+
+  // Figures
+  FIGURE_BEGIN_RE.lastIndex = 0;
+  while ((m = FIGURE_BEGIN_RE.exec(doc)) !== null) {
+    const lineNum = view.state.doc.lineAt(m.index).number;
+    if (seenLines.has(lineNum)) continue;
+    seenLines.add(lineNum);
+    const lineInfo = view.state.doc.line(lineNum);
+    markers.push(new FloatGutterMarker(m.index, 'figure').range(lineInfo.from));
+  }
+
+  markers.sort((a, b) => a.from - b.from);
+  view.dispatch({ effects: setFloatGutterEffect.of(RangeSet.of(markers)) });
+}
+
+// Backward-compatible aliases
+export const tableGutterField = floatGutterField;
+export const tableGutterExtension = floatGutterExtension;
+export function updateTableGutterMarkers(view) { updateFloatGutterMarkers(view); }
+export function updateFigureGutterMarkers() { /* no-op, handled by updateFloatGutterMarkers */ }
+
+// Find and parse a figure at the cursor using the AST parser.
+export function findFigureAtCursor(view) {
+  const pos = view.state.selection.main.head;
+  const source = view.state.doc.toString();
+  try {
+    const tree = parseLatex(source);
+    const figInfo = findFigureAtPos(tree, pos);
+    if (figInfo) {
+      return parseFigure(figInfo, source);
+    }
+  } catch (e) {
+    console.warn('AST figure detection failed:', e);
+  }
+  // Regex fallback
+  const found = findFigureByRegex(source, pos);
+  if (!found) return null;
+  return parseFigureFromText(found.text, found.from);
+}
+
+function findFigureByRegex(source, pos) {
+  const re = /\\begin\{(figure\*?)\}/g;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    const envName = match[1];
+    let start = match.index;
+    const endRe = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
+    endRe.lastIndex = start + match[0].length;
+    const endMatch = endRe.exec(source);
+    if (endMatch) {
+      let end = endMatch.index + endMatch[0].length;
+      if (pos >= start && pos <= end) {
+        // Expand to include \begingroup\floatsetup before
+        const lookback = source.slice(Math.max(0, start - 300), start);
+        const bgMatch = lookback.match(/\\begingroup\s*\\floatsetup(?:\[figure\])?\{[^}]*\}\s*$/);
+        if (bgMatch) {
+          start = start - bgMatch[0].length;
+        }
+        // Expand to include \endgroup after
+        const afterText = source.slice(end, end + 50);
+        const egMatch = afterText.match(/^\s*\\endgroup/);
+        if (egMatch) {
+          end = end + egMatch[0].length;
+        }
+        return { from: start, to: end, text: source.slice(start, end) };
+      }
+    }
+  }
+  return null;
+}
+
+function parseFigureFromText(text, offset) {
+  const result = {
+    env: 'figure',
+    placement: 'htbp',
+    imagePath: '',
+    width: '0.8',
+    widthUnit: 'textwidth',
+    caption: false,
+    captionText: '',
+    label: '',
+    centering: false,
+    captionPos: 'bottom',
+    captionVAlign: 'center',
+    from: offset,
+    to: offset + text.length,
+  };
+  const envMatch = text.match(/\\begin\{(figure\*?)\}/);
+  if (envMatch) result.env = envMatch[1];
+  const placementMatch = text.match(/\\begin\{figure\*?\}\[([^\]]*)\]/);
+  if (placementMatch) result.placement = placementMatch[1];
+  if (/\\centering/.test(text)) result.centering = true;
+  const imgMatch = text.match(/\\includegraphics(?:\[([^\]]*)\])?\{([^}]*)\}/);
+  if (imgMatch) {
+    result.imagePath = imgMatch[2];
+    if (imgMatch[1]) {
+      const wm = imgMatch[1].match(/width\s*=\s*([\d.]+)\s*\\?(textwidth|linewidth|columnwidth)/);
+      if (wm) { result.width = wm[1]; result.widthUnit = wm[2]; }
+      else {
+        const wm2 = imgMatch[1].match(/width\s*=\s*([\d.]+)\s*(cm|mm|in|pt)/);
+        if (wm2) { result.width = wm2[1]; result.widthUnit = wm2[2]; }
+      }
+    }
+  }
+  const capMatch = text.match(/\\caption\{([^}]*)\}/);
+  if (capMatch) { result.caption = true; result.captionText = capMatch[1]; }
+  const labelMatch = text.match(/\\label\{([^}]*)\}/);
+  if (labelMatch) result.label = labelMatch[1];
+  // Caption position: check if \caption appears before \includegraphics
+  if (result.caption && imgMatch) {
+    const capIdx = text.indexOf('\\caption');
+    const imgIdx = text.indexOf('\\includegraphics');
+    result.captionPos = capIdx < imgIdx ? 'top' : 'bottom';
+  }
+  // Check for \thisfloatsetup or \floatsetup side caption pattern
+  const besideMatch = text.match(/\\(?:this)?floatsetup(?:\[figure\])?\{[^}]*capbesideposition=\{(\w+),(\w+)\}/);
+  if (besideMatch) {
+    result.captionPos = besideMatch[1] === 'left' ? 'left' : 'right';
+    result.captionVAlign = besideMatch[2] || 'center';
+  } else {
+    const capOverride = text.match(/\\begingroup\s*\\floatsetup\[figure\]\{capposition=(top|bottom)\}/);
+    if (capOverride) result.captionPos = capOverride[1];
+  }
+  return result;
+}
+
 // Table environment names the regex fallback should match
 const TABLE_RE_NAMES =
   'tabular\\*?|tabularx|tabulary|tabu|longtabu|array|longtable|supertabular\\*?|NiceTabular\\*?|NiceArray';
@@ -594,17 +923,25 @@ function findTableByRegex(source, pos) {
   return { from: outer.start, to: outer.end, text: source.slice(outer.start, outer.end) };
 }
 
-// Find and parse a table at the cursor using the AST parser, with regex fallback
-export function findTableAtCursor(view) {
+// Find and parse a table at the cursor using the AST parser, with regex fallback.
+// projectFiles: optional array of { path, content } for cross-file custom column type lookup.
+export function findTableAtCursor(view, projectFiles) {
   const pos = view.state.selection.main.head;
   const source = view.state.doc.toString();
+
+  // Find the main file preamble for custom column types (the file with \documentclass)
+  let preambleSource = null;
+  if (projectFiles && !source.includes('\\documentclass')) {
+    const mainFile = projectFiles.find((f) => f.content && f.content.includes('\\documentclass'));
+    if (mainFile) preambleSource = mainFile.content;
+  }
 
   // Try AST parser first
   try {
     const tree = parseLatex(source);
     const tableInfo = findTableAtPos(tree, pos);
     if (tableInfo) {
-      return parseTable(tableInfo, source);
+      return parseTable(tableInfo, source, preambleSource);
     }
   } catch (e) {
     console.warn('AST table detection failed, using fallback:', e);

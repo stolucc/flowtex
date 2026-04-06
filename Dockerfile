@@ -10,6 +10,7 @@ RUN npm ci --ignore-scripts && cd client && npm ci
 
 # Copy source and build
 COPY client/ client/
+COPY shared/ shared/
 RUN cd client && npx vite build
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────
@@ -27,8 +28,9 @@ RUN cd server && npm ci --omit=dev
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts
 
-# Copy server source
+# Copy server source and shared modules
 COPY server/ server/
+COPY shared/ shared/
 
 # Copy built client into server/public
 COPY --from=builder /app/client/dist/ server/public/

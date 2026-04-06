@@ -12,11 +12,12 @@ server/certs
 git-repos
 projects
 docs
-*.tex
-*.bib
-*.bst
-*.cls
-*.clo
+# Ignore root-level LaTeX files (not server/assets/templates/)
+/*.tex
+/*.bib
+/*.bst
+/*.cls
+/*.clo
 ARCHITECTURE.md
 USER_GUIDE.md
 README.md

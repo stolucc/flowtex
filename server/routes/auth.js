@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
-import { sendPasswordResetEmail, sendEmailVerificationEmail } from '../utils/email.js';
+import { sendPasswordResetEmail, sendEmailVerificationEmail, sendAccountDeletedEmail } from '../utils/email.js';
 import logger from '../logger.js';
 import db from '../db.js';
 import * as authService from '../services/authService.js';
@@ -279,8 +279,15 @@ router.post('/change-password', requireAuth, async (req, res) => {
 router.post('/delete-account', requireAuth, async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password required' });
   try {
+    // Capture email/name before deletion
+    const user = await db.get('SELECT email, name FROM users WHERE id = $1', [req.session.userId]);
     await authService.deleteAccount(req.session.userId, req.body.password);
     await auditLog(req.session.userId, 'account_deleted', { ip: req.ip }).catch(() => {});
+    if (user?.email) {
+      sendAccountDeletedEmail(user.email, user.name).catch((err) =>
+        logger.error({ err }, 'Failed to send account deletion email'),
+      );
+    }
     req.session.destroy(() => res.json({ ok: true }));
   } catch (err) {
     sendError(res, err);

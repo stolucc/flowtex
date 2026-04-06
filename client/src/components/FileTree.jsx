@@ -98,7 +98,7 @@ function ContextMenu({ x, y, items, onClose }) {
 export default function FileTree({
   files,
   activeFile,
-  groupByType = true,
+  groupByType: groupByTypeProp,
   onSelect,
   onCreate,
   onOverwrite,
@@ -116,6 +116,11 @@ export default function FileTree({
   onCollapse,
   onUploadBinary,
 }) {
+  const [groupByType, setGroupByType] = useState(() => {
+    if (groupByTypeProp !== undefined) return groupByTypeProp;
+    const stored = localStorage.getItem('flowtex-group-files');
+    return stored !== null ? stored === 'true' : true;
+  });
   const [newFileName, setNewFileName] = useState('');
   const [adding, setAdding] = useState(false);
   const [addType, setAddType] = useState('file');
@@ -561,6 +566,26 @@ export default function FileTree({
       <div className="file-tree-header">
         <span>Files</span>
         <div className="file-tree-header-actions">
+          <button
+            className={`file-tree-add ${groupByType ? 'active' : ''}`}
+            onClick={() => {
+              setGroupByType((v) => {
+                const next = !v;
+                localStorage.setItem('flowtex-group-files', String(next));
+                return next;
+              });
+            }}
+            title={groupByType ? 'Show flat list' : 'Group by type'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+              <line x1="9" y1="6" x2="9" y2="6.01" />
+              <line x1="9" y1="12" x2="9" y2="12.01" />
+              <line x1="9" y1="18" x2="9" y2="18.01" />
+            </svg>
+          </button>
           <button
             className="file-tree-add"
             onClick={() => {

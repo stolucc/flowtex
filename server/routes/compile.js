@@ -102,10 +102,10 @@ router.post('/format', async (req, res) => {
 
     let formatted;
     if (fmt.id === 'latexindent') {
-      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '-o', '-'], { timeout: 10000 });
+      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '-o', '-'], { timeout: 30000, cwd: tmpDir });
       formatted = stdout;
     } else if (fmt.id === 'texfmt') {
-      const { stdout } = await execFileAsync(fmt.path, ['--stdin'], { timeout: 10000, input: content });
+      const { stdout } = await execFileAsync(fmt.path, [tmpFile, '--print'], { timeout: 10000, cwd: tmpDir });
       formatted = stdout;
     } else {
       return res.status(400).json({ error: 'Unknown formatter' });
@@ -666,14 +666,14 @@ router.post('/:projectId/clean', async (req, res) => {
 // --- LaTeX formatters ---
 const KNOWN_FORMATTERS = [
   { id: 'latexindent', name: 'latexindent', commands: ['latexindent', '/opt/local/bin/latexindent'] },
-  { id: 'texfmt', name: 'texfmt', commands: ['texfmt'] },
+  { id: 'texfmt', name: 'tex-fmt', commands: ['tex-fmt', 'texfmt'] },
 ];
 
 let _cachedFormatters = null;
 let _formattersCacheTime = 0;
 
 // Allowed directories for formatter executables
-const SAFE_BIN_DIRS = new Set(['/opt/local/bin', '/usr/local/bin', '/usr/bin', '/Library/TeX/texbin']);
+const SAFE_BIN_DIRS = new Set(['/opt/local/bin', '/usr/local/bin', '/usr/bin', '/Library/TeX/texbin', '/opt/homebrew/bin']);
 
 function detectFormatters() {
   const now = Date.now();

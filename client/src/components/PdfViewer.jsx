@@ -433,10 +433,8 @@ const PdfViewer = forwardRef(function PdfViewer(
           wrapper.dataset.pageIndex = String(i - 1);
 
           const vp = viewport;
-          wrapper.addEventListener('click', (e) => {
-            // Only trigger sync if user didn't select text
-            const sel = window.getSelection();
-            if (sel && sel.toString().length > 0) return;
+          wrapper.addEventListener('dblclick', (e) => {
+            window.getSelection()?.removeAllRanges();
             handlePageClick(i, vp, e);
           });
           container.appendChild(wrapper);
@@ -735,7 +733,7 @@ const PdfViewer = forwardRef(function PdfViewer(
           {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
         </button>
         <button
-          className={`pdf-header-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
+          className={`pdf-header-btn console-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
           onClick={() => togglePanel('console')}
         >
           Console

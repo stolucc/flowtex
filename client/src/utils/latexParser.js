@@ -1155,6 +1155,13 @@ export function findTableAtPos(tree, pos) {
     }
   }
 
+  // If cursor is on the \begin{table} line but not inside the tabular,
+  // find the first tabular-like child inside the table wrapper
+  if (!inner && outer) {
+    const firstTabular = findAll(outer, (node) => node.type === N.ENVIRONMENT && node.isTable);
+    if (firstTabular.length > 0) inner = firstTabular[0];
+  }
+
   if (!inner) return null;
 
   // If there's a float wrapper, use its range
@@ -1165,6 +1172,124 @@ export function findTableAtPos(tree, pos) {
     from: container.from,
     to: container.to,
   };
+}
+
+// ─── Figure parsing ──────────────────────────────────────────────────────────
+
+export function findFigureAtPos(tree, pos) {
+  const ancestors = ancestorsAtPos(tree, pos);
+  let figure = null;
+  for (const node of ancestors) {
+    if (node.type === N.ENVIRONMENT && (node.name === 'figure' || node.name === 'figure*')) {
+      figure = node;
+    }
+  }
+  if (!figure) return null;
+  return { node: figure, from: figure.from, to: figure.to };
+}
+
+export function parseFigure(figInfo, source) {
+  const { node } = figInfo;
+  let from = figInfo.from;
+  let to = figInfo.to;
+  const text = source.slice(from, to);
+
+  const result = {
+    env: node.name,
+    placement: 'htbp',
+    imagePath: '',
+    width: '0.8',
+    widthUnit: 'textwidth',
+    caption: false,
+    captionText: '',
+    label: '',
+    centering: false,
+    captionPos: 'bottom',
+    captionVAlign: 'center',
+    from,
+    to,
+  };
+
+  // Placement
+  const placementMatch = text.match(/\\begin\{figure\*?\}\[([^\]]*)\]/);
+  if (placementMatch) result.placement = placementMatch[1];
+
+  // Walk AST for commands
+  let captionFrom = null;
+  let imgFrom = null;
+  walk(node, (n) => {
+    if (n.type === N.COMMAND) {
+      if (n.name === 'centering') result.centering = true;
+      if (n.name === 'caption' || n.name === 'caption*') {
+        result.caption = true;
+        captionFrom = n.from;
+        const arg = n.args.find((a) => a.type === N.GROUP);
+        if (arg) result.captionText = arg.text;
+      }
+      if (n.name === 'label') {
+        const arg = n.args.find((a) => a.type === N.GROUP);
+        if (arg) result.label = arg.text;
+      }
+      if (n.name === 'includegraphics') {
+        imgFrom = n.from;
+        // Parse optional args for width
+        const optArg = n.args.find((a) => a.type === N.OPT_ARG);
+        if (optArg) {
+          const optText = optArg.text;
+          const wm = optText.match(/width\s*=\s*([\d.]+)\s*\\?(textwidth|linewidth|columnwidth)/);
+          if (wm) { result.width = wm[1]; result.widthUnit = wm[2]; }
+          else {
+            const wm2 = optText.match(/width\s*=\s*([\d.]+)\s*(cm|mm|in|pt)/);
+            if (wm2) { result.width = wm2[1]; result.widthUnit = wm2[2]; }
+          }
+        }
+        // Required arg: image path
+        const reqArg = n.args.find((a) => a.type === N.GROUP);
+        if (reqArg) result.imagePath = reqArg.text;
+      }
+    }
+  });
+
+  // Caption position
+  if (captionFrom != null && imgFrom != null) {
+    result.captionPos = captionFrom < imgFrom ? 'top' : 'bottom';
+  }
+
+  // Check for \thisfloatsetup side caption inside figure
+  const figText = source.slice(figInfo.from, figInfo.to);
+  const sideMatch = figText.match(/\\thisfloatsetup\{[^}]*capbesideposition=\{(\w+),(\w+)\}/);
+  if (sideMatch) {
+    result.captionPos = sideMatch[1] === 'left' ? 'left' : 'right';
+    result.captionVAlign = sideMatch[2] || 'center';
+  } else {
+    // Legacy: \floatsetup inside figure
+    const besideMatch = figText.match(/\\floatsetup(?:\[figure\])?\{[^}]*capbesideposition=\{(\w+),(\w+)/);
+    if (besideMatch) {
+      result.captionPos = besideMatch[1] === 'left' ? 'left' : 'right';
+      result.captionVAlign = besideMatch[2] || 'center';
+    }
+  }
+
+  // Check for \begingroup\floatsetup[figure]{capposition=...} before the figure (top/bottom overrides)
+  const lookbackStart = Math.max(0, from - 300);
+  const beforeText = source.slice(lookbackStart, from);
+  const figGroupMatch = beforeText.match(/\\begingroup\s*\\floatsetup\[figure\]\{capposition=(top|bottom)\}\s*$/);
+  if (figGroupMatch) {
+    result.captionPos = figGroupMatch[1];
+    const groupIdx = beforeText.lastIndexOf('\\begingroup');
+    if (groupIdx >= 0) {
+      result.from = lookbackStart + groupIdx;
+      from = result.from;
+    }
+    const afterStart = to;
+    const afterText = source.slice(afterStart, afterStart + 50);
+    const endgroupMatch = afterText.match(/^\s*\\endgroup/);
+    if (endgroupMatch) {
+      result.to = afterStart + endgroupMatch[0].length;
+    }
+  }
+
+  return result;
 }
 
 /**

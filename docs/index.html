@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowTex — Self-hosted Collaborative LaTeX Editor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    scroll-behavior: smooth;
+    font-size: 16px;
+  }
+
+  body {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Navigation ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    backdrop-filter: blur(12px);
+  }
+
+  nav .nav-inner {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  nav .brand {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #89b4fa;
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+
+  nav .nav-links {
+    display: flex;
+    gap: 1.5rem;
+    list-style: none;
+  }
+
+  nav .nav-links a {
+    color: #a6adc8;
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: color 0.2s;
+  }
+
+  nav .nav-links a:hover {
+    color: #89b4fa;
+  }
+
+  nav .nav-links a.current {
+    color: #cdd6f4;
+    border-bottom: 2px solid #89b4fa;
+    padding-bottom: 2px;
+  }
+
+  /* ── Main content ── */
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+
+  /* ── Headings ── */
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #cdd6f4;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    font-size: 1.15rem;
+    color: #a6adc8;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+
+  h2 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: #cdd6f4;
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+    padding-left: 0.85rem;
+    border-left: 3px solid #89b4fa;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #bac2de;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+  }
+
+  /* ── Horizontal rules ── */
+  hr {
+    border: none;
+    border-top: 1px solid #313244;
+    margin: 2.5rem 0;
+  }
+
+  /* ── Paragraphs & inline ── */
+  p {
+    margin-bottom: 1rem;
+  }
+
+  strong {
+    color: #cdd6f4;
+    font-weight: 600;
+  }
+
+  em {
+    font-style: italic;
+    color: #bac2de;
+  }
+
+  a {
+    color: #89b4fa;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  a:hover {
+    color: #b4d0fb;
+    text-decoration: underline;
+  }
+
+  /* ── Lists ── */
+  ul, ol {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+  }
+
+  li {
+    margin-bottom: 0.4rem;
+  }
+
+  li::marker {
+    color: #585b70;
+  }
+
+  .feature-list {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .feature-list li {
+    position: relative;
+    padding-left: 1.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .feature-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.55rem;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #a6e3a1;
+  }
+
+  /* ── Inline code ── */
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 0.875em;
+    background: #181825;
+    color: #f9e2af;
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    border: 1px solid #313244;
+  }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 1.15rem 1.25rem;
+    overflow-x: auto;
+    margin-bottom: 1.5rem;
+    line-height: 1.55;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #cdd6f4;
+    font-size: 0.85rem;
+  }
+
+  .code-label {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-family: 'SF Mono', Consolas, monospace;
+    color: #6c7086;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.4rem;
+  }
+
+  /* syntax highlights within code */
+  .kw { color: #cba6f7; }   /* keywords / commands */
+  .cm { color: #6c7086; }   /* comments */
+  .st { color: #a6e3a1; }   /* strings / URLs */
+  .fl { color: #f38ba8; }   /* flags */
+  .var { color: #f9e2af; }  /* variables */
+  .dir { color: #89b4fa; }  /* directories */
+
+  /* ── Tables ── */
+  .table-wrap {
+    overflow-x: auto;
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #313244;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  thead {
+    background: #181825;
+  }
+
+  th {
+    text-align: left;
+    padding: 0.7rem 1rem;
+    font-weight: 600;
+    color: #89b4fa;
+    border-bottom: 2px solid #313244;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #313244;
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(even) {
+    background: rgba(49, 50, 68, 0.35);
+  }
+
+  tbody tr:hover {
+    background: #45475a;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* ── Project structure tree ── */
+  .tree pre {
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .tree .dir-name { color: #89b4fa; font-weight: 600; }
+  .tree .comment  { color: #6c7086; }
+  .tree .file     { color: #cdd6f4; }
+
+  /* ── Security list ── */
+  .security-list {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .security-list li {
+    position: relative;
+    padding-left: 1.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .security-list li::before {
+    content: '\1F6E1';
+    position: absolute;
+    left: 0;
+    font-size: 0.85rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: #585b70;
+    font-size: 0.85rem;
+    border-top: 1px solid #313244;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    h1 { font-size: 1.85rem; }
+    h2 { font-size: 1.3rem; }
+    pre { padding: 0.85rem; font-size: 0.8rem; }
+    th, td { padding: 0.5rem 0.65rem; }
+    nav .nav-inner { justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="brand">FlowTex</a>
+    <ul class="nav-links">
+      <li><a href="index.html" class="current">README</a></li>
+      <li><a href="user-guide.html">User Guide</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main>
+
+  <!-- ════════════ Title ════════════ -->
+  <h1>FlowTex</h1>
+  <p class="subtitle">A self-hosted, real-time collaborative LaTeX editor &mdash; an open-source alternative to Overleaf. Edit LaTeX documents with live collaboration, compile to PDF, and sync with GitHub.</p>
+
+  <!-- ════════════ Features ════════════ -->
+  <h2 id="features">Features</h2>
+  <ul class="feature-list">
+    <li><strong>Real-time collaboration</strong> &mdash; multiple users editing simultaneously with live cursors and presence indicators</li>
+    <li><strong>LaTeX compilation</strong> &mdash; full TeX Live integration with streaming output, SyncTeX forward/inverse search</li>
+    <li><strong>PDF viewer</strong> &mdash; built-in viewer with zoom, page navigation, and click-to-source sync</li>
+    <li><strong>File management</strong> &mdash; hierarchical file tree with drag-and-drop ZIP upload</li>
+    <li><strong>Comments &amp; annotations</strong> &mdash; inline comments with threads, replies, and resolve/unresolve</li>
+    <li><strong>Version history</strong> &mdash; automatic file versioning with diff viewer and one-click restore</li>
+    <li><strong>GitHub integration</strong> &mdash; link projects to GitHub repos, push/pull with encrypted token storage</li>
+    <li><strong>Project sharing</strong> &mdash; invite collaborators by email with role-based access (owner/editor/viewer)</li>
+    <li><strong>Two-factor authentication</strong> &mdash; TOTP-based MFA with QR code setup</li>
+    <li><strong>Tagging &amp; organization</strong> &mdash; color-coded tags for project organization</li>
+    <li><strong>LaTeX linting</strong> &mdash; real-time syntax diagnostics via LaCheck</li>
+    <li><strong>Spellcheck</strong> &mdash; integrated spellcheck in the editor</li>
+    <li><strong>Dark theme</strong> &mdash; Catppuccin Mocha color scheme throughout</li>
+  </ul>
+
+  <hr>
+
+  <!-- ════════════ Prerequisites ════════════ -->
+  <h2 id="prerequisites">Prerequisites</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Dependency</th><th>Version</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Node.js</strong></td><td>&gt;= 20</td><td>Server &amp; client runtime</td></tr>
+        <tr><td><strong>PostgreSQL</strong></td><td>&gt;= 14</td><td>Primary database</td></tr>
+        <tr><td><strong>TeX Live</strong></td><td>2024+</td><td>LaTeX compilation (<code>latexmk</code>, <code>pdflatex</code>, <code>synctex</code>)</td></tr>
+        <tr><td><strong>Redis</strong></td><td>(optional)</td><td>WebSocket horizontal scaling</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>macOS (Homebrew)</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">brew install</span> node postgresql@17 <span class="fl">--cask</span> mactex
+<span class="kw">brew services start</span> postgresql@17</code></pre>
+
+  <h3>Ubuntu/Debian</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">curl</span> <span class="fl">-fsSL</span> <span class="st">https://deb.nodesource.com/setup_22.x</span> | <span class="kw">sudo</span> <span class="fl">-E</span> bash -
+<span class="kw">sudo apt install</span> <span class="fl">-y</span> nodejs postgresql texlive-full
+<span class="kw">sudo systemctl start</span> postgresql</code></pre>
+
+  <hr>
+
+  <!-- ════════════ Installation ════════════ -->
+  <h2 id="installation">Installation</h2>
+
+  <h3>1. Clone the repository</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">git clone</span> <span class="st">https://github.com/your-org/flowtex.git</span>
+<span class="kw">cd</span> <span class="dir">flowtex</span></code></pre>
+
+  <h3>2. Create the database</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">createdb</span> flowtex</code></pre>
+
+  <h3>3. Configure environment</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">cp</span> .env.example .env
+<span class="cm"># Edit .env — at minimum, review SESSION_SECRET and ENCRYPTION_KEY</span></code></pre>
+
+  <p>Key environment variables:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>PGDATABASE</code></td><td><code>flowtex</code></td><td>PostgreSQL database name</td></tr>
+        <tr><td><code>PGHOST</code></td><td><code>localhost</code></td><td>PostgreSQL host</td></tr>
+        <tr><td><code>PGPORT</code></td><td><code>5432</code></td><td>PostgreSQL port</td></tr>
+        <tr><td><code>SESSION_SECRET</code></td><td>dev default</td><td><strong>Must change in production</strong> &mdash; session signing key</td></tr>
+        <tr><td><code>ENCRYPTION_KEY</code></td><td>dev default</td><td><strong>Must change in production</strong> &mdash; AES-256 key for GitHub token encryption</td></tr>
+        <tr><td><code>CORS_ORIGINS</code></td><td><code>http://localhost:5173,<br>http://localhost:3001</code></td><td>Comma-separated allowed origins</td></tr>
+        <tr><td><code>REDIS_URL</code></td><td>(none)</td><td>Redis URL for multi-instance WebSocket scaling</td></tr>
+        <tr><td><code>LOG_LEVEL</code></td><td><code>debug</code>/<code>info</code></td><td>Pino log level (trace/debug/info/warn/error/fatal)</td></tr>
+        <tr><td><code>NODE_ENV</code></td><td><code>development</code></td><td>Set to <code>production</code> for TLS enforcement + security checks</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4. Install dependencies</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">npm install</span>          <span class="cm"># root (installs concurrently)</span>
+<span class="kw">cd</span> <span class="dir">client</span> && <span class="kw">npm install</span> && <span class="kw">cd</span> ..
+<span class="kw">cd</span> <span class="dir">server</span> && <span class="kw">npm install</span> && <span class="kw">cd</span> ..</code></pre>
+
+  <h3>5. Start in development mode</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">npm run</span> dev</code></pre>
+  <p>This starts both the backend (port 3001) and the Vite dev server (port 5173) concurrently. Open <strong><a href="http://localhost:5173">http://localhost:5173</a></strong> in your browser.</p>
+
+  <h3>6. Production build</h3>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">cd</span> <span class="dir">client</span> && <span class="kw">npm run</span> build && <span class="kw">cd</span> ..
+<span class="var">NODE_ENV</span>=production <span class="kw">node</span> <span class="dir">server/index.js</span></code></pre>
+  <p>The server serves the built client from <code>client/dist/</code> and listens on port 3001.</p>
+
+  <hr>
+
+  <!-- ════════════ Project Structure ════════════ -->
+  <h2 id="project-structure">Project Structure</h2>
+
+  <div class="tree">
+    <pre><code><span class="dir-name">flowtex/</span>
+  <span class="dir-name">client/</span>                   <span class="comment"># React frontend (Vite)</span>
+    <span class="dir-name">src/</span>
+      <span class="file">App.jsx</span>               <span class="comment"># Main application component</span>
+      <span class="file">api.js</span>                <span class="comment"># API client with CSRF handling</span>
+      <span class="file">main.jsx</span>              <span class="comment"># Entry point + error boundary</span>
+      <span class="dir-name">components/</span>
+        <span class="file">AuthPage.jsx</span>        <span class="comment"># Login/register page</span>
+        <span class="file">Editor.jsx</span>          <span class="comment"># CodeMirror LaTeX editor</span>
+        <span class="file">PdfViewer.jsx</span>       <span class="comment"># PDF.js viewer with zoom/nav</span>
+        <span class="file">FileTree.jsx</span>        <span class="comment"># File/folder browser</span>
+        <span class="file">ProjectList.jsx</span>     <span class="comment"># Dashboard &amp; project management</span>
+        <span class="file">CommentsSidebar.jsx</span> <span class="comment"># Comment threads &amp; replies</span>
+        <span class="file">Toolbar.jsx</span>         <span class="comment"># Top navigation bar</span>
+        <span class="file">ShareModal.jsx</span>      <span class="comment"># Member &amp; invitation management</span>
+        <span class="file">HistoryPanel.jsx</span>    <span class="comment"># Version history &amp; diff</span>
+        <span class="file">GitHubSyncModal.jsx</span> <span class="comment"># GitHub push/pull UI</span>
+        <span class="file">CompareFilesModal.jsx</span> <span class="comment"># latexdiff file comparison</span>
+        <span class="file">MfaSetupModal.jsx</span>   <span class="comment"># TOTP MFA setup</span>
+        <span class="file">ErrorBoundary.jsx</span>   <span class="comment"># Global error fallback</span>
+        ...
+      <span class="dir-name">styles/</span>
+        <span class="file">app.css</span>             <span class="comment"># All styles (Catppuccin Mocha theme)</span>
+  <span class="dir-name">server/</span>                   <span class="comment"># Express backend</span>
+    <span class="file">index.js</span>                <span class="comment"># Server entry — Express, WebSocket, Redis, security</span>
+    <span class="file">db.js</span>                   <span class="comment"># PostgreSQL connection pool + schema</span>
+    <span class="file">compiler.js</span>             <span class="comment"># LaTeX compilation, SyncTeX, file sync</span>
+    <span class="file">logger.js</span>               <span class="comment"># Pino structured logging</span>
+    <span class="dir-name">middleware/</span>
+      <span class="file">auth.js</span>               <span class="comment"># requireAuth, requireProjectAccess</span>
+    <span class="dir-name">routes/</span>
+      <span class="file">auth.js</span>               <span class="comment"># Registration, login, logout, TOTP</span>
+      <span class="file">projects.js</span>           <span class="comment"># CRUD, files, members, invitations, ZIP upload</span>
+      <span class="file">compile.js</span>            <span class="comment"># Compile, PDF, SyncTeX, lint, diff</span>
+      <span class="file">comments.js</span>           <span class="comment"># Comments &amp; replies</span>
+      <span class="file">history.js</span>            <span class="comment"># File versions &amp; restore</span>
+      <span class="file">github.js</span>             <span class="comment"># Token, linking, push/pull</span>
+      <span class="file">tags.js</span>               <span class="comment"># User tags for projects</span>
+    <span class="dir-name">utils/</span>
+      <span class="file">audit.js</span>              <span class="comment"># Audit logging helper</span>
+      <span class="file">crypto.js</span>             <span class="comment"># AES-256-GCM encrypt/decrypt</span>
+      <span class="file">gitSync.js</span>            <span class="comment"># Git repo management for GitHub sync</span>
+      <span class="file">latexDiff.js</span>          <span class="comment"># latexdiff wrapper</span>
+    <span class="dir-name">tests/</span>                  <span class="comment"># Vitest test suites</span>
+  <span class="dir-name">projects/</span>                 <span class="comment"># Compiled project files (gitignored)</span>
+  <span class="dir-name">git-repos/</span>                <span class="comment"># Git working copies for GitHub sync (gitignored)</span>
+  <span class="file">.env.example</span>              <span class="comment"># Environment variable template</span></code></pre>
+  </div>
+
+  <hr>
+
+  <!-- ════════════ Running Tests ════════════ -->
+  <h2 id="running-tests">Running Tests</h2>
+  <span class="code-label">bash</span>
+  <pre><code><span class="kw">cd</span> <span class="dir">server</span>
+<span class="kw">npm test</span>              <span class="cm"># Single run</span>
+<span class="kw">npm run</span> test:watch    <span class="cm"># Watch mode</span></code></pre>
+
+  <hr>
+
+  <!-- ════════════ Health Checks ════════════ -->
+  <h2 id="health-checks">Health Checks</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Endpoint</th><th>Method</th><th>Auth</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>/api/health</code></td><td>GET</td><td>No</td><td>Returns <code>{ status: "ok", uptime: &lt;seconds&gt; }</code></td></tr>
+        <tr><td><code>/api/ready</code></td><td>GET</td><td>No</td><td>Returns <code>{ status: "ready" }</code> if DB is reachable, 503 otherwise</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr>
+
+  <!-- ════════════ Security ════════════ -->
+  <h2 id="security">Security</h2>
+  <ul class="security-list">
+    <li><strong>CSRF protection</strong> &mdash; double-submit token on all state-changing API requests</li>
+    <li><strong>Helmet</strong> &mdash; full Content Security Policy, X-Frame-Options, HSTS</li>
+    <li><strong>Rate limiting</strong> &mdash; 20 req/15 min on auth endpoints, 200 req/min on API</li>
+    <li><strong>Account lockout</strong> &mdash; 10 failed login attempts triggers 15-minute lockout</li>
+    <li><strong>Session security</strong> &mdash; httpOnly cookies, secure flag in production, session regeneration on login</li>
+    <li><strong>Encryption at rest</strong> &mdash; GitHub tokens encrypted with AES-256-GCM</li>
+    <li><strong>Path traversal prevention</strong> &mdash; all file operations validated against project directory</li>
+    <li><strong>SSRF protection</strong> &mdash; GitHub repo names validated against strict regex</li>
+    <li><strong>Audit logging</strong> &mdash; sensitive actions (login, delete, member removal) logged to <code>audit_log</code> table</li>
+    <li><strong>TLS enforcement</strong> &mdash; automatic HTTPS redirect in production</li>
+    <li><strong>Graceful shutdown</strong> &mdash; SIGTERM/SIGINT drain HTTP, WebSocket, Redis, and DB connections</li>
+  </ul>
+
+  <hr>
+
+  <!-- ════════════ License ════════════ -->
+  <h2 id="license">License</h2>
+  <p>MIT</p>
+
+</main>
+
+<footer>
+  FlowTex &mdash; Self-hosted collaborative LaTeX editing
+</footer>
+
+</body>
+</html>

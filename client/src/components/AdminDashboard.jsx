@@ -128,6 +128,172 @@ function formatDateTime(d) {
   return new Date(d).toLocaleString();
 }
 
+function UserActivityDetail({ activity }) {
+  const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
+  if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
+  return (
+    <div className="admin-user-detail">
+      <div className="admin-user-detail-header">
+        <div>
+          <strong>{user.name}</strong> <span className="admin-user-detail-email">{user.email}</span>
+        </div>
+        <div className="admin-user-detail-badges">
+          {user.isAdmin && <span className="admin-badge admin-badge-admin">Admin</span>}
+          {user.emailVerified ? (
+            <span className="admin-badge admin-badge-ok">Email verified</span>
+          ) : (
+            <span className="admin-badge admin-badge-warn">Email unverified</span>
+          )}
+          {user.totpEnabled && <span className="admin-badge admin-badge-ok">2FA enabled</span>}
+          <span className="admin-badge">Joined {formatDate(user.createdAt)}</span>
+        </div>
+      </div>
+
+      <div className="admin-user-detail-grid">
+        {/* Projects */}
+        <div className="admin-user-detail-section">
+          <h4>Projects ({projects.length})</h4>
+          {projects.length === 0 ? (
+            <div className="admin-user-detail-empty">No projects</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Project</th><th>Role</th><th>Edits</th><th>Comments</th></tr>
+              </thead>
+              <tbody>
+                {projects.map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.name}</td>
+                    <td>{p.role}</td>
+                    <td>{p.edits}</td>
+                    <td>{p.comments}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Recent Edits */}
+        <div className="admin-user-detail-section">
+          <h4>Recent Edits ({recentEdits.length})</h4>
+          {recentEdits.length === 0 ? (
+            <div className="admin-user-detail-empty">No edits</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Time</th><th>Project</th><th>Label</th></tr>
+              </thead>
+              <tbody>
+                {recentEdits.map((e) => (
+                  <tr key={e.id}>
+                    <td>{formatDateTime(e.createdAt)}</td>
+                    <td>{e.projectName}</td>
+                    <td>{e.label || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Recent Comments */}
+        <div className="admin-user-detail-section">
+          <h4>Recent Comments ({recentComments.length})</h4>
+          {recentComments.length === 0 ? (
+            <div className="admin-user-detail-empty">No comments</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Time</th><th>Project</th><th>File</th><th>Comment</th></tr>
+              </thead>
+              <tbody>
+                {recentComments.map((c) => (
+                  <tr key={c.id}>
+                    <td>{formatDateTime(c.createdAt)}</td>
+                    <td>{c.projectName}</td>
+                    <td>{c.filePath}</td>
+                    <td className="admin-user-detail-comment">{c.content?.slice(0, 80)}{c.content?.length > 80 ? '…' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Recent Chat */}
+        <div className="admin-user-detail-section">
+          <h4>Recent Chat ({recentChat.length})</h4>
+          {recentChat.length === 0 ? (
+            <div className="admin-user-detail-empty">No messages</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Time</th><th>Project</th><th>Message</th></tr>
+              </thead>
+              <tbody>
+                {recentChat.map((m) => (
+                  <tr key={m.id}>
+                    <td>{formatDateTime(m.createdAt)}</td>
+                    <td>{m.projectName}</td>
+                    <td>{m.message?.slice(0, 80)}{m.message?.length > 80 ? '…' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Login History */}
+        <div className="admin-user-detail-section">
+          <h4>Login History</h4>
+          {loginHistory.length === 0 ? (
+            <div className="admin-user-detail-empty">No logins</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Time</th><th>IP</th><th>Result</th></tr>
+              </thead>
+              <tbody>
+                {loginHistory.map((l, i) => (
+                  <tr key={i}>
+                    <td>{formatDateTime(l.createdAt)}</td>
+                    <td>{l.ip}</td>
+                    <td>{l.success ? 'Success' : <span style={{ color: 'var(--red)' }}>Failed</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Audit Log */}
+        <div className="admin-user-detail-section">
+          <h4>Audit Log</h4>
+          {auditLog.length === 0 ? (
+            <div className="admin-user-detail-empty">No entries</div>
+          ) : (
+            <table className="admin-table admin-table-compact">
+              <thead>
+                <tr><th>Time</th><th>Action</th><th>IP</th></tr>
+              </thead>
+              <tbody>
+                {auditLog.map((a, i) => (
+                  <tr key={i}>
+                    <td>{formatDateTime(a.createdAt)}</td>
+                    <td>{a.action}</td>
+                    <td>{a.ip}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard({ onBack }) {
   const [overview, setOverview] = useState(null);
   const [days, setDays] = useState(30);
@@ -140,6 +306,9 @@ export default function AdminDashboard({ onBack }) {
   const [tab, setTab] = useState('overview');
   const [adminSettings, setAdminSettings] = useState({});
   const [settingsMsg, setSettingsMsg] = useState('');
+  const [expandedUser, setExpandedUser] = useState(null);
+  const [userActivity, setUserActivity] = useState(null);
+  const [userActivityLoading, setUserActivityLoading] = useState(false);
   const [live, setLive] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [system, setSystem] = useState(null);
@@ -410,7 +579,67 @@ export default function AdminDashboard({ onBack }) {
       {tab === 'users' && (
         <div className="admin-section">
           <h2>Most Active Users {liveTag}</h2>
-          <DataTable columns={userCols} rows={topUsers} />
+          <div className={`admin-users-layout ${expandedUser ? 'has-panel' : ''}`}>
+            <div className="admin-users-list">
+              {!topUsers?.length ? (
+                <div className="admin-empty">No data</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table admin-table-clickable">
+                    <thead>
+                      <tr>
+                        {userCols.map((c) => (
+                          <th key={c.key}>{c.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topUsers.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={expandedUser === row.id ? 'admin-row-expanded' : ''}
+                          onClick={() => {
+                            if (expandedUser === row.id) {
+                              setExpandedUser(null);
+                              setUserActivity(null);
+                            } else {
+                              setExpandedUser(row.id);
+                              setUserActivity(null);
+                              setUserActivityLoading(true);
+                              get(`/api/admin/users/${row.id}/activity`)
+                                .then((r) => {
+                                  if (!r.ok) throw new Error('Failed');
+                                  return r.json();
+                                })
+                                .then(setUserActivity)
+                                .catch(() => setUserActivity(null))
+                                .finally(() => setUserActivityLoading(false));
+                            }
+                          }}
+                        >
+                          {userCols.map((c) => (
+                            <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            {expandedUser && (
+              <div className="admin-users-panel">
+                <button className="admin-users-panel-close" onClick={() => { setExpandedUser(null); setUserActivity(null); }}>&times;</button>
+                {userActivityLoading ? (
+                  <div className="admin-user-detail-loading">Loading activity…</div>
+                ) : userActivity ? (
+                  <UserActivityDetail activity={userActivity} />
+                ) : (
+                  <div className="admin-user-detail-loading">Failed to load activity</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

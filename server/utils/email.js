@@ -115,6 +115,21 @@ export async function sendEmailVerificationEmail(email, verifyUrl) {
   });
 }
 
+export async function sendAccountDeletedEmail(email, name) {
+  const safeName = escapeHtml(name);
+  return sendEmail({
+    to: email,
+    subject: 'Your FlowTex account has been deleted',
+    text: `Hi ${name},\n\nYour FlowTex account has been successfully deleted. All your personal data has been removed.\n\nIf you did not request this, please contact us immediately.\n\nThank you for using FlowTex.\n`,
+    html: `
+      <p>Hi ${safeName},</p>
+      <p>Your FlowTex account has been successfully deleted. All your personal data has been removed.</p>
+      <p>If you did not request this, please contact us immediately.</p>
+      <p>Thank you for using FlowTex.</p>
+    `,
+  });
+}
+
 export async function sendPasswordResetEmail(email, resetUrl) {
   const safeUrl = escapeHtml(resetUrl);
   return sendEmail({

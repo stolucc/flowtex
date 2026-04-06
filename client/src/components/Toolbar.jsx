@@ -92,6 +92,8 @@ export default function Toolbar({
   onToggleBoxWarnings,
   showChat,
   onToggleChat,
+  onZoomIn,
+  onZoomOut,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -187,6 +189,9 @@ export default function Toolbar({
     { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
     { label: `${showChat ? '✓ ' : ''}Chat`, action: onToggleChat },
     { label: `${showBoxWarnings ? '✓ ' : ''}Overfull/Underfull Warnings`, action: onToggleBoxWarnings },
+    { label: 'separator' },
+    { label: 'Zoom In', action: onZoomIn },
+    { label: 'Zoom Out', action: onZoomOut },
   ];
 
   const formatMenuItems = [
@@ -210,7 +215,7 @@ export default function Toolbar({
     ...(onTapsCheck ? [{ label: 'ACM TAPS Check', action: onTapsCheck }] : []),
     { label: 'Word Count', action: () => onWordCount?.() },
     { label: 'separator' },
-    { label: `${githubLink?.autoPush ? '✓ ' : ''}Auto-save`, action: onToggleAutoSync, disabled: !githubLink?.linked },
+    { label: `${githubLink?.autoPush ? '✓ ' : ''}GitHub Sync`, action: onToggleAutoSync, disabled: !githubLink?.linked },
     { label: 'separator' },
     ...(spellLanguages || []).map((l) => ({
       label: `${spellLang === l.code ? '✓ ' : '  '}${l.label}`,

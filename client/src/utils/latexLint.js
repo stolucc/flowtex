@@ -119,6 +119,7 @@ export default function latexLint(text) {
   let inMacroDef = false; // after \newcommand etc, until end of definition
   let braceDepthAtMacroDef = 0;
   let braceDepth = 0;
+  let skipBraceDepth = 0; // >0 when inside a command argument that should be skipped (e.g. \cite{...})
 
   function inMath() {
     return (
@@ -168,6 +169,14 @@ export default function latexLint(text) {
           i += endMatch[0].length;
           continue;
         }
+        i++;
+        continue;
+      }
+
+      // Inside a skipped command argument (e.g. \cite{...} spanning multiple lines)
+      if (skipBraceDepth > 0) {
+        if (ch === '{') skipBraceDepth++;
+        else if (ch === '}') skipBraceDepth--;
         i++;
         continue;
       }
@@ -298,7 +307,7 @@ export default function latexLint(text) {
         const cmd = line.slice(cmdStart, i);
         // Skip brace arguments of commands that take keys/labels/references
         if (
-          /^(cite|citep|citet|autocite|parencite|textcite|fullcite|nocite|citeauthor|citeyear|citealt|citealp|Cite|Citep|Citet|ref|eqref|pageref|label|hyperref|url|href|includegraphics|input|include|bibliography|bibliographystyle|usepackage|documentclass|RequirePackage)$/.test(
+          /^(cite[a-z]*\*?|Cite[a-z]*\*?|autocite\*?|Autocite\*?|parencite\*?|Parencite\*?|textcite\*?|Textcite\*?|fullcite|nocite|footcite\*?|supercite|smartcite\*?|notecite|ref|eqref|pageref|label|hyperref|url|href|includegraphics|input|include|bibliography|bibliographystyle|usepackage|documentclass|RequirePackage)$/.test(
             cmd,
           )
         ) {
@@ -313,14 +322,15 @@ export default function latexLint(text) {
               i++;
             }
           }
-          // Skip brace {...}
+          // Skip brace {...} — may span multiple lines
           while (i < line.length && /\s/.test(line[i])) i++;
           if (i < line.length && line[i] === '{') {
-            let depth = 1;
+            skipBraceDepth = 1;
             i++;
-            while (i < line.length && depth > 0) {
-              if (line[i] === '{') depth++;
-              else if (line[i] === '}') depth--;
+            // Consume as much as possible on this line
+            while (i < line.length && skipBraceDepth > 0) {
+              if (line[i] === '{') skipBraceDepth++;
+              else if (line[i] === '}') skipBraceDepth--;
               i++;
             }
           }

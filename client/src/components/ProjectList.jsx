@@ -163,6 +163,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const handleDelete = async (id) => {
     await del(`/api/projects/${id}`);
     setProjects((ps) => ps.filter((p) => p.id !== id));
+    setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
   };
 
   const handleTrash = async (e, project) => {
@@ -173,6 +174,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     } else {
       setProjects((ps) => ps.filter((p) => p.id !== project.id));
     }
+    setSelected((s) => { const n = new Set(s); n.delete(project.id); return n; });
   };
 
   const handleRestore = async (e, project) => {
@@ -334,7 +336,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   // Filter projects
   const filteredProjects = projects.filter((p) => {
-    if (filter === 'all' && !p.trashed) {
+    if (filter === 'all' && !p.trashed && !p.archived) {
       /* ok */
     } else if (filter === 'yours' && !p.trashed && !p.archived && p.owner_id === user?.id) {
       /* ok */
@@ -364,6 +366,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     } else if (sortCol === 'owner') {
       aVal = (a.owner_id === user?.id ? '' : a.owner_name || '').toLowerCase();
       bVal = (b.owner_id === user?.id ? '' : b.owner_name || '').toLowerCase();
+    } else if (sortCol === 'created_at') {
+      aVal = a.created_at || '';
+      bVal = b.created_at || '';
     } else if (sortCol === 'updated_at') {
       aVal = a.updated_at || '';
       bVal = b.updated_at || '';
@@ -384,7 +389,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortCol(col);
-      setSortDir(col === 'updated_at' ? 'desc' : 'asc');
+      setSortDir(col === 'updated_at' || col === 'created_at' ? 'desc' : 'asc');
     }
   };
 
@@ -899,6 +904,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 <th className="project-table-sortable" onClick={() => handleSort('member_count')}>
                   Members <SortIcon col="member_count" />
                 </th>
+                <th className="project-table-sortable" onClick={() => handleSort('created_at')}>
+                  Created <SortIcon col="created_at" />
+                </th>
                 <th className="project-table-sortable" onClick={() => handleSort('updated_at')}>
                   Last Modified <SortIcon col="updated_at" />
                 </th>
@@ -965,6 +973,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   </td>
                   <td className="project-table-cell">{p.owner_id === user?.id ? 'You' : p.owner_name || ''}</td>
                   <td className="project-table-cell">{p.member_count || 1}</td>
+                  <td className="project-table-cell">{formatRelativeTime(p.created_at)}</td>
                   <td className="project-table-cell">{formatRelativeTime(p.updated_at)}</td>
                   <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : p.last_editor || ''}</td>
                   <td className="project-table-cell project-table-actions" onClick={(e) => e.stopPropagation()}>

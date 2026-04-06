@@ -456,6 +456,8 @@ function AppInner() {
           }}
           showChat={showChat}
           onToggleChat={() => setShowChat((v) => !v)}
+          onZoomIn={() => editorRef.current?.zoomIn()}
+          onZoomOut={() => editorRef.current?.zoomOut()}
           githubLink={githubLink}
           autoSyncStatus={autoSyncStatus}
           lastSyncAt={githubLink?.lastSyncAt}
@@ -830,16 +832,7 @@ function AppInner() {
                       }
                     }}
                     onToggleAutoSave={async () => {
-                      // Always re-check token freshly
-                      let tokenOk = hasGithubToken;
-                      try {
-                        const r = await get('/api/github/token');
-                        const d = await r.json();
-                        tokenOk = !!d.hasToken;
-                        setHasGithubToken(tokenOk);
-                      } catch {}
-
-                      if (!tokenOk) {
+                      if (!hasGithubToken) {
                         // No GitHub account connected — send to GitHub settings
                         ui.setShowProjectSettings(true);
                         setProjectSettingsTab('github');
@@ -851,8 +844,8 @@ function AppInner() {
                         return;
                       }
                       const newVal = !githubLink.autoPush;
-                      await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
                       setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
+                      await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
                     }}
                   />
                   <TrackChangesPopup

@@ -89,12 +89,10 @@ router.put('/token', async (req, res) => {
 });
 
 router.get('/token', async (req, res) => {
+  const token = await gh.getUserToken(req.session.userId);
+  if (!token) return res.json({ hasToken: false });
   const username = await gh.getGitHubUsername(req.session.userId);
-  if (username === null) {
-    // Check if token exists at all (getGitHubUsername returns null for both no-token and failed-fetch)
-    const token = await gh.getUserToken(req.session.userId);
-    if (!token) return res.json({ hasToken: false });
-  }
+  if (!username) return res.json({ hasToken: false });
   res.json({ hasToken: true, username });
 });
 

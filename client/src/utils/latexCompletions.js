@@ -1,31 +1,37 @@
-import { autocompletion, completeFromList } from '@codemirror/autocomplete';
+import { autocompletion } from '@codemirror/autocomplete';
+import { snippet } from '@codemirror/autocomplete';
+
+// Helper: create a snippet apply function that places cursor inside the first {}
+function snip(template) {
+  return snippet(template);
+}
 
 const commands = [
   // Document structure
-  { label: '\\documentclass', type: 'keyword', detail: 'Document class', apply: '\\documentclass{article}' },
-  { label: '\\usepackage', type: 'keyword', detail: 'Import package', apply: '\\usepackage{$}' },
-  { label: '\\begin', type: 'keyword', detail: 'Begin environment', apply: '\\begin{$}' },
-  { label: '\\end', type: 'keyword', detail: 'End environment', apply: '\\end{$}' },
-  { label: '\\input', type: 'keyword', detail: 'Input file', apply: '\\input{$}' },
-  { label: '\\include', type: 'keyword', detail: 'Include file', apply: '\\include{$}' },
+  { label: '\\documentclass', type: 'keyword', detail: 'Document class', apply: snip('\\documentclass{${1:article}}') },
+  { label: '\\usepackage', type: 'keyword', detail: 'Import package', apply: snip('\\usepackage{${1}}') },
+  { label: '\\begin', type: 'keyword', detail: 'Begin environment', apply: snip('\\begin{${1}}') },
+  { label: '\\end', type: 'keyword', detail: 'End environment', apply: snip('\\end{${1}}') },
+  { label: '\\input', type: 'keyword', detail: 'Input file', apply: snip('\\input{${1}}') },
+  { label: '\\include', type: 'keyword', detail: 'Include file', apply: snip('\\include{${1}}') },
 
   // Sections
-  { label: '\\section', type: 'keyword', detail: 'Section', apply: '\\section{$}' },
-  { label: '\\subsection', type: 'keyword', detail: 'Subsection', apply: '\\subsection{$}' },
-  { label: '\\subsubsection', type: 'keyword', detail: 'Subsubsection', apply: '\\subsubsection{$}' },
-  { label: '\\paragraph', type: 'keyword', detail: 'Paragraph', apply: '\\paragraph{$}' },
-  { label: '\\chapter', type: 'keyword', detail: 'Chapter', apply: '\\chapter{$}' },
-  { label: '\\part', type: 'keyword', detail: 'Part', apply: '\\part{$}' },
+  { label: '\\section', type: 'keyword', detail: 'Section', apply: snip('\\section{${1}}') },
+  { label: '\\subsection', type: 'keyword', detail: 'Subsection', apply: snip('\\subsection{${1}}') },
+  { label: '\\subsubsection', type: 'keyword', detail: 'Subsubsection', apply: snip('\\subsubsection{${1}}') },
+  { label: '\\paragraph', type: 'keyword', detail: 'Paragraph', apply: snip('\\paragraph{${1}}') },
+  { label: '\\chapter', type: 'keyword', detail: 'Chapter', apply: snip('\\chapter{${1}}') },
+  { label: '\\part', type: 'keyword', detail: 'Part', apply: snip('\\part{${1}}') },
 
   // Text formatting
-  { label: '\\textbf', type: 'function', detail: 'Bold', apply: '\\textbf{$}' },
-  { label: '\\textit', type: 'function', detail: 'Italic', apply: '\\textit{$}' },
-  { label: '\\texttt', type: 'function', detail: 'Monospace', apply: '\\texttt{$}' },
-  { label: '\\textsc', type: 'function', detail: 'Small caps', apply: '\\textsc{$}' },
-  { label: '\\textrm', type: 'function', detail: 'Roman', apply: '\\textrm{$}' },
-  { label: '\\textsf', type: 'function', detail: 'Sans-serif', apply: '\\textsf{$}' },
-  { label: '\\underline', type: 'function', detail: 'Underline', apply: '\\underline{$}' },
-  { label: '\\emph', type: 'function', detail: 'Emphasis', apply: '\\emph{$}' },
+  { label: '\\textbf', type: 'function', detail: 'Bold', apply: snip('\\textbf{${1}}') },
+  { label: '\\textit', type: 'function', detail: 'Italic', apply: snip('\\textit{${1}}') },
+  { label: '\\texttt', type: 'function', detail: 'Monospace', apply: snip('\\texttt{${1}}') },
+  { label: '\\textsc', type: 'function', detail: 'Small caps', apply: snip('\\textsc{${1}}') },
+  { label: '\\textrm', type: 'function', detail: 'Roman', apply: snip('\\textrm{${1}}') },
+  { label: '\\textsf', type: 'function', detail: 'Sans-serif', apply: snip('\\textsf{${1}}') },
+  { label: '\\underline', type: 'function', detail: 'Underline', apply: snip('\\underline{${1}}') },
+  { label: '\\emph', type: 'function', detail: 'Emphasis', apply: snip('\\emph{${1}}') },
   { label: '\\tiny', type: 'function', detail: 'Tiny size' },
   { label: '\\scriptsize', type: 'function', detail: 'Script size' },
   { label: '\\footnotesize', type: 'function', detail: 'Footnote size' },
@@ -38,20 +44,20 @@ const commands = [
   { label: '\\Huge', type: 'function', detail: 'Hugest size' },
 
   // References and citations
-  { label: '\\label', type: 'function', detail: 'Label', apply: '\\label{$}' },
-  { label: '\\ref', type: 'function', detail: 'Reference', apply: '\\ref{$}' },
-  { label: '\\eqref', type: 'function', detail: 'Equation ref', apply: '\\eqref{$}' },
-  { label: '\\pageref', type: 'function', detail: 'Page reference', apply: '\\pageref{$}' },
-  { label: '\\cite', type: 'function', detail: 'Citation', apply: '\\cite{$}' },
-  { label: '\\citep', type: 'function', detail: 'Parenthetical cite', apply: '\\citep{$}' },
-  { label: '\\citet', type: 'function', detail: 'Textual cite', apply: '\\citet{$}' },
-  { label: '\\footnote', type: 'function', detail: 'Footnote', apply: '\\footnote{$}' },
-  { label: '\\bibliography', type: 'keyword', detail: 'Bibliography', apply: '\\bibliography{$}' },
-  { label: '\\bibliographystyle', type: 'keyword', detail: 'Bib style', apply: '\\bibliographystyle{$}' },
+  { label: '\\label', type: 'function', detail: 'Label', apply: snip('\\label{${1}}') },
+  { label: '\\ref', type: 'function', detail: 'Reference', apply: snip('\\ref{${1}}') },
+  { label: '\\eqref', type: 'function', detail: 'Equation ref', apply: snip('\\eqref{${1}}') },
+  { label: '\\pageref', type: 'function', detail: 'Page reference', apply: snip('\\pageref{${1}}') },
+  { label: '\\cite', type: 'function', detail: 'Citation', apply: snip('\\cite{${1}}') },
+  { label: '\\citep', type: 'function', detail: 'Parenthetical cite', apply: snip('\\citep{${1}}') },
+  { label: '\\citet', type: 'function', detail: 'Textual cite', apply: snip('\\citet{${1}}') },
+  { label: '\\footnote', type: 'function', detail: 'Footnote', apply: snip('\\footnote{${1}}') },
+  { label: '\\bibliography', type: 'keyword', detail: 'Bibliography', apply: snip('\\bibliography{${1}}') },
+  { label: '\\bibliographystyle', type: 'keyword', detail: 'Bib style', apply: snip('\\bibliographystyle{${1}}') },
 
   // Math
-  { label: '\\frac', type: 'function', detail: 'Fraction', apply: '\\frac{$}{}' },
-  { label: '\\sqrt', type: 'function', detail: 'Square root', apply: '\\sqrt{$}' },
+  { label: '\\frac', type: 'function', detail: 'Fraction', apply: snip('\\frac{${1}}{${2}}') },
+  { label: '\\sqrt', type: 'function', detail: 'Square root', apply: snip('\\sqrt{${1}}') },
   { label: '\\sum', type: 'function', detail: 'Summation' },
   { label: '\\prod', type: 'function', detail: 'Product' },
   { label: '\\int', type: 'function', detail: 'Integral' },
@@ -96,10 +102,10 @@ const commands = [
   { label: '\\Phi', type: 'variable', detail: 'Greek uppercase' },
   { label: '\\Psi', type: 'variable', detail: 'Greek uppercase' },
   { label: '\\Omega', type: 'variable', detail: 'Greek uppercase' },
-  { label: '\\mathbb', type: 'function', detail: 'Blackboard bold', apply: '\\mathbb{$}' },
-  { label: '\\mathcal', type: 'function', detail: 'Calligraphic', apply: '\\mathcal{$}' },
-  { label: '\\mathbf', type: 'function', detail: 'Bold math', apply: '\\mathbf{$}' },
-  { label: '\\mathrm', type: 'function', detail: 'Roman math', apply: '\\mathrm{$}' },
+  { label: '\\mathbb', type: 'function', detail: 'Blackboard bold', apply: snip('\\mathbb{${1}}') },
+  { label: '\\mathcal', type: 'function', detail: 'Calligraphic', apply: snip('\\mathcal{${1}}') },
+  { label: '\\mathbf', type: 'function', detail: 'Bold math', apply: snip('\\mathbf{${1}}') },
+  { label: '\\mathrm', type: 'function', detail: 'Roman math', apply: snip('\\mathrm{${1}}') },
   { label: '\\left', type: 'keyword', detail: 'Left delimiter' },
   { label: '\\right', type: 'keyword', detail: 'Right delimiter' },
   { label: '\\leq', type: 'function', detail: 'Less or equal' },
@@ -129,29 +135,29 @@ const commands = [
   { label: '\\cap', type: 'function', detail: 'Intersection' },
   { label: '\\setminus', type: 'function', detail: 'Set minus' },
   { label: '\\emptyset', type: 'function', detail: 'Empty set' },
-  { label: '\\overline', type: 'function', detail: 'Overline', apply: '\\overline{$}' },
-  { label: '\\hat', type: 'function', detail: 'Hat accent', apply: '\\hat{$}' },
-  { label: '\\tilde', type: 'function', detail: 'Tilde accent', apply: '\\tilde{$}' },
-  { label: '\\bar', type: 'function', detail: 'Bar accent', apply: '\\bar{$}' },
-  { label: '\\vec', type: 'function', detail: 'Vector arrow', apply: '\\vec{$}' },
-  { label: '\\dot', type: 'function', detail: 'Dot accent', apply: '\\dot{$}' },
-  { label: '\\ddot', type: 'function', detail: 'Double dot', apply: '\\ddot{$}' },
+  { label: '\\overline', type: 'function', detail: 'Overline', apply: snip('\\overline{${1}}') },
+  { label: '\\hat', type: 'function', detail: 'Hat accent', apply: snip('\\hat{${1}}') },
+  { label: '\\tilde', type: 'function', detail: 'Tilde accent', apply: snip('\\tilde{${1}}') },
+  { label: '\\bar', type: 'function', detail: 'Bar accent', apply: snip('\\bar{${1}}') },
+  { label: '\\vec', type: 'function', detail: 'Vector arrow', apply: snip('\\vec{${1}}') },
+  { label: '\\dot', type: 'function', detail: 'Dot accent', apply: snip('\\dot{${1}}') },
+  { label: '\\ddot', type: 'function', detail: 'Double dot', apply: snip('\\ddot{${1}}') },
 
   // Figures and tables
   {
     label: '\\includegraphics',
     type: 'function',
     detail: 'Include image',
-    apply: '\\includegraphics[width=\\textwidth]{$}',
+    apply: snip('\\includegraphics[width=\\textwidth]{${1}}'),
   },
-  { label: '\\caption', type: 'function', detail: 'Caption', apply: '\\caption{$}' },
+  { label: '\\caption', type: 'function', detail: 'Caption', apply: snip('\\caption{${1}}') },
   { label: '\\centering', type: 'keyword', detail: 'Center content' },
   { label: '\\hline', type: 'keyword', detail: 'Horizontal line' },
   { label: '\\toprule', type: 'keyword', detail: 'Top rule (booktabs)' },
   { label: '\\midrule', type: 'keyword', detail: 'Mid rule (booktabs)' },
   { label: '\\bottomrule', type: 'keyword', detail: 'Bottom rule (booktabs)' },
-  { label: '\\multicolumn', type: 'function', detail: 'Multi-column', apply: '\\multicolumn{$}{}{}' },
-  { label: '\\multirow', type: 'function', detail: 'Multi-row', apply: '\\multirow{$}{}{}' },
+  { label: '\\multicolumn', type: 'function', detail: 'Multi-column', apply: snip('\\multicolumn{${1}}{${2}}{${3}}') },
+  { label: '\\multirow', type: 'function', detail: 'Multi-row', apply: snip('\\multirow{${1}}{${2}}{${3}}') },
 
   // Lists
   { label: '\\item', type: 'keyword', detail: 'List item' },
@@ -162,15 +168,15 @@ const commands = [
   { label: '\\linebreak', type: 'keyword', detail: 'Line break' },
   { label: '\\pagebreak', type: 'keyword', detail: 'Page break' },
   { label: '\\noindent', type: 'keyword', detail: 'No indent' },
-  { label: '\\vspace', type: 'function', detail: 'Vertical space', apply: '\\vspace{$}' },
-  { label: '\\hspace', type: 'function', detail: 'Horizontal space', apply: '\\hspace{$}' },
+  { label: '\\vspace', type: 'function', detail: 'Vertical space', apply: snip('\\vspace{${1}}') },
+  { label: '\\hspace', type: 'function', detail: 'Horizontal space', apply: snip('\\hspace{${1}}') },
   { label: '\\quad', type: 'keyword', detail: 'Quad space' },
   { label: '\\qquad', type: 'keyword', detail: 'Double quad space' },
 
   // Title page
-  { label: '\\title', type: 'keyword', detail: 'Title', apply: '\\title{$}' },
-  { label: '\\author', type: 'keyword', detail: 'Author', apply: '\\author{$}' },
-  { label: '\\date', type: 'keyword', detail: 'Date', apply: '\\date{$}' },
+  { label: '\\title', type: 'keyword', detail: 'Title', apply: snip('\\title{${1}}') },
+  { label: '\\author', type: 'keyword', detail: 'Author', apply: snip('\\author{${1}}') },
+  { label: '\\date', type: 'keyword', detail: 'Date', apply: snip('\\date{${1}}') },
   { label: '\\maketitle', type: 'keyword', detail: 'Render title' },
   { label: '\\abstract', type: 'keyword', detail: 'Abstract' },
   { label: '\\tableofcontents', type: 'keyword', detail: 'Table of contents' },
@@ -178,14 +184,14 @@ const commands = [
   { label: '\\listoftables', type: 'keyword', detail: 'List of tables' },
 
   // Misc
-  { label: '\\newcommand', type: 'keyword', detail: 'Define command', apply: '\\newcommand{$}{}' },
-  { label: '\\renewcommand', type: 'keyword', detail: 'Redefine command', apply: '\\renewcommand{$}{}' },
-  { label: '\\newenvironment', type: 'keyword', detail: 'Define environment', apply: '\\newenvironment{$}{}{}' },
+  { label: '\\newcommand', type: 'keyword', detail: 'Define command', apply: snip('\\newcommand{${1}}{${2}}') },
+  { label: '\\renewcommand', type: 'keyword', detail: 'Redefine command', apply: snip('\\renewcommand{${1}}{${2}}') },
+  { label: '\\newenvironment', type: 'keyword', detail: 'Define environment', apply: snip('\\newenvironment{${1}}{${2}}{${3}}') },
   { label: '\\def', type: 'keyword', detail: 'TeX definition' },
-  { label: '\\url', type: 'function', detail: 'URL', apply: '\\url{$}' },
-  { label: '\\href', type: 'function', detail: 'Hyperlink', apply: '\\href{$}{}' },
-  { label: '\\color', type: 'function', detail: 'Text color', apply: '\\color{$}' },
-  { label: '\\textcolor', type: 'function', detail: 'Colored text', apply: '\\textcolor{$}{}' },
+  { label: '\\url', type: 'function', detail: 'URL', apply: snip('\\url{${1}}') },
+  { label: '\\href', type: 'function', detail: 'Hyperlink', apply: snip('\\href{${1}}{${2}}') },
+  { label: '\\color', type: 'function', detail: 'Text color', apply: snip('\\color{${1}}') },
+  { label: '\\textcolor', type: 'function', detail: 'Colored text', apply: snip('\\textcolor{${1}}{${2}}') },
 ];
 
 const environments = [
@@ -234,7 +240,7 @@ const environments = [
 ];
 
 function latexCompletionSource(context) {
-  // Match \word at cursor
+  // Match \word at cursor — include the backslash in the replacement range
   const word = context.matchBefore(/\\[\w]*/);
   if (!word) return null;
   if (word.from === word.to && !context.explicit) return null;
@@ -246,6 +252,56 @@ function latexCompletionSource(context) {
   };
 }
 
+// Environment snippet completions for \begin{...}
+// For figure: caption and label go below the content
+// For table: caption and label go above the tabular
+// Snippet templates use CodeMirror snippet syntax:
+// ${n:placeholder} for tab stops, \\$ for literal $, \\{ \\} for literal braces
+// These replace everything after \begin{ so they start with the env name
+// Wrap snippet apply to consume any auto-closed } after the cursor
+function snippetApply(template) {
+  const snip = snippet(template);
+  return (view, completion, from, to) => {
+    if (view.state.sliceDoc(to, to + 1) === '}') to++;
+    snip(view, completion, from, to);
+  };
+}
+
+const envSnippets = {
+  figure: {
+    label: 'figure',
+    type: 'type',
+    detail: 'figure with caption & label',
+    apply: snippetApply(
+      'figure}[${1:htbp}]\n\t\\centering\n\t\\includegraphics[width=\\textwidth]{${2:filename}}\n\t\\caption{${3:Caption text}}\n\t\\label{fig:${4:label}}\n\\end{figure}',
+    ),
+  },
+  'figure*': {
+    label: 'figure*',
+    type: 'type',
+    detail: 'wide figure with caption & label',
+    apply: snippetApply(
+      'figure*}[${1:htbp}]\n\t\\centering\n\t\\includegraphics[width=\\textwidth]{${2:filename}}\n\t\\caption{${3:Caption text}}\n\t\\label{fig:${4:label}}\n\\end{figure*}',
+    ),
+  },
+  table: {
+    label: 'table',
+    type: 'type',
+    detail: 'table with caption & label',
+    apply: snippetApply(
+      'table}[${1:htbp}]\n\t\\centering\n\t\\caption{${2:Caption text}}\n\t\\label{tab:${3:label}}\n\t\\begin{tabular}{${4:lll}}\n\t\t\\toprule\n\t\t${5:Col1} & ${6:Col2} & ${7:Col3} \\\\\n\t\t\\midrule\n\t\t & & \\\\\n\t\t\\bottomrule\n\t\\end{tabular}\n\\end{table}',
+    ),
+  },
+  'table*': {
+    label: 'table*',
+    type: 'type',
+    detail: 'wide table with caption & label',
+    apply: snippetApply(
+      'table*}[${1:htbp}]\n\t\\centering\n\t\\caption{${2:Caption text}}\n\t\\label{tab:${3:label}}\n\t\\begin{tabular}{${4:lll}}\n\t\t\\toprule\n\t\t${5:Col1} & ${6:Col2} & ${7:Col3} \\\\\n\t\t\\midrule\n\t\t & & \\\\\n\t\t\\bottomrule\n\t\\end{tabular}\n\\end{table*}',
+    ),
+  },
+};
+
 function envCompletionSource(context) {
   // Match \begin{ or \end{ with partial env name
   const match = context.matchBefore(/\\(begin|end)\{[\w*]*/);
@@ -253,10 +309,26 @@ function envCompletionSource(context) {
   const braceIdx = match.text.indexOf('{');
   if (braceIdx < 0) return null;
   const from = match.from + braceIdx + 1;
+  const isBegin = match.text.startsWith('\\begin');
+
+  // For \begin{, offer snippet completions for figure/table that expand the whole environment
+  const options = [];
+  if (isBegin) {
+    // Add snippet versions first (they replace from \begin{ onward, closing the environment)
+    for (const env of Object.keys(envSnippets)) {
+      options.push({ ...envSnippets[env], boost: 2 });
+    }
+  }
+  // Always add plain environment names
+  for (const e of environments) {
+    // Skip envs that have snippet versions (for \begin only) to avoid duplicates
+    if (isBegin && envSnippets[e]) continue;
+    options.push({ label: e, type: 'type', detail: 'environment' });
+  }
 
   return {
     from,
-    options: environments.map((e) => ({ label: e, type: 'type', detail: 'environment' })),
+    options,
     validFor: /^[\w*]*$/,
   };
 }

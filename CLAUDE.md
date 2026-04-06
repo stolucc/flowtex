@@ -72,3 +72,73 @@ Build output goes to `client/dist/` which is copied to `server/public/` by the b
 - localStorage keys use `flowtex-` prefix (font-size, editor-inverted, pdf-inverted, spell-language, custom-dictionary)
 - When adding new CSS, use existing variables from `:root` — check `app.css` for available `--bg-*`, `--text-*`, `--accent`, `--border`, `--radius`
 - Vite production builds have content-hashed filenames — users need hard refresh (Cmd+Shift+R) after deploys
+
+# Project Instructions
+
+## Web Research & Fetching
+
+When you need information from the internet, follow these strategies in order. Many websites block direct fetching, return JavaScript-only pages, or have bot protection. Plan accordingly.
+
+### Strategy 1: Use web_search first (preferred)
+
+Always start with `web_search` to find information. The search snippets alone often contain enough to answer the question. Extract what you need from the snippets without fetching full pages.
+
+```
+# Good: short, specific queries
+web_search("python asyncio gather timeout")
+web_search("nginx reverse proxy websocket config")
+
+# Bad: long natural language queries
+web_search("how do I configure nginx as a reverse proxy for websocket connections in my application")
+```
+
+### Strategy 2: Fetch with fallback expectations
+
+If you need full page content, use `web_fetch` but expect failures. Many sites will block you or return useless content.
+
+**Sites that typically work well:**
+- Raw GitHub files (raw.githubusercontent.com)
+- GitHub READMEs and file views
+- Official documentation sites (docs.python.org, developer.mozilla.org, etc.)
+- Package registries (pypi.org, npmjs.com)
+- Plain text / markdown URLs
+- API documentation
+
+**Sites that typically fail or return garbage:**
+- News sites (paywalls, JS rendering)
+- Social media (Twitter/X, Reddit, LinkedIn)
+- Sites behind Cloudflare or similar bot protection
+- Single-page applications (React/Vue/Angular apps)
+- Sites requiring authentication or cookies
+- Medium, Substack, and similar blogging platforms (sometimes work, often don't)
+
+### Strategy 3: When a page fetch fails
+
+If `web_fetch` returns an error, empty content, or garbage HTML:
+
+1. **Don't retry the same URL** — it won't work the second time either.
+2. **Try alternative sources** — search for the same information on a different site. For example, if a blog post fails, look for the same topic on a documentation site or GitHub.
+3. **Try raw/plain text versions** where available:
+   - GitHub: use `raw.githubusercontent.com` instead of `github.com`
+   - Documentation: some sites offer plain text or markdown versions
+4. **Use search snippets** — if you found the URL via `web_search`, the search results probably already contained the key information you need. Go back and use that.
+5. **Be honest** — if you cannot retrieve the information, say so. Don't hallucinate content you didn't actually read.
+
+### Strategy 4: For code examples and documentation
+
+When looking for code examples, library usage, or API docs:
+
+- Prefer official documentation sites over blog posts or tutorials
+- GitHub repositories (especially READMEs and example files) are reliable sources
+- Package registry pages (PyPI, npm) usually work and contain useful metadata
+- Man pages and specification documents are usually plain text and fetch well
+
+### General Rules
+
+- **Never pretend you read a page you couldn't fetch.** If the fetch failed, say so and offer alternatives.
+- **Don't fetch pages unnecessarily.** If the search snippet answers the question, use it directly.
+- **Batch your research.** Do multiple `web_search` calls to gather information from snippets before attempting any `web_fetch`.
+- **Keep search queries short** — 2-6 words get the best results.
+- **Include the year** in searches when recency matters (e.g., "rust async patterns 2025").
+- **If a user gives you a specific URL**, try to fetch it, but let them know if it fails and suggest alternatives.
+

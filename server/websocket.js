@@ -442,6 +442,7 @@ export function initWebSocket(server, app, sessionSecret) {
 
     const sess = await getSessionFromRequest(req, sessionSecret);
     if (!sess?.userId) {
+      pendingMessages.length = 0;
       ws.send(JSON.stringify({ type: 'error', error: 'Not authenticated' }));
       ws.close();
       return;
@@ -450,6 +451,7 @@ export function initWebSocket(server, app, sessionSecret) {
 
     const userRow = await db.get('SELECT name FROM users WHERE id = $1', [authenticatedUserId]);
     if (!userRow) {
+      pendingMessages.length = 0;
       ws.send(JSON.stringify({ type: 'error', error: 'Not authenticated' }));
       ws.close();
       return;
@@ -459,6 +461,7 @@ export function initWebSocket(server, app, sessionSecret) {
     // Connection count per user
     const currentCount = wsConnectionCounts.get(authenticatedUserId) || 0;
     if (currentCount >= MAX_WS_PER_USER) {
+      pendingMessages.length = 0;
       ws.send(JSON.stringify({ type: 'error', error: 'Too many connections' }));
       ws.close();
       return;

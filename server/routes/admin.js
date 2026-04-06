@@ -4,6 +4,7 @@ import db from '../db.js';
 import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
+import logger from '../logger.js';
 
 const router = Router();
 
@@ -190,6 +191,126 @@ router.get('/stats/top-users', async (req, res) => {
       };
     }),
   );
+});
+
+// User activity detail
+router.get('/users/:id/activity', async (req, res) => {
+  try {
+  const userId = req.params.id;
+
+  const [user, projects, recentEdits, recentComments, recentChat, auditEntries, loginHistory] =
+    await Promise.all([
+      db.get(
+        `SELECT id, name, email, created_at, email_verified, totp_enabled, is_admin
+         FROM users WHERE id = $1`,
+        [userId],
+      ),
+      db.all(
+        `SELECT p.id, p.name, pm.role, pm.created_at AS joined_at,
+           COALESCE(e.cnt, 0)::int AS edits,
+           COALESCE(c.cnt, 0)::int AS comments
+         FROM project_members pm
+         JOIN projects p ON p.id = pm.project_id
+         LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM project_snapshots WHERE author_id = $1 GROUP BY project_id) e ON e.project_id = p.id
+         LEFT JOIN (SELECT f.project_id, COUNT(*) AS cnt FROM comments cm JOIN files f ON f.id = cm.file_id WHERE cm.author_id = $1 GROUP BY f.project_id) c ON c.project_id = p.id
+         WHERE pm.user_id = $1
+         ORDER BY edits DESC`,
+        [userId],
+      ),
+      db.all(
+        `SELECT ps.id, ps.created_at, p.name AS project_name, ps.label
+         FROM project_snapshots ps
+         JOIN projects p ON p.id = ps.project_id
+         WHERE ps.author_id = $1
+         ORDER BY ps.created_at DESC LIMIT 20`,
+        [userId],
+      ),
+      db.all(
+        `SELECT c.id, c.created_at, c.text, c.resolved,
+           f.path AS file_path, p.name AS project_name
+         FROM comments c
+         JOIN files f ON f.id = c.file_id
+         JOIN projects p ON p.id = f.project_id
+         WHERE c.author_id = $1
+         ORDER BY c.created_at DESC LIMIT 20`,
+        [userId],
+      ),
+      db.all(
+        `SELECT cm.id, cm.created_at, cm.text, p.name AS project_name
+         FROM chat_messages cm
+         JOIN projects p ON p.id = cm.project_id
+         WHERE cm.user_id = $1
+         ORDER BY cm.created_at DESC LIMIT 20`,
+        [userId],
+      ),
+      db.all(
+        `SELECT action, detail, ip, created_at
+         FROM audit_log WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 30`,
+        [userId],
+      ),
+      db.all(
+        `SELECT success, ip, created_at
+         FROM login_attempts WHERE email = (SELECT email FROM users WHERE id = $1)
+         ORDER BY created_at DESC LIMIT 20`,
+        [userId],
+      ),
+    ]);
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  res.json({
+    user: {
+      ...user,
+      createdAt: user.created_at,
+      emailVerified: user.email_verified,
+      totpEnabled: user.totp_enabled,
+      isAdmin: user.is_admin,
+    },
+    projects: projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      role: p.role,
+      joinedAt: p.joined_at,
+      edits: p.edits,
+      comments: p.comments,
+    })),
+    recentEdits: recentEdits.map((e) => ({
+      id: e.id,
+      createdAt: e.created_at,
+      projectName: e.project_name,
+      label: e.label,
+    })),
+    recentComments: recentComments.map((c) => ({
+      id: c.id,
+      createdAt: c.created_at,
+      content: c.text,
+      resolved: c.resolved,
+      filePath: c.file_path,
+      projectName: c.project_name,
+    })),
+    recentChat: recentChat.map((m) => ({
+      id: m.id,
+      createdAt: m.created_at,
+      message: m.text,
+      projectName: m.project_name,
+    })),
+    auditLog: auditEntries.map((a) => ({
+      action: a.action,
+      detail: a.detail,
+      ip: a.ip,
+      createdAt: a.created_at,
+    })),
+    loginHistory: loginHistory.map((l) => ({
+      success: l.success,
+      ip: l.ip,
+      createdAt: l.created_at,
+    })),
+  });
+  } catch (err) {
+    logger.error({ err }, 'Failed to load user activity');
+    res.status(500).json({ error: 'Failed to load user activity' });
+  }
 });
 
 // Audit log (paginated)
