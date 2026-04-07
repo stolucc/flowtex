@@ -21,6 +21,7 @@ import {
 
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
+/** Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations. */
 export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin }) {
   const [projects, setProjects] = useState([]);
   const [invitations, setInvitations] = useState([]);
@@ -70,11 +71,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     get('/api/projects/invitations/mine')
       .then((r) => r.json())
       .then(setInvitations)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load invitations:', e));
     get('/api/tags')
       .then((r) => r.json())
       .then(setTags)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load tags:', e));
   }, []);
 
   // Listen for real-time invitation pushes via WebSocket
@@ -97,6 +98,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     onSelect(project);
   };
 
+  /** Import a GitHub repository as a new FlowTex project. */
   const handleGitHubImport = async () => {
     if (!ghImportRepo.trim()) return;
     setGhImportLoading(true);
@@ -122,6 +124,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** Open the GitHub import modal and load the user's repositories. */
   const openGitHubImport = async () => {
     setShowNewMenu(false);
     setShowGitHubImport(true);
@@ -143,6 +146,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** Upload a ZIP file to create a new project from its contents. */
   const handleUploadZip = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -224,6 +228,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     });
   };
 
+  /** Accept a project invitation and refresh the project list. */
   const handleAcceptInvite = async (inviteId) => {
     try {
       const res = await post(`/api/projects/invitations/${inviteId}/accept`);
@@ -254,6 +259,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** Create a new tag with an auto-assigned color. */
   const handleCreateTag = async (e) => {
     e.preventDefault();
     if (!newTagName.trim()) return;
@@ -267,6 +273,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** Delete a tag after confirmation, removing it from all projects. */
   const handleDeleteTag = (tagId) => {
     const tag = tags.find((t) => t.id === tagId);
     setConfirmDelete({
@@ -284,6 +291,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     });
   };
 
+  /** Toggle a tag on/off for a specific project. */
   const handleToggleProjectTag = async (e, projectId, tagId) => {
     e.stopPropagation();
     const project = projects.find((p) => p.id === projectId);
@@ -316,6 +324,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     showNewMenu,
   );
 
+  /** Apply a tag to all currently selected projects. */
   const handleBulkTag = async (tagId) => {
     const tag = tags.find((t) => t.id === tagId);
     for (const id of selected) {

@@ -33,6 +33,7 @@ import useClickOutside from './hooks/useClickOutside.js';
 import useEditorActions from './hooks/useEditorActions.js';
 import { formatSyncDate } from './utils/dateFormat.js';
 
+/** Context menu for generated files, allowing download. */
 function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
   const ref = React.useRef(null);
   useClickOutside(ref, onClose);
@@ -51,10 +52,12 @@ function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
   );
 }
 
+/** Strips the compile-job hash suffix from a generated filename for display. */
 function stripJobSuffix(filename) {
   return filename.replace(/_[0-9a-f]{8}(?=\.)/, '').replace(/^__diff__/, 'diff');
 }
 
+/** Main application shell: wires together all hooks and renders the editor layout. */
 function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
@@ -321,11 +324,11 @@ function AppInner() {
     get(`/api/compile/${project.id}/generated-files`)
       .then((r) => r.json())
       .then((d) => setGeneratedFiles(d.files || []))
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load generated files:', e));
     get(`/api/chat/${project.id}`)
       .then((r) => r.json())
       .then((msgs) => setChatMessages(msgs || []))
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load chat messages:', e));
   }, [project]);
 
   useEffect(() => {
@@ -700,6 +703,8 @@ function AppInner() {
               <>
                 <CommentsSidebar
                   currentUserName={user?.name}
+                  currentUserId={user?.id}
+                  members={members}
                   comments={comments}
                   selection={selection}
                   selectionFormTop={selectionFormTop}
@@ -981,6 +986,7 @@ function AppInner() {
   );
 }
 
+/** Top-level App component that wraps AppInner with the AuthProvider. */
 export default function App() {
   return (
     <AuthProvider>

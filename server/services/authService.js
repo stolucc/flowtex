@@ -16,9 +16,10 @@ setInterval(() => {
   for (const [key, expiry] of usedTotpCodes) {
     if (now > expiry) usedTotpCodes.delete(key);
   }
-  db.run('DELETE FROM used_totp_codes WHERE expires_at < NOW()').catch(() => {});
+  db.run('DELETE FROM used_totp_codes WHERE expires_at < NOW()').catch((e) => console.warn('TOTP cleanup failed:', e.message));
 }, 60000).unref();
 
+/** Decrypt an encrypted TOTP secret, falling back to the raw value if decryption fails. */
 export function decryptTotpSecret(encrypted) {
   if (!encrypted) return null;
   try {
@@ -28,6 +29,11 @@ export function decryptTotpSecret(encrypted) {
   }
 }
 
+/**
+ * Validate password strength requirements.
+ * @param {string} password
+ * @returns {string|null} Error message, or null if valid.
+ */
 export function validatePassword(password) {
   if (typeof password !== 'string' || password.length < 8) return 'Password must be at least 8 characters';
   if (password.length > 128) return 'Password must be at most 128 characters';
@@ -37,6 +43,7 @@ export function validatePassword(password) {
   return null;
 }
 
+/** Check if an account is locked due to too many failed login attempts. */
 export async function isAccountLocked(email, ip) {
   const result = await db.get(
     `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - INTERVAL '${LOCKOUT_WINDOW_MINUTES} minutes'`,
@@ -54,6 +61,7 @@ export async function isAccountLocked(email, ip) {
   return false;
 }
 
+/** Record a login attempt; on success, clear previous failures for that email. */
 export async function recordLoginAttempt(email, ip, success) {
   await db.run('INSERT INTO login_attempts (email, ip, success) VALUES ($1, $2, $3)', [email, ip || null, success]);
   if (success) await db.run('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE', [email]);
@@ -64,7 +72,7 @@ async function isTotpUsed(userId, code) {
   if (usedTotpCodes.has(key)) return true;
   const row = await db
     .get('SELECT 1 FROM used_totp_codes WHERE user_id = $1 AND code = $2 AND expires_at > NOW()', [userId, code])
-    .catch(() => null);
+    .catch((e) => { console.warn('TOTP usage check failed:', e.message); return null; });
   return !!row;
 }
 
@@ -76,11 +84,15 @@ async function markTotpUsed(userId, code) {
       "INSERT INTO used_totp_codes (user_id, code, expires_at) VALUES ($1, $2, NOW() + INTERVAL '90 seconds') ON CONFLICT DO NOTHING",
       [userId, code],
     )
-    .catch(() => {});
+    .catch((e) => console.warn('Failed to persist TOTP usage:', e.message));
 }
 
 // --- Core auth operations ---
 
+/**
+ * Register a new user account (unverified).
+ * @returns {{id, email, name, totpEnabled, isAdmin, emailVerified}} The new user.
+ */
 export async function registerUser(email, name, password) {
   const pwError = validatePassword(password);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
@@ -103,6 +115,10 @@ export async function registerUser(email, name, password) {
   return { id, email: normalizedEmail, name: name.trim(), totpEnabled: false, isAdmin: false, emailVerified: false };
 }
 
+/**
+ * Create an email verification token (rate-limited to 3/hour).
+ * @returns {string|null} The raw token, or null if rate-limited.
+ */
 export async function createEmailVerificationToken(userId) {
   // Rate limit: max 3 tokens per hour
   const recent = await db.get(
@@ -120,6 +136,10 @@ export async function createEmailVerificationToken(userId) {
   return token;
 }
 
+/**
+ * Verify a user's email address using a verification token.
+ * @returns {string} The verified user's ID.
+ */
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const row = await db.get(
@@ -136,6 +156,10 @@ export async function verifyEmail(token) {
   return row.user_id;
 }
 
+/**
+ * Authenticate a user by email and password.
+ * @returns {{user} | {error, status, unverified?, userId?}} The user or an error descriptor.
+ */
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get(
@@ -159,6 +183,7 @@ export async function authenticateUser(email, password) {
   return { user };
 }
 
+/** Verify a TOTP code, rejecting replays. */
 export async function verifyTotp(userId, code, totpSecret) {
   const totp = new OTPAuth.TOTP({
     secret: OTPAuth.Secret.fromBase32(decryptTotpSecret(totpSecret)),
@@ -173,6 +198,7 @@ export async function verifyTotp(userId, code, totpSecret) {
   return { ok: true };
 }
 
+/** Create a trusted-device token for MFA bypass (30-day expiry). */
 export async function createTrustedDevice(userId, userAgent) {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -185,6 +211,7 @@ export async function createTrustedDevice(userId, userAgent) {
   return { token, maxAge: TRUST_DAYS * 24 * 60 * 60 * 1000 };
 }
 
+/** Check whether a trusted-device cookie is still valid for this user. */
 export async function checkTrustedDevice(userId, trustCookie) {
   if (!trustCookie) return false;
   const tokenHash = crypto.createHash('sha256').update(trustCookie).digest('hex');
@@ -195,6 +222,7 @@ export async function checkTrustedDevice(userId, trustCookie) {
   return !!device;
 }
 
+/** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin). */
 export async function getCurrentUser(userId) {
   const user = await db.get('SELECT id, email, name, totp_enabled, is_admin FROM users WHERE id = $1', [userId]);
   if (!user) return null;
@@ -209,6 +237,7 @@ export async function getCurrentUser(userId) {
 
 // --- TOTP management ---
 
+/** Generate a TOTP secret and QR code for MFA setup (does not enable yet). */
 export async function setupTotp(userId) {
   const user = await db.get('SELECT id, email, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -228,6 +257,7 @@ export async function setupTotp(userId) {
   return { secret: secret.base32, qrCode: qrDataUrl };
 }
 
+/** Verify a TOTP code against the pending secret and enable MFA for the user. */
 export async function verifyAndEnableTotp(userId, code) {
   const user = await db.get('SELECT id, totp_secret, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -246,6 +276,7 @@ export async function verifyAndEnableTotp(userId, code) {
   await db.run('UPDATE users SET totp_enabled = TRUE WHERE id = $1', [user.id]);
 }
 
+/** Disable MFA after verifying the user's password. */
 export async function disableTotp(userId, password) {
   const user = await db.get('SELECT id, password_hash, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -260,6 +291,10 @@ export async function disableTotp(userId, password) {
 
 // --- Password management ---
 
+/**
+ * Create a password-reset token (rate-limited to 3/hour).
+ * @returns {{token, userId, email}|null} Null if user not found or rate-limited.
+ */
 export async function createPasswordResetToken(email) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get('SELECT id, email FROM users WHERE email = $1', [normalizedEmail]);
@@ -280,6 +315,7 @@ export async function createPasswordResetToken(email) {
   return { token, userId: user.id, email: user.email };
 }
 
+/** Reset a user's password using a valid reset token; invalidates all sessions. */
 export async function resetPassword(token, newPassword) {
   const pwError = validatePassword(newPassword);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
@@ -308,6 +344,7 @@ export async function resetPassword(token, newPassword) {
   return resetToken.user_id;
 }
 
+/** Change the user's email after verifying their password. */
 export async function changeEmail(userId, password, newEmail) {
   const normalizedEmail = newEmail.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
@@ -323,10 +360,11 @@ export async function changeEmail(userId, password, newEmail) {
   const existing = await db.get('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
   if (existing) throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
 
-  await db.run('UPDATE users SET email = $1 WHERE id = $2', [normalizedEmail, user.id]);
-  return { email: normalizedEmail, oldEmail: user.email };
+  await db.run('UPDATE users SET email = $1, email_verified = FALSE WHERE id = $2', [normalizedEmail, user.id]);
+  return { email: normalizedEmail, oldEmail: user.email, needsVerification: true };
 }
 
+/** Change the user's password after verifying the current one. */
 export async function changePassword(userId, currentPassword, newPassword) {
   const user = await db.get('SELECT id, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -342,6 +380,7 @@ export async function changePassword(userId, currentPassword, newPassword) {
   await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
 }
 
+/** Permanently delete a user account and all owned data after verifying their password. */
 export async function deleteAccount(userId, password) {
   const user = await db.get('SELECT id, email, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });

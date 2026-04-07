@@ -1,4 +1,8 @@
-// Relative time: "just now", "5m ago", "3h ago", "7d ago", or locale date
+/**
+ * Format a date string as relative time (e.g. "just now", "5m ago", "3d ago").
+ * @param {string} dateStr - ISO date string
+ * @returns {string}
+ */
 export function formatRelativeTime(dateStr) {
   if (!dateStr) return '';
   const now = new Date();
@@ -15,7 +19,11 @@ export function formatRelativeTime(dateStr) {
   return date.toLocaleDateString();
 }
 
-// Full date: "15 March 2026, 3:45 pm"
+/**
+ * Format a date string as a full date (e.g. "15 March 2026, 3:45 pm").
+ * @param {string} dateStr - ISO date string
+ * @returns {string}
+ */
 export function formatFullDate(dateStr) {
   const d = new Date(dateStr);
   const day = d.getDate();
@@ -25,7 +33,11 @@ export function formatFullDate(dateStr) {
   return `${day} ${month} ${year}, ${time}`;
 }
 
-// Sync date: "today at 3:45 PM", "yesterday at ...", "15 Jan at ..."
+/**
+ * Format a date string for sync display (e.g. "today at 3:45 PM", "15 Jan at 2:00 PM").
+ * @param {string} dateStr - ISO date string
+ * @returns {string}
+ */
 export function formatSyncDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -47,7 +59,11 @@ export function formatSyncDate(dateStr) {
   return `${dayPart} at ${h}:${m} ${ampm}`;
 }
 
-// Sync date (long): "Today at 3:45 PM", "Yesterday at ...", "15 January, 2026 at ..."
+/**
+ * Format a date string for long sync display (e.g. "Today at 3:45 PM", "15 January, 2026 at 2:00 PM").
+ * @param {string} dateStr - ISO date string
+ * @returns {string}
+ */
 export function formatSyncDateLong(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);

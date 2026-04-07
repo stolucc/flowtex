@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { get, put, post } from '../api.js';
+import { get, put, post, del } from '../api.js';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
 
+/** Displays a single metric card with a value, label, and optional subtitle. */
 function StatCard({ label, value, sub }) {
   return (
     <div className="admin-card">
@@ -12,6 +13,7 @@ function StatCard({ label, value, sub }) {
   );
 }
 
+/** Renders a vertical bar chart from time-series data. */
 function BarChart({ data, label, color = 'var(--accent)' }) {
   if (!data || !data.length) return null;
   const max = Math.max(...data.map((d) => d.count), 1);
@@ -47,6 +49,7 @@ function BarChart({ data, label, color = 'var(--accent)' }) {
   );
 }
 
+/** Renders a compact SVG sparkline chart for real-time system metrics. */
 function MiniLineChart({ data, valueKey, label, color = 'var(--accent)', maxVal }) {
   if (!data || data.length < 2) return null;
   const values = data.map((d) => d[valueKey]);
@@ -78,6 +81,7 @@ function MiniLineChart({ data, valueKey, label, color = 'var(--accent)', maxVal 
   );
 }
 
+/** Generic data table with configurable columns and optional custom renderers. */
 function DataTable({ columns, rows, emptyMsg = 'No data' }) {
   if (!rows || !rows.length) return <div className="admin-empty">{emptyMsg}</div>;
   return (
@@ -104,6 +108,11 @@ function DataTable({ columns, rows, emptyMsg = 'No data' }) {
   );
 }
 
+/**
+ * Formats a byte count into a human-readable string (B, KB, MB, GB).
+ * @param {number} bytes
+ * @returns {string}
+ */
 function formatBytes(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
@@ -111,6 +120,11 @@ function formatBytes(bytes) {
   return (bytes / 1073741824).toFixed(1) + ' GB';
 }
 
+/**
+ * Formats an uptime duration in seconds to a compact "Xh Ym" string.
+ * @param {number} seconds
+ * @returns {string}
+ */
 function formatUptime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -128,6 +142,7 @@ function formatDateTime(d) {
   return new Date(d).toLocaleString();
 }
 
+/** Expanded detail panel showing a single user's projects, edits, comments, chat, logins, and audit log. */
 function UserActivityDetail({ activity }) {
   const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
   if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
@@ -294,6 +309,7 @@ function UserActivityDetail({ activity }) {
   );
 }
 
+/** Admin dashboard with system monitoring, user/project analytics, audit log, and settings management. */
 export default function AdminDashboard({ onBack }) {
   const [overview, setOverview] = useState(null);
   const [days, setDays] = useState(30);
@@ -382,7 +398,7 @@ export default function AdminDashboard({ onBack }) {
       get('/api/admin/settings')
         .then((r) => r.json())
         .then(setAdminSettings)
-        .catch(() => {});
+        .catch((e) => console.warn('Failed to load admin settings:', e));
     }
   }, [tab]);
 
@@ -402,6 +418,35 @@ export default function AdminDashboard({ onBack }) {
   }, [live, fetchAll, fetchSystem]);
 
   const liveTag = live ? <span className="admin-live-indicator">Live</span> : null;
+
+  /** Export the full audit log as a CSV file download. */
+  const exportAuditLog = async () => {
+    try {
+      const res = await get('/api/admin/audit-log/export');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `flowtex-audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
+  };
+
+  /** Clear the entire audit log after user confirmation. */
+  const [confirmClear, setConfirmClear] = useState(false);
+  const clearAuditLog = async () => {
+    try {
+      await del('/api/admin/audit-log');
+      setConfirmClear(false);
+      setAuditPage(1);
+      fetchAll();
+    } catch (err) {
+      console.error('Clear failed:', err);
+    }
+  };
 
   const projectCols = [
     { key: 'name', label: 'Project' },
@@ -645,7 +690,33 @@ export default function AdminDashboard({ onBack }) {
 
       {tab === 'audit' && (
         <div className="admin-section">
-          <h2>Audit Log {liveTag}</h2>
+          <div className="admin-audit-header">
+            <h2>Audit Log {liveTag}</h2>
+            <div className="admin-audit-actions">
+              <button className="admin-audit-btn" onClick={exportAuditLog} disabled={!auditLog.total}>
+                Export CSV
+              </button>
+              {!confirmClear ? (
+                <button
+                  className="admin-audit-btn admin-audit-btn-danger"
+                  onClick={() => setConfirmClear(true)}
+                  disabled={!auditLog.total}
+                >
+                  Clear Log
+                </button>
+              ) : (
+                <span className="admin-audit-confirm">
+                  Are you sure?
+                  <button className="admin-audit-btn admin-audit-btn-danger" onClick={clearAuditLog}>
+                    Yes, delete all
+                  </button>
+                  <button className="admin-audit-btn" onClick={() => setConfirmClear(false)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
           <DataTable columns={auditCols} rows={auditLog.entries} />
           {auditLog.pages > 1 && (
             <div className="admin-pagination">

@@ -318,7 +318,10 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-// ── Graceful shutdown ────────────────────────────────────────────────────
+/**
+ * Graceful shutdown handler: close HTTP, WebSocket, Redis, and DB connections.
+ * @param {string} signal - The signal that triggered shutdown (e.g. 'SIGTERM').
+ */
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully`);
 
@@ -345,7 +348,7 @@ async function shutdown(signal) {
   }
 
   // 4. Drain the database pool
-  await db.pool.end().catch(() => {});
+  await db.pool.end().catch((e) => logger.warn({ err: e }, 'DB pool drain error on shutdown'));
 
   logger.info('Cleanup complete — exiting');
   process.exit(0);
@@ -366,15 +369,26 @@ process.on('SIGINT', () => shutdown('SIGINT'));
       process.exit(1);
     }
   }
-  // Warn on short secrets (< 32 bytes = 64 hex chars)
+  // Enforce secret length in production, warn in dev
   if (process.env.SESSION_SECRET.length < 32) {
+    if (isProduction) {
+      logger.error('SESSION_SECRET must be at least 32 chars in production');
+      process.exit(1);
+    }
     logger.warn('SESSION_SECRET is very short (< 32 chars) — use at least 64 hex chars');
   }
   if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
+    if (isProduction) {
+      logger.error('ENCRYPTION_KEY must be at least 32 chars in production');
+      process.exit(1);
+    }
     logger.warn('ENCRYPTION_KEY is very short (< 32 chars) — use at least 64 hex chars');
   }
-  // Warn if ENCRYPTION_KEY is missing in dev
-  if (!isProduction && !process.env.ENCRYPTION_KEY) {
+  if (!process.env.ENCRYPTION_KEY) {
+    if (isProduction) {
+      logger.error('ENCRYPTION_KEY must be set in production');
+      process.exit(1);
+    }
     logger.warn('ENCRYPTION_KEY not set — using insecure dev fallback. Set it in .env');
   }
 }
@@ -387,6 +401,7 @@ db.initSchema()
   .then(() => seedPreloadedTemplates())
   .then(() => {
     db.startCleanupJob();
+    import('./utils/mentionDigest.js').then((m) => m.startMentionDigestJob());
     server.listen(PORT, () => {
       const proto = useHttps ? 'https' : 'http';
       logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);

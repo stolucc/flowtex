@@ -5,7 +5,7 @@ import logger from '../logger.js';
 
 const router = Router();
 
-// Get chat history for a project
+/** GET /api/chat/:projectId -- Retrieve chat message history for a project (last 500 messages). */
 router.get('/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;

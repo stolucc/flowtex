@@ -1,5 +1,6 @@
 import React from 'react';
 
+/** Top-level error boundary that catches render errors and shows a reload prompt. */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

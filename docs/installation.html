@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowTex — Server Installation Guide</title>
+<style>
+  :root { --bg: #f8f9fa; --fg: #1a1a2e; --accent: #2563eb; --border: #d1d5db; --surface: #fff; --code-bg: #f1f3f5; --warn: #d97706; --ok: #16a34a; --req: #dc2626; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.65; padding: 2rem; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.35rem; margin-top: 2.2rem; margin-bottom: 0.6rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.25rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.4rem; margin-bottom: 0.4rem; }
+  p, li { margin-bottom: 0.5rem; }
+  ul, ol { padding-left: 1.6rem; }
+  code { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.9em; background: var(--code-bg); padding: 0.15em 0.35em; border-radius: 3px; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 1rem 1.2rem; border-radius: 6px; overflow-x: auto; margin: 0.8rem 0 1.2rem; line-height: 1.5; }
+  pre code { background: none; color: inherit; padding: 0; font-size: 0.85em; }
+  .comment { color: #94a3b8; }
+  table { width: 100%; border-collapse: collapse; margin: 0.8rem 0 1.2rem; font-size: 0.92em; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; }
+  th { background: var(--code-bg); font-weight: 600; }
+  .req { color: var(--req); font-weight: 600; }
+  .opt { color: var(--warn); font-weight: 600; }
+  .tag { display: inline-block; font-size: 0.75em; padding: 0.1em 0.5em; border-radius: 3px; font-weight: 600; vertical-align: middle; }
+  .tag-req { background: #fef2f2; color: var(--req); border: 1px solid #fecaca; }
+  .tag-opt { background: #fffbeb; color: var(--warn); border: 1px solid #fde68a; }
+  .tag-rec { background: #f0fdf4; color: var(--ok); border: 1px solid #bbf7d0; }
+  .note { background: #eff6ff; border-left: 4px solid var(--accent); padding: 0.7rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; font-size: 0.92em; }
+  .warn { background: #fffbeb; border-left: 4px solid var(--warn); padding: 0.7rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; font-size: 0.92em; }
+  .subtitle { color: #6b7280; font-size: 1rem; margin-bottom: 1.5rem; }
+  a { color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>FlowTex Server Installation Guide</h1>
+<p class="subtitle">For IT administrators deploying FlowTex on Ubuntu/Debian Linux</p>
+
+<h2>1. System Requirements</h2>
+
+<table>
+  <tr><th>Resource</th><th>Minimum</th><th>Recommended</th></tr>
+  <tr><td>CPU</td><td>2 cores</td><td>4+ cores (LaTeX compilation is CPU-bound)</td></tr>
+  <tr><td>RAM</td><td>4 GB</td><td>8+ GB (each concurrent compilation uses ~500 MB)</td></tr>
+  <tr><td>Disk</td><td>15 GB</td><td>30+ GB (TeX Live full is ~7 GB; project files and database grow over time)</td></tr>
+  <tr><td>OS</td><td colspan="2">Ubuntu 22.04 LTS or Debian 12+ (any modern Linux with apt)</td></tr>
+</table>
+
+<h2>2. Required Packages</h2>
+
+<h3>2.1 Node.js 22.x <span class="tag tag-req">Required</span></h3>
+<p>The application server runtime.</p>
+<pre><code><span class="comment"># Install Node.js 22 from NodeSource</span>
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt-get install -y nodejs</code></pre>
+<p>Verify: <code>node --version</code> should show <code>v22.x.x</code></p>
+
+<h3>2.2 PostgreSQL 16+ <span class="tag tag-req">Required</span></h3>
+<p>All application data (users, projects, files, sessions) is stored in PostgreSQL.</p>
+<pre><code><span class="comment"># Install PostgreSQL</span>
+sudo apt-get install -y postgresql-16
+
+<span class="comment"># Create the database and user</span>
+sudo -u postgres createuser --pwprompt flowtex
+sudo -u postgres createdb -O flowtex flowtex</code></pre>
+
+<div class="warn"><strong>Security:</strong> Always set a database password in production. Configure it via <code>PGUSER</code> and <code>PGPASSWORD</code> in the <code>.env</code> file.</div>
+
+<h3>2.3 TeX Live (Full) <span class="tag tag-req">Required</span></h3>
+<p>The LaTeX compilation engine. A <strong>full</strong> installation is recommended to ensure all packages users may need are available.</p>
+<pre><code><span class="comment"># Full TeX Live installation (includes pdflatex, xelatex, lualatex, latexmk, biber, etc.)</span>
+sudo apt-get install -y texlive-full</code></pre>
+
+<p>This installs approximately 7 GB and includes all of the following tools that FlowTex uses:</p>
+
+<table>
+  <tr><th>Tool</th><th>Purpose</th><th>Included in texlive-full</th></tr>
+  <tr><td><code>latexmk</code></td><td>Compilation orchestration (drives pdflatex/xelatex/lualatex)</td><td>Yes</td></tr>
+  <tr><td><code>pdflatex</code></td><td>Standard LaTeX to PDF compiler</td><td>Yes</td></tr>
+  <tr><td><code>xelatex</code></td><td>Unicode/OpenType font support</td><td>Yes</td></tr>
+  <tr><td><code>lualatex</code></td><td>Lua-scriptable LaTeX engine</td><td>Yes</td></tr>
+  <tr><td><code>biber</code></td><td>BibLaTeX bibliography processor</td><td>Yes</td></tr>
+  <tr><td><code>bibtex</code></td><td>Classic bibliography processor</td><td>Yes</td></tr>
+  <tr><td><code>synctex</code></td><td>Source-to-PDF position mapping</td><td>Yes</td></tr>
+  <tr><td><code>latexdiff</code></td><td>Generates visual diffs between document versions</td><td>Yes</td></tr>
+  <tr><td><code>texcount</code></td><td>Word and section counting</td><td>Yes</td></tr>
+  <tr><td><code>chktex</code></td><td>LaTeX style/warning linter</td><td>Yes</td></tr>
+  <tr><td><code>lacheck</code></td><td>LaTeX syntax checker</td><td>Yes</td></tr>
+  <tr><td><code>latexindent</code></td><td>LaTeX code formatter</td><td>Yes</td></tr>
+</table>
+
+<div class="note"><strong>Minimal alternative:</strong> If disk space is a concern, install <code>texlive-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-bibtex-extra texlive-science texlive-publishers biber latexmk latexdiff texcount chktex lacheck</code>. However, users may encounter missing package errors with niche LaTeX packages.</div>
+
+<h3>2.4 Git <span class="tag tag-req">Required</span></h3>
+<p>Used for GitHub repository synchronization (push/pull/clone).</p>
+<pre><code>sudo apt-get install -y git</code></pre>
+
+<h3>2.5 Build Essentials <span class="tag tag-req">Required</span></h3>
+<p>Some npm packages (e.g., <code>bcrypt</code>) compile native addons during <code>npm install</code>.</p>
+<pre><code>sudo apt-get install -y build-essential python3</code></pre>
+
+<h2>3. Optional Packages</h2>
+
+<h3>3.1 Redis 7+ <span class="tag tag-opt">Optional</span></h3>
+<p>Only required if running multiple FlowTex server instances (horizontal scaling). Redis provides WebSocket pub/sub so real-time collaboration works across instances.</p>
+<pre><code>sudo apt-get install -y redis-server</code></pre>
+<p>Configure via <code>REDIS_URL=redis://localhost:6379</code> in <code>.env</code>.</p>
+
+<h3>3.2 Caddy or Nginx <span class="tag tag-rec">Recommended</span></h3>
+<p>A reverse proxy for TLS termination, automatic HTTPS, and serving on ports 80/443.</p>
+<pre><code><span class="comment"># Option A: Caddy (automatic HTTPS via Let's Encrypt)</span>
+sudo apt-get install -y caddy
+
+<span class="comment"># Option B: Nginx</span>
+sudo apt-get install -y nginx certbot python3-certbot-nginx</code></pre>
+
+<p>Example Caddy configuration (<code>/etc/caddy/Caddyfile</code>):</p>
+<pre><code>flowtex.example.com {
+    reverse_proxy localhost:3001
+}</code></pre>
+
+<p>Example Nginx configuration:</p>
+<pre><code>server {
+    server_name flowtex.example.com;
+    listen 443 ssl;
+
+    ssl_certificate     /etc/letsencrypt/live/flowtex.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/flowtex.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+
+<div class="note"><strong>WebSocket support:</strong> The <code>Upgrade</code> and <code>Connection</code> headers are essential &mdash; FlowTex uses WebSockets for real-time collaboration.</div>
+
+<h3>3.3 tex-fmt <span class="tag tag-opt">Optional</span></h3>
+<p>An alternative LaTeX formatter (faster than latexindent). Not available via apt; install from <a href="https://github.com/WGUNDERWOOD/tex-fmt/releases">GitHub releases</a>.</p>
+
+<h2>4. Application Setup</h2>
+
+<h3>4.1 Install application dependencies</h3>
+<pre><code><span class="comment"># Clone or copy the FlowTex source to the server</span>
+cd /opt/flowtex
+
+<span class="comment"># Install npm dependencies</span>
+npm install --prefix server --production
+npm install --prefix client
+
+<span class="comment"># Build the client</span>
+cd client && npx vite build && cd ..
+
+<span class="comment"># Copy built assets to server</span>
+cp -r client/dist/* server/public/</code></pre>
+
+<h3>4.2 Configure environment</h3>
+<p>Create <code>.env</code> in the project root:</p>
+<pre><code><span class="comment"># Database</span>
+PGDATABASE=flowtex
+PGHOST=localhost
+PGPORT=5432
+PGUSER=flowtex
+PGPASSWORD=your_secure_password_here
+
+<span class="comment"># Application</span>
+NODE_ENV=production
+PORT=3001
+APP_URL=https://flowtex.example.com
+
+<span class="comment"># Security (generate unique values!)</span>
+SESSION_SECRET=<span class="comment"># openssl rand -hex 64</span>
+ENCRYPTION_KEY=<span class="comment"># openssl rand -hex 32</span>
+
+<span class="comment"># Email (SMTP)</span>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=noreply@example.com
+SMTP_PASS=your_smtp_password
+SMTP_FROM=FlowTex &lt;noreply@example.com&gt;
+
+<span class="comment"># GitHub OAuth (optional &mdash; for GitHub sync feature)</span>
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+<span class="comment"># Redis (optional &mdash; for multi-instance scaling)</span>
+<span class="comment"># REDIS_URL=redis://localhost:6379</span>
+
+<span class="comment"># CORS (set to your domain)</span>
+CORS_ORIGINS=https://flowtex.example.com
+
+<span class="comment"># Admin email</span>
+ADMIN_EMAIL=admin@example.com</code></pre>
+
+<div class="warn"><strong>Security:</strong> Generate unique values for <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code>. Never reuse these across environments. Set file permissions: <code>chmod 600 .env</code></div>
+
+<h3>4.3 Start the server</h3>
+<pre><code><span class="comment"># Direct start</span>
+node --env-file=.env server/index.js
+
+<span class="comment"># Or use a process manager (recommended for production)</span>
+npm install -g pm2
+pm2 start server/index.js --name flowtex -- --env-file=.env
+pm2 save
+pm2 startup</code></pre>
+
+<h3>4.4 First-time setup</h3>
+<p>Open <code>https://flowtex.example.com</code> in a browser. The first-run wizard will prompt you to create the administrator account.</p>
+
+<h2>5. Quick Install Script</h2>
+<p>Copy and run on a fresh Ubuntu 22.04+ server:</p>
+<pre><code>#!/bin/bash
+set -e
+
+<span class="comment"># System packages</span>
+sudo apt-get update
+sudo apt-get install -y build-essential python3 git postgresql-16 texlive-full
+
+<span class="comment"># Node.js 22</span>
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt-get install -y nodejs
+
+<span class="comment"># Caddy (reverse proxy)</span>
+sudo apt-get install -y caddy
+
+<span class="comment"># Create database</span>
+sudo -u postgres createuser --pwprompt flowtex
+sudo -u postgres createdb -O flowtex flowtex
+
+<span class="comment"># Application setup</span>
+cd /opt/flowtex
+npm install --prefix server --production
+npm install --prefix client
+cd client && npx vite build && cd ..
+cp -r client/dist/* server/public/
+
+<span class="comment"># Generate secrets</span>
+echo "SESSION_SECRET=$(openssl rand -hex 64)" >> .env
+echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+chmod 600 .env
+
+echo "Done. Edit .env with your database password, domain, and SMTP settings, then start with:"
+echo "  node --env-file=.env server/index.js"</code></pre>
+
+<h2>6. Summary of All Packages</h2>
+
+<table>
+  <tr><th>Package</th><th>Status</th><th>Purpose</th></tr>
+  <tr><td><code>nodejs</code> (22.x)</td><td><span class="tag tag-req">Required</span></td><td>Application server runtime</td></tr>
+  <tr><td><code>postgresql-16</code></td><td><span class="tag tag-req">Required</span></td><td>Database (users, projects, files, sessions)</td></tr>
+  <tr><td><code>texlive-full</code></td><td><span class="tag tag-req">Required</span></td><td>LaTeX compilation (pdflatex, xelatex, lualatex, latexmk, biber, synctex, latexdiff, texcount, chktex, lacheck, latexindent)</td></tr>
+  <tr><td><code>git</code></td><td><span class="tag tag-req">Required</span></td><td>GitHub repository sync</td></tr>
+  <tr><td><code>build-essential</code></td><td><span class="tag tag-req">Required</span></td><td>Native npm addon compilation (bcrypt)</td></tr>
+  <tr><td><code>python3</code></td><td><span class="tag tag-req">Required</span></td><td>node-gyp build dependency</td></tr>
+  <tr><td><code>caddy</code> or <code>nginx</code></td><td><span class="tag tag-rec">Recommended</span></td><td>Reverse proxy, TLS termination, HTTPS</td></tr>
+  <tr><td><code>redis-server</code></td><td><span class="tag tag-opt">Optional</span></td><td>WebSocket pub/sub for multi-instance scaling</td></tr>
+</table>
+
+</body>
+</html>

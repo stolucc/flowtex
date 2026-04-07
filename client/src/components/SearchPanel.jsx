@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Decoration } from '@codemirror/view';
 
+/** Find-and-replace panel with current-file, .tex-only, and all-files search scopes. */
 function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlightEffect }) {
   const [query, setQuery] = useState('');
   const [replace, setReplace] = useState('');
@@ -16,7 +17,12 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     inputRef.current?.focus();
   }, []);
 
-  // Local file search
+  /**
+   * Find all occurrences of the query string in the current editor document.
+   * @param {string} q - Search query.
+   * @param {boolean} cs - Whether the search is case-sensitive.
+   * @returns {Array<{from: number, to: number}>} Matched ranges.
+   */
   const findMatches = useCallback(
     (q, cs) => {
       if (!view || !q) return [];
@@ -36,6 +42,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     [view],
   );
 
+  /** Apply CodeMirror decorations to highlight search matches in the editor. */
   const updateHighlights = useCallback(
     (q, cs, currentIdx) => {
       if (!view) return;
@@ -106,6 +113,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     };
   }, [query, caseSensitive, scope]);
 
+  /** Navigate to the next or previous search match and scroll it into view. */
   const goToMatch = useCallback(
     (dir) => {
       const matches = findMatches(query, caseSensitive);
@@ -134,6 +142,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     [view, query, caseSensitive, findMatches, updateHighlights],
   );
 
+  /** Replace the currently selected match with the replacement string. */
   const handleReplace = useCallback(() => {
     const matches = findMatches(query, caseSensitive);
     if (matchIndex < 0 || matchIndex >= matches.length) return;
@@ -142,6 +151,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     setTimeout(() => goToMatch('next'), 0);
   }, [view, query, replace, caseSensitive, matchIndex, findMatches, goToMatch]);
 
+  /** Replace all matches in the current document at once. */
   const handleReplaceAll = useCallback(() => {
     const matches = findMatches(query, caseSensitive);
     if (matches.length === 0) return;
@@ -173,6 +183,13 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     }
   };
 
+  /**
+   * Wrap the first occurrence of the query in a <mark> element for display in global results.
+   * @param {string} text - The line text to highlight within.
+   * @param {string} q - The search query.
+   * @param {boolean} cs - Whether the search is case-sensitive.
+   * @returns {React.ReactNode} Text with the match wrapped in a highlight element.
+   */
   const highlightMatch = (text, q, cs) => {
     if (!q) return text;
     const searchStr = cs ? q : q.toLowerCase();

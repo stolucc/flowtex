@@ -1,9 +1,151 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getColor } from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatFullDate as formatDate } from '../utils/dateFormat.js';
 
-function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, onReply, innerRef, onLayoutChange }) {
+/** Render comment text with @mentions highlighted. */
+function renderMentionText(text) {
+  if (!text) return text;
+  const parts = [];
+  const re = /@"([^"]+)"|@(\S+)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const name = m[1] || m[2];
+    parts.push(<span key={m.index} className="mention-highlight">@{name}</span>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length > 1 ? parts : text;
+}
+
+/** Extract mentioned member names from text. Returns array of lowercase names. */
+function extractMentions(text, members) {
+  if (!text || !members?.length) return [];
+  const re = /@"([^"]+)"|@(\S+)/g;
+  const found = [];
+  let m;
+  while ((m = re.exec(text))) {
+    const name = (m[1] || m[2]).toLowerCase();
+    if (members.some((mb) => mb.name.toLowerCase() === name)) found.push(name);
+  }
+  return [...new Set(found)];
+}
+
+/** Autocomplete popup for @mentions in a textarea. */
+function MentionAutocomplete({ text, cursorPos, members, currentUserId, onSelect, textareaEl }) {
+  const [candidates, setCandidates] = useState([]);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const popupRef = useRef(null);
+
+  useEffect(() => {
+    // Find if cursor is inside an @mention being typed
+    const before = text.slice(0, cursorPos);
+    const match = before.match(/@(\S*)$/);
+    if (!match) {
+      setCandidates([]);
+      return;
+    }
+    const query = match[1].toLowerCase();
+    const eligible = members.filter((m) => {
+      return m.name.toLowerCase().startsWith(query);
+    });
+    setCandidates(eligible.slice(0, 6));
+    setSelectedIdx(0);
+  }, [text, cursorPos, members, currentUserId]);
+
+  if (candidates.length === 0) return null;
+
+  const handlePick = (member) => {
+    // Replace the partial @query with @"Name" or @Name
+    const before = text.slice(0, cursorPos);
+    const match = before.match(/@(\S*)$/);
+    if (!match) return;
+    const start = cursorPos - match[0].length;
+    const nameStr = member.name.includes(' ') ? `@"${member.name}"` : `@${member.name}`;
+    onSelect(start, cursorPos, nameStr + ' ');
+  };
+
+  return (
+    <div ref={popupRef} className="mention-autocomplete">
+      {candidates.map((m, i) => (
+        <button
+          key={m.id}
+          className={`mention-option${i === selectedIdx ? ' selected' : ''}`}
+          onMouseDown={(e) => { e.preventDefault(); handlePick(m); }}
+        >
+          <span className="mention-option-swatch" style={{ backgroundColor: getColor(m.name) }} />
+          {m.name}
+          {m.role === 'owner' && <span className="mention-option-role">owner</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Textarea with @mention autocomplete support. */
+function MentionTextarea({ value, onChange, onKeyDown, members, currentUserId, placeholder, rows, autoFocus, innerRef }) {
+  const [cursorPos, setCursorPos] = useState(0);
+  const localRef = useRef(null);
+  const ref = innerRef || localRef;
+
+  const handleChange = (e) => {
+    onChange(e);
+    setCursorPos(e.target.selectionStart);
+  };
+
+  const handleSelect = (e) => {
+    setCursorPos(e.target.selectionStart);
+  };
+
+  const handleMentionSelect = (start, end, replacement) => {
+    const newText = value.slice(0, start) + replacement + value.slice(end);
+    onChange({ target: { value: newText } });
+    const newCursor = start + replacement.length;
+    setCursorPos(newCursor);
+    requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(newCursor, newCursor);
+      ref.current?.focus();
+    });
+  };
+
+  const handleKeyDown = (e) => {
+    // Check if autocomplete is open — if so, let arrow keys and Enter interact with it
+    const before = value.slice(0, cursorPos);
+    const inMention = /@(\S*)$/.test(before);
+    if (inMention && members?.length) {
+      // We'll let the default onKeyDown handle Enter/Escape
+    }
+    onKeyDown?.(e);
+  };
+
+  return (
+    <div className="mention-textarea-wrap">
+      <textarea
+        ref={ref}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        onSelect={handleSelect}
+        onKeyDown={handleKeyDown}
+        rows={rows}
+      />
+      <MentionAutocomplete
+        text={value}
+        cursorPos={cursorPos}
+        members={members || []}
+        currentUserId={currentUserId}
+        onSelect={handleMentionSelect}
+        textareaEl={ref.current}
+      />
+    </div>
+  );
+}
+
+/** Single comment thread with inline replies, edit/delete actions, and resolve toggle. */
+function CommentBubble({ comment, currentUserName, members, currentUserId, onResolve, onDelete, onEdit, onReply, innerRef, onLayoutChange }) {
   const [replyText, setReplyText] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -42,6 +184,11 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
 
   return (
     <div ref={innerRef} className={`comment-item ${comment.resolved ? 'resolved' : ''}`}>
+      {comment.assigned_to && (
+        <div className="comment-assignment">
+          Assigned to {comment.assigned_to === currentUserId ? 'you' : (members?.find((m) => m.id === comment.assigned_to)?.name || 'someone')}
+        </div>
+      )}
       <div className="comment-top-actions">
         <button
           className="comment-resolve-btn"
@@ -79,7 +226,7 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
         </div>
       </div>
       <div className="comment-author">
-        <span className="comment-author-swatch" style={{ backgroundColor: getColor(comment.author) }} />
+        <span className="comment-author-swatch" style={{ backgroundColor: getColor(members?.find((m) => m.id === comment.author_id)?.name || comment.author) }} />
         {comment.author === currentUserName ? 'You' : comment.author}
       </div>
       <div className="comment-date">{formatDate(comment.created_at)}</div>
@@ -106,26 +253,26 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
           </div>
         </div>
       ) : (
-        <div className="comment-text">{comment.text}</div>
+        <div className="comment-text">{renderMentionText(comment.text)}</div>
       )}
       {(comment.replies || []).length > 0 && (
         <div className="comment-replies">
           {comment.replies.map((r) => (
             <div key={r.id} className="comment-reply">
               <div className="comment-reply-author">
-                <span className="comment-author-swatch" style={{ backgroundColor: getColor(r.author) }} />
+                <span className="comment-author-swatch" style={{ backgroundColor: getColor(members?.find((m) => m.id === r.author_id)?.name || r.author) }} />
                 {r.author === currentUserName ? 'You' : r.author}
               </div>
               <div className="comment-reply-date">{formatDate(r.created_at)}</div>
-              <div className="comment-reply-text">{r.text}</div>
+              <div className="comment-reply-text">{renderMentionText(r.text)}</div>
             </div>
           ))}
         </div>
       )}
       {!comment.resolved && (
         <div className="comment-reply-area">
-          <textarea
-            placeholder="Reply..."
+          <MentionTextarea
+            placeholder="Reply... (type @ to mention)"
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={(e) => {
@@ -135,6 +282,8 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
               }
             }}
             rows={1}
+            members={members}
+            currentUserId={currentUserId}
           />
           {replyText.trim() && (
             <div className="comment-reply-actions">
@@ -150,8 +299,11 @@ function CommentBubble({ comment, currentUserName, onResolve, onDelete, onEdit, 
   );
 }
 
+/** Sidebar displaying editor comments with elastic positioning aligned to source lines. */
 export default function CommentsSidebar({
   currentUserName,
+  currentUserId,
+  members,
   comments,
   selection,
   selectionFormTop,
@@ -167,6 +319,7 @@ export default function CommentsSidebar({
   style,
 }) {
   const [text, setText] = useState('');
+  const [assignTo, setAssignTo] = useState(null);
   const [resolvedCollapsed, setResolvedCollapsed] = useState(true);
   const textareaRef = useRef(null);
   const prevSelectionRef = useRef(null);
@@ -174,10 +327,18 @@ export default function CommentsSidebar({
   const commentRefs = useRef({});
   const listRef = useRef(null);
 
+  // Detect @mentions in the new comment text
+  const mentionedMembers = useMemo(() => {
+    if (!text || !members?.length) return [];
+    const names = extractMentions(text, members);
+    return members.filter((m) => names.includes(m.name.toLowerCase()));
+  }, [text, members, currentUserId]);
+
   useEffect(() => {
     if (selection && selection !== prevSelectionRef.current) {
       prevSelectionRef.current = selection;
       setText('');
+      setAssignTo(null);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
     if (!selection) {
@@ -185,15 +346,24 @@ export default function CommentsSidebar({
     }
   }, [selection]);
 
+  // Clear assignTo if the mentioned member is removed from text
+  useEffect(() => {
+    if (assignTo && !mentionedMembers.some((m) => m.id === assignTo)) {
+      setAssignTo(null);
+    }
+  }, [mentionedMembers, assignTo]);
+
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selection) return;
-    await onAdd(text.trim());
+    await onAdd(text.trim(), { assignedTo: assignTo });
     setText('');
+    setAssignTo(null);
   };
 
   const handleCancel = () => {
     setText('');
+    setAssignTo(null);
     onCancelComment?.();
   };
 
@@ -280,10 +450,10 @@ export default function CommentsSidebar({
         <div ref={listRef} className={`comments-list ${isPositioned ? 'positioned' : ''}`}>
           {selection && (
             <div ref={formRef} className="comment-form">
-              <textarea
-                ref={textareaRef}
+              <MentionTextarea
+                innerRef={textareaRef}
                 autoFocus
-                placeholder="Write a comment..."
+                placeholder="Write a comment... (type @ to mention)"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
@@ -293,7 +463,23 @@ export default function CommentsSidebar({
                   }
                 }}
                 rows={3}
+                members={members}
+                currentUserId={currentUserId}
               />
+              {mentionedMembers.length > 0 && (
+                <div className="comment-assign-section">
+                  {mentionedMembers.map((m) => (
+                    <label key={m.id} className="comment-assign-option">
+                      <input
+                        type="checkbox"
+                        checked={assignTo === m.id}
+                        onChange={() => setAssignTo(assignTo === m.id ? null : m.id)}
+                      />
+                      Assign to {m.id === currentUserId ? 'you' : m.name}
+                    </label>
+                  ))}
+                </div>
+              )}
               <div className="comment-form-actions">
                 <button type="button" className="comment-cancel-btn" onClick={handleCancel}>
                   Cancel
@@ -309,6 +495,8 @@ export default function CommentsSidebar({
               key={c.id}
               comment={c}
               currentUserName={currentUserName}
+              members={members}
+              currentUserId={currentUserId}
               onResolve={onResolve}
               onDelete={onDelete}
               onEdit={onEdit}
@@ -338,6 +526,8 @@ export default function CommentsSidebar({
                     key={c.id}
                     comment={c}
                     currentUserName={currentUserName}
+                    members={members}
+                    currentUserId={currentUserId}
                     onResolve={onResolve}
                     onDelete={onDelete}
                     onEdit={onEdit}

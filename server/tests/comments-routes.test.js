@@ -15,6 +15,10 @@ vi.mock('../middleware/auth.js', () => ({
 
 vi.mock('uuid', () => ({ v4: () => 'comment-uuid-1234' }));
 
+vi.mock('../utils/mentions.js', () => ({
+  recordMentions: vi.fn().mockResolvedValue([]),
+}));
+
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
 import router from '../routes/comments.js';
@@ -158,6 +162,7 @@ describe('POST /:fileId', () => {
   it('creates a comment with valid data', async () => {
     db.get.mockResolvedValueOnce(FILE_ROW); // requireFileAccess
     isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+    db.get.mockResolvedValueOnce({ project_id: 'proj-1' }); // project_id lookup
     db.run.mockResolvedValueOnce({}); // INSERT
     db.get.mockResolvedValueOnce({ ...COMMENT, id: 'comment-uuid-1234' }); // SELECT after insert
 
@@ -268,6 +273,7 @@ describe('POST /:fileId', () => {
   it('uses session userName for author', async () => {
     db.get.mockResolvedValueOnce(FILE_ROW);
     isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+    db.get.mockResolvedValueOnce({ project_id: 'proj-1' }); // project_id lookup
     db.run.mockResolvedValueOnce({});
     db.get.mockResolvedValueOnce(COMMENT);
 
@@ -282,6 +288,7 @@ describe('POST /:fileId', () => {
   it('falls back to DB user name when session userName is falsy', async () => {
     db.get
       .mockResolvedValueOnce(FILE_ROW) // file lookup
+      .mockResolvedValueOnce({ project_id: 'proj-1' }) // project_id lookup
       .mockResolvedValueOnce({ name: 'DbAlice' }) // user name lookup
       .mockResolvedValueOnce(COMMENT); // final SELECT
     isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
@@ -414,6 +421,7 @@ describe('POST /:commentId/reply', () => {
     db.get.mockResolvedValueOnce(FILE_ROW); // file
     isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
     db.run.mockResolvedValueOnce({}); // INSERT
+    db.get.mockResolvedValueOnce({ id: 'c1', project_id: 'proj-1' }); // parentComment lookup
     db.get.mockResolvedValueOnce({ id: 'comment-uuid-1234', comment_id: 'c1', text: 'Thanks', author: 'Alice' }); // SELECT
 
     const res = mockRes();

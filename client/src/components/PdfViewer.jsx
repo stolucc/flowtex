@@ -26,6 +26,7 @@ const MAX_SCALE = 4.0;
 const OBSERVER_MARGIN = 1500; // px buffer for pre-rendering pages near viewport
 const DESTROY_PAGES_BEYOND = 5; // destroy canvases beyond this many pages from viewport
 
+/** Scrollable panel displaying raw LaTeX compiler output. */
 function ConsolePanel({ output, compiling }) {
   const ref = useRef(null);
 
@@ -49,6 +50,7 @@ function ConsolePanel({ output, compiling }) {
   );
 }
 
+/** Single error or warning row in the log panel, with optional help button. */
 function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp }) {
   return (
     <div className={className}>
@@ -87,6 +89,7 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
   );
 }
 
+/** Detailed help view for a specific LaTeX error, with suggestions and external search links. */
 function HelpPanel({ help, onBack }) {
   return (
     <div className="pdf-help-panel">
@@ -157,6 +160,7 @@ function HelpPanel({ help, onBack }) {
   );
 }
 
+/** PDF viewer with zoom, page navigation, pinch-to-zoom, SyncTeX click, and virtualized page rendering. */
 const PdfViewer = forwardRef(function PdfViewer(
   {
     url,
@@ -312,7 +316,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     observerRef.current = null;
     renderedPagesRef.current.clear();
     renderingPagesRef.current.clear();
-    container.innerHTML = '';
+    container.replaceChildren();
     pageInfoRef.current = [];
     pageProxyRef.current = [];
     visualScaleRef.current = scale;
@@ -595,6 +599,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     }
   };
 
+  /** Commit a new zoom scale, updating both the visual ref and triggering a re-render. */
   const commitScale = useCallback((newScale) => {
     const s = typeof newScale === 'function' ? newScale(visualScaleRef.current) : newScale;
     visualScaleRef.current = s;
@@ -604,6 +609,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const zoomIn = () => { setFitMode(null); commitScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE)); };
   const zoomOut = () => { setFitMode(null); commitScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE)); };
 
+  /** Adjust zoom so the PDF page width fills the container. */
   const fitWidth = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
     setFitMode('width');
@@ -614,6 +620,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     });
   };
 
+  /** Adjust zoom so an entire PDF page fits within the container. */
   const fitPage = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
     setFitMode('page');

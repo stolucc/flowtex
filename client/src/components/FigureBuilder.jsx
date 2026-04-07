@@ -3,7 +3,8 @@ import generateLatexFigure from '../utils/latexFigureGenerator.js';
 
 const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|pdf|eps|svg|tif|tiff|bmp)$/i;
 
-export default function FigureBuilder({ onInsert, onClose, onDelete, initial, projectFiles }) {
+/** Visual builder for LaTeX figure environments with placement, caption, and sizing options. */
+export default function FigureBuilder({ onInsert, onClose, onDelete, initial, projectFiles, declaredPackages }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imagePath, setImagePath] = useState(initial?.imagePath || '');
   const [width, setWidth] = useState(initial?.width || '0.8');
@@ -194,8 +195,8 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
 
         {(captionPos === 'left' || captionPos === 'right' || placement === 'H') && (
           <div className="table-opt-packages">
-            {(captionPos === 'left' || captionPos === 'right') && <span>Requires <code>{'\u005cusepackage{floatrow}'}</code></span>}
-            {placement === 'H' && <span>Requires <code>{'\u005cusepackage{float}'}</code></span>}
+            {(captionPos === 'left' || captionPos === 'right') && <span>{declaredPackages && (declaredPackages.has('floatrow') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>{'\u005cusepackage{floatrow}'}</code></span>}
+            {placement === 'H' && <span>{declaredPackages && (declaredPackages.has('float') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>{'\u005cusepackage{float}'}</code></span>}
           </div>
         )}
 

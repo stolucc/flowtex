@@ -1,7 +1,21 @@
+/**
+ * Get the merge definition originating at cell (r, c), or null.
+ * @param {Array} merges
+ * @param {number} r - Row index
+ * @param {number} c - Column index
+ * @returns {Object|null}
+ */
 export function getMergeAt(merges, r, c) {
   return merges?.find((m) => m.row === r && m.col === c) || null;
 }
 
+/**
+ * Check if cell (r, c) is covered by a merge but is not the merge origin.
+ * @param {Array} merges
+ * @param {number} r - Row index
+ * @param {number} c - Column index
+ * @returns {boolean}
+ */
 export function isCoveredByMerge(merges, r, c) {
   if (!merges) return false;
   return merges.some((m) => {
@@ -10,7 +24,13 @@ export function isCoveredByMerge(merges, r, c) {
   });
 }
 
-// Returns the merge that covers cell (r,c) — but NOT the origin cell itself
+/**
+ * Return the merge that covers cell (r, c), excluding the origin cell itself.
+ * @param {Array} merges
+ * @param {number} r - Row index
+ * @param {number} c - Column index
+ * @returns {Object|null}
+ */
 export function getCoveringMerge(merges, r, c) {
   if (!merges) return null;
   return (
@@ -21,6 +41,12 @@ export function getCoveringMerge(merges, r, c) {
   );
 }
 
+/**
+ * Parse a LaTeX column spec string into per-column parts (e.g. "l", ">{\centering}p{3cm}").
+ * @param {string} spec - Column specification string
+ * @param {number} maxCols - Maximum number of columns to extract
+ * @returns {string[]}
+ */
 export function extractColParts(spec, maxCols) {
   const parts = [];
   let i = 0,
@@ -75,6 +101,11 @@ export function extractColParts(spec, maxCols) {
   return parts;
 }
 
+/**
+ * Generate LaTeX source for a table from structured options.
+ * @param {Object} options - Table configuration (rows, cols, colSettings, borders, cells, merges, etc.)
+ * @returns {string} LaTeX source string
+ */
 export default function generateLatexTable({
   rows,
   cols,

@@ -18,7 +18,7 @@ function decompressSnapshot(buf) {
   }
 }
 
-// List snapshots for a project (metadata only, no data)
+/** GET /api/history/:projectId -- List version snapshots for a project (metadata only). */
 router.get('/:projectId', async (req, res) => {
   const member = await isProjectMember(req.params.projectId, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
@@ -36,7 +36,7 @@ router.get('/:projectId', async (req, res) => {
   res.json(snapshots);
 });
 
-// Get snapshot details: file list, which files changed vs previous snapshot, and a specific file's diff
+/** GET /api/history/snapshot/:snapshotId -- Get snapshot details: file list and which files changed vs previous. */
 router.get('/snapshot/:snapshotId', async (req, res) => {
   const snap = await db.get('SELECT * FROM project_snapshots WHERE id = $1', [req.params.snapshotId]);
   if (!snap) return res.status(404).json({ error: 'Snapshot not found' });
@@ -84,7 +84,7 @@ router.get('/snapshot/:snapshotId', async (req, res) => {
   });
 });
 
-// Get diff for a specific file between a snapshot and its predecessor
+/** GET /api/history/snapshot/:snapshotId/file/:fileId -- Get a file's content diff between a snapshot and its predecessor. */
 router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   const { snapshotId, fileId } = req.params;
   const snap = await db.get('SELECT * FROM project_snapshots WHERE id = $1', [snapshotId]);
@@ -115,7 +115,7 @@ router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   });
 });
 
-// Restore entire project to a snapshot's state
+/** POST /api/history/restore/:snapshotId -- Restore the entire project to a snapshot's state (creates pre/post-restore snapshots). */
 router.post('/restore/:snapshotId', async (req, res) => {
   const snap = await db.get('SELECT * FROM project_snapshots WHERE id = $1', [req.params.snapshotId]);
   if (!snap) return res.status(404).json({ error: 'Snapshot not found' });

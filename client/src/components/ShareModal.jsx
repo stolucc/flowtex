@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { get, post, del } from '../api.js';
 import Avatar from './Avatar.jsx';
 
+/** Modal for inviting collaborators, managing members, and cancelling pending invitations. */
 export default function ShareModal({ projectId, onClose }) {
   const [members, setMembers] = useState([]);
   const [invitations, setInvitations] = useState([]);

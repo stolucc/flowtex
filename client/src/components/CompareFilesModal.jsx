@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 
+/** Modal for selecting two .tex files to generate a latexdiff comparison. */
 export default function CompareFilesModal({ projectId, files, onClose, onStartDiff }) {
   const [oldFileId, setOldFileId] = useState('');
   const [newFileId, setNewFileId] = useState('');

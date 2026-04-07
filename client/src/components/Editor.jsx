@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { EditorView, keymap, Decoration } from '@codemirror/view';
 import { undo as cmUndo, redo as cmRedo, invertedEffects } from '@codemirror/commands';
@@ -9,6 +9,7 @@ import { classHighlighter } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { bibtex } from '../utils/bibtexMode.js';
 import latexLint from '../utils/latexLint.js';
+import bibtexLint from '../utils/bibtexLint.js';
 import {
   getDictionary,
   spellcheckText,
@@ -66,14 +67,21 @@ import {
 } from '../utils/editorExtensions.js';
 import {
   UndoIcon,
+  RedoIcon,
   ZoomOutIcon,
   ZoomInIcon,
   SearchIcon,
+  TableIcon,
+  FigureIcon,
+  ReviewEyeIcon,
   ContrastIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  SyncIcon,
+  HighlightIcon,
 } from './Icons.jsx';
 
+/** CodeMirror-based LaTeX/BibTeX editor with spellcheck, linting, track changes, and collaborative cursors. */
 const Editor = forwardRef(function Editor(
   {
     file,
@@ -147,6 +155,7 @@ const Editor = forwardRef(function Editor(
   // When true, tcMarkAsDeleted skips the onTrackDeletion WS broadcast (info is piggybacked instead).
   const skipTcDeleteBroadcast = useRef(false);
   const [commentBtn, setCommentBtn] = useState(null); // { x, y, from, to }
+  const [cursorInHl, setCursorInHl] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [lintDiags, setLintDiags] = useState([]);
   const [spellMenu, setSpellMenu] = useState(null); // { x, y, word, from, to }
@@ -212,6 +221,26 @@ const Editor = forwardRef(function Editor(
   const labelKeysRef = useRef(labelKeys || []);
   labelKeysRef.current = labelKeys || [];
   setSpellMenuRef.current = setSpellMenu;
+
+  /** Set of package names declared via \usepackage in the project preamble. */
+  const declaredPackages = useMemo(() => {
+    const pkgs = new Set();
+    if (!projectFiles) return pkgs;
+    const mainFile = projectFiles.find((f) => f.content && f.content.includes('\\documentclass'));
+    if (!mainFile) return pkgs;
+    // Extract preamble (before \begin{document})
+    const preamble = mainFile.content.split('\\begin{document}')[0] || '';
+    // Match \usepackage[opts]{pkg1,pkg2,...} and \usepackage{pkg}
+    const re = /\\(?:usepackage|RequirePackage)(?:\[.*?\])?\{([^}]+)\}/g;
+    let m;
+    while ((m = re.exec(preamble))) {
+      for (const p of m[1].split(',')) {
+        const trimmed = p.trim();
+        if (trimmed) pkgs.add(trimmed);
+      }
+    }
+    return pkgs;
+  }, [projectFiles]);
 
   useImperativeHandle(ref, () => ({
     undo() {
@@ -1132,15 +1161,17 @@ const Editor = forwardRef(function Editor(
             updateFigureGutterMarkers(update.view);
 
             // Debounced lint (client-side only; server-side runs on compile)
-            if (file?.path?.endsWith('.tex')) {
+            if (file?.path?.endsWith('.tex') || file?.path?.endsWith('.bib')) {
               clearTimeout(lintTimeout.current);
               lintTimeout.current = setTimeout(() => {
                 const v = viewRef.current;
                 if (!v) return;
-                const diagnostics = latexLint(v.state.doc.toString());
+                const docStr = v.state.doc.toString();
+                const isBib = file.path.endsWith('.bib');
+                const diagnostics = isBib ? bibtexLint(docStr) : latexLint(docStr);
                 applyLintDiagnostics(v, diagnostics);
                 setLintDiags(diagnostics);
-                onLintDiagnosticsRef.current?.(diagnostics);
+                if (!isBib) onLintDiagnosticsRef.current?.(diagnostics);
               }, 1000);
             }
 
@@ -1179,6 +1210,23 @@ const Editor = forwardRef(function Editor(
             // Collapsed selection — hide button
             setCommentBtn(null);
           }
+          // Detect if cursor is inside \hl{...}
+          const doc = update.state.doc.toString();
+          const pos = sel.head;
+          let inHl = false;
+          const hlSearch = doc.lastIndexOf('\\hl{', pos);
+          if (hlSearch !== -1) {
+            let depth = 1;
+            let i = hlSearch + 4;
+            while (i < doc.length && depth > 0) {
+              if (doc[i] === '{') depth++;
+              else if (doc[i] === '}') depth--;
+              if (depth > 0) i++;
+            }
+            if (depth === 0 && pos >= hlSearch + 4 && pos <= i) inHl = true;
+          }
+          setCursorInHl(inHl);
+
           const line = update.state.doc.lineAt(sel.head).number;
           onLineChangeRef.current?.(line);
 
@@ -1400,14 +1448,16 @@ const Editor = forwardRef(function Editor(
     setTimeout(handleScroll, 50);
 
     // Run initial lint + spellcheck
-    if (file?.path?.endsWith('.tex')) {
+    if (file?.path?.endsWith('.tex') || file?.path?.endsWith('.bib')) {
       setTimeout(() => {
         const v = viewRef.current;
         if (!v) return;
-        const diagnostics = latexLint(v.state.doc.toString());
+        const docStr = v.state.doc.toString();
+        const isBib = file.path.endsWith('.bib');
+        const diagnostics = isBib ? bibtexLint(docStr) : latexLint(docStr);
         applyLintDiagnostics(v, diagnostics);
         setLintDiags(diagnostics);
-        onLintDiagnosticsRef.current?.(diagnostics);
+        if (!isBib) onLintDiagnosticsRef.current?.(diagnostics);
       }, 300);
     }
     // Initial spellcheck (skip .bib files)
@@ -1699,27 +1749,14 @@ const Editor = forwardRef(function Editor(
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 4, verticalAlign: -2 }}>
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
             </svg>
-            <span className={`editor-autosave-dot ${autoSaveOn ? 'on' : 'off'}`} />
-            {autoSaveOn ? autoSaveLabel || 'Sync ON' : 'Sync'}
+            <SyncIcon size={14} style={{ marginLeft: 2 }} />
           </button>
         )}
         <button className="editor-header-btn" onClick={() => cmUndo(viewRef.current)} title="Undo (Cmd+Z)">
           <UndoIcon />
         </button>
         <button className="editor-header-btn" onClick={() => cmRedo(viewRef.current)} title="Redo (Cmd+Shift+Z)">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
-          </svg>
+          <RedoIcon />
         </button>
         <span className="editor-zoom-controls">
           <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.max(8, s - 1))} title="Zoom out">
@@ -1758,22 +1795,7 @@ const Editor = forwardRef(function Editor(
           }}
           title="Insert table"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="3" y1="9" x2="21" y2="9" />
-            <line x1="3" y1="15" x2="21" y2="15" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-            <line x1="15" y1="3" x2="15" y2="21" />
-          </svg>
+          <TableIcon />
         </button>
         <button
           className={`editor-header-btn ${figureBuilder ? 'editor-header-btn-active' : ''}`}
@@ -1796,20 +1818,7 @@ const Editor = forwardRef(function Editor(
           }}
           title="Insert figure"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </svg>
+          <FigureIcon />
         </button>
         <button
           className="editor-header-btn"
@@ -1818,14 +1827,77 @@ const Editor = forwardRef(function Editor(
         >
           <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1 }}>Ω</span>
         </button>
+        <button
+          className={`editor-header-btn ${cursorInHl ? 'editor-header-btn-active' : ''}`}
+          onClick={() => {
+            const view = viewRef.current;
+            if (!view) return;
+            const { from, to } = view.state.selection.main;
+            const selected = view.state.sliceDoc(from, to);
+            // Toggle: if selected text is already wrapped in \hl{...}, unwrap it
+            const before = view.state.sliceDoc(Math.max(0, from - 4), from);
+            const after = view.state.sliceDoc(to, to + 1);
+            if (before === '\\hl{' && after === '}') {
+              // Remove the \hl{ and }
+              view.dispatch({
+                changes: [
+                  { from: from - 4, to: from, insert: '' },
+                  { from: to, to: to + 1, insert: '' },
+                ],
+                selection: { anchor: from - 4, head: from - 4 + selected.length },
+              });
+            } else if (selected.startsWith('\\hl{') && selected.endsWith('}')) {
+              // Selection includes the \hl{...} wrapper — strip it
+              const inner = selected.slice(4, -1);
+              view.dispatch({
+                changes: { from, to, insert: inner },
+                selection: { anchor: from + inner.length },
+              });
+            } else if (cursorInHl && from === to) {
+              // Cursor inside \hl{...} with no selection — unwrap the enclosing \hl{}
+              const doc = view.state.doc.toString();
+              const hlStart = doc.lastIndexOf('\\hl{', from);
+              if (hlStart !== -1) {
+                let depth = 1;
+                let i = hlStart + 4;
+                while (i < doc.length && depth > 0) {
+                  if (doc[i] === '{') depth++;
+                  else if (doc[i] === '}') depth--;
+                  if (depth > 0) i++;
+                }
+                if (depth === 0) {
+                  const inner = doc.slice(hlStart + 4, i);
+                  view.dispatch({
+                    changes: { from: hlStart, to: i + 1, insert: inner },
+                    selection: { anchor: hlStart + inner.length },
+                  });
+                }
+              }
+            } else {
+              const insert = '\\hl{' + selected + '}';
+              view.dispatch({
+                changes: { from, to, insert },
+                selection: { anchor: from + insert.length },
+              });
+            }
+            view.focus();
+          }}
+          title="Highlight text (\hl{…} — requires xcolor, soul packages)"
+        >
+          <HighlightIcon />
+        </button>
         {onToggleTrackChanges && (
           <button
             className={`editor-header-tc-btn ${trackChangesMode ? 'editor-header-tc-active' : ''}`}
             onClick={onToggleTrackChanges}
             title={trackChangesMode ? 'Track changes ON — click to disable' : 'Track changes OFF — click to enable'}
           >
-            <span className={`editor-autosave-dot ${trackChangesMode ? 'on' : 'off'}`} />
-            Track changes{trackChangesMode ? ' ON' : ''}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="8" y1="13" x2="16" y2="13" stroke="#e06c75" strokeWidth="2" />
+              <line x1="8" y1="17" x2="13" y2="17" stroke="#61afef" strokeWidth="2" />
+            </svg>
           </button>
         )}
         {pendingChangesCount > 0 && onStartReview && (
@@ -1838,19 +1910,7 @@ const Editor = forwardRef(function Editor(
                 : `Review ${pendingChangesCount} pending change${pendingChangesCount !== 1 ? 's' : ''}`
             }
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <ReviewEyeIcon />
           </button>
         )}
         <button
@@ -1948,6 +2008,7 @@ const Editor = forwardRef(function Editor(
       )}
       {showSymbolPicker && (
         <SymbolPicker
+          declaredPackages={declaredPackages}
           onInsert={(cmd) => {
             const view = viewRef.current;
             if (!view) return;
@@ -1963,6 +2024,7 @@ const Editor = forwardRef(function Editor(
           key={`${tableBuilder.replaceFrom ?? 'new'}-${tableBuilder.replaceTo ?? 'new'}`}
           initial={tableBuilder.initial}
           multiColumn={tableBuilder.multiColumn}
+          declaredPackages={declaredPackages}
           onInsert={(table) => {
             const view = viewRef.current;
             if (view) {
@@ -1988,6 +2050,7 @@ const Editor = forwardRef(function Editor(
           key={`fig-${figureBuilder.replaceFrom ?? 'new'}-${figureBuilder.replaceTo ?? 'new'}`}
           initial={figureBuilder.initial}
           projectFiles={projectFilesRef.current}
+          declaredPackages={declaredPackages}
           onInsert={(latex) => {
             const view = viewRef.current;
             if (view) {
@@ -2007,6 +2070,11 @@ const Editor = forwardRef(function Editor(
             setFigureBuilder(null);
           } : null}
         />
+      )}
+      {file?.path?.endsWith('.bib') && lintDiags.length > 0 && (
+        <div className="bib-lint-banner">
+          {lintDiags.length} field {lintDiags.length !== 1 ? 'issues' : 'issue'} — check orange gutter markers
+        </div>
       )}
       <div className={`editor-container ${inverted ? 'editor-inverted' : ''}`} ref={containerRef} />
       {showSearch && viewRef.current && (

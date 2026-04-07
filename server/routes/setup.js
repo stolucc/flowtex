@@ -6,7 +6,7 @@ import logger from '../logger.js';
 
 const router = Router();
 
-// Check if setup is needed (no admin exists)
+/** GET /api/setup/status -- Check whether first-run setup is needed (no admin exists yet). */
 router.get('/status', async (req, res) => {
   try {
     const admin = await db.get('SELECT id FROM users WHERE is_admin = TRUE LIMIT 1');
@@ -17,7 +17,7 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// Create first admin account — only works when no admin exists
+/** POST /api/setup/init -- Create the first admin account and save initial settings. Only works when no admin exists. */
 router.post('/init', async (req, res) => {
   try {
     // Guard: only works if no admin exists yet

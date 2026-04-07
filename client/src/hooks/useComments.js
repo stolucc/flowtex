@@ -1,6 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
 
+/**
+ * Manages inline comments: CRUD operations, position tracking, and WebSocket broadcast.
+ * @param {object|null} activeFile - The currently active file.
+ * @param {import('react').RefObject} sendWsRef - Ref to the WebSocket send function.
+ * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ */
 export default function useComments(activeFile, sendWsRef, editorRef) {
   const [comments, setComments] = useState([]);
   const [selection, setSelection] = useState(null);
@@ -18,12 +24,13 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   }, [activeFile]);
 
   const handleAddComment = useCallback(
-    async (text) => {
+    async (text, { assignedTo } = {}) => {
       if (!activeFile || !selection) return;
       const res = await post(`/api/comments/${activeFile.id}`, {
         from_pos: selection.from,
         to_pos: selection.to,
         text,
+        assigned_to: assignedTo || undefined,
       });
       const comment = await res.json();
       setComments((c) => [...c, comment]);

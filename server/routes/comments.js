@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
+import { recordMentions } from '../utils/mentions.js';
 
 const router = Router();
 
+/** Verify the user has access to the file's project; optionally require editor role. Returns the file or null. */
 async function requireFileAccess(fileId, userId, res, { requireEditor = false } = {}) {
   const file = await db.get('SELECT id, project_id, path FROM files WHERE id = $1', [fileId]);
   if (!file) {
@@ -23,6 +25,7 @@ async function requireFileAccess(fileId, userId, res, { requireEditor = false } 
   return file;
 }
 
+/** Verify the user has access to the comment's file/project. Returns the comment or null. */
 async function requireCommentAccess(commentId, userId, res, opts = {}) {
   const comment = await db.get('SELECT id, file_id, author_id FROM comments WHERE id = $1', [commentId]);
   if (!comment) {
@@ -34,7 +37,7 @@ async function requireCommentAccess(commentId, userId, res, opts = {}) {
   return comment;
 }
 
-// Get comments for a file (with replies)
+/** GET /api/comments/:fileId -- List all comments for a file, including replies. */
 router.get('/:fileId', async (req, res) => {
   if (!(await requireFileAccess(req.params.fileId, req.session.userId, res))) return;
 
@@ -63,11 +66,11 @@ router.get('/:fileId', async (req, res) => {
   res.json(comments);
 });
 
-// Add a comment
+/** POST /api/comments/:fileId -- Add a new comment at a text range in a file. */
 router.post('/:fileId', async (req, res) => {
   if (!(await requireFileAccess(req.params.fileId, req.session.userId, res, { requireEditor: true }))) return;
 
-  const { from_pos, to_pos, text } = req.body;
+  const { from_pos, to_pos, text, assigned_to } = req.body;
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
     return res.status(400).json({ error: 'Invalid position values' });
   }
@@ -75,6 +78,7 @@ router.post('/:fileId', async (req, res) => {
     return res.status(400).json({ error: 'Comment text must be 1-10000 characters' });
   }
   const id = uuid();
+  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
 
   const author =
     req.session.userName ||
@@ -82,15 +86,21 @@ router.post('/:fileId', async (req, res) => {
     'User';
 
   await db.run(
-    'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId],
+    'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assigned_to || null],
   );
 
+  // Record @mentions for batched email notification
+  if (file) {
+    await recordMentions({ text, commentId: id, mentionerUserId: req.session.userId, projectId: file.project_id });
+  }
+
   const comment = await db.get('SELECT * FROM comments WHERE id = $1', [id]);
+  comment.replies = [];
   res.json(comment);
 });
 
-// Resolve/unresolve a comment
+/** PATCH /api/comments/:commentId/resolve -- Toggle the resolved status of a comment. */
 router.patch('/:commentId/resolve', async (req, res) => {
   if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
 
@@ -99,7 +109,7 @@ router.patch('/:commentId/resolve', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Edit a comment's text (only by author)
+/** PATCH /api/comments/:commentId -- Edit a comment's text (author only). */
 router.patch('/:commentId', async (req, res) => {
   const comment = await requireCommentAccess(req.params.commentId, req.session.userId, res);
   if (!comment) return;
@@ -113,7 +123,7 @@ router.patch('/:commentId', async (req, res) => {
   res.json({ ok: true, text: text.trim() });
 });
 
-// Add a reply to a comment
+/** POST /api/comments/:commentId/reply -- Add a reply to an existing comment. */
 router.post('/:commentId/reply', async (req, res) => {
   if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
 
@@ -133,11 +143,21 @@ router.post('/:commentId/reply', async (req, res) => {
     author,
     req.session.userId,
   ]);
+
+  // Record @mentions in reply
+  const parentComment = await db.get(
+    'SELECT c.id, f.project_id FROM comments c JOIN files f ON c.file_id = f.id WHERE c.id = $1',
+    [req.params.commentId],
+  );
+  if (parentComment) {
+    await recordMentions({ text, replyId: id, commentId: req.params.commentId, mentionerUserId: req.session.userId, projectId: parentComment.project_id });
+  }
+
   const reply = await db.get('SELECT * FROM comment_replies WHERE id = $1', [id]);
   res.json(reply);
 });
 
-// Delete a comment (only by author)
+/** DELETE /api/comments/:commentId -- Delete a comment (author only). */
 router.delete('/:commentId', async (req, res) => {
   const comment = await requireCommentAccess(req.params.commentId, req.session.userId, res);
   if (!comment) return;

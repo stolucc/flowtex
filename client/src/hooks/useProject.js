@@ -1,16 +1,22 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 
+/** Extracts the project ID from the current URL pathname. */
 function getProjectIdFromUrl() {
   const match = window.location.pathname.match(/^\/project\/([^/]+)/);
   return match ? match[1] : null;
 }
 
+/** Extracts the file ID from the current URL query string. */
 function getFileIdFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return params.get('file');
 }
 
+/**
+ * Core project state hook: manages project/file/member data, URL-based routing, and file CRUD operations.
+ * @param {object|null} user - The authenticated user.
+ */
 export default function useProject(user) {
   const [project, setProject] = useState(null);
   const [files, setFiles] = useState([]);

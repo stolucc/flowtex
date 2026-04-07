@@ -1,5 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 
+/** Draggable vertical resize handle that reports horizontal delta to the parent. */
 export default function ResizeHandle({ onResize }) {
   const startXRef = useRef(0);
 

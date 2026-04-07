@@ -20,29 +20,33 @@ pool.on('error', (err) => {
   console.error('Unexpected database pool error:', err.message);
 });
 
-// Convenience wrappers matching the old sync API shape but async
+/** Convenience wrappers around the pg Pool matching a simple get/all/run API. */
 const db = {
   pool,
 
-  // Returns first row or undefined
+  /** Run a query and return the first row, or undefined. */
   async get(sql, params = []) {
     const { rows } = await pool.query(sql, params);
     return rows[0] || undefined;
   },
 
-  // Returns all rows
+  /** Run a query and return all matching rows. */
   async all(sql, params = []) {
     const { rows } = await pool.query(sql, params);
     return rows;
   },
 
-  // Returns { rowCount, rows }
+  /** Run a query and return the full pg Result (rowCount, rows, etc.). */
   async run(sql, params = []) {
     const result = await pool.query(sql, params);
     return result;
   },
 
-  // Run multiple statements in a transaction
+  /**
+   * Run multiple statements in a serialized transaction.
+   * @param {(txDb: {get, all, run}) => Promise} fn - Receives a transaction-scoped db object.
+   * @returns {Promise} The return value of fn.
+   */
   async transaction(fn) {
     const client = await pool.connect();
     try {
@@ -72,7 +76,7 @@ const db = {
   },
 };
 
-// ── Schema creation ─────────────────────────────────────────────────────
+/** Create all database tables, indexes, and seed data if they don't exist. */
 async function initSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -130,9 +134,24 @@ async function initSchema() {
       text TEXT NOT NULL,
       author TEXT NOT NULL DEFAULT 'User',
       author_id TEXT REFERENCES users(id),
+      assigned_to TEXT REFERENCES users(id),
       resolved BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS comment_mentions (
+      id TEXT PRIMARY KEY,
+      comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+      reply_id TEXT REFERENCES comment_replies(id) ON DELETE CASCADE,
+      mentioned_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mentioner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      snippet TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      notified_at TIMESTAMPTZ
+    );
+
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS assigned_to TEXT REFERENCES users(id);
 
     CREATE TABLE IF NOT EXISTS comment_replies (
       id TEXT PRIMARY KEY,
@@ -393,6 +412,8 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_file_versions_author ON file_versions(author_id);
     CREATE INDEX IF NOT EXISTS idx_comments_created ON comments(created_at);
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
+    CREATE INDEX IF NOT EXISTS idx_comments_assigned ON comments(assigned_to) WHERE assigned_to IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_comment_mentions_pending ON comment_mentions(mentioned_user_id) WHERE notified_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at);
     CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, created_at);
@@ -427,7 +448,7 @@ async function initSchema() {
 // Initialize schema — called before server starts
 db.initSchema = initSchema;
 
-// Periodic cleanup of unbounded tables (runs every 6 hours)
+/** Start a periodic cleanup job that prunes old audit logs, login attempts, and expired tokens. */
 function startCleanupJob() {
   async function cleanup() {
     try {

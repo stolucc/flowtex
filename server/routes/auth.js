@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
-import { sendPasswordResetEmail, sendEmailVerificationEmail, sendAccountDeletedEmail } from '../utils/email.js';
+import { sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailVerificationEmail, sendAccountDeletedEmail } from '../utils/email.js';
 import logger from '../logger.js';
 import db from '../db.js';
 import * as authService from '../services/authService.js';
@@ -10,6 +10,7 @@ import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
+/** Regenerate the session after login, preserving userId/userName and issuing a new CSRF token. */
 function regenerateSession(req, res) {
   return new Promise((resolve, reject) => {
     const { userId, userName } = req.session;
@@ -39,7 +40,7 @@ function regenerateSession(req, res) {
   });
 }
 
-// Register
+/** POST /api/auth/register -- Create a new user account and send a verification email. */
 router.post('/register', async (req, res) => {
   const { email, name, password } = req.body;
   if (!email || !name || !password) return res.status(400).json({ error: 'Email, name, and password are required' });
@@ -68,7 +69,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Verify email
+/** GET /api/auth/verify-email -- Verify a user's email address via token. */
 router.get('/verify-email', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Verification token is required' });
@@ -81,7 +82,7 @@ router.get('/verify-email', async (req, res) => {
   }
 });
 
-// Resend verification email
+/** POST /api/auth/resend-verification -- Resend the email verification link (silent no-op if already verified). */
 router.post('/resend-verification', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -103,7 +104,7 @@ router.post('/resend-verification', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Login
+/** POST /api/auth/login -- Authenticate user with email/password and optional TOTP. */
 router.post('/login', async (req, res) => {
   const { email, password, totpCode, trustDevice } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
@@ -164,24 +165,25 @@ router.post('/login', async (req, res) => {
   });
 });
 
-// Logout
+/** POST /api/auth/logout -- Destroy the session and clear the session cookie. */
 router.post('/logout', (req, res) => {
   const userId = req.session?.userId;
   req.session.destroy(async () => {
     res.clearCookie('__session', { path: '/' });
-    if (userId) await auditLog(userId, 'logout', { ip: req.ip }).catch(() => {});
+    res.clearCookie('trusted-device', { path: '/' });
+    if (userId) await auditLog(userId, 'logout', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for logout'));
     res.json({ ok: true });
   });
 });
 
-// Get current user
+/** GET /api/auth/me -- Return the currently authenticated user's profile. */
 router.get('/me', requireAuth, async (req, res) => {
   const user = await authService.getCurrentUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'User not found' });
   res.json(user);
 });
 
-// --- TOTP MFA ---
+/** POST /api/auth/totp/setup -- Generate a TOTP secret and QR code for MFA enrollment. */
 router.post('/totp/setup', requireAuth, async (req, res) => {
   try {
     res.json(await authService.setupTotp(req.session.userId));
@@ -190,6 +192,7 @@ router.post('/totp/setup', requireAuth, async (req, res) => {
   }
 });
 
+/** POST /api/auth/totp/verify -- Verify a TOTP code and enable MFA for the user. */
 router.post('/totp/verify', requireAuth, async (req, res) => {
   if (!req.body.code) return res.status(400).json({ error: 'Verification code required' });
   try {
@@ -201,6 +204,7 @@ router.post('/totp/verify', requireAuth, async (req, res) => {
   }
 });
 
+/** POST /api/auth/totp/disable -- Disable TOTP MFA after password confirmation. */
 router.post('/totp/disable', requireAuth, async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password required' });
   try {
@@ -213,7 +217,7 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
   }
 });
 
-// --- Forgot/reset password ---
+/** POST /api/auth/forgot-password -- Send a password reset email (always returns success to prevent enumeration). */
 router.post('/forgot-password', async (req, res) => {
   if (!req.body.email) return res.status(400).json({ error: 'Email is required' });
   const result = await authService.createPasswordResetToken(req.body.email);
@@ -229,6 +233,7 @@ router.post('/forgot-password', async (req, res) => {
   res.json({ ok: true }); // Always return success
 });
 
+/** POST /api/auth/reset-password -- Reset password using a token and invalidate all existing sessions. */
 router.post('/reset-password', async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Token and new password are required' });
@@ -243,7 +248,7 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// --- Change email/password ---
+/** POST /api/auth/change-email -- Change the user's email address after password verification. */
 router.post('/change-email', requireAuth, async (req, res) => {
   const { password, newEmail } = req.body;
   if (!password || !newEmail) return res.status(400).json({ error: 'Password and new email are required' });
@@ -254,12 +259,23 @@ router.post('/change-email', requireAuth, async (req, res) => {
       oldEmail: result.oldEmail,
       newEmail: result.email,
     });
-    res.json({ ok: true, email: result.email });
+    // Send verification email to the new address
+    try {
+      const token = await authService.createEmailVerificationToken(req.session.userId);
+      if (token) {
+        const baseUrl = process.env.APP_URL || 'http://localhost:3001';
+        await sendEmailVerificationEmail(result.email, `${baseUrl}/?verify=${token}`);
+      }
+    } catch (verifyErr) {
+      logger.error({ err: verifyErr }, 'Failed to send verification email after email change');
+    }
+    res.json({ ok: true, email: result.email, needsVerification: true });
   } catch (err) {
     sendError(res, err);
   }
 });
 
+/** POST /api/auth/change-password -- Change password and invalidate all other sessions. */
 router.post('/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
@@ -269,20 +285,27 @@ router.post('/change-password', requireAuth, async (req, res) => {
     const currentSid = req.sessionID;
     await db.run(`DELETE FROM session WHERE sess->>'userId' = $1 AND sid != $2`, [req.session.userId, currentSid]);
     await auditLog(req.session.userId, 'password_changed', { ip: req.ip });
+    // Notify user by email
+    try {
+      const user = await authService.getCurrentUser(req.session.userId);
+      if (user?.email) await sendPasswordChangedEmail(user.email, user.name || 'there');
+    } catch (emailErr) {
+      logger.error({ err: emailErr }, 'Failed to send password-changed notification');
+    }
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
   }
 });
 
-// --- Delete account ---
+/** POST /api/auth/delete-account -- Permanently delete the user's account after password confirmation. */
 router.post('/delete-account', requireAuth, async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password required' });
   try {
     // Capture email/name before deletion
     const user = await db.get('SELECT email, name FROM users WHERE id = $1', [req.session.userId]);
     await authService.deleteAccount(req.session.userId, req.body.password);
-    await auditLog(req.session.userId, 'account_deleted', { ip: req.ip }).catch(() => {});
+    await auditLog(req.session.userId, 'account_deleted', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for account deletion'));
     if (user?.email) {
       sendAccountDeletedEmail(user.email, user.name).catch((err) =>
         logger.error({ err }, 'Failed to send account deletion email'),

@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 
+/** Modal displaying word count statistics broken down by text, headers, captions, math, and sections. */
 export default function WordCountModal({ data, loading, error, onClose }) {
   const overlayRef = useRef(null);
 

@@ -14,6 +14,7 @@ import { resolveUsedFiles } from '../../shared/texDeps.js';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const router = Router();
 
+/** Verify the current user is a member of the project in req.params.id. Returns the member or null. */
 async function requireMembership(req, res) {
   const member = await projectService.checkMembership(req.params.id, req.session.userId);
   if (!member) {
@@ -23,6 +24,7 @@ async function requireMembership(req, res) {
   return member;
 }
 
+/** Verify the current user has editor (or owner) access to the project. Returns the member or null. */
 async function requireEditor(req, res) {
   const result = await projectService.checkEditor(req.params.id, req.session.userId);
   if (result.error) {
@@ -32,6 +34,7 @@ async function requireEditor(req, res) {
   return result.member;
 }
 
+/** Verify the current user is the owner of the project. Returns the member or null. */
 async function requireOwner(req, res) {
   const result = await projectService.checkOwnership(req.params.id, req.session.userId);
   if (result.error) {
@@ -41,12 +44,12 @@ async function requireOwner(req, res) {
   return result.member;
 }
 
-// List projects
+/** GET /api/projects -- List all projects the current user is a member of. */
 router.get('/', async (req, res) => {
   res.json(await projectService.listUserProjects(req.session.userId));
 });
 
-// Create a project
+/** POST /api/projects -- Create a new empty project. */
 router.post('/', async (req, res) => {
   const project = await projectService.createProject(req.session.userId, req.body.name);
   await auditLog(req.session.userId, 'project_create', { targetType: 'project', targetId: project.id, ip: req.ip });
@@ -55,10 +58,12 @@ router.post('/', async (req, res) => {
 
 // --- Template tags ---
 
+/** GET /api/projects/template-tags -- List all template tags. */
 router.get('/template-tags', async (req, res) => {
   res.json(await projectService.listTemplateTags());
 });
 
+/** POST /api/projects/template-tags -- Create a new template tag (admin only). */
 router.post('/template-tags', requireAdmin, async (req, res) => {
   try {
     const tag = await projectService.createTemplateTag(req.body.name, req.body.color);
@@ -68,6 +73,7 @@ router.post('/template-tags', requireAdmin, async (req, res) => {
   }
 });
 
+/** PUT /api/projects/template-tags/:tagId -- Update a template tag (admin only). */
 router.put('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
     const tag = await projectService.updateTemplateTag(req.params.tagId, req.body.name, req.body.color);
@@ -77,6 +83,7 @@ router.put('/template-tags/:tagId', requireAdmin, async (req, res) => {
   }
 });
 
+/** DELETE /api/projects/template-tags/:tagId -- Delete a template tag (admin only). */
 router.delete('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
     await projectService.deleteTemplateTag(req.params.tagId);
@@ -86,12 +93,12 @@ router.delete('/template-tags/:tagId', requireAdmin, async (req, res) => {
   }
 });
 
-// List available templates (built-in + user-uploaded)
+/** GET /api/projects/templates -- List all available project templates. */
 router.get('/templates', async (req, res) => {
   res.json(await projectService.listAllTemplates());
 });
 
-// Create project from template
+/** POST /api/projects/from-template -- Create a new project from a template. */
 router.post('/from-template', async (req, res) => {
   const { templateId, name } = req.body;
   if (!templateId) return res.status(400).json({ error: 'templateId required' });
@@ -109,8 +116,8 @@ router.post('/from-template', async (req, res) => {
   }
 });
 
-// Upload a user template from ZIP
-router.post('/templates/upload', upload.single('file'), async (req, res) => {
+/** POST /api/projects/templates/upload -- Upload a new project template from a ZIP file (admin only). */
+router.post('/templates/upload', requireAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const { name, description, category } = req.body;
@@ -139,7 +146,7 @@ router.post('/templates/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// Delete a user template
+/** DELETE /api/projects/templates/:templateId -- Delete a user-uploaded template. */
 router.delete('/templates/:templateId', async (req, res) => {
   try {
     await projectService.deleteUserTemplate(req.params.templateId, req.session.userId);
@@ -149,7 +156,7 @@ router.delete('/templates/:templateId', async (req, res) => {
   }
 });
 
-// Update tags on a template (admin only)
+/** PUT /api/projects/templates/:templateId/tags -- Set tags on a template (admin only). */
 router.put('/templates/:templateId/tags', requireAdmin, async (req, res) => {
   try {
     const { tagIds } = req.body;
@@ -174,7 +181,7 @@ router.put('/templates/:templateId/tags', requireAdmin, async (req, res) => {
   }
 });
 
-// Create project from ZIP upload
+/** POST /api/projects/from-zip -- Create a new project by uploading a ZIP file. */
 router.post('/from-zip', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
@@ -185,11 +192,12 @@ router.post('/from-zip', upload.single('file'), async (req, res) => {
   }
 });
 
-// --- Invitations (must be before /:id routes) ---
+/** GET /api/projects/invitations/mine -- List pending invitations for the current user. */
 router.get('/invitations/mine', async (req, res) => {
   res.json(await projectService.getMyInvitations(req.session.userId));
 });
 
+/** POST /api/projects/invitations/:inviteId/accept -- Accept a project invitation. */
 router.post('/invitations/:inviteId/accept', async (req, res) => {
   try {
     res.json(await projectService.acceptInvitation(req.params.inviteId, req.session.userId));
@@ -198,6 +206,7 @@ router.post('/invitations/:inviteId/accept', async (req, res) => {
   }
 });
 
+/** POST /api/projects/invitations/:inviteId/decline -- Decline a project invitation. */
 router.post('/invitations/:inviteId/decline', async (req, res) => {
   try {
     await projectService.declineInvitation(req.params.inviteId, req.session.userId);
@@ -207,7 +216,7 @@ router.post('/invitations/:inviteId/decline', async (req, res) => {
   }
 });
 
-// --- Project operations ---
+/** PATCH /api/projects/:id -- Update project settings (name, main_file, compiler, etc.). Owner only. */
 router.patch('/:id', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
@@ -234,6 +243,7 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+/** DELETE /api/projects/:id -- Delete a project (owner) or leave it (non-owner). */
 router.delete('/:id', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
@@ -251,12 +261,13 @@ router.delete('/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Members ---
+/** GET /api/projects/:id/members -- List all members of a project. */
 router.get('/:id/members', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   res.json(await projectService.getProjectMembers(req.params.id));
 });
 
+/** POST /api/projects/:id/members -- Invite a user to the project by email. */
 router.post('/:id/members', async (req, res) => {
   const { email, role } = req.body;
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -312,17 +323,20 @@ router.post('/:id/members', async (req, res) => {
   }
 });
 
+/** GET /api/projects/:id/invitations -- List pending invitations for a project (owner only). */
 router.get('/:id/invitations', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   res.json(await projectService.getProjectInvitations(req.params.id));
 });
 
+/** DELETE /api/projects/:id/invitations/:inviteId -- Cancel a pending invitation (owner only). */
 router.delete('/:id/invitations/:inviteId', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.cancelInvitation(req.params.inviteId, req.params.id);
   res.json({ ok: true });
 });
 
+/** DELETE /api/projects/:id/members/:userId -- Remove a member from the project (owner only). */
 router.delete('/:id/members/:userId', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   if (req.params.userId === req.session.userId) return res.status(400).json({ error: 'Cannot remove yourself' });
@@ -337,7 +351,7 @@ router.delete('/:id/members/:userId', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- ZIP download/upload ---
+/** GET /api/projects/:id/zip -- Download all project files as a ZIP archive. */
 router.get('/:id/zip', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
@@ -352,6 +366,7 @@ router.get('/:id/zip', async (req, res) => {
   archive.finalize();
 });
 
+/** GET /api/projects/:id/zip-used -- Download only files referenced by the main .tex file as a ZIP. */
 router.get('/:id/zip-used', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   const project = await db.get('SELECT name, main_file FROM projects WHERE id = $1', [req.params.id]);
@@ -370,6 +385,7 @@ router.get('/:id/zip-used', async (req, res) => {
   archive.finalize();
 });
 
+/** POST /api/projects/:id/upload-zip -- Upload a ZIP file and merge its contents into the project. */
 router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
   if (!(await requireEditor(req, res))) return;
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -382,7 +398,7 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
   }
 });
 
-// --- Raw file serving ---
+/** GET /api/projects/files/:fileId/raw -- Serve the raw content of a file (binary or text). */
 router.get('/files/:fileId/raw', async (req, res) => {
   const file = await projectService.getRawFile(req.params.fileId, req.session.userId);
   if (!file) return res.status(404).json({ error: 'File not found' });
@@ -415,12 +431,13 @@ router.get('/files/:fileId/raw', async (req, res) => {
   }
 });
 
-// --- File CRUD ---
+/** GET /api/projects/:id/files -- List all files in a project. */
 router.get('/:id/files', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   res.json(await projectService.getProjectFiles(req.params.id));
 });
 
+/** POST /api/projects/:id/files -- Create a new text file in the project. */
 router.post('/:id/files', async (req, res) => {
   if (!(await requireEditor(req, res))) return;
   try {
@@ -430,7 +447,7 @@ router.post('/:id/files', async (req, res) => {
   }
 });
 
-// Upload a single binary file (drag-and-drop)
+/** POST /api/projects/:id/upload-file -- Upload a single binary file (e.g. images via drag-and-drop). */
 router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
   if (!(await requireEditor(req, res))) return;
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -444,6 +461,7 @@ router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
   }
 });
 
+/** PUT /api/projects/files/:fileId -- Update a file's content (and optionally tracked-change positions). */
 router.put('/files/:fileId', async (req, res) => {
   const { content, tcPositions } = req.body;
   if (content && content.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 10MB)' });
@@ -456,6 +474,7 @@ router.put('/files/:fileId', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** PATCH /api/projects/files/:fileId -- Rename a file. */
 router.patch('/files/:fileId', async (req, res) => {
   if (!req.body.path) return res.status(400).json({ error: 'path required' });
   const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
@@ -467,6 +486,7 @@ router.patch('/files/:fileId', async (req, res) => {
   }
 });
 
+/** DELETE /api/projects/files/:fileId -- Delete a file from the project. */
 router.delete('/files/:fileId', async (req, res) => {
   const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
   if (access.error) return res.status(access.status).json({ error: access.error });
@@ -474,8 +494,7 @@ router.delete('/files/:fileId', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Archive / Trash ---
-// Non-owners: archive/trash/delete = leave project (remove membership)
+/** POST /api/projects/:id/archive -- Archive a project (owner) or leave it (non-owner). */
 router.post('/:id/archive', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
@@ -492,6 +511,7 @@ router.post('/:id/archive', async (req, res) => {
   }
   res.json({ ok: true });
 });
+/** POST /api/projects/:id/unarchive -- Restore a project from the archive (owner only). */
 router.post('/:id/unarchive', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.unarchiveProject(req.params.id);
@@ -502,6 +522,7 @@ router.post('/:id/unarchive', async (req, res) => {
   });
   res.json({ ok: true });
 });
+/** POST /api/projects/:id/trash -- Move a project to trash (owner) or leave it (non-owner). */
 router.post('/:id/trash', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
@@ -514,6 +535,7 @@ router.post('/:id/trash', async (req, res) => {
   }
   res.json({ ok: true });
 });
+/** POST /api/projects/:id/restore -- Restore a project from trash (owner only). */
 router.post('/:id/restore', async (req, res) => {
   if (!(await requireOwner(req, res))) return;
   await projectService.restoreProject(req.params.id);
@@ -521,7 +543,7 @@ router.post('/:id/restore', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Copy ---
+/** POST /api/projects/:id/copy -- Create a copy of the project for the current user. */
 router.post('/:id/copy', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   try {
@@ -531,9 +553,9 @@ router.post('/:id/copy', async (req, res) => {
   }
 });
 
-// --- Tags ---
+/** POST /api/projects/:id/tags/:tagId -- Add a tag to a project (editor+). */
 router.post('/:id/tags/:tagId', async (req, res) => {
-  if (!(await requireMembership(req, res))) return;
+  if (!(await requireEditor(req, res))) return;
   try {
     await db.run('INSERT INTO project_tags (project_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
       req.params.id,
@@ -543,13 +565,14 @@ router.post('/:id/tags/:tagId', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** DELETE /api/projects/:id/tags/:tagId -- Remove a tag from a project (editor+). */
 router.delete('/:id/tags/:tagId', async (req, res) => {
-  if (!(await requireMembership(req, res))) return;
+  if (!(await requireEditor(req, res))) return;
   await db.run('DELETE FROM project_tags WHERE project_id = $1 AND tag_id = $2', [req.params.id, req.params.tagId]);
   res.json({ ok: true });
 });
 
-// --- Global search across project files ---
+/** GET /api/projects/:id/search -- Search across all text files in a project. */
 router.get('/:id/search', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   try {

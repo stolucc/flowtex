@@ -1,6 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
 
+/**
+ * Handles LaTeX compilation lifecycle: streaming compile output, PDF URL management, linting, and diff compilation.
+ * @param {object|null} project - The current project.
+ * @param {object|null} activeFile - The currently active file.
+ * @param {Function} handleSave - Saves the current editor content before compiling.
+ * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ */
 export default function useCompilation(project, activeFile, handleSave, editorRef) {
   const [compiling, setCompiling] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -83,7 +90,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       get(`/api/compile/${project.id}/generated-files`)
         .then((r) => r.json())
         .then((d) => setGeneratedFiles(d.files || []))
-        .catch(() => {});
+        .catch((e) => console.warn('Failed to load generated files:', e));
 
       // Run server-side linter (ChkTeX/lacheck) after compile
       const serverLinter = localStorage.getItem(`flowtex-server-linter-${project.id}`) || '';
@@ -95,7 +102,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
             .then((data) => {
               setLintDiagnostics((data.diagnostics || []).map((d) => ({ ...d, source: serverLinter })));
             })
-            .catch(() => {});
+            .catch((e) => console.warn('Server lint error:', e));
         }
       } else {
         setLintDiagnostics([]);

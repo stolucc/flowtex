@@ -32,10 +32,15 @@ try {
 // Session-only ignored words
 const ignoredWords = new Set();
 
+/** @returns {string} Current spellcheck language code (e.g. 'en_US'). */
 export function getLanguage() {
   return currentLang;
 }
 
+/**
+ * Set the spellcheck language and reset the loaded dictionary.
+ * @param {string} lang - Language code (e.g. 'en_US')
+ */
 export function setLanguage(lang) {
   currentLang = lang;
   localStorage.setItem(LANG_KEY, lang);
@@ -47,20 +52,38 @@ export function setLanguage(lang) {
   }
 }
 
+/**
+ * Add a word to the persistent custom dictionary.
+ * @param {string} word
+ */
 export function addToCustomDictionary(word) {
   customWords.add(word.toLowerCase());
   localStorage.setItem(CUSTOM_DICT_KEY, JSON.stringify([...customWords]));
 }
 
+/**
+ * Ignore a word for the current session only.
+ * @param {string} word
+ */
 export function ignoreWord(word) {
   ignoredWords.add(word.toLowerCase());
 }
 
+/**
+ * Check if a word is in the custom dictionary or session ignore list.
+ * @param {string} word
+ * @returns {boolean}
+ */
 export function isCustomOrIgnored(word) {
   const lower = word.toLowerCase();
   return customWords.has(lower) || ignoredWords.has(lower);
 }
 
+/**
+ * Load and return the Hunspell dictionary for the current language.
+ * Caches the result; concurrent callers receive the same promise.
+ * @returns {Promise<Typo|null>}
+ */
 export async function getDictionary() {
   if (dictionary && loadedLang === currentLang) return dictionary;
   if (loading && loadedLang === currentLang) {
@@ -114,6 +137,7 @@ const PROSE_COMMANDS = new Set([
   'textsc',
   'emph',
   'underline',
+  'hl',
   'mbox',
   'fbox',
   'parbox',
@@ -158,6 +182,14 @@ const SKIP_ENVIRONMENTS = new Set([
   'filecontents*',
 ]);
 
+/**
+ * Advance past a matched bracket group (e.g. {...} or [...]).
+ * @param {string} text
+ * @param {number} i - Index of the opening bracket
+ * @param {string} open - Opening bracket character
+ * @param {string} close - Closing bracket character
+ * @returns {number} Index after the closing bracket
+ */
 function skipBracketGroup(text, i, open, close) {
   if (i >= text.length || text[i] !== open) return i;
   let depth = 1;

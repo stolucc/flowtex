@@ -5,6 +5,7 @@ import { decrypt } from '../utils/crypto.js';
 
 let transporter;
 
+/** Load SMTP settings from the database settings table. */
 async function getSmtpSettings() {
   try {
     const rows = await db.all("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'");
@@ -16,6 +17,7 @@ async function getSmtpSettings() {
   }
 }
 
+/** Get or create the nodemailer transporter (falls back to console logging in dev). */
 async function getTransporter() {
   if (transporter) return transporter;
 
@@ -59,6 +61,7 @@ async function getTransporter() {
   return transporter;
 }
 
+/** Reset the cached transporter so the next send re-reads SMTP settings. */
 export function resetTransporter() {
   transporter = null;
 }
@@ -68,12 +71,16 @@ async function getFromAddress() {
   return dbSettings.smtp_from || process.env.SMTP_FROM || 'FlowTex <noreply@flowtex.local>';
 }
 
+/** Send an email using the configured SMTP transport. */
 export async function sendEmail({ to, subject, text, html }) {
   const transport = await getTransporter();
   const from = await getFromAddress();
-  return transport.sendMail({ from, to, subject, text, html });
+  // Strip CR/LF from subject to prevent header injection
+  const safeSubject = subject.replace(/[\r\n]+/g, ' ');
+  return transport.sendMail({ from, to, subject: safeSubject, text, html });
 }
 
+/** Escape a string for safe inclusion in HTML email bodies. */
 function escapeHtml(str) {
   return str
     .replace(/&/g, '&amp;')
@@ -83,6 +90,7 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+/** Send a project collaboration invitation email. */
 export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl }) {
   const safeProject = escapeHtml(projectName);
   const safeInviter = escapeHtml(inviterName);
@@ -99,6 +107,7 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
   });
 }
 
+/** Send an email verification link to a new user. */
 export async function sendEmailVerificationEmail(email, verifyUrl) {
   const safeUrl = escapeHtml(verifyUrl);
   return sendEmail({
@@ -115,6 +124,7 @@ export async function sendEmailVerificationEmail(email, verifyUrl) {
   });
 }
 
+/** Send confirmation that a user's account has been deleted. */
 export async function sendAccountDeletedEmail(email, name) {
   const safeName = escapeHtml(name);
   return sendEmail({
@@ -130,6 +140,47 @@ export async function sendAccountDeletedEmail(email, name) {
   });
 }
 
+/** Notify the user that their password was changed. */
+export async function sendPasswordChangedEmail(email, name) {
+  const safeName = escapeHtml(name);
+  return sendEmail({
+    to: email,
+    subject: 'Your FlowTex password was changed',
+    text: `Hi ${name},\n\nYour FlowTex password was successfully changed. All other sessions have been signed out.\n\nIf you did not make this change, please reset your password immediately or contact support.\n`,
+    html: `
+      <p>Hi ${safeName},</p>
+      <p>Your FlowTex password was successfully changed. All other sessions have been signed out.</p>
+      <p>If you did not make this change, please reset your password immediately or contact support.</p>
+    `,
+  });
+}
+
+/** Send a batched mention digest email with all recent @mentions for a user. */
+export async function sendMentionDigestEmail(email, { recipientName, mentions, baseUrl }) {
+  const safeName = escapeHtml(recipientName);
+  const safeUrl = escapeHtml(baseUrl);
+  const items = mentions.map((m) => {
+    const from = escapeHtml(m.mentioner_name);
+    const proj = escapeHtml(m.project_name);
+    const snippet = escapeHtml(m.snippet || '');
+    return `<li><strong>${from}</strong> mentioned you in <strong>${proj}</strong>: <em>${snippet}</em></li>`;
+  });
+  const textItems = mentions.map(
+    (m) => `- ${m.mentioner_name} mentioned you in "${m.project_name}": ${m.snippet || ''}`,
+  );
+  return sendEmail({
+    to: email,
+    subject: `You were mentioned in ${mentions.length === 1 ? 'a comment' : mentions.length + ' comments'} on FlowTex`,
+    text: `Hi ${recipientName},\n\n${textItems.join('\n')}\n\nView them on FlowTex:\n${baseUrl}\n`,
+    html: `
+      <p>Hi ${safeName},</p>
+      <ul>${items.join('')}</ul>
+      <p><a href="${safeUrl}">Open FlowTex</a></p>
+    `,
+  });
+}
+
+/** Send a password-reset link email. */
 export async function sendPasswordResetEmail(email, resetUrl) {
   const safeUrl = escapeHtml(resetUrl);
   return sendEmail({

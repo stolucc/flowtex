@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { get, post, put, del } from '../api.js';
 
+/** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
 export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
   const [tab, setTab] = useState(initialTab || 'mfa');
 
@@ -35,6 +36,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // ── MFA handlers ───────────────────────────────────────────────────
+  /** Request a new TOTP secret and QR code from the server. */
   const handleSetup = async () => {
     setMfaError('');
     setMfaLoading(true);
@@ -54,6 +56,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     setMfaLoading(false);
   };
 
+  /** Verify the user's TOTP code and enable 2FA. */
   const handleVerify = async (e) => {
     e.preventDefault();
     setMfaError('');
@@ -73,6 +76,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     setMfaLoading(false);
   };
 
+  /** Disable 2FA after password confirmation. */
   const handleDisable = async (e) => {
     e.preventDefault();
     setMfaError('');
@@ -133,12 +137,14 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     }
   }, []);
 
+  /** Redirect to the GitHub OAuth authorization flow. */
   const ghConnectOAuth = () => {
     setGhConnecting(true);
     const returnTo = window.location.pathname;
     window.location.href = `/api/github/oauth/authorize?returnTo=${encodeURIComponent(returnTo)}`;
   };
 
+  /** Save a manually entered GitHub personal access token. */
   const ghSaveToken = async () => {
     if (!ghTokenInput.trim()) return;
     setGhError('');
@@ -155,6 +161,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     }
   };
 
+  /** Revoke the stored GitHub token and disconnect the account. */
   const ghDisconnect = async () => {
     await del('/api/github/token');
     setGhHasToken(false);
@@ -164,6 +171,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   };
 
   // ── Change email handler ───────────────────────────────────────────
+  /** Submit a request to change the user's email address. */
   const handleChangeEmail = async (e) => {
     e.preventDefault();
     setEmailError('');
@@ -187,6 +195,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   };
 
   // ── Change password handler ────────────────────────────────────────
+  /** Submit a request to change the user's password. */
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPwError('');
@@ -214,6 +223,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   };
 
   // ── Delete account handler ─────────────────────────────────────────
+  /** Permanently delete the user's account after password and confirmation check. */
   const handleDeleteAccount = async (e) => {
     e.preventDefault();
     setDeleteError('');

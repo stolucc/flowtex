@@ -36,6 +36,7 @@ const COMPILE_RATE_WINDOW = 60000;
 const COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 5;
 const USER_COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 20;
 
+/** Check per-project and per-user compilation rate limits. Returns false if limit exceeded. */
 function checkCompileRate(projectId, userId) {
   const now = Date.now();
   // Per-project limit
@@ -76,17 +77,18 @@ async function requireMembership(projectId, userId, res) {
   return !!(await requireMember(projectId, userId, res));
 }
 
-// Detect installed TeX Live distributions
+/** GET /api/compile/texlive-distributions -- List installed TeX Live distributions. */
 router.get('/texlive-distributions', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   res.json(detectTexDistributions());
 });
 
-// --- LaTeX formatters (must be before /:projectId routes) ---
+/** GET /api/compile/formatters -- List available LaTeX code formatters (latexindent, tex-fmt). */
 router.get('/formatters', (req, res) => {
   res.json(detectFormatters());
 });
 
+/** POST /api/compile/format -- Format LaTeX source using the specified formatter. */
 router.post('/format', async (req, res) => {
   const { content, formatter } = req.body;
   if (!content) return res.status(400).json({ error: 'No content provided' });
@@ -124,7 +126,7 @@ router.post('/format', async (req, res) => {
   }
 });
 
-// Compile a project (returns final result)
+/** POST /api/compile/:projectId -- Compile the project and return the log output. */
 router.post('/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -155,7 +157,7 @@ router.post('/:projectId', async (req, res) => {
   }
 });
 
-// Compile with SSE streaming output
+/** GET /api/compile/:projectId/compile-stream -- Compile with SSE streaming log output. */
 router.get('/:projectId/compile-stream', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -172,7 +174,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
   let clientDisconnected = false;
   res.on('close', () => {
     clientDisconnected = true;
-    stopCompilation(projectId).catch(() => {});
+    stopCompilation(projectId).catch((e) => logger.warn({ err: e }, 'Failed to stop compilation on disconnect'));
   });
 
   const send = (event, data) => {
@@ -214,7 +216,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
   if (!clientDisconnected) res.end();
 });
 
-// Stop compilation
+/** POST /api/compile/:projectId/stop -- Abort a running compilation for the project. */
 router.post('/:projectId/stop', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -222,7 +224,7 @@ router.post('/:projectId/stop', async (req, res) => {
   res.json({ ok: true, stopped: !!stopped });
 });
 
-// Serve compiled PDF (per-user jobname)
+/** GET /api/compile/:projectId/pdf -- Serve the compiled PDF for the current user. */
 router.get('/:projectId/pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -239,7 +241,7 @@ router.get('/:projectId/pdf', async (req, res) => {
   });
 });
 
-// Forward sync: editor → PDF
+/** GET /api/compile/:projectId/syncforward -- SyncTeX forward: map editor line/column to PDF position. */
 router.get('/:projectId/syncforward', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -263,7 +265,7 @@ router.get('/:projectId/syncforward', async (req, res) => {
   }
 });
 
-// Inverse sync: PDF → editor
+/** GET /api/compile/:projectId/syncinverse -- SyncTeX inverse: map PDF page/position to editor line. */
 router.get('/:projectId/syncinverse', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -280,7 +282,7 @@ router.get('/:projectId/syncinverse', async (req, res) => {
   }
 });
 
-// Lint endpoint — supports ChkTeX and lacheck
+/** POST /api/compile/:projectId/lint -- Lint LaTeX content using ChkTeX or lacheck. */
 router.post('/:projectId/lint', async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -360,7 +362,7 @@ router.post('/:projectId/lint', async (req, res) => {
   }
 });
 
-// Word count using texcount
+/** GET /api/compile/:projectId/wordcount -- Count words, headers, math, and floats using texcount. */
 router.get('/:projectId/wordcount', async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -432,7 +434,7 @@ router.get('/:projectId/wordcount', async (req, res) => {
   }
 });
 
-// Compare files with latexdiff — SSE streaming
+/** GET /api/compile/:projectId/diff-stream -- Run latexdiff and compile the result, streaming output via SSE. */
 router.get('/:projectId/diff-stream', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -451,7 +453,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
   let clientDisconnected = false;
   res.on('close', () => {
     clientDisconnected = true;
-    stopCompilation(projectId).catch(() => {});
+    stopCompilation(projectId).catch((e) => logger.warn({ err: e }, 'Failed to stop compilation on disconnect'));
   });
 
   const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
@@ -537,7 +539,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
   if (!clientDisconnected) res.end();
 });
 
-// Serve diff PDF
+/** GET /api/compile/:projectId/diff-pdf -- Serve the compiled latexdiff PDF. */
 router.get('/:projectId/diff-pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -552,7 +554,7 @@ router.get('/:projectId/diff-pdf', async (req, res) => {
   });
 });
 
-// Delete LaTeX-generated files (aux, log, bbl, etc.)
+/** GET /api/compile/:projectId/generated-files -- List LaTeX-generated auxiliary files (aux, log, bbl, etc.). */
 router.get('/:projectId/generated-files', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -597,6 +599,7 @@ router.get('/:projectId/generated-files', async (req, res) => {
   res.json({ files });
 });
 
+/** GET /api/compile/:projectId/generated-file -- Retrieve the content of a specific generated file. */
 router.get('/:projectId/generated-file', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
@@ -634,13 +637,18 @@ router.get('/:projectId/generated-file', async (req, res) => {
   res.json({ name: fileName, content });
 });
 
+/** POST /api/compile/:projectId/clean -- Delete generated files (aux, log, pdf, synctex) for the current user. */
 router.post('/:projectId/clean', async (req, res) => {
   const projectId = req.params.projectId;
-  if (!(await requireMembership(projectId, req.session.userId, res))) return;
+  const member = await requireMember(projectId, req.session.userId, res);
+  if (!member) return;
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot clean generated files' });
 
   const projectDir = path.join(PROJECTS_DIR, projectId);
   if (!fs.existsSync(projectDir)) return res.json({ deleted: 0 });
 
+  // Only delete files belonging to the requesting user (scoped by user suffix)
+  const userSuffix = '_' + req.session.userId.slice(0, 8);
   let deleted = 0;
   const entries = fs.readdirSync(projectDir);
   for (const entry of entries) {
@@ -650,6 +658,10 @@ router.post('/:projectId/clean', async (req, res) => {
     const isGenerated =
       GENERATED_EXTS.has(lowerExt) || lowerExt === '.pdf' || /\.synctex\(busy\)$/i.test(entry);
     if (!isGenerated) continue;
+
+    // Only clean this user's generated files
+    const baseName = entry.split('.')[0];
+    if (!baseName.endsWith(userSuffix)) continue;
 
     try {
       fs.unlinkSync(path.join(projectDir, entry));
@@ -675,6 +687,7 @@ let _formattersCacheTime = 0;
 // Allowed directories for formatter executables
 const SAFE_BIN_DIRS = new Set(['/opt/local/bin', '/usr/local/bin', '/usr/bin', '/Library/TeX/texbin', '/opt/homebrew/bin']);
 
+/** Detect available LaTeX formatters on the system, with 60s caching. */
 function detectFormatters() {
   const now = Date.now();
   if (_cachedFormatters && now - _formattersCacheTime < 60000) return _cachedFormatters;

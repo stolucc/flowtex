@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { post, get } from '../api.js';
 
+/** Authentication page handling login, registration, email verification, password reset, and 2FA. */
 export default function AuthPage({ onAuth }) {
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('token');

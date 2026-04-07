@@ -5,7 +5,7 @@ import { isProjectMember } from '../middleware/auth.js';
 
 const router = Router();
 
-// Shared helpers to reduce repeated auth patterns
+/** Verify the user has editor access to the file's project. Returns the file or null. */
 async function requireFileEditor(fileId, userId, res) {
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [fileId]);
   if (!file) {
@@ -24,6 +24,7 @@ async function requireFileEditor(fileId, userId, res) {
   return file;
 }
 
+/** Verify the user has editor access to the tracked change's project. Returns the change or null. */
 async function requireChangeEditor(changeId, userId, res) {
   const change = await db.get('SELECT * FROM tracked_changes WHERE id = $1', [changeId]);
   if (!change) {
@@ -42,7 +43,7 @@ async function requireChangeEditor(changeId, userId, res) {
   return change;
 }
 
-// Get all tracked changes for a file
+/** GET /api/tracked-changes/:fileId -- List all tracked changes for a file. */
 router.get('/:fileId', async (req, res) => {
   const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
   if (!file) return res.status(404).json({ error: 'File not found' });
@@ -55,7 +56,7 @@ router.get('/:fileId', async (req, res) => {
   res.json(changes);
 });
 
-// Get all tracked changes for a project (all files)
+/** GET /api/tracked-changes/project/:projectId -- List all pending tracked changes across the project. */
 router.get('/project/:projectId', async (req, res) => {
   if (!(await isProjectMember(req.params.projectId, req.session.userId))) {
     return res.status(403).json({ error: 'No access' });
@@ -70,7 +71,7 @@ router.get('/project/:projectId', async (req, res) => {
   res.json(changes);
 });
 
-// Create a tracked change
+/** POST /api/tracked-changes/:fileId -- Create a new tracked change (insertion/deletion) in a file. */
 router.post('/:fileId', async (req, res) => {
   const { from_pos, to_pos, inserted_text, deleted_text } = req.body;
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
@@ -104,7 +105,7 @@ router.post('/:fileId', async (req, res) => {
   res.json(change);
 });
 
-// Accept a tracked change (with optimistic locking to prevent simultaneous accept+reject)
+/** POST /api/tracked-changes/:changeId/accept -- Accept a pending tracked change (with optimistic locking). */
 router.post('/:changeId/accept', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
@@ -118,7 +119,7 @@ router.post('/:changeId/accept', async (req, res) => {
   res.json({ ok: true, id: change.id, status: 'accepted' });
 });
 
-// Reject a tracked change (with optimistic locking)
+/** POST /api/tracked-changes/:changeId/reject -- Reject a pending tracked change (with optimistic locking). */
 router.post('/:changeId/reject', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
@@ -132,7 +133,7 @@ router.post('/:changeId/reject', async (req, res) => {
   res.json({ ok: true, id: change.id, status: 'rejected' });
 });
 
-// Update a tracked change (e.g. merge edits)
+/** PATCH /api/tracked-changes/:changeId -- Update a pending tracked change's positions or text. */
 router.patch('/:changeId', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
@@ -153,7 +154,7 @@ router.patch('/:changeId', async (req, res) => {
   res.json(updated);
 });
 
-// Delete a tracked change
+/** DELETE /api/tracked-changes/:changeId -- Delete a tracked change. */
 router.delete('/:changeId', async (req, res) => {
   const change = await requireChangeEditor(req.params.changeId, req.session.userId, res);
   if (!change) return;
@@ -161,7 +162,7 @@ router.delete('/:changeId', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Bulk accept all pending changes for a file
+/** POST /api/tracked-changes/file/:fileId/accept-all -- Bulk accept all pending changes for a file. */
 router.post('/file/:fileId/accept-all', async (req, res) => {
   const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
   if (!file) return;
@@ -172,7 +173,7 @@ router.post('/file/:fileId/accept-all', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Bulk reject all pending changes for a file
+/** POST /api/tracked-changes/file/:fileId/reject-all -- Bulk reject all pending changes for a file. */
 router.post('/file/:fileId/reject-all', async (req, res) => {
   const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
   if (!file) return;
@@ -183,7 +184,7 @@ router.post('/file/:fileId/reject-all', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Bulk adjust positions for remaining pending changes after a document edit
+/** POST /api/tracked-changes/file/:fileId/adjust-positions -- Shift positions of pending changes after a document edit. */
 router.post('/file/:fileId/adjust-positions', async (req, res) => {
   const { afterPos, delta } = req.body;
   if (!Number.isInteger(afterPos) || !Number.isInteger(delta)) {

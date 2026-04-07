@@ -582,7 +582,7 @@ describe('POST /change-email', () => {
     const res = mockRes();
     await handler(mockReq({ body: { password: 'pass', newEmail: 'new@x.com' } }), res);
 
-    expect(res.body).toEqual({ ok: true, email: 'new@x.com' });
+    expect(res.body).toEqual({ ok: true, email: 'new@x.com', needsVerification: true });
     expect(auditLog).toHaveBeenCalledWith(
       'user-1',
       'email_changed',

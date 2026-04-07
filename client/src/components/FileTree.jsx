@@ -3,6 +3,12 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { CloseIcon, FolderIcon } from './Icons.jsx';
 
+/**
+ * Builds a nested directory tree structure from a flat file list and empty folder paths.
+ * @param {Array} files - Flat array of file objects with path properties
+ * @param {string[]} emptyFolders - Folder paths that should appear even without files
+ * @returns {Object} Root tree node with children and files properties
+ */
 function buildTree(files, emptyFolders) {
   const root = { name: '', children: {}, files: [] };
 
@@ -62,6 +68,11 @@ const FILE_CATEGORIES = [
   },
 ];
 
+/**
+ * Groups files into predefined categories (TeX, Bibliography, Images, Style, Other).
+ * @param {Array} files - Flat array of file objects
+ * @returns {Object} Map from category key to file array
+ */
 function categorizeFiles(files) {
   const groups = {};
   for (const cat of FILE_CATEGORIES) groups[cat.key] = [];
@@ -73,6 +84,7 @@ function categorizeFiles(files) {
   return groups;
 }
 
+/** Positioned right-click context menu for file and folder actions. */
 function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
@@ -95,6 +107,7 @@ function ContextMenu({ x, y, items, onClose }) {
   );
 }
 
+/** Project file browser with drag-and-drop upload, folder nesting, rename, and type-based grouping. */
 export default function FileTree({
   files,
   activeFile,

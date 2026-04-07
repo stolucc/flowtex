@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { post } from '../api.js';
 
+/** Two-step initial setup wizard for creating the admin account and configuring SMTP. */
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');

@@ -302,6 +302,9 @@
 │  │  ┌──────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐  │   │
 │  │  │ ShareModal   │ │HistoryPanel   │ │GitHubSync    │ │ MfaSetup     │  │   │
 │  │  └──────────────┘ └───────────────┘ └──────────────┘ └──────────────┘  │   │
+│  │  ┌──────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐  │   │
+│  │  │ ZoteroModal  │ │ ChatPanel     │ │AdminDashboard│ │TemplateGal.  │  │   │
+│  │  └──────────────┘ └───────────────┘ └──────────────┘ └──────────────┘  │   │
 │  │                                                                          │   │
 │  │  ┌───────────────────────────┐  ┌────────────────────────────────────┐  │   │
 │  │  │       api.js              │  │        WebSocket Client            │  │   │
@@ -335,6 +338,12 @@
 │  │  │  /api/history/*  Versions &amp; restore │  │  Cursor sync            │  │   │
 │  │  │  /api/github/*   Push/pull/link     │  │  Comment events         │  │   │
 │  │  │  /api/tags/*     Tag management     │  │  Heartbeat (ping/pong)  │  │   │
+│  │  │  /api/bib/*      Bibliography mgmt  │  │                         │  │   │
+│  │  │  /api/zotero/*   Zotero import      │  │                         │  │   │
+│  │  │  /api/chat/*     AI chat            │  │                         │  │   │
+│  │  │  /api/tracked-*  Change tracking    │  │                         │  │   │
+│  │  │  /api/admin/*    Admin dashboard    │  │                         │  │   │
+│  │  │  /api/setup/*    Initial setup      │  │                         │  │   │
 │  │  │  /api/health     Liveness probe     │  │                         │  │   │
 │  │  │  /api/ready      Readiness probe    │  │                         │  │   │
 │  │  │                                     │  │                         │  │   │
@@ -579,7 +588,9 @@
                     │                             │
                     │  auth │ projects │ compile  │
                     │  comments │ history │ github│
-                    │  tags │ health              │
+                    │  tags │ bib │ zotero │ chat │
+                    │  tracked-changes │ admin    │
+                    │  setup │ health             │
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐
@@ -590,6 +601,9 @@
                     │  crypto.js    - AES-256-GCM │
                     │  audit.js     - action log  │
                     │  latexDiff.js - latexdiff   │
+                    │  email.js     - SMTP/notify │
+                    │  seedTemplates - templates   │
+                    │  authService  - TOTP/login  │
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐
@@ -628,11 +642,14 @@
                  │    └─ File nodes (click to open)
                  │
                  ├─ Editor (CodeMirror 6)
-                 │    ├─ LaTeX syntax highlighting
+                 │    ├─ LaTeX syntax highlighting (.tex)
+                 │    ├─ BibTeX highlighting + field validation (.bib)
                  │    ├─ Autocomplete (commands + environments)
-                 │    ├─ Lint diagnostics (gutter markers)
-                 │    ├─ Spellcheck underlines
+                 │    ├─ Lint diagnostics (LaTeX lint / BibTeX field lint)
+                 │    ├─ BibTeX warning banner (yellow, field issue count)
+                 │    ├─ Spellcheck underlines (disabled for .bib)
                  │    ├─ Comment highlight decorations
+                 │    ├─ Tracked changes decorations
                  │    └─ Remote cursor decorations
                  │
                  ├─ SyncArrows
@@ -649,12 +666,19 @@
                  │    ├─ Comment threads
                  │    └─ Reply forms
                  │
+                 ├─ ChatPanel
+                 │    └─ AI chat for LaTeX assistance
+                 │
                  └─ Modals (conditionally rendered)
                       ├─ ShareModal
                       ├─ HistoryPanel
                       ├─ GitHubSyncModal
+                      ├─ ZoteroModal
                       ├─ CompareFilesModal
+                      ├─ TemplateGallery
+                      ├─ BibEnrichModal
                       ├─ MfaSetupModal
+                      ├─ AdminDashboard
                       └─ ConfirmDialog</code></pre>
   </div>
   <hr>

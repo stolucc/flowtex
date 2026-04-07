@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+/** Centralises all UI visibility/layout state: panel widths, modal toggles, and history view state. */
 export default function useUIState() {
   const [fileTreeWidth, setFileTreeWidth] = useState(200);
   const [showFiles, setShowFiles] = useState(true);

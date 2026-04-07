@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 const router = Router();
 
-// Strip braces from BibTeX field values for search queries
+/** Strip curly braces from BibTeX field values for use in search queries. */
 function stripBraces(val) {
   if (!val) return '';
   return val
@@ -11,7 +11,7 @@ function stripBraces(val) {
     .trim();
 }
 
-// Query CrossRef API to find metadata for a single entry
+/** Query the CrossRef API to find bibliographic metadata matching a title/author pair. */
 async function lookupCrossRef(title, author) {
   const params = new URLSearchParams();
   if (title) params.set('query.bibliographic', title);
@@ -70,7 +70,7 @@ async function lookupCrossRef(title, author) {
   }
 }
 
-// Extract fields from a CrossRef work item
+/** Extract normalized bibliographic fields (doi, pages, year, etc.) from a CrossRef work item. */
 function extractFields(item) {
   const fields = {};
 
@@ -106,9 +106,7 @@ function extractFields(item) {
   return fields;
 }
 
-// POST /api/bib/enrich
-// Body: { entries: [{ key, title, author, existingFields: {field: value} }], fields: ['doi', 'pages', ...] }
-// Returns: { results: [{ key, found: bool, added: {field: value}, source: 'crossref' }] }
+/** POST /api/bib/enrich -- Enrich BibTeX entries with missing fields (doi, pages, etc.) via CrossRef lookup. */
 router.post('/enrich', async (req, res) => {
   const { entries, fields } = req.body;
   if (!Array.isArray(entries) || !Array.isArray(fields) || fields.length === 0) {

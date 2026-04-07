@@ -11,6 +11,11 @@ function membershipCacheKey(projectId, userId) {
   return `${projectId}:${userId}`;
 }
 
+/**
+ * Invalidate cached membership entries for a project (and optionally a specific user).
+ * @param {string} projectId
+ * @param {string} [userId] - If omitted, invalidates all users for the project.
+ */
 export function invalidateMembership(projectId, userId) {
   if (userId) {
     membershipCache.delete(membershipCacheKey(projectId, userId));
@@ -30,6 +35,7 @@ setInterval(() => {
   }
 }, 60000).unref();
 
+/** Express middleware: reject the request if no session userId is set. */
 export function requireAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -37,6 +43,7 @@ export function requireAuth(req, res, next) {
   next();
 }
 
+/** Express middleware: verify the user is a member of the project in req.params. */
 export async function requireProjectAccess(req, res, next) {
   const projectId = req.params.id || req.params.projectId;
   if (!projectId) return next();
@@ -54,6 +61,7 @@ export async function requireProjectAccess(req, res, next) {
   next();
 }
 
+/** Express middleware: reject unless the session user has is_admin=true. */
 export async function requireAdmin(req, res, next) {
   const user = await db.get('SELECT is_admin FROM users WHERE id = $1', [req.session.userId]);
   if (!user?.is_admin) {
@@ -62,6 +70,10 @@ export async function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * Check project membership and send 403 if not a member.
+ * @returns {Promise<{role: string}|null>} The membership row, or null if access was denied.
+ */
 export async function requireMember(projectId, userId, res) {
   const member = await isProjectMember(projectId, userId);
   if (!member) {
@@ -71,6 +83,10 @@ export async function requireMember(projectId, userId, res) {
   return member;
 }
 
+/**
+ * Check if a user is a member of a project (with 5s TTL cache).
+ * @returns {Promise<{role: string}|null>}
+ */
 export async function isProjectMember(projectId, userId) {
   if (!UUID_RE.test(projectId)) return null;
   const cacheKey = membershipCacheKey(projectId, userId);

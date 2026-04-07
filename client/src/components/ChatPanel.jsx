@@ -3,6 +3,7 @@ import Avatar from './Avatar.jsx';
 import { getColor } from './Avatar.jsx';
 import { CloseIcon } from './Icons.jsx';
 
+/** Real-time project chat panel with typing indicators and date-grouped messages. */
 export default function ChatPanel({ messages, currentUser, onSend, onClose, onTyping, typingUsers }) {
   const [text, setText] = useState('');
   const listRef = useRef(null);

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SYMBOL_CATEGORIES from '../data/symbols.js';
 
-function SymbolPicker({ onInsert, onClose }) {
+/** Grid-based picker for browsing and inserting LaTeX special symbols by category. */
+function SymbolPicker({ onInsert, onClose, declaredPackages }) {
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('');
   const filterRef = useRef(null);
@@ -67,7 +68,7 @@ function SymbolPicker({ onInsert, onClose }) {
         <div className="symbol-picker-footer">
           <div>
             <span className="symbol-picker-selected-cmd">{selected || ''}</span>
-            {selectedPkg && <span className="symbol-picker-pkg">Requires: \usepackage{'{' + selectedPkg + '}'}</span>}
+            {selectedPkg && <span className="symbol-picker-pkg">{declaredPackages && (declaredPackages.has(selectedPkg) ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires: \usepackage{'{' + selectedPkg + '}'}</span>}
           </div>
           <button
             className="symbol-picker-insert-btn"

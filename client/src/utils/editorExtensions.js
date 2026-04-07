@@ -19,6 +19,7 @@ const SECTION_RE = /\\((?:sub){0,3}(?:section|paragraph)\*?|chapter\*?|part\*?)\
 const BEGIN_RE = /\\begin\{([^}]+)\}/;
 const END_RE_CACHE = {};
 
+/** Get or create a cached regex matching \end{envName}. */
 function getEndRe(envName) {
   if (!END_RE_CACHE[envName]) {
     END_RE_CACHE[envName] = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}');
@@ -26,6 +27,7 @@ function getEndRe(envName) {
   return END_RE_CACHE[envName];
 }
 
+/** CodeMirror fold service for LaTeX environments and sectioning commands. */
 export const latexFoldService = foldService.of((state, lineStart) => {
   const line = state.doc.lineAt(lineStart);
   const text = line.text;
@@ -101,6 +103,12 @@ export const latexFoldService = foldService.of((state, lineStart) => {
   return null;
 });
 
+/**
+ * Build CodeMirror decorations for unresolved comments.
+ * @param {Array} comments - Comment objects with from_pos, to_pos, resolved, id
+ * @param {number} docLength - Current document length
+ * @returns {DecorationSet}
+ */
 export function buildCommentDecorations(comments, docLength) {
   const widgets = [];
   for (const c of comments || []) {
@@ -113,25 +121,36 @@ export function buildCommentDecorations(comments, docLength) {
           Decoration.mark({ class: 'cm-comment-highlight', attributes: { 'data-comment-id': c.id } }).range(from, to),
         );
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Comment decoration error:', e);
+    }
   }
   widgets.sort((a, b) => a.from - b.from);
   return Decoration.set(widgets);
 }
 
+/**
+ * Create a ViewPlugin that highlights comment ranges in the editor.
+ * @param {Array} comments - Comment objects
+ * @returns {ViewPlugin}
+ */
 export function commentHighlighter(comments) {
   return ViewPlugin.fromClass(
     class {
       constructor(view) {
         this.decorations = buildCommentDecorations(comments, view.state.doc.length);
       }
-      update() {}
+      update(update) {
+        if (update.docChanged) {
+          this.decorations = this.decorations.map(update.changes);
+        }
+      }
     },
     { decorations: (v) => v.decorations },
   );
 }
 
-// Remote cursor decoration
+/** Widget that renders a remote collaborator's cursor with a name label. */
 export class CursorWidget extends WidgetType {
   constructor(userName, color) {
     super();
@@ -183,6 +202,11 @@ export const errorHighlightField = StateField.define({
 });
 
 export const CURSOR_COLORS = ['#e06c75', '#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#be5046'];
+/**
+ * Deterministically pick a cursor color for a user ID.
+ * @param {string} userId
+ * @returns {string} CSS color hex string
+ */
 export function cursorColor(userId) {
   let h = 0;
   for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) | 0;
@@ -237,6 +261,12 @@ export const tcReviewHighlightField = StateField.define({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/**
+ * Check if a document position falls inside a tracked-change deletion decoration.
+ * @param {EditorState} state
+ * @param {number} pos
+ * @returns {boolean}
+ */
 export function isPosInDeletion(state, pos) {
   const decos = state.field(tcDeletesField);
   let found = false;
@@ -246,6 +276,12 @@ export function isPosInDeletion(state, pos) {
   return found;
 }
 
+/**
+ * Check if a document position falls inside a tracked-change insertion decoration.
+ * @param {EditorState} state
+ * @param {number} pos
+ * @returns {boolean}
+ */
 export function isPosInInsertion(state, pos) {
   const decos = state.field(trackedChangesField);
   let found = false;
@@ -273,6 +309,13 @@ export class TcDeleteGutterMarker extends GutterMarker {
 export const tcInsertMarkerInstance = new TcInsertGutterMarker();
 export const tcDeleteMarkerInstance = new TcDeleteGutterMarker();
 
+/**
+ * Rebuild gutter markers from a decoration field, one per decorated line.
+ * @param {StateField} decoField - The decoration state field to read
+ * @param {GutterMarker} markerInstance - The marker instance to place on each line
+ * @param {Transaction} tr - The current transaction
+ * @returns {RangeSet}
+ */
 function rebuildGutterMarkers(decoField, markerInstance, tr) {
   const decos = tr.state.field(decoField);
   const lines = new Set();
@@ -334,8 +377,14 @@ export const tcDeleteGutterExtension = gutter({
   markers: (view) => view.state.field(tcDeleteGutterField),
 });
 
-// Search for `text` near `pos` in `docText`, returning the start index or -1.
-// Searches within ±maxDrift characters of pos.
+/**
+ * Search for `text` near `pos` in `docText`, returning the start index or -1.
+ * @param {string} docText
+ * @param {number} pos - Approximate position to search around
+ * @param {string} text - Text to find
+ * @param {number} [maxDrift=50] - Maximum distance from pos to search
+ * @returns {number} Start index, or -1 if not found
+ */
 function findTextNear(docText, pos, text, maxDrift = 50) {
   const searchFrom = Math.max(0, pos - maxDrift);
   const searchTo = Math.min(docText.length, pos + maxDrift + text.length);
@@ -345,8 +394,14 @@ function findTextNear(docText, pos, text, maxDrift = 50) {
   return searchFrom + idx;
 }
 
-// Resolve the actual document range for a tracked change's text.
-// Returns { from, to } or null if the text can't be located.
+/**
+ * Resolve the actual document range for a tracked change's text.
+ * @param {Object} tc - Tracked change record
+ * @param {string} textField - Property name on tc containing the text ('inserted_text' or 'deleted_text')
+ * @param {number} docLength
+ * @param {string} docText
+ * @returns {{from: number, to: number}|null}
+ */
 function resolveTcRange(tc, textField, docLength, docText) {
   const text = tc[textField];
   if (!text) return null;
@@ -364,6 +419,14 @@ function resolveTcRange(tc, textField, docLength, docText) {
   return from < to ? { from, to } : null;
 }
 
+/**
+ * Build decorations for tracked-change insertions.
+ * @param {Array} trackedChanges - Tracked change records
+ * @param {number} docLength - Current document length
+ * @param {string} currentUserName - Name of the current user
+ * @param {string} docText - Full document text
+ * @returns {DecorationSet}
+ */
 export function buildTcInsertDecorations(trackedChanges, docLength, currentUserName, docText) {
   const decos = [];
   for (const tc of trackedChanges || []) {
@@ -382,12 +445,22 @@ export function buildTcInsertDecorations(trackedChanges, docLength, currentUserN
           },
         }).range(range.from, range.to),
       );
-    } catch (e) {}
+    } catch (e) {
+      console.warn('TC insert decoration error:', e);
+    }
   }
   decos.sort((a, b) => a.from - b.from);
   return Decoration.set(decos, true);
 }
 
+/**
+ * Build decorations for tracked-change deletions, excluding ranges that overlap insertions.
+ * @param {Array} trackedChanges - Tracked change records
+ * @param {number} docLength - Current document length
+ * @param {string} currentUserName - Name of the current user
+ * @param {string} docText - Full document text
+ * @returns {DecorationSet}
+ */
 export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserName, docText) {
   // First, collect all resolved insert ranges so we can exclude overlaps.
   // A position that is marked as inserted by one TC must NOT also be marked as deleted.
@@ -419,7 +492,9 @@ export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserN
           },
         }).range(range.from, range.to),
       );
-    } catch (e) {}
+    } catch (e) {
+      console.warn('TC delete decoration error:', e);
+    }
   }
   decos.sort((a, b) => a.from - b.from);
   return Decoration.set(decos, true);
@@ -550,6 +625,11 @@ export const spellGutterExtension = gutter({
   markers: (view) => view.state.field(spellGutterField),
 });
 
+/**
+ * Apply lint diagnostics as editor decorations and gutter markers.
+ * @param {EditorView} view
+ * @param {Array<{line: number, col: number, len: number, severity: string, message: string}>} diagnostics
+ */
 export function applyLintDiagnostics(view, diagnostics) {
   const decos = [];
   const gutterMarkers = [];
@@ -574,7 +654,9 @@ export function applyLintDiagnostics(view, diagnostics) {
         const marker = d.severity === 'error' ? new LintErrorMarker(d.message) : new LintWarningMarker(d.message);
         gutterMarkers.push(marker.range(lineInfo.from));
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Lint decoration error:', e);
+    }
   }
 
   decos.sort((a, b) => a.from - b.from);
@@ -585,6 +667,11 @@ export function applyLintDiagnostics(view, diagnostics) {
   });
 }
 
+/**
+ * Apply spellcheck underlines and gutter markers, skipping tracked deletions.
+ * @param {EditorView} view
+ * @param {Array<{from: number, to: number, word: string}>} misspelled
+ */
 export function applySpellcheck(view, misspelled) {
   // Skip words that overlap with tracked deletion marks — deleted text is going away.
   // Check if ANY character in the word falls inside a deletion decoration.
@@ -620,6 +707,11 @@ export function applySpellcheck(view, misspelled) {
 export const citeKeyMark = Decoration.mark({ class: 'cm-cite-key' });
 export const citeKeyPattern = /\\cite[tp]?\*?\{([^}]+)\}/g;
 
+/**
+ * Build decorations that highlight citation keys inside \\cite{} commands.
+ * @param {EditorView} view
+ * @returns {DecorationSet}
+ */
 export function buildCiteDecorations(view) {
   const decos = [];
   for (const { from, to } of view.visibleRanges) {
@@ -717,6 +809,10 @@ export const floatGutterExtension = gutter({
   },
 });
 
+/**
+ * Scan the document for table and figure environments and update gutter markers.
+ * @param {EditorView} view
+ */
 export function updateFloatGutterMarkers(view) {
   const doc = view.state.doc.toString();
   const markers = [];
@@ -774,7 +870,11 @@ export const tableGutterExtension = floatGutterExtension;
 export function updateTableGutterMarkers(view) { updateFloatGutterMarkers(view); }
 export function updateFigureGutterMarkers() { /* no-op, handled by updateFloatGutterMarkers */ }
 
-// Find and parse a figure at the cursor using the AST parser.
+/**
+ * Find and parse the figure environment at the cursor position.
+ * @param {EditorView} view
+ * @returns {Object|null} Parsed figure data or null
+ */
 export function findFigureAtCursor(view) {
   const pos = view.state.selection.main.head;
   const source = view.state.doc.toString();
@@ -793,6 +893,12 @@ export function findFigureAtCursor(view) {
   return parseFigureFromText(found.text, found.from);
 }
 
+/**
+ * Regex fallback: find the figure environment containing position `pos`.
+ * @param {string} source - Full document text
+ * @param {number} pos - Cursor position
+ * @returns {{from: number, to: number, text: string}|null}
+ */
 function findFigureByRegex(source, pos) {
   const re = /\\begin\{(figure\*?)\}/g;
   let match;
@@ -824,6 +930,12 @@ function findFigureByRegex(source, pos) {
   return null;
 }
 
+/**
+ * Parse figure properties from raw LaTeX text (regex-based fallback).
+ * @param {string} text - The figure environment source
+ * @param {number} offset - Document offset where the text starts
+ * @returns {Object} Parsed figure data
+ */
 function parseFigureFromText(text, offset) {
   const result = {
     env: 'figure',
@@ -883,7 +995,12 @@ function parseFigureFromText(text, offset) {
 const TABLE_RE_NAMES =
   'tabular\\*?|tabularx|tabulary|tabu|longtabu|array|longtable|supertabular\\*?|NiceTabular\\*?|NiceArray';
 
-// Regex fallback: find the table environment containing position `pos`
+/**
+ * Regex fallback: find the table environment containing position `pos`.
+ * @param {string} source - Full document text
+ * @param {number} pos - Cursor position
+ * @returns {{from: number, to: number, text: string}|null}
+ */
 function findTableByRegex(source, pos) {
   const beginRe = new RegExp('\\\\begin\\{(' + TABLE_RE_NAMES + ')\\}', 'g');
   let match;
@@ -923,8 +1040,12 @@ function findTableByRegex(source, pos) {
   return { from: outer.start, to: outer.end, text: source.slice(outer.start, outer.end) };
 }
 
-// Find and parse a table at the cursor using the AST parser, with regex fallback.
-// projectFiles: optional array of { path, content } for cross-file custom column type lookup.
+/**
+ * Find and parse the table environment at the cursor position (AST with regex fallback).
+ * @param {EditorView} view
+ * @param {Array<{path: string, content: string}>} [projectFiles] - Project files for cross-file custom column type lookup
+ * @returns {Object|null} Parsed table data or null
+ */
 export function findTableAtCursor(view, projectFiles) {
   const pos = view.state.selection.main.head;
   const source = view.state.doc.toString();
@@ -953,7 +1074,12 @@ export function findTableAtCursor(view, projectFiles) {
   return parseTableFromText(found.text, found.from);
 }
 
-// Simple regex-based table parser (fallback)
+/**
+ * Parse table properties from raw LaTeX text (regex-based fallback).
+ * @param {string} text - The table environment source
+ * @param {number} offset - Document offset where the text starts
+ * @returns {Object} Parsed table data
+ */
 function parseTableFromText(text, offset) {
   const result = {
     env: 'tabular',

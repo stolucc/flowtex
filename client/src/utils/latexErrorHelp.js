@@ -521,7 +521,9 @@ const ERROR_RULES = [
 ];
 
 /**
- * Given an error message string, returns help object or null.
+ * Match an error message against known LaTeX error patterns and return help info.
+ * @param {string} message - Raw error or lint message
+ * @returns {{title: string, suggestion: string, tips: string[], example: string|null, searchUrl: string}|null}
  */
 export function getErrorHelp(message) {
   if (!message) return null;

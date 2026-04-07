@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { get, patch } from '../api.js';
 
+/** Accessible toggle switch button. */
 function Toggle({ on, onChange, disabled }) {
   return (
     <button
@@ -16,6 +17,7 @@ function Toggle({ on, onChange, disabled }) {
   );
 }
 
+/** Settings section for project name, main file, snapshot interval, and file grouping. */
 function ProjectSection({
   project,
   files,
@@ -92,6 +94,7 @@ function ProjectSection({
   );
 }
 
+/** Settings section for track changes, color inversion, and LaTeX formatter selection. */
 function EditorSection({
   trackChangesMode,
   onTrackChangesChange,
@@ -135,6 +138,7 @@ function EditorSection({
   );
 }
 
+/** Settings section for compiler engine, TeX distribution, and linting options. */
 function CompilerSection({
   compiler,
   setCompiler,
@@ -197,6 +201,7 @@ function CompilerSection({
   );
 }
 
+/** Settings section for GitHub auto-save toggle. */
 function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
   if (!githubLinked) {
     return (
@@ -220,6 +225,7 @@ function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
   );
 }
 
+/** Settings section for ACM TAPS compliance checking. */
 function PublishersSection({ tapsEnabled, setTapsEnabled }) {
   return (
     <>
@@ -237,6 +243,7 @@ function PublishersSection({ tapsEnabled, setTapsEnabled }) {
   );
 }
 
+/** Settings section for PDF viewer color inversion. */
 function PdfViewerSection({ pdfInverted, setPdfInverted }) {
   return (
     <>
@@ -250,6 +257,7 @@ function PdfViewerSection({ pdfInverted, setPdfInverted }) {
   );
 }
 
+/** Create a 14x14 SVG icon element from the given child paths. */
 const svgIcon = (d) => (
   <svg
     width="14"
@@ -327,6 +335,7 @@ const CATEGORIES = [
   },
 ];
 
+/** Multi-category project settings modal (project, editor, compiler, PDF viewer, publishers, GitHub). */
 export default function ProjectSettingsModal({
   project,
   files,
@@ -378,13 +387,14 @@ export default function ProjectSettingsModal({
     get('/api/compile/texlive-distributions')
       .then((r) => r.json())
       .then(setDistributions)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load TeX distributions:', e));
     get('/api/compile/formatters')
       .then((r) => r.json())
       .then(setFormatters)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load formatters:', e));
   }, []);
 
+  /** Persist all changed settings to the server and localStorage, then close the modal. */
   const handleSave = async () => {
     setSaving(true);
     setError(null);

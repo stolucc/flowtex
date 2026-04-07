@@ -10,6 +10,7 @@ const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
 const MAX_ZIP_RATIO = 100; // reject if decompressed/compressed > 100x
 
+/** Check that a file path is safe (no traversal, no null bytes, no absolute paths). */
 export function isValidFilePath(filePath) {
   if (!filePath || typeof filePath !== 'string') return false;
   if (filePath.includes('\0')) return false;
@@ -22,10 +23,12 @@ export function isValidFilePath(filePath) {
 
 // --- Authorization helpers ---
 
+/** Check if a user is a member of a project; returns the membership or null. */
 export async function checkMembership(projectId, userId) {
   return isProjectMember(projectId, userId);
 }
 
+/** Verify a user has editor (or owner) access; returns {member} or {error, status}. */
 export async function checkEditor(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
@@ -33,6 +36,7 @@ export async function checkEditor(projectId, userId) {
   return { member };
 }
 
+/** Verify a user is the project owner; returns {member} or {error, status}. */
 export async function checkOwnership(projectId, userId) {
   const member = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
     projectId,
@@ -43,6 +47,7 @@ export async function checkOwnership(projectId, userId) {
   return { member };
 }
 
+/** Fetch a file by ID and verify the user has access (optionally editor access). */
 export async function getFileWithAccess(fileId, userId, { edit = false } = {}) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) return { error: 'File not found', status: 404 };
@@ -56,6 +61,7 @@ export async function getFileWithAccess(fileId, userId, { edit = false } = {}) {
 
 // --- Project CRUD ---
 
+/** List all projects a user is a member of, with tags, owner info, and member counts. */
 export async function listUserProjects(userId) {
   const projects = await db.all(
     `SELECT p.*, pm.role,
@@ -97,6 +103,7 @@ export async function listUserProjects(userId) {
   return projects;
 }
 
+/** Create a new project from a user/preloaded template. */
 export async function createProjectFromTemplate(userId, templateId, name) {
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
@@ -129,6 +136,7 @@ export async function createProjectFromTemplate(userId, templateId, name) {
   return { id, name: safeName };
 }
 
+/** Create a new user template by extracting files from a ZIP buffer. */
 export async function createTemplateFromZip(userId, buffer, originalName, description, category, tagIds) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
@@ -222,6 +230,7 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
   };
 }
 
+/** List all templates (preloaded + user-created) with file counts and tags. */
 export async function listAllTemplates() {
   const rows = await db.all(`
     SELECT ut.id, ut.name, ut.description, ut.category, ut.created_by, ut.preloaded,
@@ -253,6 +262,7 @@ export async function listAllTemplates() {
   return rows;
 }
 
+/** Delete a user-created template (only the creator can delete it). */
 export async function deleteUserTemplate(templateId, userId) {
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
@@ -280,10 +290,12 @@ function validateTagName(name) {
   return trimmed;
 }
 
+/** List all global template tags. */
 export async function listTemplateTags() {
   return db.all('SELECT id, name, color FROM template_tags ORDER BY name');
 }
 
+/** Create a new global template tag (max 100 total). */
 export async function createTemplateTag(name, color) {
   const trimmed = validateTagName(name);
   validateTagColor(color);
@@ -303,6 +315,7 @@ export async function createTemplateTag(name, color) {
   return { id, name: trimmed, color: safeColor };
 }
 
+/** Update an existing template tag's name and/or color. */
 export async function updateTemplateTag(tagId, name, color) {
   const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
   if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
@@ -318,6 +331,7 @@ export async function updateTemplateTag(tagId, name, color) {
   return { id: tagId, name: trimmed, color: safeColor };
 }
 
+/** Delete a global template tag by ID. */
 export async function deleteTemplateTag(tagId) {
   const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
   if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
@@ -327,6 +341,7 @@ export async function deleteTemplateTag(tagId) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TAGS_PER_TEMPLATE = 20;
 
+/** Replace all tags on a template with the given tag IDs. */
 export async function setTemplateTags(templateId, tagIds) {
   if (tagIds.length > MAX_TAGS_PER_TEMPLATE) {
     throw Object.assign(new Error(`Too many tags (max ${MAX_TAGS_PER_TEMPLATE})`), { status: 400 });
@@ -344,6 +359,7 @@ export async function setTemplateTags(templateId, tagIds) {
   });
 }
 
+/** Create a new blank project with a default main.tex file. */
 export async function createProject(userId, name) {
   const id = uuid();
   const fileId = uuid();
@@ -379,6 +395,7 @@ Hello from FlowTex!
   return { id, name: safeName };
 }
 
+/** Create a new project by extracting files from an uploaded ZIP buffer. */
 export async function createProjectFromZip(userId, buffer, originalName) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
@@ -440,6 +457,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
   return { id: projectId, name: projectName };
 }
 
+/** Upload a ZIP file into an existing project, merging with existing files. */
 export async function uploadZipToProject(projectId, buffer) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
@@ -503,6 +521,7 @@ export async function uploadZipToProject(projectId, buffer) {
   return { files, created: created.length };
 }
 
+/** Strip a shared directory prefix from extracted ZIP files (e.g. "project-name/"). */
 async function stripCommonPrefix(created) {
   if (created.length <= 1) return;
   const firstSlash = created[0].path.indexOf('/');
@@ -520,6 +539,7 @@ async function stripCommonPrefix(created) {
   });
 }
 
+/** Update project settings (name, main file, snapshot interval, TeX distribution, compiler). */
 export async function updateProject(projectId, { name, main_file, snapshot_interval_sec, tex_distribution, compiler }) {
   if (main_file) {
     if (!isValidFilePath(main_file)) throw new Error('Invalid main file path');
@@ -551,6 +571,7 @@ export async function deleteProject(projectId) {
   await db.run('DELETE FROM projects WHERE id = $1', [projectId]);
 }
 
+/** Duplicate a project and all its files, making the user the owner of the copy. */
 export async function copyProject(projectId, userId, newName) {
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
@@ -583,6 +604,7 @@ export async function getProjectFiles(projectId) {
   return db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
 }
 
+/** Upload or replace a binary file (image, font, etc.) in a project. */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
@@ -607,6 +629,7 @@ export async function uploadBinaryFile(projectId, filePath, buffer) {
   return { id, project_id: projectId, path: filePath, content, is_binary: true, updated: false };
 }
 
+/** Create a new text file in a project (fails if the path already exists). */
 export async function createFile(projectId, filePath, content) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (content && content.length > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
@@ -623,6 +646,7 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
+/** Save file content, update tracked-change positions, and create a snapshot if due. */
 export async function updateFileContent(fileId, content, userId, tcPositions) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
@@ -675,6 +699,7 @@ export async function updateFileContent(fileId, content, userId, tcPositions) {
   return { ok: true, newSnapshot, projectId: file.project_id, authorName };
 }
 
+/** Rename/move a file within its project. */
 export async function renameFile(fileId, newPath) {
   if (!isValidFilePath(newPath)) throw new Error('Invalid file path');
   await db.run('UPDATE files SET path = $1, updated_at = NOW() WHERE id = $2', [newPath, fileId]);
@@ -687,6 +712,7 @@ export async function deleteFile(fileId) {
   await db.run('DELETE FROM files WHERE id = $1', [fileId]);
 }
 
+/** Fetch a file's full row if the user has access to its project. */
 export async function getRawFile(fileId, userId) {
   const file = await db.get(
     'SELECT f.*, pm.user_id FROM files f JOIN project_members pm ON f.project_id = pm.project_id WHERE f.id = $1 AND pm.user_id = $2',
@@ -697,6 +723,7 @@ export async function getRawFile(fileId, userId) {
 
 // --- Member management ---
 
+/** List all members of a project with their roles. */
 export async function getProjectMembers(projectId) {
   return db.all(
     `SELECT u.id, u.email, u.name, pm.role FROM project_members pm
@@ -706,6 +733,7 @@ export async function getProjectMembers(projectId) {
   );
 }
 
+/** Invite a registered user to a project by email. */
 export async function inviteMember(projectId, email, role, inviterId) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get('SELECT id, email, name FROM users WHERE email = $1', [normalizedEmail]);
@@ -734,6 +762,7 @@ export async function inviteMember(projectId, email, role, inviterId) {
   return { id, email, role: assignedRole, status: 'pending' };
 }
 
+/** Remove a member from a project and invalidate their cached membership. */
 export async function removeMember(projectId, userId) {
   await db.run('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
   invalidateMembership(projectId, userId);
@@ -741,6 +770,7 @@ export async function removeMember(projectId, userId) {
 
 // --- Invitations ---
 
+/** Get all pending project invitations for the current user. */
 export async function getMyInvitations(userId) {
   const user = await db.get('SELECT email FROM users WHERE id = $1', [userId]);
   if (!user) return [];
@@ -756,6 +786,7 @@ export async function getMyInvitations(userId) {
   );
 }
 
+/** Accept a project invitation, adding the user as a member. */
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
@@ -783,6 +814,7 @@ export async function acceptInvitation(inviteId, userId) {
   return { ok: true, projectId: invite.project_id };
 }
 
+/** Decline a project invitation. */
 export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
@@ -794,6 +826,7 @@ export async function declineInvitation(inviteId, userId) {
   await db.run("UPDATE project_invitations SET status = 'declined' WHERE id = $1", [invite.id]);
 }
 
+/** List all pending invitations for a project. */
 export async function getProjectInvitations(projectId) {
   return db.all(
     `SELECT pi.id, pi.email, pi.role, pi.status, pi.created_at, u.name AS inviter_name
@@ -803,6 +836,7 @@ export async function getProjectInvitations(projectId) {
   );
 }
 
+/** Cancel (delete) a pending invitation. */
 export async function cancelInvitation(inviteId, projectId) {
   await db.run('DELETE FROM project_invitations WHERE id = $1 AND project_id = $2', [inviteId, projectId]);
 }

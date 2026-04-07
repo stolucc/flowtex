@@ -3,6 +3,7 @@ import { get, getCsrfToken } from '../api.js';
 
 const HistoryPanel = lazy(() => import('./HistoryPanel.jsx'));
 
+/** Layout wrapper for the history mode, showing a file list alongside the HistoryPanel. */
 export default function HistoryView({
   project,
   files,

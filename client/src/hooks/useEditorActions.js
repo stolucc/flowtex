@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { get, post, put, del } from '../api.js';
 import tapsCheck from '../utils/tapsChecker.js';
 
+/** Provides editor-level actions: SyncTeX, word count, formatting, TAPS checks, and citation/label autocomplete data. */
 export default function useEditorActions({
   project,
   files,

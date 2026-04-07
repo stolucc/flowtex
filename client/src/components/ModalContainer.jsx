@@ -10,6 +10,7 @@ const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
 
+/** Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.). */
 export default function ModalContainer({
   project,
   files,
@@ -45,7 +46,7 @@ export default function ModalContainer({
             get(`/api/projects/${project.id}/members`)
               .then((r) => r.json())
               .then(setMembers)
-              .catch(() => {});
+              .catch((e) => console.warn('Failed to reload members:', e));
           }}
         />
       )}

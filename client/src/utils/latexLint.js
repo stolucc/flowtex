@@ -102,8 +102,18 @@ const MATH_ENVS = new Set([
 ]);
 
 // Environments where content is verbatim (no checking)
-const VERBATIM_ENVS = new Set(['verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt', 'comment']);
+const VERBATIM_ENVS = new Set([
+  'verbatim', 'verbatim*', 'lstlisting', 'minted', 'alltt', 'comment',
+  'CCSXML',        // ACM acmart: raw XML block
+  'filecontents', 'filecontents*',
+  'luacode', 'luacode*',
+]);
 
+/**
+ * Lint LaTeX source for misplaced special characters, unclosed math/environments, and brace mismatches.
+ * @param {string} text - LaTeX source text
+ * @returns {Array<{line: number, col: number, len: number, severity: string, message: string}>}
+ */
 export default function latexLint(text) {
   const diagnostics = [];
   const lines = text.split('\n');

@@ -13,6 +13,7 @@ export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
 let _compileTimeoutMs = 120000;
 let _lastTimeoutFetch = 0;
 
+/** Fetch the compile timeout (in ms) from DB settings, cached for 30s. */
 async function getCompileTimeout() {
   const now = Date.now();
   if (now - _lastTimeoutFetch > 30000) {
@@ -115,6 +116,7 @@ export const compileMetrics = {
   history: [], // last 300 entries: { time, duration, success }
 };
 
+/** Record a compilation result in the metrics history ring buffer. */
 function recordCompile(success, duration) {
   compileMetrics.total++;
   if (success) compileMetrics.success++;
@@ -139,6 +141,11 @@ function safePath(projectDir, filePath) {
   return resolved;
 }
 
+/**
+ * Kill a running compilation for the given project.
+ * @param {string} projectId
+ * @returns {Promise<void|false>} Resolves when the process exits, or false if none was active.
+ */
 export function stopCompilation(projectId) {
   const entry = activeCompilations.get(projectId);
   if (entry) {
@@ -157,6 +164,14 @@ export const COMPILERS = [
   { id: 'lualatex', name: 'LuaLaTeX', flag: '-lualatex' },
 ];
 
+/**
+ * Compile a LaTeX project, syncing files to disk first.
+ * @param {string} projectId
+ * @param {string} mainFile - Entry .tex file (default 'main.tex').
+ * @param {Function|null} onOutput - Callback for streaming stdout/stderr chunks.
+ * @param {object} [opts] - Extra options: files, onBeforeCompile, userId, texDistribution, compiler.
+ * @returns {Promise<{pdfPath: string, log: string, jobName: string}>}
+ */
 export async function compileProject(
   projectId,
   mainFile = 'main.tex',
@@ -187,6 +202,7 @@ export async function compileProject(
   return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution, compiler);
 }
 
+/** Internal: spawn latexmk and return a promise for the compilation result. */
 function _doCompile(
   projectId,
   mainFile,
@@ -327,7 +343,10 @@ function _doCompile(
   });
 }
 
-// Forward sync: editor line → PDF page/position
+/**
+ * Forward SyncTeX: map an editor position (file, line, column) to a PDF page/position.
+ * @returns {{page: number, x: number, y: number, h: number, v: number} | null}
+ */
 export function synctexForward(
   projectId,
   line,
@@ -376,7 +395,10 @@ export function synctexForward(
   }
 }
 
-// Inverse sync: PDF page/position → editor line
+/**
+ * Inverse SyncTeX: map a PDF page/position back to an editor file and line.
+ * @returns {{line: number, column: number, file: string} | null}
+ */
 export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', userSuffix = '') {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   // Validate mainFile to prevent path traversal
@@ -417,6 +439,7 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
 // Key: "projectId:path" → md5 hex digest
 const fileHashCache = new Map();
 
+/** Compute an MD5 hex digest of content for change detection. */
 function contentHash(content) {
   return createHash('md5').update(content).digest('hex');
 }
@@ -465,7 +488,11 @@ function getFileExt(filePath) {
   return dotIdx >= 0 ? base.slice(dotIdx).toLowerCase() : '';
 }
 
-// Async file sync — only writes files whose content has changed
+/**
+ * Write project files to disk, skipping unchanged files and generated artifacts.
+ * @param {string} projectId
+ * @param {Array<{path: string, content: string, is_binary: boolean}>} files
+ */
 export async function syncFilesToDisk(projectId, files) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   await fsp.mkdir(projectDir, { recursive: true });
@@ -498,7 +525,7 @@ export async function syncFilesToDisk(projectId, files) {
 // Test-only exports for internal helpers
 export const _testing = { safePath, recordCompile, fileHashCache, contentHash };
 
-// Recursively remove symlinks from a directory tree
+/** Recursively remove symlinks from a directory tree. */
 async function removeSymlinks(dir) {
   let entries;
   try {
@@ -509,7 +536,7 @@ async function removeSymlinks(dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) {
-      await fsp.unlink(fullPath).catch(() => {});
+      await fsp.unlink(fullPath).catch((e) => console.warn('Failed to remove symlink:', fullPath, e.message));
     } else if (entry.isDirectory()) {
       await removeSymlinks(fullPath);
     }

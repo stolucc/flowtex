@@ -3,6 +3,7 @@ import { get, post } from '../api.js';
 
 const AuthContext = createContext(null);
 
+/** Provides authentication state (user, logout, setup status) to the component tree. */
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -12,10 +13,10 @@ export function AuthProvider({ children }) {
     Promise.all([
       get('/api/auth/me')
         .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+        .catch((e) => { console.warn('Auth check failed:', e); return null; }),
       get('/api/setup/status')
         .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+        .catch((e) => { console.warn('Setup status check failed:', e); return null; }),
     ]).then(([u, setup]) => {
       setUser(u);
       if (setup?.needsSetup) setNeedsSetup(true);
@@ -43,6 +44,10 @@ export function AuthProvider({ children }) {
   );
 }
 
+/**
+ * Consumes the AuthContext; must be used within an AuthProvider.
+ * @returns {{ user: object|null, setUser: Function, authChecked: boolean, handleLogout: Function, needsSetup: boolean, setNeedsSetup: Function }}
+ */
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

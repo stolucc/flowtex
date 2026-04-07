@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const assetsDir = join(__dirname, '..', 'assets', 'templates');
 
+/** Read a bundled template asset file by name, returning empty string on failure. */
 function loadAsset(name) {
   try {
     return readFileSync(join(assetsDir, name), 'utf8');

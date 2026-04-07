@@ -1,5 +1,6 @@
 import React from 'react';
 
+/** Floating popup showing details of a single tracked change with accept/reject buttons. */
 export function TrackChangesPopup({ tcPopup, trackedChanges, onAccept, onReject, onClose }) {
   if (!tcPopup) return null;
   const change = trackedChanges.find((c) => c.id === tcPopup.changeId && c.status === 'pending');
@@ -34,6 +35,7 @@ export function TrackChangesPopup({ tcPopup, trackedChanges, onAccept, onReject,
   );
 }
 
+/** Sticky bar for reviewing tracked changes one-by-one or in bulk (accept all / reject all). */
 export function TrackChangesReviewBar({
   trackedChanges,
   onAcceptAll,

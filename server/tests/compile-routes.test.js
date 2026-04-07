@@ -444,19 +444,29 @@ describe('POST /:projectId/clean', () => {
     expect(res.body).toEqual({ deleted: 0 });
   });
 
-  it('deletes all generated files regardless of user suffix', async () => {
+  it('only deletes current user generated files, not other users', async () => {
     fs.existsSync.mockReturnValueOnce(true);
     fs.readdirSync.mockReturnValueOnce([
-      'main_user-1.aux',
-      'main_otheruse.aux',
-      'main.aux', // unsuffixed
+      'main_user-1.aux',    // matches user suffix
+      'main_otheruse.aux',  // different user
+      'main.aux',           // unsuffixed
     ]);
     fs.unlinkSync.mockReturnValue(undefined);
 
     const res = mockRes();
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
-    expect(res.body.deleted).toBe(3);
+    expect(res.body.deleted).toBe(1);
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects viewers', async () => {
+    requireMember.mockResolvedValueOnce({ role: 'viewer' });
+
+    const res = mockRes();
+    await handler(mockReq({ projectId: 'proj-1' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('returns 403 for non-members', async () => {

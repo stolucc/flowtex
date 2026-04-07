@@ -4,6 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import logger from '../logger.js';
 import { invalidateFileCache } from '../compiler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -13,6 +14,7 @@ import { BINARY_EXTS } from './fileTypes.js';
 
 const syncLocks = new Map();
 
+/** Serialize async operations on a project to prevent concurrent git mutations. */
 async function withLock(projectId, fn) {
   while (syncLocks.has(projectId)) {
     await syncLocks.get(projectId);
@@ -34,6 +36,7 @@ function getRepoDir(projectId) {
   return path.join(GIT_REPOS_DIR, projectId);
 }
 
+/** Ensure a local git repo exists for the project, initializing if needed. */
 async function ensureRepo(projectId) {
   const repoDir = getRepoDir(projectId);
   if (!fs.existsSync(repoDir)) {
@@ -44,13 +47,14 @@ async function ensureRepo(projectId) {
   const isRepo = fs.existsSync(path.join(repoDir, '.git'));
   if (!isRepo) {
     await git.init();
-    await git.addConfig('user.email', 'flowtex@localhost');
+    await git.addConfig('user.email', 'noreply@flowtex.app');
     await git.addConfig('user.name', 'FlowTex');
     await git.addConfig('pull.rebase', 'false');
   }
   return git;
 }
 
+/** Configure the 'origin' remote URL and auth header for the given repo/token. */
 async function configureRemote(git, repo, token) {
   // Validate repo format strictly to prevent SSRF
   if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
@@ -68,6 +72,7 @@ async function configureRemote(git, repo, token) {
   await git.raw(['config', '--local', '--replace-all', 'http.https://github.com/.extraheader', authHeader]);
 }
 
+/** Remove the auth header from git config after a push/pull operation. */
 async function clearRemoteAuth(git) {
   try {
     await git.raw(['config', '--local', '--unset-all', 'http.https://github.com/.extraheader']);
@@ -76,6 +81,7 @@ async function clearRemoteAuth(git) {
   }
 }
 
+/** Write all project files from the database to the local git repo directory. */
 async function writeProjectFilesToDisk(projectId, repoDir) {
   const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
 
@@ -99,6 +105,7 @@ async function writeProjectFilesToDisk(projectId, repoDir) {
   }
 }
 
+/** Read files from the local git repo directory back into the database, syncing additions/deletions. */
 async function readDiskFilesToProject(projectId, repoDir) {
   const dbFiles = await db.all('SELECT id, path FROM files WHERE project_id = $1', [projectId]);
   const dbPathMap = new Map(dbFiles.map((f) => [f.path, f.id]));
@@ -166,6 +173,7 @@ async function readDiskFilesToProject(projectId, repoDir) {
   return await db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
 }
 
+/** Ensure the GitHub repository exists, creating it (as private) if necessary. */
 async function ensureGitHubRepoExists(token, repo) {
   const [owner, name] = repo.split('/');
   // Check if the repo already exists
@@ -202,6 +210,10 @@ async function ensureGitHubRepoExists(token, repo) {
   throw new Error(`Could not create GitHub repo: ${err.message || orgRes.status}`);
 }
 
+/**
+ * Push project files to a GitHub repository, merging remote changes first.
+ * @returns {{commit: string|null}} The latest commit hash after pushing.
+ */
 export async function pushToGitHub(projectId, token, repo, branch, commitMessage) {
   return withLock(projectId, async () => {
     await ensureGitHubRepoExists(token, repo);
@@ -212,7 +224,7 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
 
     try {
       // Fetch remote history first so we can build on top of it
-      await git.fetch('origin').catch(() => {});
+      await git.fetch('origin').catch((e) => logger.warn({ err: e }, 'Git fetch failed, continuing with local state'));
       const remoteRefs = await git.raw(['branch', '-r']).catch(() => '');
       const hasRemoteBranch = remoteRefs.split('\n').some((l) => l.trim().startsWith(`origin/${branch}`));
 
@@ -265,6 +277,10 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
   });
 }
 
+/**
+ * Pull files from a GitHub repository into the database.
+ * @returns {{files: Array, commit: string|null}} Updated file list and the latest commit hash.
+ */
 export async function pullFromGitHub(projectId, token, repo, branch) {
   return withLock(projectId, async () => {
     const git = await ensureRepo(projectId);

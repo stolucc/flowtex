@@ -3,6 +3,7 @@ import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { HomeIcon, LogoutIcon } from './Icons.jsx';
 
+/** Generic toolbar dropdown menu that opens on click and follows hover when another menu is already open. */
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   const ref = useRef(null);
   const open = activeMenu === menuId;
@@ -42,6 +43,7 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   );
 }
 
+/** Main menu bar with File, Edit, Insert, View, Format, Tools, and Help dropdowns plus collaborator avatars. */
 export default function Toolbar({
   projectName,
   projectId,
@@ -200,6 +202,7 @@ export default function Toolbar({
     { label: 'Underline', action: () => onInsert?.('\\underline{', '}') },
     { label: 'Monospace', action: () => onInsert?.('\\texttt{', '}') },
     { label: 'Emphasis', action: () => onInsert?.('\\emph{', '}') },
+    { label: 'Highlight', action: () => onInsert?.('\\hl{', '}') },
     { label: 'separator' },
     { label: 'Inline Math', action: () => onInsert?.('$', '$') },
     { label: 'Display Math', action: () => onInsert?.('\\[\n  ', '\n\\]') },

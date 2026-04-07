@@ -377,13 +377,23 @@
 
   <ul>
     <li><strong>Syntax highlighting</strong> for LaTeX commands, environments, math, and comments</li>
+    <li><strong>BibTeX highlighting</strong>: <code>.bib</code> files get dedicated syntax highlighting with per-entry-type field validation:
+      <ul>
+        <li><strong>Purple</strong> &mdash; valid field for the entry type</li>
+        <li><strong>Dark orange</strong> &mdash; known field but unusual for this entry type (e.g. <code>booktitle</code> in <code>@article</code>)</li>
+        <li><strong>Red</strong> &mdash; unknown field name</li>
+      </ul>
+    </li>
+    <li><strong>BibTeX linter</strong>: A yellow banner appears at the top of the editor with a count of field issues; orange gutter dots mark lines with warnings</li>
     <li><strong>Autocomplete</strong>: Type <code>\</code> to see LaTeX command suggestions, or start a <code>\begin{</code> for environment completion</li>
     <li><strong>Bracket matching</strong>: Matching braces, brackets, and parentheses are highlighted</li>
     <li><strong>Search &amp; replace</strong>: Use <code>Cmd/Ctrl+F</code> to find, <code>Cmd/Ctrl+H</code> to replace</li>
     <li><strong>Multiple cursors</strong>: <code>Cmd/Ctrl+D</code> to select next occurrence</li>
     <li><strong>Line numbers</strong>: Shown in the gutter</li>
-    <li><strong>Spellcheck</strong>: Misspelled words are underlined &mdash; right-click for suggestions</li>
-    <li><strong>Lint diagnostics</strong>: Syntax issues from LaCheck appear as warnings in the gutter</li>
+    <li><strong>Spellcheck</strong>: Misspelled words are underlined &mdash; right-click for suggestions (disabled for <code>.bib</code> files)</li>
+    <li><strong>Lint diagnostics</strong>: Syntax issues appear as warnings in the gutter &mdash; LaTeX linting for <code>.tex</code> files, field validation for <code>.bib</code> files</li>
+    <li><strong>Table builder</strong>: Visual table editor with column type picker (L/C/R/P), header row support, and LaTeX generation</li>
+    <li><strong>Tracked changes</strong>: Accept/reject change tracking for collaborative review workflows</li>
   </ul>
 
   <h3>Compiling</h3>
@@ -522,6 +532,69 @@
   <h3>Unlink</h3>
   <ul>
     <li>Click <strong>Unlink</strong> to disconnect the project from GitHub (your token remains stored)</li>
+  </ul>
+
+  <hr>
+
+  <!-- ════════════ Bibliography & Zotero ════════════ -->
+  <h2 id="bibliography">Bibliography &amp; Zotero</h2>
+
+  <p>FlowTex includes built-in support for managing BibTeX bibliographies.</p>
+
+  <h3>BibTeX Editing</h3>
+  <ul>
+    <li>Open any <code>.bib</code> file to get syntax highlighting with field validation</li>
+    <li>Fields are color-coded: purple (valid), dark orange (wrong entry type), red (unknown)</li>
+    <li>A yellow warning banner shows the count of field issues at the top of the editor</li>
+    <li>Spellcheck is automatically disabled for <code>.bib</code> files</li>
+  </ul>
+
+  <h3>Zotero Integration</h3>
+  <ol>
+    <li>Open the <strong>Zotero</strong> option from the toolbar menu</li>
+    <li>Connect your Zotero account or enter your Zotero User ID and API key</li>
+    <li>Browse your Zotero library and select references to import</li>
+    <li>Selected references are inserted into your <code>.bib</code> file in BibTeX format</li>
+  </ol>
+
+  <hr>
+
+  <!-- ════════════ Chat ════════════ -->
+  <h2 id="chat">AI Chat</h2>
+
+  <p>The integrated chat panel provides LaTeX assistance while you work.</p>
+
+  <ul>
+    <li>Open the <strong>Chat</strong> panel from the toolbar</li>
+    <li>Ask questions about LaTeX syntax, packages, or troubleshooting</li>
+    <li>The chat is contextual to your current project</li>
+  </ul>
+
+  <hr>
+
+  <!-- ════════════ Templates ════════════ -->
+  <h2 id="templates">Templates</h2>
+
+  <p>Start new projects quickly using preloaded templates.</p>
+
+  <ul>
+    <li>When creating a new project, choose from the <strong>Template Gallery</strong></li>
+    <li>Templates include common document types: articles, reports, theses, presentations, and more</li>
+    <li>Each template includes a preconfigured <code>main.tex</code> with appropriate packages and structure</li>
+  </ul>
+
+  <hr>
+
+  <!-- ════════════ Admin Dashboard ════════════ -->
+  <h2 id="admin-dashboard">Admin Dashboard</h2>
+
+  <p>Administrators have access to a management dashboard.</p>
+
+  <ul>
+    <li>View all registered users and their activity</li>
+    <li>Manage user accounts (roles, status)</li>
+    <li>System overview and health monitoring</li>
+    <li>Access via the admin menu (visible only to admin users)</li>
   </ul>
 
   <hr>

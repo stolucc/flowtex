@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import generateLatexTable, { getMergeAt, isCoveredByMerge } from '../utils/latexTableGenerator.js';
 
+/** Available LaTeX table environment options for the environment selector dropdown. */
 export const TABLE_ENV_OPTIONS = [
   { value: 'tabular', label: 'tabular' },
   { value: 'tabularx', label: 'tabularx (full width)' },
@@ -8,7 +9,8 @@ export const TABLE_ENV_OPTIONS = [
   { value: 'array', label: 'array (math mode)' },
 ];
 
-function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn }) {
+/** Interactive table builder with grid size selection, cell editing, merge, alignment, and LaTeX generation. */
+function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, declaredPackages }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const MAX_ROWS = 12;
   const MAX_COLS = 12;
@@ -105,6 +107,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn }) 
     });
   };
 
+  /** Normalize a drag selection so r1/c1 is always the top-left corner. */
   function normalizeSelection(sel) {
     return {
       r1: Math.min(sel.startRow, sel.endRow),
@@ -113,14 +116,17 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn }) 
       c2: Math.max(sel.startCol, sel.endCol),
     };
   }
+  /** Check whether cell (r, c) falls within the given selection rectangle. */
   function isInSelection(sel, r, c) {
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
     return r >= r1 && r <= r2 && c >= c1 && c <= c2;
   }
+  /** Return the row count, column count, and total cell count of a selection. */
   function selectionSpan(sel) {
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
     return { rows: r2 - r1 + 1, cols: c2 - c1 + 1, cells: (r2 - r1 + 1) * (c2 - c1 + 1) };
   }
+  /** Return true if the selection partially overlaps any existing merge (full containment is allowed). */
   function selectionOverlapsMerge(merges, sel) {
     if (!sel || !merges.length) return false;
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
@@ -527,10 +533,10 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn }) 
         </div>
         {(borders === 'booktabs' || captionPos === 'left' || captionPos === 'right' || placement === 'H' || zebra) && (
           <div className="table-pkg-notice">
-            {borders === 'booktabs' && <span>Requires <code>\usepackage{'{'}booktabs{'}'}</code></span>}
-            {(captionPos === 'left' || captionPos === 'right') && <span>Requires <code>\usepackage{'{'}floatrow{'}'}</code></span>}
-            {placement === 'H' && <span>Requires <code>\usepackage{'{'}float{'}'}</code></span>}
-            {zebra && <span>Requires <code>\usepackage[table]{'{'}xcolor{'}'}</code></span>}
+            {borders === 'booktabs' && <span>{declaredPackages && (declaredPackages.has('booktabs') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}booktabs{'}'}</code></span>}
+            {(captionPos === 'left' || captionPos === 'right') && <span>{declaredPackages && (declaredPackages.has('floatrow') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}floatrow{'}'}</code></span>}
+            {placement === 'H' && <span>{declaredPackages && (declaredPackages.has('float') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}float{'}'}</code></span>}
+            {zebra && <span>{declaredPackages && (declaredPackages.has('xcolor') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage[table]{'{'}xcolor{'}'}</code></span>}
           </div>
         )}
         <div className="table-builder-actions">

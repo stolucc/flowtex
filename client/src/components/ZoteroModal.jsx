@@ -23,11 +23,17 @@ const EXCLUDABLE_FIELDS = [
   { key: 'annote', label: 'Annotation' },
 ];
 
+/** Map a Zotero item type key to a human-readable label. */
 function itemTypeLabel(type) {
   return ITEM_TYPE_LABELS[type] || type;
 }
 
-// Strip excluded fields from BibTeX string
+/**
+ * Strip excluded fields (e.g. abstract, file) from a BibTeX string.
+ * @param {string} bibtex - Raw BibTeX content.
+ * @param {Set<string>} excludedFields - Field names to remove.
+ * @returns {string} Cleaned BibTeX.
+ */
 function filterBibtex(bibtex, excludedFields) {
   if (!excludedFields.size) return bibtex;
   const pattern = new RegExp(`^\\s*(${[...excludedFields].join('|')})\\s*=\\s*\\{.*?\\},?\\s*$`, 'gmi');
@@ -63,7 +69,11 @@ function filterBibtex(bibtex, excludedFields) {
   return result.trimEnd() + '\n';
 }
 
-// Extract citation keys from BibTeX string
+/**
+ * Extract citation keys from a BibTeX string.
+ * @param {string} bibtex - Raw BibTeX content.
+ * @returns {string[]} Array of citation keys.
+ */
 function extractBibKeys(bibtex) {
   const keys = [];
   const re = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
@@ -72,6 +82,7 @@ function extractBibKeys(bibtex) {
   return keys;
 }
 
+/** Modal for connecting to Zotero, browsing collections, and importing references as BibTeX. */
 export default function ZoteroModal({ onClose, onInsert, bibFileExists, existingBibKeys }) {
   const [status, setStatus] = useState(null);
   const [apiKey, setApiKey] = useState('');
@@ -109,7 +120,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     get('/api/zotero/collections')
       .then((r) => r.json())
       .then((data) => setCollections(data))
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load Zotero collections:', e));
   }, [status?.connected]);
 
   useEffect(() => {
@@ -239,6 +250,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     }
   }
 
+  /** Recursively render a Zotero collection and its children as sidebar entries. */
   function renderCollection(col, depth = 0) {
     const children = childMap[col.key] || [];
     return (

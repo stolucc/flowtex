@@ -1,3 +1,8 @@
+/**
+ * Generate LaTeX source for a figure environment from structured options.
+ * @param {Object} options - Figure configuration (env, placement, imagePath, width, caption, label, etc.)
+ * @returns {string} LaTeX source string
+ */
 export default function generateLatexFigure({
   env = 'figure',
   placement = 'htbp',

@@ -51,6 +51,7 @@ const CATEGORY_ICONS = {
   ),
 };
 
+/** Browsable gallery of project templates with tag filtering, upload, and tag management. */
 export default function TemplateGallery({ onSelect, onBack }) {
   const [templates, setTemplates] = useState([]);
   const [tags, setTags] = useState([]);
@@ -96,14 +97,14 @@ export default function TemplateGallery({ onSelect, onBack }) {
         setTemplates(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((e) => { console.warn('Failed to load templates:', e); setLoading(false); });
   };
 
   const fetchTags = () => {
     get('/api/projects/template-tags')
       .then((r) => r.json())
       .then(setTags)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load template tags:', e));
   };
 
   useEffect(() => {

@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
+/**
+ * Manages WebSocket connection lifecycle, reconnection, and real-time message handling for collaboration.
+ * @param {object|null} user - The authenticated user.
+ * @param {object|null} project - The current project.
+ * @param {import('react').RefObject} activeFileRef - Ref to the currently active file.
+ * @param {object} callbacks - State setters for comments, tracked changes, and history version.
+ */
 export default function useWebSocket(
   user,
   project,

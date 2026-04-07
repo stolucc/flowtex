@@ -10,13 +10,13 @@ function validColor(c) {
   return typeof c === 'string' && COLOR_RE.test(c);
 }
 
-// List tags for current user
+/** GET /api/tags -- List all tags belonging to the current user. */
 router.get('/', async (req, res) => {
   const tags = await db.all('SELECT * FROM tags WHERE user_id = $1 ORDER BY name', [req.session.userId]);
   res.json(tags);
 });
 
-// Create a tag
+/** POST /api/tags -- Create a new tag with a name and optional color. */
 router.post('/', async (req, res) => {
   const { name, color } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
@@ -37,7 +37,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Rename a tag
+/** PATCH /api/tags/:id -- Update a tag's name and/or color. */
 router.patch('/:id', async (req, res) => {
   const { name, color } = req.body;
   const tag = await db.get('SELECT * FROM tags WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
@@ -48,7 +48,7 @@ router.patch('/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete a tag
+/** DELETE /api/tags/:id -- Delete a tag. */
 router.delete('/:id', async (req, res) => {
   await db.run('DELETE FROM tags WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
   res.json({ ok: true });

@@ -4,6 +4,11 @@ import * as pdfjsLib from 'pdfjs-dist';
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp']);
 const PDF_EXTS = new Set(['.pdf']);
 
+/**
+ * Returns the MIME type for a file path based on its extension.
+ * @param {string} path
+ * @returns {string} MIME type string
+ */
 export function getMimeType(path) {
   const ext = (path || '').split('.').pop().toLowerCase();
   const map = {
@@ -25,6 +30,7 @@ function getFileExt(path) {
   return dot >= 0 ? path.slice(dot).toLowerCase() : '';
 }
 
+/** Previews binary project files: renders images inline and PDFs via pdf.js canvas pages. */
 export default function BinaryPreview({ file }) {
   const ext = getFileExt(file.path);
   const rawUrl = `/api/projects/files/${file.id}/raw`;
@@ -43,7 +49,7 @@ export default function BinaryPreview({ file }) {
         if (cancelled) return;
         const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
         if (cancelled || !containerRef.current) return;
-        containerRef.current.innerHTML = '';
+        containerRef.current.replaceChildren();
         const containerWidth = containerRef.current.clientWidth - 32;
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);

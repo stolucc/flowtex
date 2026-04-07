@@ -5,11 +5,13 @@ import lineDiff from '../utils/lineDiff.js';
 import { formatRelativeTime as formatDate } from '../utils/dateFormat.js';
 import { CloseIcon, UndoIcon } from './Icons.jsx';
 
+/** Format a date string to a short locale time (e.g. "3:42 PM"). */
 function formatTime(dateStr) {
   const d = new Date(dateStr);
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
+/** Group an array of snapshot versions by their calendar date. */
 function groupByDate(versions) {
   const groups = {};
   for (const v of versions) {
@@ -21,6 +23,7 @@ function groupByDate(versions) {
   return Object.entries(groups);
 }
 
+/** Inline badge showing +added / -removed line counts for a diff. */
 function DiffStats({ diff }) {
   const added = diff.filter((l) => l.type === 'add').length;
   const removed = diff.filter((l) => l.type === 'remove').length;
@@ -174,6 +177,7 @@ function annotateHunkLines(lines) {
   return annotated;
 }
 
+/** Render inline diff segments, highlighting the changed middle portion. */
 function renderSegments(prefix, mid, suffix) {
   // Only highlight if there's a meaningful common prefix or suffix
   // (otherwise the whole line is different and highlighting everything looks the same)
@@ -188,6 +192,7 @@ function renderSegments(prefix, mid, suffix) {
   );
 }
 
+/** Renders a GitHub-style unified diff with line numbers and inline highlights. */
 function DiffView({ diff }) {
   const hunks = buildHunks(diff);
 
@@ -231,6 +236,7 @@ function DiffView({ diff }) {
   );
 }
 
+/** Side panel for browsing project snapshots, viewing diffs, and restoring previous versions. */
 export default function HistoryPanel({
   projectId,
   currentUserName,
@@ -294,6 +300,7 @@ export default function HistoryPanel({
     })();
   }, [historyFileId, selected]);
 
+  /** Select a snapshot and notify the parent to load its details. */
   const selectSnapshot = useCallback(
     async (snap) => {
       setSelected(snap);
@@ -323,6 +330,7 @@ export default function HistoryPanel({
     })();
   }, [selected?.id, historyFileId]);
 
+  /** Restore all project files to the selected snapshot's state. */
   const handleRestore = async () => {
     if (!selected || restoring) return;
     setConfirmRestore(false);

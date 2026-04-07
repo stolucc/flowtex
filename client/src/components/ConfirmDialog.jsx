@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
+/** Generic confirmation dialog overlay with customisable confirm button label and style. */
 export default function ConfirmDialog({
   message,
   onConfirm,

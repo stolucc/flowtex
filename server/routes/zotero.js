@@ -8,7 +8,7 @@ const ZOTERO_API = 'https://api.zotero.org';
 
 // ── Connection management ────────────────────────────────────────────
 
-// Check if user has a Zotero connection
+/** GET /api/zotero/status -- Check if the user has a connected Zotero account. */
 router.get('/status', async (req, res) => {
   const row = await db.get('SELECT zotero_user_id, display_name, updated_at FROM zotero_tokens WHERE user_id = $1', [
     req.session.userId,
@@ -16,7 +16,7 @@ router.get('/status', async (req, res) => {
   res.json({ connected: !!row, zoteroUserId: row?.zotero_user_id, displayName: row?.display_name });
 });
 
-// Connect Zotero account (save API key)
+/** POST /api/zotero/connect -- Connect a Zotero account by verifying and storing an API key. */
 router.post('/connect', async (req, res) => {
   const { apiKey } = req.body;
   if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 10) {
@@ -49,7 +49,7 @@ router.post('/connect', async (req, res) => {
   }
 });
 
-// Disconnect Zotero account
+/** DELETE /api/zotero/disconnect -- Disconnect and remove the user's Zotero API key. */
 router.delete('/disconnect', async (req, res) => {
   await db.run('DELETE FROM zotero_tokens WHERE user_id = $1', [req.session.userId]);
   res.json({ ok: true });
@@ -57,12 +57,14 @@ router.delete('/disconnect', async (req, res) => {
 
 // ── Helper to get decrypted key ──────────────────────────────────────
 
+/** Retrieve and decrypt the Zotero API key and user ID for a given user. */
 async function getZoteroAuth(userId) {
   const row = await db.get('SELECT api_key, zotero_user_id FROM zotero_tokens WHERE user_id = $1', [userId]);
   if (!row) return null;
   return { apiKey: decrypt(row.api_key), zoteroUserId: row.zotero_user_id };
 }
 
+/** Make an authenticated request to the Zotero API and return the parsed response with total count. */
 async function zoteroFetch(path, apiKey, query = {}) {
   const url = new URL(path, ZOTERO_API);
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
@@ -78,7 +80,7 @@ async function zoteroFetch(path, apiKey, query = {}) {
 
 // ── Library browsing ────────────────────────────────────────────────
 
-// List collections
+/** GET /api/zotero/collections -- List the user's Zotero library collections. */
 router.get('/collections', async (req, res) => {
   const auth = await getZoteroAuth(req.session.userId);
   if (!auth) return res.status(401).json({ error: 'Zotero not connected' });
@@ -101,7 +103,7 @@ router.get('/collections', async (req, res) => {
   }
 });
 
-// List items (from library or a specific collection)
+/** GET /api/zotero/items -- List items from the user's Zotero library or a specific collection. */
 router.get('/items', async (req, res) => {
   const auth = await getZoteroAuth(req.session.userId);
   if (!auth) return res.status(401).json({ error: 'Zotero not connected' });
@@ -147,7 +149,7 @@ router.get('/items', async (req, res) => {
   }
 });
 
-// Export items as BibTeX
+/** GET /api/zotero/export -- Export selected Zotero items as BibTeX. */
 router.get('/export', async (req, res) => {
   const auth = await getZoteroAuth(req.session.userId);
   if (!auth) return res.status(401).json({ error: 'Zotero not connected' });

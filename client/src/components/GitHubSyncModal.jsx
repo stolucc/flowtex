@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 
+/** Modal for linking a project to a GitHub repository and pushing/pulling changes. */
 export default function GitHubSyncModal({ projectId, projectName, onClose, onFilesUpdated, onLinkChanged }) {
   const [hasToken, setHasToken] = useState(false);
   const [link, setLink] = useState(null);
@@ -34,13 +35,14 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       .then((d) => {
         setHasToken(d.hasToken);
       })
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to check GitHub token:', e));
     get(`/api/github/link/${projectId}`)
       .then((r) => r.json())
       .then(setLink)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load GitHub link:', e));
   }, [projectId]);
 
+  /** Fetch the user's GitHub repositories, optionally forcing a refresh. */
   const fetchRepos = (force) => {
     if (repos !== null && !force) return;
     setRepos([]);
@@ -49,13 +51,14 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       .then((data) => {
         if (Array.isArray(data)) setRepos(data);
       })
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load GitHub repos:', e));
   };
 
   const handleOverlayClick = (e) => {
     if (e.target === overlayRef.current) onClose();
   };
 
+  /** Create a new GitHub repository and link it to the current project. */
   const createAndLink = async () => {
     if (!newRepoName.trim()) return;
     setError('');
@@ -93,6 +96,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     setLoading('');
   };
 
+  /** Link an existing GitHub repository to the current project. */
   const linkExisting = async (repo) => {
     setError('');
     setLoading('link');
@@ -116,6 +120,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     setLoading('');
   };
 
+  /** Remove the GitHub link from the current project. */
   const unlinkRepo = async () => {
     await del(`/api/github/link/${projectId}`);
     const unlinked = { linked: false };
@@ -123,6 +128,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     onLinkChanged?.(unlinked);
   };
 
+  /** Push project files to the linked GitHub repository. */
   const handlePush = async () => {
     setLoading('push');
     setError('');
@@ -141,6 +147,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
     setLoading('');
   };
 
+  /** Pull latest changes from the linked GitHub repository into the project. */
   const handlePull = async () => {
     setLoading('pull');
     setError('');

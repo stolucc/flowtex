@@ -15,6 +15,7 @@ const SERVER_ID = crypto.randomUUID();
 // ── Room management ─────────────────────────────────────────────────────
 const projectRooms = new Map();
 
+/** Get or create the Set of clients for a project room. */
 function getRoom(projectId) {
   if (!projectRooms.has(projectId)) {
     projectRooms.set(projectId, new Set());
@@ -25,6 +26,7 @@ function getRoom(projectId) {
 // React's JSX escaping handles output encoding — server-side HTML encoding
 // would cause double-encoding. Message length limits are enforced in handlers.
 
+/** Broadcast a message to all clients in a project room, optionally excluding one. */
 function broadcastToRoom(projectId, message, excludeWs) {
   const outMessage = message;
   const room = projectRooms.get(projectId);
@@ -46,10 +48,11 @@ function broadcastToRoom(projectId, message, excludeWs) {
           fromServer: SERVER_ID,
         }),
       )
-      .catch(() => {});
+      .catch((e) => logger.warn({ err: e }, 'Redis publish failed'));
   }
 }
 
+/** Close all WebSocket connections for a user in a specific project room. */
 function disconnectUserFromProject(projectId, userId) {
   const room = projectRooms.get(projectId);
   if (!room) return;
@@ -60,6 +63,7 @@ function disconnectUserFromProject(projectId, userId) {
   }
 }
 
+/** Send an updated presence list (unique users) to all clients in a room. */
 function broadcastPresence(projectId) {
   const room = projectRooms.get(projectId);
   if (!room) return;
@@ -72,6 +76,7 @@ function broadcastPresence(projectId) {
 }
 
 // ── Session auth for WebSocket upgrades ─────────────────────────────────
+/** Verify and extract the session ID from a signed cookie value. */
 function unsignCookie(signedValue, secret) {
   if (!signedValue.startsWith('s:')) return null;
   const val = signedValue.slice(2);
@@ -87,6 +92,7 @@ function unsignCookie(signedValue, secret) {
   return id;
 }
 
+/** Parse the session cookie from a raw HTTP request and load session data from DB. */
 async function getSessionFromRequest(req, sessionSecret) {
   try {
     const cookieHeader = req.headers.cookie;
@@ -113,6 +119,7 @@ async function getSessionFromRequest(req, sessionSecret) {
 }
 
 // ── Message handlers ────────────────────────────────────────────────────
+/** Handle a 'join' message: verify membership and add client to the project room. */
 async function handleJoin(ws, msg, state) {
   if (typeof msg.projectId !== 'string' || !UUID_RE.test(msg.projectId)) return;
 
@@ -154,6 +161,7 @@ async function handleJoin(ws, msg, state) {
   broadcastPresence(state.projectId);
 }
 
+/** Broadcast editor changes to other clients in the room. */
 function handleChanges(msg, state, ws) {
   if (!Array.isArray(msg.changes) || msg.changes.length > 1000) return;
   const valid = msg.changes.every(
@@ -180,6 +188,7 @@ function handleChanges(msg, state, ws) {
   );
 }
 
+/** Broadcast cursor position updates to other clients. */
 function handleCursor(msg, state, ws) {
   if (typeof msg.head !== 'number' || typeof msg.anchor !== 'number') return;
   if (typeof msg.fileId !== 'string') return;
@@ -198,11 +207,13 @@ function handleCursor(msg, state, ws) {
   );
 }
 
+/** Broadcast a new comment to other clients in the room. */
 function handleComment(msg, state, ws) {
   if (!msg.comment || JSON.stringify(msg.comment).length > 10000) return;
   broadcastToRoom(state.projectId, { type: 'comment', fileId: msg.fileId, comment: msg.comment }, ws);
 }
 
+/** Broadcast a comment reply to other clients in the room. */
 function handleCommentReply(msg, state, ws) {
   if (!msg.reply || JSON.stringify(msg.reply).length > 10000) return;
   broadcastToRoom(state.projectId, { type: 'comment-reply', commentId: msg.commentId, reply: msg.reply }, ws);
@@ -223,12 +234,14 @@ function handleCommentEdit(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'comment-edit', commentId: msg.commentId, text: msg.text }, ws);
 }
 
+/** Broadcast a new tracked change to other clients in the room. */
 function handleTrackedChange(msg, state, ws) {
   if (!msg.change || typeof msg.fileId !== 'string') return;
   if (JSON.stringify(msg.change).length > 10000) return;
   broadcastToRoom(state.projectId, { type: 'tracked-change', fileId: msg.fileId, change: msg.change }, ws);
 }
 
+/** Broadcast a tracked-change accept/reject resolution to the room. */
 function handleTrackedChangeResolve(msg, state, ws) {
   if (!['accepted', 'rejected'].includes(msg.status)) return;
   broadcastToRoom(state.projectId, { type: 'tracked-change-resolve', changeId: msg.changeId, status: msg.status }, ws);
@@ -244,6 +257,7 @@ function handleTcDeleteMark(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
 }
 
+/** Persist a chat message to DB and broadcast it to the project room. */
 async function handleChat(msg, state) {
   const id = crypto.randomUUID();
   const text = (msg.text || '').trim().slice(0, 5000);
@@ -283,6 +297,7 @@ const writeTypes = new Set([
   'tc-delete-mark',
 ]);
 
+/** Broadcast a typing indicator to other clients in the room. */
 function handleTyping(msg, state, ws) {
   broadcastToRoom(
     state.projectId,
@@ -319,6 +334,13 @@ const WS_HEARTBEAT_INTERVAL = 30000;
 
 const wsConnectionCounts = new Map();
 
+/**
+ * Initialize the WebSocket server with session auth, room management, and optional Redis pub/sub.
+ * @param {import('http').Server} server
+ * @param {import('express').Application} app
+ * @param {string} sessionSecret
+ * @returns {{wss: WebSocketServer, redisPub: Redis|null, redisSub: Redis|null}}
+ */
 export function initWebSocket(server, app, sessionSecret) {
   // Redis setup
   if (process.env.REDIS_URL) {
@@ -356,9 +378,11 @@ export function initWebSocket(server, app, sessionSecret) {
       allowedOrigins.add(parsed.origin);
     } catch {}
   }
-  // Always allow same-host connections (localhost dev, etc.)
-  allowedOrigins.add(`https://localhost:${process.env.PORT || 3001}`);
-  allowedOrigins.add(`http://localhost:${process.env.PORT || 3001}`);
+  // Allow localhost connections in development
+  if (process.env.NODE_ENV !== 'production') {
+    allowedOrigins.add(`https://localhost:${process.env.PORT || 3001}`);
+    allowedOrigins.add(`http://localhost:${process.env.PORT || 3001}`);
+  }
 
   const isProduction = process.env.NODE_ENV === 'production';
   const wss = new WebSocketServer({

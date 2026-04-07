@@ -10,10 +10,12 @@ const APP_URL = process.env.APP_URL || 'http://localhost:3001';
 
 // --- GitHub OAuth ---
 
+/** GET /api/github/oauth/available -- Check if GitHub OAuth is configured on this instance. */
 router.get('/oauth/available', (req, res) => {
   res.json({ available: gh.isOAuthAvailable() });
 });
 
+/** GET /api/github/oauth/authorize -- Redirect the user to GitHub's OAuth authorization page. */
 router.get('/oauth/authorize', (req, res) => {
   const clientId = gh.getOAuthClientId();
   if (!clientId) return res.status(500).json({ error: 'GitHub OAuth not configured' });
@@ -34,8 +36,8 @@ router.get('/oauth/authorize', (req, res) => {
   }
   // Double-check: parse and reject if it resolves to an external host
   try {
-    const parsed = new URL(returnTo, 'http://localhost');
-    if (parsed.hostname !== 'localhost') returnTo = '/';
+    const parsed = new URL(returnTo, APP_URL);
+    if (parsed.origin !== new URL(APP_URL).origin) returnTo = '/';
   } catch {
     returnTo = '/';
   }
@@ -51,6 +53,7 @@ router.get('/oauth/authorize', (req, res) => {
   });
 });
 
+/** GET /api/github/oauth/callback -- Handle GitHub OAuth callback, exchange code for token. */
 router.get('/oauth/callback', async (req, res) => {
   if (!req.session?.userId) {
     return res.redirect('/?error=session_expired');
@@ -81,6 +84,7 @@ router.get('/oauth/callback', async (req, res) => {
 
 // --- PAT Management ---
 
+/** PUT /api/github/token -- Save a GitHub personal access token for the current user. */
 router.put('/token', async (req, res) => {
   const { token } = req.body;
   if (!token || !token.trim()) return res.status(400).json({ error: 'Token is required' });
@@ -88,6 +92,7 @@ router.put('/token', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** GET /api/github/token -- Check if the user has a GitHub token and return the GitHub username. */
 router.get('/token', async (req, res) => {
   const token = await gh.getUserToken(req.session.userId);
   if (!token) return res.json({ hasToken: false });
@@ -96,6 +101,7 @@ router.get('/token', async (req, res) => {
   res.json({ hasToken: true, username });
 });
 
+/** DELETE /api/github/token -- Remove the user's stored GitHub token. */
 router.delete('/token', async (req, res) => {
   await gh.deleteToken(req.session.userId);
   res.json({ ok: true });
@@ -103,6 +109,7 @@ router.delete('/token', async (req, res) => {
 
 // --- Project Link Management ---
 
+/** PUT /api/github/link/:projectId -- Link a project to a GitHub repository. */
 router.put('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
@@ -119,6 +126,7 @@ router.put('/link/:projectId', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** GET /api/github/link/:projectId -- Get the GitHub link details for a project. */
 router.get('/link/:projectId', async (req, res) => {
   if (!(await requireMember(req.params.projectId, req.session.userId, res))) return;
 
@@ -135,6 +143,7 @@ router.get('/link/:projectId', async (req, res) => {
   });
 });
 
+/** PATCH /api/github/link/:projectId/auto-push -- Update auto-push settings for a linked project. */
 router.patch('/link/:projectId/auto-push', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
@@ -147,6 +156,7 @@ router.patch('/link/:projectId/auto-push', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** DELETE /api/github/link/:projectId -- Unlink a project from its GitHub repository. */
 router.delete('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
@@ -158,15 +168,17 @@ router.delete('/link/:projectId', async (req, res) => {
 
 // --- User's GitHub repos ---
 
+/** GET /api/github/repos -- List the user's GitHub repositories. */
 router.get('/repos', async (req, res) => {
   try {
     const repos = await gh.fetchUserRepos(req.session.userId);
     res.json(repos);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message || 'Failed to fetch repos from GitHub' });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to fetch repos from GitHub' });
   }
 });
 
+/** POST /api/github/repos -- Create a new GitHub repository for the user. */
 router.post('/repos', async (req, res) => {
   const { name, isPrivate } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Repository name is required' });
@@ -175,12 +187,13 @@ router.post('/repos', async (req, res) => {
     const repo = await gh.createRepo(req.session.userId, name, isPrivate);
     res.json(repo);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message || 'Failed to create repository on GitHub' });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to create repository on GitHub' });
   }
 });
 
 // --- Sync Operations ---
 
+/** POST /api/github/push/:projectId -- Push project files to the linked GitHub repository. */
 router.post('/push/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
@@ -190,10 +203,11 @@ router.post('/push/:projectId', async (req, res) => {
     const result = await gh.pushProject(req.params.projectId, req.session.userId, req.body.message);
     res.json({ ok: true, commit: result.commit });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to push to GitHub' });
   }
 });
 
+/** POST /api/github/pull/:projectId -- Pull latest files from GitHub into the project. */
 router.post('/pull/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
@@ -203,10 +217,11 @@ router.post('/pull/:projectId', async (req, res) => {
     const result = await gh.pullProject(req.params.projectId, req.session.userId);
     res.json({ ok: true, files: result.files, commit: result.commit });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to pull from GitHub' });
   }
 });
 
+/** POST /api/github/import -- Import a GitHub repository as a new FlowTex project. */
 router.post('/import', async (req, res) => {
   const { repo, branch } = req.body;
   if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim()))

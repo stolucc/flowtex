@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
 
+/**
+ * Manages tracked changes: creating, merging, accepting/rejecting changes, undo cleanup, and review walkthrough.
+ * @param {object|null} activeFile - The currently active file.
+ * @param {object|null} user - The authenticated user.
+ * @param {import('react').RefObject} sendWsRef - Ref to the WebSocket send function.
+ * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ */
 export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef) {
   const [trackChangesMode, setTrackChangesMode] = useState(
     () => localStorage.getItem('flowtex-track-changes') === 'true',
@@ -109,7 +116,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
   const handleTrackChange = useCallback(
     (change) => {
       // Serialize async calls to prevent overlapping merge logic reading stale state
-      trackChangeLock.current = trackChangeLock.current.then(() => doHandleTrackChange(change)).catch(() => {});
+      trackChangeLock.current = trackChangeLock.current.then(() => doHandleTrackChange(change)).catch((e) => console.warn('Track change error:', e));
     },
     [doHandleTrackChange],
   );

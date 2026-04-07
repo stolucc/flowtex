@@ -360,8 +360,14 @@
     <li><strong>Project sharing</strong> &mdash; invite collaborators by email with role-based access (owner/editor/viewer)</li>
     <li><strong>Two-factor authentication</strong> &mdash; TOTP-based MFA with QR code setup</li>
     <li><strong>Tagging &amp; organization</strong> &mdash; color-coded tags for project organization</li>
-    <li><strong>LaTeX linting</strong> &mdash; real-time syntax diagnostics via LaCheck</li>
-    <li><strong>Spellcheck</strong> &mdash; integrated spellcheck in the editor</li>
+    <li><strong>LaTeX linting</strong> &mdash; real-time syntax diagnostics with gutter markers</li>
+    <li><strong>BibTeX support</strong> &mdash; syntax highlighting, per-entry-type field validation, and dedicated linter with warning banner</li>
+    <li><strong>Spellcheck</strong> &mdash; integrated spellcheck with Hunspell dictionaries (multiple languages)</li>
+    <li><strong>Bibliography management</strong> &mdash; BibTeX editing with Zotero integration for importing references</li>
+    <li><strong>Tracked changes</strong> &mdash; accept/reject change tracking for collaborative review</li>
+    <li><strong>AI chat</strong> &mdash; integrated chat panel for LaTeX assistance</li>
+    <li><strong>Template gallery</strong> &mdash; preloaded LaTeX templates for quick project setup</li>
+    <li><strong>Admin dashboard</strong> &mdash; user management and system overview for administrators</li>
     <li><strong>Dark theme</strong> &mdash; Catppuccin Mocha color scheme throughout</li>
   </ul>
 
@@ -475,10 +481,24 @@
         <span class="file">ShareModal.jsx</span>      <span class="comment"># Member &amp; invitation management</span>
         <span class="file">HistoryPanel.jsx</span>    <span class="comment"># Version history &amp; diff</span>
         <span class="file">GitHubSyncModal.jsx</span> <span class="comment"># GitHub push/pull UI</span>
+        <span class="file">ZoteroModal.jsx</span>     <span class="comment"># Zotero reference import</span>
+        <span class="file">ChatPanel.jsx</span>       <span class="comment"># AI chat for LaTeX assistance</span>
+        <span class="file">AdminDashboard.jsx</span>  <span class="comment"># Admin user &amp; system management</span>
+        <span class="file">TemplateGallery.jsx</span> <span class="comment"># Preloaded LaTeX templates</span>
+        <span class="file">BinaryPreview.jsx</span>   <span class="comment"># Image &amp; PDF file previews</span>
         <span class="file">CompareFilesModal.jsx</span> <span class="comment"># latexdiff file comparison</span>
         <span class="file">MfaSetupModal.jsx</span>   <span class="comment"># TOTP MFA setup</span>
+        <span class="file">Icons.jsx</span>           <span class="comment"># Shared SVG icon components</span>
         <span class="file">ErrorBoundary.jsx</span>   <span class="comment"># Global error fallback</span>
         ...
+      <span class="dir-name">utils/</span>
+        <span class="file">latexParser.js</span>      <span class="comment"># LaTeX AST parser (tables, environments)</span>
+        <span class="file">latexLint.js</span>        <span class="comment"># LaTeX linting diagnostics</span>
+        <span class="file">bibtexMode.js</span>       <span class="comment"># BibTeX syntax highlighting &amp; field validation</span>
+        <span class="file">bibtexLint.js</span>       <span class="comment"># BibTeX linter (per-entry-type field checks)</span>
+        <span class="file">spellcheck.js</span>       <span class="comment"># Hunspell-based spellcheck</span>
+        <span class="file">editorExtensions.js</span> <span class="comment"># CodeMirror extensions (folding, gutters, decorations)</span>
+        <span class="file">latexTableGenerator.js</span> <span class="comment"># Table builder LaTeX generation</span>
       <span class="dir-name">styles/</span>
         <span class="file">app.css</span>             <span class="comment"># All styles (Catppuccin Mocha theme)</span>
   <span class="dir-name">server/</span>                   <span class="comment"># Express backend</span>
@@ -496,11 +516,21 @@
       <span class="file">history.js</span>            <span class="comment"># File versions &amp; restore</span>
       <span class="file">github.js</span>             <span class="comment"># Token, linking, push/pull</span>
       <span class="file">tags.js</span>               <span class="comment"># User tags for projects</span>
+      <span class="file">bib.js</span>                <span class="comment"># Bibliography management</span>
+      <span class="file">zotero.js</span>             <span class="comment"># Zotero reference import</span>
+      <span class="file">chat.js</span>               <span class="comment"># AI chat endpoints</span>
+      <span class="file">tracked-changes.js</span>    <span class="comment"># Accept/reject change tracking</span>
+      <span class="file">admin.js</span>              <span class="comment"># Admin dashboard &amp; user management</span>
+      <span class="file">setup.js</span>              <span class="comment"># Initial server setup (first admin)</span>
     <span class="dir-name">utils/</span>
       <span class="file">audit.js</span>              <span class="comment"># Audit logging helper</span>
       <span class="file">crypto.js</span>             <span class="comment"># AES-256-GCM encrypt/decrypt</span>
       <span class="file">gitSync.js</span>            <span class="comment"># Git repo management for GitHub sync</span>
       <span class="file">latexDiff.js</span>          <span class="comment"># latexdiff wrapper</span>
+      <span class="file">email.js</span>              <span class="comment"># Email sending (password reset, verification)</span>
+      <span class="file">seedTemplates.js</span>      <span class="comment"># Preloaded template seeding</span>
+    <span class="dir-name">services/</span>
+      <span class="file">authService.js</span>        <span class="comment"># Auth helpers (TOTP, login attempts)</span>
     <span class="dir-name">tests/</span>                  <span class="comment"># Vitest test suites</span>
   <span class="dir-name">projects/</span>                 <span class="comment"># Compiled project files (gitignored)</span>
   <span class="dir-name">git-repos/</span>                <span class="comment"># Git working copies for GitHub sync (gitignored)</span>

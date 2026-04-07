@@ -8,7 +8,7 @@ import logger from '../logger.js';
 
 const router = Router();
 
-// Overview stats
+/** GET /api/admin/stats/overview -- Aggregate counts for users, projects, files, etc. */
 router.get('/stats/overview', async (req, res) => {
   const [users, projects, files, versions, comments, chatMessages, trackedChanges, githubLinks] = await Promise.all([
     db.get(`SELECT COUNT(*) AS total,
@@ -51,7 +51,7 @@ router.get('/stats/overview', async (req, res) => {
   });
 });
 
-// Time series data
+/** GET /api/admin/stats/timeseries -- Daily counts for a given metric over N days. */
 router.get('/stats/timeseries', async (req, res) => {
   const metric = req.query.metric || 'users';
   const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
@@ -93,7 +93,7 @@ router.get('/stats/timeseries', async (req, res) => {
   res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
-// Daily active users
+/** GET /api/admin/stats/active-users -- Daily active user counts over N days. */
 router.get('/stats/active-users', async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
 
@@ -123,7 +123,7 @@ router.get('/stats/active-users', async (req, res) => {
   res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
-// Top projects by activity
+/** GET /api/admin/stats/top-projects -- Most recently active projects with member/file/version counts. */
 router.get('/stats/top-projects', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 
@@ -156,7 +156,7 @@ router.get('/stats/top-projects', async (req, res) => {
   );
 });
 
-// Top users by activity
+/** GET /api/admin/stats/top-users -- Most active users by edit count with redacted emails. */
 router.get('/stats/top-users', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 
@@ -193,7 +193,7 @@ router.get('/stats/top-users', async (req, res) => {
   );
 });
 
-// User activity detail
+/** GET /api/admin/users/:id/activity -- Detailed activity for a single user. */
 router.get('/users/:id/activity', async (req, res) => {
   try {
   const userId = req.params.id;
@@ -313,7 +313,7 @@ router.get('/users/:id/activity', async (req, res) => {
   }
 });
 
-// Audit log (paginated)
+/** GET /api/admin/audit-log -- Paginated audit log with user details. */
 router.get('/audit-log', async (req, res) => {
   const page = Math.max(parseInt(req.query.page) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
@@ -353,10 +353,46 @@ router.get('/audit-log', async (req, res) => {
   });
 });
 
+/** GET /api/admin/audit-log/export -- Export full audit log as CSV. */
+router.get('/audit-log/export', async (req, res) => {
+  const rows = await db.all(
+    `SELECT a.id, a.user_id, u.name AS user_name, u.email AS user_email,
+       a.action, a.target_type, a.target_id, a.detail, a.ip, a.created_at
+     FROM audit_log a
+     LEFT JOIN users u ON a.user_id = u.id
+     ORDER BY a.created_at DESC`,
+  );
+
+  const escapeCsv = (val) => {
+    if (val == null) return '';
+    const s = String(val);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const header = 'ID,User ID,User Name,User Email,Action,Target Type,Target ID,Detail,IP,Created At';
+  const lines = rows.map((r) =>
+    [r.id, r.user_id, r.user_name, r.user_email, r.action, r.target_type, r.target_id, r.detail, r.ip, r.created_at]
+      .map(escapeCsv)
+      .join(','),
+  );
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="flowtex-audit-log-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(header + '\n' + lines.join('\n'));
+});
+
+/** DELETE /api/admin/audit-log -- Clear all audit log entries. */
+router.delete('/audit-log', async (req, res) => {
+  await db.run('DELETE FROM audit_log');
+  logger.info({ userId: req.session.userId }, 'Audit log cleared by admin');
+  res.json({ ok: true });
+});
+
 // Live system stats (CPU, memory, compilations)
 let prevCpuUsage = process.cpuUsage();
 let prevCpuTime = Date.now();
 
+/** GET /api/admin/stats/system -- Live CPU, memory, compilation, and connection stats. */
 router.get('/stats/system', async (req, res) => {
   // Process CPU usage since last call
   const cpuNow = process.cpuUsage(prevCpuUsage);
@@ -420,6 +456,7 @@ router.get('/stats/system', async (req, res) => {
 
 // ── Settings ─────────────────────────────────────────────────────────
 
+/** GET /api/admin/settings -- Retrieve all key/value settings. */
 router.get('/settings', async (req, res) => {
   const rows = await db.all('SELECT key, value FROM settings');
   const settings = {};
@@ -427,6 +464,7 @@ router.get('/settings', async (req, res) => {
   res.json(settings);
 });
 
+/** PUT /api/admin/settings -- Update a single setting (compile_timeout, smtp_*). */
 router.put('/settings', async (req, res) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' });
@@ -475,7 +513,7 @@ router.put('/settings', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Test email
+/** POST /api/admin/settings/test-email -- Send a test email to verify SMTP configuration. */
 router.post('/settings/test-email', async (req, res) => {
   const { to } = req.body;
   if (!to) return res.status(400).json({ error: 'Recipient email required' });
@@ -488,7 +526,8 @@ router.post('/settings/test-email', async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to send test email' });
+    logger.error({ err }, 'SMTP test email failed');
+    res.status(500).json({ error: 'Failed to send test email' });
   }
 });
 

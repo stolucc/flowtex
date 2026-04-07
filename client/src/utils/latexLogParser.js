@@ -1,8 +1,18 @@
+/**
+ * Extract a line number from a LaTeX log line (e.g. "l.42" or "line 42").
+ * @param {string} text
+ * @returns {number|null}
+ */
 function extractLineNumber(text) {
   const match = text.match(/\bl\.(\d+)\b/) || text.match(/lines?\s+(\d+)/i) || text.match(/at lines?\s+(\d+)/i);
   return match ? parseInt(match[1]) : null;
 }
 
+/**
+ * Parse a LaTeX compilation log into structured errors and warnings.
+ * @param {string} log - Raw LaTeX log output
+ * @returns {{errors: Array<{text: string, line: number|null, col: number|null, file: string|null, isSystemFile: boolean}>, warnings: Array}} Deduplicated errors and warnings
+ */
 export default function parseLog(log) {
   if (!log) return { errors: [], warnings: [] };
   const lines = log.split('\n');
@@ -61,7 +71,23 @@ export default function parseLog(log) {
     }
     // Warnings — only match actual LaTeX/package warnings, not package description lines
     if (/^(LaTeX|Package\s+\S+|Class\s+\S+)\s+Warning/i.test(line.trim())) {
-      warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
+      // Collect continuation lines (LaTeX wraps long warnings across multiple lines)
+      let fullText = line.trim();
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1];
+        // Stop at blank lines, new warnings, errors, or other log entries
+        if (/^\s*$/.test(next) || next.startsWith('!') || /^(LaTeX|Package\s+\S+|Class\s+\S+)\s+Warning/i.test(next.trim()) || /^(Overfull|Underfull)/.test(next)) break;
+        // Continuation lines are typically indented or start with (PackageName)
+        if (/^\s+\S/.test(next) || /^\(\w+\)/.test(next.trim())) {
+          i++;
+          // Strip leading package/class prefix like "(acmart)" from continuation lines
+          const cleaned = next.trim().replace(/^\(\w+\)\s*/, '');
+          fullText += ' ' + cleaned;
+        } else {
+          break;
+        }
+      }
+      warnings.push({ text: fullText, line: extractLineNumber(fullText), file: currentFile });
     } else if (/^(Overfull|Underfull)/.test(line)) {
       warnings.push({ text: line.trim(), line: extractLineNumber(line), file: currentFile });
     }

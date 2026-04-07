@@ -18,6 +18,11 @@ const ALL_FIELDS = [
   { key: 'title', label: 'Title' },
 ];
 
+/**
+ * Parses BibTeX source into an array of entry objects with key, type, fields, and byte offsets.
+ * @param {string} content - Raw .bib file content
+ * @returns {Array<{key: string, type: string, fields: Object, entryStart: number, entryEnd: number}>}
+ */
 function parseBibEntries(content) {
   const entries = [];
   const re = /@(\w+)\s*\{([^,\s]+)\s*,/g;
@@ -74,6 +79,13 @@ function parseBibEntries(content) {
   return entries;
 }
 
+/**
+ * Splices accepted field additions into .bib source, working back-to-front to preserve offsets.
+ * @param {string} content - Original .bib file content
+ * @param {Array} entries - Parsed BibTeX entries from parseBibEntries
+ * @param {Array<{entryKey: string, field: string, value: string}>} acceptedChanges
+ * @returns {string} Updated .bib content
+ */
 function applyAcceptedChanges(content, entries, acceptedChanges) {
   // acceptedChanges: [{ entryKey, field, value }]
   // Group by entry key
@@ -111,6 +123,7 @@ function applyAcceptedChanges(content, entries, acceptedChanges) {
   return output;
 }
 
+/** Multi-step modal that enriches .bib entries by looking up missing fields via CrossRef. */
 export default function BibEnrichModal({ file, onClose, onApply }) {
   const [step, setStep] = useState('select'); // 'select' | 'lookup' | 'review'
   const [selectedFields, setSelectedFields] = useState(['doi', 'pages', 'volume', 'number', 'publisher']);

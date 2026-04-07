@@ -239,6 +239,11 @@ const environments = [
   'appendix',
 ];
 
+/**
+ * CodeMirror completion source for LaTeX backslash commands.
+ * @param {CompletionContext} context
+ * @returns {CompletionResult|null}
+ */
 function latexCompletionSource(context) {
   // Match \word at cursor — include the backslash in the replacement range
   const word = context.matchBefore(/\\[\w]*/);
@@ -258,7 +263,11 @@ function latexCompletionSource(context) {
 // Snippet templates use CodeMirror snippet syntax:
 // ${n:placeholder} for tab stops, \\$ for literal $, \\{ \\} for literal braces
 // These replace everything after \begin{ so they start with the env name
-// Wrap snippet apply to consume any auto-closed } after the cursor
+/**
+ * Wrap snippet apply to consume any auto-closed } after the cursor.
+ * @param {string} template - CodeMirror snippet template
+ * @returns {Function} Snippet apply function
+ */
 function snippetApply(template) {
   const snip = snippet(template);
   return (view, completion, from, to) => {
@@ -302,6 +311,11 @@ const envSnippets = {
   },
 };
 
+/**
+ * CodeMirror completion source for LaTeX environment names inside \begin{} and \end{}.
+ * @param {CompletionContext} context
+ * @returns {CompletionResult|null}
+ */
 function envCompletionSource(context) {
   // Match \begin{ or \end{ with partial env name
   const match = context.matchBefore(/\\(begin|end)\{[\w*]*/);
@@ -340,6 +354,11 @@ function envCompletionSource(context) {
 // Also handles comma-separated keys like \cite{key1,key2,...}
 const citeCommandPattern = /\\(?:\w*[Cc]ite\w*|nocite)\*?(?:\[.*?\])*\{[^}]*$/;
 
+/**
+ * Create a completion source for citation keys inside \cite{} commands.
+ * @param {React.RefObject} citeKeysRef - Ref holding an array of citation key completions
+ * @returns {Function} CodeMirror completion source
+ */
 function makeCiteKeySource(citeKeysRef) {
   return function citeKeyCompletionSource(context) {
     // Check if we're inside a cite command's braces
@@ -367,6 +386,11 @@ function makeCiteKeySource(citeKeysRef) {
 // \cref{}, \Cref{}, \nameref{}, \hyperref[], and similar commands.
 const refCommandPattern = /\\(?:(?:eq|page|auto|name|c|C|v|V)?ref|hyperref)\*?(?:\[.*?\])*\{[^}]*$/;
 
+/**
+ * Create a completion source for label keys inside \ref{} commands.
+ * @param {React.RefObject} labelKeysRef - Ref holding an array of label key completions
+ * @returns {Function} CodeMirror completion source
+ */
 function makeRefKeySource(labelKeysRef) {
   return function refKeyCompletionSource(context) {
     const lineText = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
@@ -388,6 +412,12 @@ function makeRefKeySource(labelKeysRef) {
   };
 }
 
+/**
+ * Create a CodeMirror autocompletion extension for LaTeX commands, environments, cite keys, and label refs.
+ * @param {React.RefObject} [citeKeysRef] - Ref holding an array of citation key completions
+ * @param {React.RefObject} [labelKeysRef] - Ref holding an array of label key completions
+ * @returns {Extension} CodeMirror autocompletion extension
+ */
 export default function latexAutocomplete(citeKeysRef, labelKeysRef) {
   const sources = [envCompletionSource, latexCompletionSource];
   if (citeKeysRef) {

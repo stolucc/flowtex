@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { get, post, patch } from '../api.js';
 
+/**
+ * Manages GitHub repository linking, auto-push sync, and sync status for a project.
+ * @param {object|null} project - The current project.
+ */
 export default function useGitHubSync(project) {
   const [githubLink, setGithubLink] = useState(null);
   const [hasGithubToken, setHasGithubToken] = useState(false);
@@ -24,7 +28,7 @@ export default function useGitHubSync(project) {
     get(`/api/github/link/${project.id}`)
       .then((r) => r.json())
       .then(setGithubLink)
-      .catch(() => {});
+      .catch((e) => console.warn('Failed to load GitHub link:', e));
   }, [project]);
 
   // Auto-push to GitHub on interval
@@ -48,6 +52,11 @@ export default function useGitHubSync(project) {
           );
         } else {
           setAutoSyncStatus('error');
+          // Stop retrying on auth/permission errors — session expired or access revoked
+          if (res.status === 401 || res.status === 403) {
+            clearInterval(autoSyncTimer.current);
+            autoSyncTimer.current = null;
+          }
         }
       } catch {
         setAutoSyncStatus('error');

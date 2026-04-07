@@ -2899,6 +2899,20 @@ html {
   font-size: 10px;
   color: var(--accent);
 }
+.pkg-warn {
+  color: #e6a700;
+  margin-right: 4px;
+  font-size: 13px;
+  vertical-align: middle;
+  cursor: help;
+}
+.pkg-ok {
+  color: #2ea043;
+  margin-right: 4px;
+  font-size: 13px;
+  vertical-align: middle;
+  cursor: help;
+}
 
 .table-builder-actions {
   display: flex;
@@ -4318,7 +4332,8 @@ html {
 
 .comments-body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
 }
 
@@ -4613,6 +4628,105 @@ html {
 .comment-reply-submit:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* @mention autocomplete & assignment */
+.mention-textarea-wrap {
+  position: relative;
+}
+
+.mention-textarea-wrap textarea {
+  width: 100%;
+}
+
+.mention-autocomplete {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mention-option:hover,
+.mention-option.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.mention-option-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mention-option-role {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.mention-option:hover .mention-option-role,
+.mention-option.selected .mention-option-role {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.mention-highlight {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.comment-assign-section {
+  padding: 4px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.comment-assign-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.comment-assign-option input[type="radio"] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.comment-assignment {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(100, 181, 246, 0.1);
+  margin: -10px -12px 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(100, 181, 246, 0.2);
+  border-radius: 10px 10px 0 0;
 }
 
 .comments-resolved-header {
@@ -5822,6 +5936,16 @@ kbd {
   width: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.bib-lint-banner {
+  padding: 4px 12px;
+  margin-right: 15px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff3cd;
+  color: #664d03;
+  border-bottom: 1px solid #ffecb5;
 }
 
 .editor-container {
@@ -8159,6 +8283,42 @@ kbd {
 
 .admin-pagination button:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.admin-audit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.admin-audit-header h2 { margin: 0; }
+.admin-audit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.admin-audit-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+}
+.admin-audit-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.admin-audit-btn:disabled { opacity: 0.4; cursor: default; }
+.admin-audit-btn-danger { color: var(--red, #c00); border-color: var(--red, #c00); }
+.admin-audit-btn-danger:hover:not(:disabled) { background: var(--red, #c00); color: #fff; }
+.admin-audit-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--red, #c00);
+  font-weight: 600;
 }
 
 .admin-setting-row {

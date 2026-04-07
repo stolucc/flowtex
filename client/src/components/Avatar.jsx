@@ -17,6 +17,11 @@ const COLORS = [
   '#90a4ae',
 ];
 
+/**
+ * Derives a deterministic colour from a name string via hashing.
+ * @param {string} name
+ * @returns {string} CSS colour value
+ */
 function getColor(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -25,6 +30,11 @@ function getColor(name) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+/**
+ * Extracts up to two initials from a display name.
+ * @param {string} name
+ * @returns {string} Uppercase initials
+ */
 function getInitials(name) {
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) {
@@ -35,6 +45,7 @@ function getInitials(name) {
 
 export { getColor };
 
+/** Circular avatar showing colour-coded initials derived from a user's name. */
 export default function Avatar({ name, size = 32 }) {
   const safeName = name || '?';
   const color = getColor(safeName);

@@ -1,5 +1,6 @@
 import React from 'react';
 
+/** Forward and inverse SyncTeX navigation buttons between editor and PDF. */
 export default function SyncArrows({ onSyncForward, onSyncInverse, hasPdf, hasPdfPosition }) {
   return (
     <div className="sync-arrows">

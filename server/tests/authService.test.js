@@ -604,7 +604,7 @@ describe('changeEmail', () => {
       .mockResolvedValueOnce(undefined); // no existing email
 
     const result = await changeEmail('u1', TEST_PASSWORD, 'new@test.com');
-    expect(result).toEqual({ email: 'new@test.com', oldEmail: 'old@test.com' });
+    expect(result).toEqual({ email: 'new@test.com', oldEmail: 'old@test.com', needsVerification: true });
     expect(db.run).toHaveBeenCalledWith(expect.stringContaining('UPDATE users SET email'), ['new@test.com', 'u1']);
   });
 
