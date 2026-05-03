@@ -13,6 +13,43 @@ import path from 'node:path';
 
 const execFile = promisify(execFileCb);
 
+// Cache: avoid re-checking the filesystem on every WMF/EMF media item.
+let _sofficeCache = null;
+/**
+ * Find the LibreOffice headless binary. Linux deployments install it as
+ * `soffice` on $PATH (libreoffice apt package); macOS bundles it inside the
+ * .app. Returns the resolved path, or null if not found — caller then marks
+ * the media as unconvertible rather than crashing.
+ */
+function resolveSoffice() {
+  if (_sofficeCache !== null) return _sofficeCache || null;
+  const candidates = [
+    process.env.SOFFICE_BIN,
+    '/usr/bin/soffice',
+    '/usr/bin/libreoffice',
+    '/usr/local/bin/soffice',
+    '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
+        _sofficeCache = c;
+        return c;
+      }
+    } catch { /* keep searching */ }
+  }
+  // Fall through: try $PATH lookup via `which` (may still fail)
+  try {
+    const out = execFileSync('which', ['soffice'], { encoding: 'utf8', timeout: 2000 }).trim();
+    if (out) {
+      _sofficeCache = out;
+      return out;
+    }
+  } catch { /* ignore */ }
+  _sofficeCache = false;
+  return null;
+}
+
 // ── XML Parser setup ─────────────────────────────────────────────────────────
 
 const ARRAY_ELEMENTS = new Set([
@@ -250,14 +287,33 @@ export async function convertDocxToLatex(buffer, options = {}) {
         unconvertible.add(relPath);
       }
     } else if (NEEDS_LIBREOFFICE.has(ext)) {
+      // WMF/EMF (legacy Windows metafiles) require LibreOffice to convert.
+      // Like rsvg/convert, soffice runs on attacker-controlled bytes — gate
+      // it behind the same DISABLE_IMAGE_CONVERSION switch so an operator
+      // who can't sandbox LibreOffice can disable the path entirely.
+      if (SKIP_CONVERSION) { unconvertible.add(relPath); continue; }
       await progress(`Converting image ${mediaIdx}/${totalMedia} (${fileName})…`, 15 + Math.round((mediaIdx / totalMedia) * 25));
+      const sofficeBin = resolveSoffice();
+      if (!sofficeBin) {
+        unconvertible.add(relPath);
+        continue;
+      }
       try {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-wmf-'));
         const inFile = path.join(tmpDir, `image.${ext}`);
         fs.writeFileSync(inFile, data);
-        const soffice = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
-        await execFile(soffice, [
-          '--headless', '--convert-to', 'pdf', '--outdir', tmpDir, inFile,
+        // Per-invocation user-profile dir keeps a compromised LibreOffice
+        // run from persisting state into ~/.config/libreoffice (which would
+        // survive process exit and affect later invocations). --safe-mode
+        // disables extensions and the Java component framework.
+        const userInstallDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-lo-prof-'));
+        await execFile(sofficeBin, [
+          '--headless',
+          '--safe-mode',
+          `-env:UserInstallation=file://${userInstallDir}`,
+          '--convert-to', 'pdf',
+          '--outdir', tmpDir,
+          inFile,
         ], { timeout: 30000 });
         const outFile = path.join(tmpDir, 'image.pdf');
         if (fs.existsSync(outFile)) {
@@ -267,6 +323,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
           unconvertible.add(relPath);
         }
         try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+        try { fs.rmSync(userInstallDir, { recursive: true }); } catch { /* ignore */ }
       } catch {
         unconvertible.add(relPath);
       }

@@ -6,50 +6,43 @@ be fixed in code alone.
 ## DOCX import sandboxing (recommended)
 
 When users import a `.docx`, FlowTex extracts embedded media and converts
-`SVG → PDF` via `rsvg-convert` and `GIF/TIFF/BMP → PNG` via ImageMagick
-`convert`. Both binaries have a long history of CVEs (Ghostscript delegate,
-MSL coder, heap corruption). The bytes they process come from any
-authenticated user, so an unpatched host is a chained-exploit risk.
+`SVG → PDF` via `rsvg-convert`, `GIF/TIFF/BMP → PNG` via ImageMagick
+`convert`, and `WMF/EMF → PDF` via LibreOffice headless. All three have
+CVE histories (Ghostscript delegate, MSL coder, MVG injection in
+ImageMagick; UNO/Java component bugs in LibreOffice). The bytes they
+process come from any authenticated user, so an unpatched host is a
+chained-exploit risk.
 
 ### In-process mitigation (already enabled)
 
 - `convert` is invoked with `-limit memory 256MiB -limit map 512MiB -limit
   disk 256MiB -limit thread 1`.
-- All conversions run with a 30-second `timeout` and capped `maxBuffer`.
-- Set `DISABLE_IMAGE_CONVERSION=1` in `.env` to skip image conversion entirely;
-  affected images appear as `<unconvertible>` placeholders in the output.
+- LibreOffice runs with `--safe-mode` and a per-invocation
+  `UserInstallation` directory under `/tmp` so a compromised run can't
+  persist into the service user's profile.
+- All conversions have a 30-second `timeout` and capped `maxBuffer`.
+- Server logs a startup warning in production if `convert -list policy`
+  shows the dangerous coders still enabled.
+- Set `DISABLE_IMAGE_CONVERSION=1` in `.env` to skip image conversion entirely
+  (covers SVG, GIF/TIFF/BMP, **and** WMF/EMF). Affected images appear as
+  `<unconvertible>` placeholders in the output; the rest of the DOCX import
+  still works.
+- `SOFFICE_BIN=/path/to/soffice` if your LibreOffice install isn't auto-detected.
 
 ### Recommended deployment-level mitigation
 
+- **Install the hardened ImageMagick policy.** A ready-to-use template is
+  shipped at [`docs/imagemagick-policy.xml`](docs/imagemagick-policy.xml).
+  Copy it to `/etc/ImageMagick-7/policy.xml` (or `/etc/ImageMagick-6/...`
+  on older systems), then verify with `convert -list policy`. The policy
+  disables `PS`, `EPS`, `PDF`, `XPS`, `MVG`, `MSL`, `URL`, `HTTPS`, `HTTP`,
+  `FTP`, `TEXT`, `SHOW`, `LABEL`, `CAPTION`, `EPHEMERAL`, `WIN`, `PLT`,
+  the Ghostscript delegate, `@`-prefixed file reads, and the PS/PDF/XPS
+  modules. Resource caps mirror our in-process limits.
 - Run the FlowTex server under a sandbox (`bwrap`, `firejail`, or a Docker
   container with `--read-only`, `--cap-drop=ALL`, `--no-new-privileges`,
   `--memory`, `--pids-limit`, and a per-job tmpfs).
-- Replace the system `policy.xml` with one that denies dangerous coders:
-
-  ```xml
-  <!-- /etc/ImageMagick-7/policy.xml -->
-  <policymap>
-    <policy domain="coder" rights="none" pattern="MSL" />
-    <policy domain="coder" rights="none" pattern="URL" />
-    <policy domain="coder" rights="none" pattern="EPHEMERAL" />
-    <policy domain="coder" rights="none" pattern="HTTPS" />
-    <policy domain="coder" rights="none" pattern="HTTP" />
-    <policy domain="coder" rights="none" pattern="SHOW" />
-    <policy domain="coder" rights="none" pattern="WIN" />
-    <policy domain="coder" rights="none" pattern="PLT" />
-    <policy domain="coder" rights="none" pattern="PS" />
-    <policy domain="coder" rights="none" pattern="PS2" />
-    <policy domain="coder" rights="none" pattern="PS3" />
-    <policy domain="coder" rights="none" pattern="EPS" />
-    <policy domain="coder" rights="none" pattern="PDF" />
-    <policy domain="coder" rights="none" pattern="XPS" />
-    <policy domain="resource" name="memory" value="256MiB"/>
-    <policy domain="resource" name="map" value="512MiB"/>
-    <policy domain="resource" name="thread" value="1"/>
-    <policy domain="resource" name="time" value="30"/>
-  </policymap>
-  ```
-- Keep ImageMagick and librsvg at the latest patched versions.
+- Keep ImageMagick, librsvg, and LibreOffice at the latest patched versions.
 
 ## NODE_ENV
 

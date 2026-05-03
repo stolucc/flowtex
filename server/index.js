@@ -411,6 +411,46 @@ process.on('SIGINT', () => shutdown('SIGINT'));
   }
 }
 
+/**
+ * Production startup check: warn loudly if ImageMagick still has the
+ * historically-RCE-prone coders enabled. FlowTex pipes attacker-controlled
+ * bytes (DOCX uploads) through `convert`; a hardened `policy.xml` is the
+ * supported mitigation (see docs/imagemagick-policy.xml). This check just
+ * makes a forgotten policy install loud at boot rather than silent until
+ * exploitation.
+ */
+async function warnIfImageMagickPolicyMissing() {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.DISABLE_IMAGE_CONVERSION === '1') return; // not used; nothing to warn about
+  try {
+    const { execFile: execFileCb } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFile = promisify(execFileCb);
+    const { stdout } = await execFile('convert', ['-list', 'policy'], { timeout: 3000 });
+    const dangerous = ['PS', 'EPS', 'PDF', 'XPS', 'MVG', 'MSL', 'URL', 'HTTPS', 'HTTP', 'FTP'];
+    const stillEnabled = dangerous.filter((c) => {
+      const re = new RegExp(`Path:\\s+\\[built-in\\][^\\n]*\\n[^\\n]*Coder[^\\n]*name="${c}"[^\\n]*rights="none"`, 'i');
+      // Default ImageMagick output lists "rights=none" only when the coder
+      // is explicitly blocked. If the line for this coder doesn't appear
+      // with rights=none, treat as still enabled.
+      const blocked = new RegExp(`name="${c}"[^\\n]*rights="?none"?`, 'i').test(stdout);
+      return !blocked;
+    });
+    if (stillEnabled.length > 0) {
+      logger.warn(
+        { stillEnabled },
+        `ImageMagick policy.xml does not block ${stillEnabled.join(', ')} coders. ` +
+        `Install docs/imagemagick-policy.xml to /etc/ImageMagick-7/policy.xml, ` +
+        `or set DISABLE_IMAGE_CONVERSION=1 to skip the DOCX image pipeline. ` +
+        `This is the supported mitigation for known ImageMagick RCE classes.`,
+      );
+    }
+  } catch {
+    // `convert` not on PATH or returned non-zero — DOCX import will fail
+    // cleanly anyway (mediaFiles get marked unconvertible). No warning needed.
+  }
+}
+
 // Initialize database schema, seed templates, then start server
 import seedPreloadedTemplates from './utils/seedTemplates.js';
 import { initCrypto } from './utils/crypto.js';
@@ -420,6 +460,7 @@ db.initSchema()
   .then(() => {
     db.startCleanupJob();
     import('./utils/mentionDigest.js').then((m) => m.startMentionDigestJob());
+    warnIfImageMagickPolicyMissing();
     server.listen(PORT, () => {
       const proto = useHttps ? 'https' : 'http';
       logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);

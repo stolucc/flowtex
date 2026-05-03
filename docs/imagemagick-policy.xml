@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policymap [
+  <!ELEMENT policymap (policy)*>
+  <!ATTLIST policymap xmlns CDATA #FIXED ''>
+  <!ELEMENT policy EMPTY>
+  <!ATTLIST policy xmlns CDATA #FIXED '' domain NMTOKEN #REQUIRED
+    name NMTOKEN #IMPLIED pattern CDATA #IMPLIED rights NMTOKEN #IMPLIED
+    stealth NMTOKEN #IMPLIED value CDATA #IMPLIED>
+]>
+<!--
+  FlowTex hardened ImageMagick policy.
+
+  Install on the deployment host as:
+    /etc/ImageMagick-7/policy.xml      (Ubuntu/Debian: imagemagick package)
+    /etc/ImageMagick-6/policy.xml      (older systems)
+    /opt/homebrew/etc/ImageMagick-7/policy.xml  (macOS Homebrew)
+
+  Verify the policy is in effect with:
+    convert -list policy
+
+  The list under "Policy: Coder" should show "rights=none" for every coder
+  in the rules below.
+
+  Why this matters: FlowTex's DOCX importer pipes user-uploaded image bytes
+  into `convert` for GIF/TIFF/BMP -> PNG conversion. Several historical
+  RCEs in ImageMagick (e.g. ImageTragick, the GhostScript pipeline, MVG
+  injection) abuse coders that aren't needed for ordinary raster work.
+  We disable them all explicitly. The PNG/JPEG/GIF/TIFF/BMP/WebP coders
+  needed for DOCX import remain enabled.
+
+  Resource caps below complement the per-invocation limits FlowTex already
+  passes on the command line — defense in depth.
+-->
+<policymap>
+  <!-- ─── Resource caps ──────────────────────────────────────────── -->
+  <policy domain="resource" name="memory" value="256MiB"/>
+  <policy domain="resource" name="map" value="512MiB"/>
+  <policy domain="resource" name="width" value="32KP"/>
+  <policy domain="resource" name="height" value="32KP"/>
+  <policy domain="resource" name="area" value="128MP"/>
+  <policy domain="resource" name="disk" value="1GiB"/>
+  <policy domain="resource" name="file" value="768"/>
+  <policy domain="resource" name="thread" value="2"/>
+  <policy domain="resource" name="time" value="60"/>
+
+  <!-- ─── Disable ghostscript / postscript / pdf coders (RCE history) ── -->
+  <policy domain="coder" rights="none" pattern="PS"/>
+  <policy domain="coder" rights="none" pattern="PS2"/>
+  <policy domain="coder" rights="none" pattern="PS3"/>
+  <policy domain="coder" rights="none" pattern="EPS"/>
+  <policy domain="coder" rights="none" pattern="PDF"/>
+  <policy domain="coder" rights="none" pattern="XPS"/>
+
+  <!-- ─── Disable MVG / MSL (script-like coders that have been abused) ── -->
+  <policy domain="coder" rights="none" pattern="MVG"/>
+  <policy domain="coder" rights="none" pattern="MSL"/>
+
+  <!-- ─── Disable network-fetching coders (SSRF surface) ─────────── -->
+  <policy domain="coder" rights="none" pattern="URL"/>
+  <policy domain="coder" rights="none" pattern="HTTPS"/>
+  <policy domain="coder" rights="none" pattern="HTTP"/>
+  <policy domain="coder" rights="none" pattern="FTP"/>
+
+  <!-- ─── Disable text/label/show coders (font-handling RCE history) ── -->
+  <policy domain="coder" rights="none" pattern="TEXT"/>
+  <policy domain="coder" rights="none" pattern="SHOW"/>
+  <policy domain="coder" rights="none" pattern="LABEL"/>
+  <policy domain="coder" rights="none" pattern="CAPTION"/>
+
+  <!-- ─── Disable other rare/risky coders ────────────────────────── -->
+  <policy domain="coder" rights="none" pattern="EPHEMERAL"/>
+  <policy domain="coder" rights="none" pattern="WIN"/>
+  <policy domain="coder" rights="none" pattern="PLT"/>
+  <policy domain="coder" rights="none" pattern="HISTOGRAM"/>
+
+  <!-- ─── Block reading from arbitrary paths ─────────────────────── -->
+  <!-- Blocks `convert @/etc/passwd ...` style file-read tricks. -->
+  <policy domain="path" rights="none" pattern="@*"/>
+
+  <!-- ─── Block modules outside the trusted directory ────────────── -->
+  <policy domain="module" rights="none" pattern="{PS,PDF,XPS}"/>
+
+  <!-- ─── Delegate restrictions ──────────────────────────────────── -->
+  <!-- The Ghostscript delegate is the historical RCE vector for PDF/PS/EPS
+       even when those coders are disabled. Disable all delegates that
+       shell out to gs explicitly. -->
+  <policy domain="delegate" rights="none" pattern="gs"/>
+</policymap>
