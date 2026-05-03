@@ -1,0 +1,221 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel earlier in-progress runs on the same ref when a new one starts.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ── Fast lane: server unit tests (Vitest, mocked DB) ────────────────────
+  server-unit:
+    name: Server unit tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm test -- --reporter=default
+        working-directory: server
+
+  # ── Fast lane: client unit tests (Vitest) ───────────────────────────────
+  client-unit:
+    name: Client unit tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+        working-directory: client
+      - run: npx vitest run --reporter=default
+        working-directory: client
+
+  # ── Fast lane: lint + npm audit on prod deps ────────────────────────────
+  lint-audit:
+    name: Lint + npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm ci
+        working-directory: server
+      - run: npm ci
+        working-directory: client
+      - name: ESLint
+        run: npm run lint
+      - name: npm audit (root, prod only)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (server, prod only)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: server
+      - name: npm audit (client, prod only)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: client
+
+  # ── End-to-end: Postgres + Redis service containers, real server,
+  #    Playwright across Chromium / Firefox / WebKit. ─────────────────────
+  e2e:
+    name: E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flowtex
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Connection details for the service containers
+      PGDATABASE: flowtex
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      REDIS_URL: redis://localhost:6379
+      # Throwaway secrets for the test run
+      SESSION_SECRET: ci-only-session-secret-do-not-use-in-prod-${{ github.run_id }}
+      ENCRYPTION_KEY: ci0123456789abcdef0123456789abcdef
+      # Server config
+      PORT: '3001'
+      NODE_ENV: development
+      DISABLE_TLS_REDIRECT: '1'
+      CORS_ORIGINS: https://localhost:3001,http://localhost:3001
+      DISABLE_IMAGE_CONVERSION: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install root deps
+        run: npm ci
+      - name: Install server deps
+        run: npm ci
+        working-directory: server
+      - name: Install client deps
+        run: npm ci
+        working-directory: client
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browser
+        # Only install the matrix browser to save bandwidth + cache size.
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Pre-create runtime directories
+        # `projects/` and `git-repos/` are gitignored; the server expects them
+        # at repo root for compile workdirs and GitHub sync clones. Compile
+        # creates project subdirs on-demand but the parents must exist.
+        run: mkdir -p projects git-repos server/logs
+
+      - name: Generate self-signed cert for the test server
+        # The server requires TLS in normal operation. CI uses an ephemeral
+        # localhost cert so the e2e tests can connect via wss://localhost:3001.
+        run: |
+          mkdir -p server/certs
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 \
+            -keyout server/certs/key.pem \
+            -out server/certs/cert.pem \
+            -days 1 -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+
+      - name: Build client
+        run: npx vite build
+        working-directory: client
+
+      - name: Copy client build into server/public
+        run: mkdir -p server/public && cp -r client/dist/* server/public/
+
+      - name: Start server
+        run: |
+          cd server
+          node index.js > /tmp/flowtex-server.log 2>&1 &
+          echo $! > /tmp/flowtex-server.pid
+
+      - name: Wait for server ready
+        run: |
+          for i in {1..40}; do
+            if curl -sk https://localhost:3001/api/health > /dev/null; then
+              echo "server up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to come up in 40s"
+          cat /tmp/flowtex-server.log
+          exit 1
+
+      - name: Run Playwright tests
+        run: npx playwright test --project=${{ matrix.browser }} --workers=1 --reporter=list
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/flowtex-server.pid ]; then
+            kill "$(cat /tmp/flowtex-server.pid)" || true
+          fi
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log-${{ matrix.browser }}
+          path: /tmp/flowtex-server.log
+          if-no-files-found: ignore
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

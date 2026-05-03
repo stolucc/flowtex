@@ -9,11 +9,13 @@ import { test, expect } from 'playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
 import { seedUser, seedProject, cleanup, close } from './_seed.js';
 
-let alice, project;
+let alice;
 
 test.beforeAll(async () => {
   alice = await seedUser('e2e-a11y@test.local', 'A11Y Test');
-  project = await seedProject({ name: 'A11Y Project', ownerId: alice.userId });
+  // We seed a project but don't need to reference it after creation — the
+  // editor test finds it by name in the project list.
+  await seedProject({ name: 'A11Y Project', ownerId: alice.userId });
 });
 
 test.afterAll(async () => {

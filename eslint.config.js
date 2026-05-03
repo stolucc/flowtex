@@ -62,7 +62,7 @@ export default [
 
   // Vite/Vitest configs and other top-level scripts
   {
-    files: ['*.{js,mjs}', 'client/*.{js,mjs}', 'server/*.{js,mjs}', 'scripts/**/*.{js,mjs}'],
+    files: ['*.{js,mjs}', 'client/*.{js,mjs}', 'server/*.{js,mjs}', 'scripts/**/*.{js,mjs}', 'e2e/**/*.{js,mjs}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

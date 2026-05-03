@@ -7,10 +7,10 @@
 // structured 4xx response, never with a 200 + leaked data.
 import { test, expect } from 'playwright/test';
 import { seedUser, cleanup, close } from './_seed.js';
-import https from 'node:https';
 
 const BASE = process.env.E2E_BASE_URL || 'https://localhost:3001';
-const agent = new https.Agent({ rejectUnauthorized: false });
+// Self-signed cert handling: NODE_TLS_REJECT_UNAUTHORIZED=0 is set in the
+// beforeAll below; node fetch picks that up directly.
 
 let user;
 
