@@ -20,6 +20,12 @@ beforeAll(async () => {
   });
   // Verify connection
   await pool.query('SELECT 1');
+  // Ensure schema exists. Local dev runs the server first which calls
+  // initSchema(); CI uses a fresh Postgres service container with no
+  // tables, so we initialise it here. initSchema is idempotent (uses
+  // CREATE TABLE IF NOT EXISTS).
+  const dbModule = (await import('../db.js')).default;
+  await dbModule.initSchema();
 });
 
 afterAll(async () => {

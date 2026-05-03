@@ -139,6 +139,18 @@ async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS comment_replies (
+      id TEXT PRIMARY KEY,
+      comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      author TEXT NOT NULL,
+      author_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- comment_mentions FKs to comment_replies, so it must be defined AFTER it.
+    -- (Local dev didn't catch this because schema accreted over many boots
+    --  and migrations; a fresh CI Postgres tripped on the missing relation.)
     CREATE TABLE IF NOT EXISTS comment_mentions (
       id TEXT PRIMARY KEY,
       comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
@@ -152,15 +164,6 @@ async function initSchema() {
     );
 
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS assigned_to TEXT REFERENCES users(id);
-
-    CREATE TABLE IF NOT EXISTS comment_replies (
-      id TEXT PRIMARY KEY,
-      comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-      text TEXT NOT NULL,
-      author TEXT NOT NULL,
-      author_id TEXT REFERENCES users(id),
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
 
     CREATE TABLE IF NOT EXISTS project_members (
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
