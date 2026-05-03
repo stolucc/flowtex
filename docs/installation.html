@@ -314,6 +314,27 @@ sudo -u flowtex cp -r client/dist/* server/public/
 sudo systemctl restart flowtex</code></pre>
 <p>If a release adds database migrations, the server runs them automatically on start (you'll see the migration list in <code>journalctl -u flowtex</code>). Take a database backup <em>before</em> upgrading on any schema-bumping release.</p>
 
+<h2>4.7 Containerized Deployment (Docker Compose)</h2>
+<p>An alternative to bare-metal install. The repo ships a two-image build (a slow-changing base with Node + TeX Live, and a fast-rebuild app image) plus a hardened <code>docker-compose.yml</code> with Caddy + Postgres.</p>
+
+<pre><code><span class="comment"># One-command build (handles both images in order)</span>
+./scripts/docker-build.sh
+
+<span class="comment"># Configure</span>
+cp .env.example .env
+<span class="comment"># Generate SESSION_SECRET, set PGPASSWORD, DOMAIN, etc.</span>
+$EDITOR .env
+
+<span class="comment"># Start</span>
+docker compose up -d
+
+<span class="comment"># Logs</span>
+docker compose logs -f app</code></pre>
+
+<p>The compose file enables container hardening that mirrors the bare-metal systemd setup: <code>read_only: true</code>, <code>cap_drop: [ALL]</code>, <code>no-new-privileges</code>, memory and PID caps, <code>tmpfs</code> for <code>/tmp</code>, and the runtime container drops to UID 10001 (<code>flowtex</code>) per the Dockerfile's <code>USER</code> directive.</p>
+
+<div class="note"><strong>DOCX image conversion in containers:</strong> the default base image does not include <code>rsvg-convert</code> / <code>imagemagick</code> / <code>libreoffice</code>. The compose file therefore sets <code>DISABLE_IMAGE_CONVERSION=1</code> and DOCX images appear as placeholders. To enable, build a custom base that installs those packages plus <code>docs/imagemagick-policy.xml</code> and unset the env var.</div>
+
 <h2>5. Quick Install Script</h2>
 <p>Copy and run on a fresh Ubuntu 22.04+ server:</p>
 <pre><code>#!/bin/bash

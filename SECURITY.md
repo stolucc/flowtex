@@ -54,10 +54,11 @@ won't activate.
 
 ## Secrets & rotation
 
-- `SESSION_SECRET`, `AUTH_SECRET`, and the encryption salt are sourced from
+- `SESSION_SECRET`, `ENCRYPTION_KEY`, and the encryption salt are sourced from
   `.env`. Rotate on suspected compromise; note that rotating the encryption
   salt requires running `server/migrate-salt.js` or all stored
-  GitHub/Zotero/SMTP credentials become un-decryptable.
+  GitHub/Zotero/SMTP credentials become un-decryptable. The server refuses
+  to start in production with an empty or known-sample `SESSION_SECRET`.
 - `_setSaltForTesting` and `_testing` exports are gated to `NODE_ENV=test`.
 
 ## Rate limits

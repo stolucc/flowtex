@@ -114,10 +114,33 @@ app.use(
 );
 
 // ── Session ─────────────────────────────────────────────────────────────
+// Block well-known sample values that an operator might leave in place by
+// copying .env.example too literally. These are publicly known strings —
+// running production with one is equivalent to having no secret at all.
+const SESSION_SECRET_BLOCKLIST = new Set([
+  'flowtex-dev-secret-change-in-production',
+  'change-me',
+  'changeme',
+  'secret',
+]);
 if (!process.env.SESSION_SECRET) {
   logger.fatal(
     "SESSION_SECRET must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\"",
   );
+  process.exit(1);
+}
+if (
+  process.env.NODE_ENV === 'production' &&
+  SESSION_SECRET_BLOCKLIST.has(process.env.SESSION_SECRET)
+) {
+  logger.fatal(
+    'SESSION_SECRET is set to a known sample value. Generate a unique secret before starting in production: ' +
+      'node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"',
+  );
+  process.exit(1);
+}
+if (process.env.NODE_ENV === 'production' && process.env.SESSION_SECRET.length < 32) {
+  logger.fatal('SESSION_SECRET must be at least 32 characters in production.');
   process.exit(1);
 }
 const SESSION_SECRET = process.env.SESSION_SECRET;

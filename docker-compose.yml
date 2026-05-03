@@ -33,6 +33,11 @@ services:
       APP_URL: ${APP_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DISABLE_TLS_REDIRECT: "true"
+      # DOCX image conversion path is disabled by default in the container
+      # because the base image doesn't ship rsvg/imagemagick/libreoffice.
+      # Build a custom image with those tools + docs/imagemagick-policy.xml
+      # installed if your users need DOCX image import.
+      DISABLE_IMAGE_CONVERSION: "1"
       # GitHub OAuth (optional)
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
@@ -48,6 +53,23 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    # ── Container hardening (matches SECURITY.md guidance) ──────────────
+    # The image runs as the non-root `flowtex` user (Dockerfile USER 10001).
+    # Below: lock the rootfs read-only, drop all Linux capabilities, prevent
+    # privilege escalation via setuid binaries, and bound memory + PIDs so
+    # one runaway compile or DOCX import can't take down the host.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 256
+    # Writable scratch areas under the read-only rootfs. /tmp is needed by
+    # latexmk (intermediate aux files), LibreOffice (per-invocation
+    # UserInstallation), and Node's module loader for module cache misses.
+    tmpfs:
+      - /tmp:size=512m,mode=1777
     volumes:
       - compile-workdir:/app/projects
       - git-repos:/app/git-repos
