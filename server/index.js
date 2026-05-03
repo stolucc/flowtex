@@ -33,7 +33,7 @@ import { initWebSocket } from './websocket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Trust reverse proxy (Caddy) — required for secure cookies and correct IP detection
 app.set('trust proxy', 1);
