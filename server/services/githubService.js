@@ -273,7 +273,7 @@ export async function pullProject(projectId, userId) {
 }
 
 /** Create a new project by importing all files from a GitHub repository. */
-export async function importFromGitHub(userId, repo, branch) {
+export async function importFromGitHub(userId, repo, _branch) {
   const token = await getUserToken(userId);
   if (!token) throw Object.assign(new Error('No GitHub token configured.'), { status: 400 });
 
@@ -302,7 +302,7 @@ export async function importFromGitHub(userId, repo, branch) {
 
   // Pull files
   try {
-    const { files, commit } = await pullFromGitHub(projectId, token, repo.trim(), branchName);
+    const { commit } = await pullFromGitHub(projectId, token, repo.trim(), branchName);
     await db.run('UPDATE project_github_links SET last_sync_at = NOW(), last_sync_commit = $1 WHERE project_id = $2', [
       commit,
       projectId,

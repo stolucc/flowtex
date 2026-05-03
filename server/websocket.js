@@ -279,8 +279,8 @@ async function handleChat(msg, state) {
       created_at: new Date().toISOString(),
     };
     broadcastToRoom(state.projectId, chatMsg);
-  } catch (e) {
-    logger.error({ err: e }, 'Chat insert error');
+  } catch (err) {
+    logger.error({ err }, 'Chat insert error');
   }
 }
 
@@ -378,22 +378,26 @@ export function initWebSocket(server, app, sessionSecret) {
       allowedOrigins.add(parsed.origin);
     } catch {}
   }
-  // Allow localhost connections in development
-  if (process.env.NODE_ENV !== 'production') {
+  // Allow localhost connections only in explicit dev/test mode
+  const isDevMode = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+  if (isDevMode) {
     allowedOrigins.add(`https://localhost:${process.env.PORT || 3001}`);
     allowedOrigins.add(`http://localhost:${process.env.PORT || 3001}`);
   }
 
-  const isProduction = process.env.NODE_ENV === 'production';
   const wss = new WebSocketServer({
     server,
     path: '/ws',
-    maxPayload: 256 * 1024,
+    // 4 MiB ceiling: covers full-document replacements (e.g. "Format bibtex"
+    // on a large .bib file dispatches the whole new content in a single OT
+    // frame). Anything beyond this is almost certainly malicious.
+    maxPayload: 4 * 1024 * 1024,
     verifyClient: ({ req }, cb) => {
       const origin = req.headers.origin;
-      // Require Origin header in production to prevent CSWSH
+      // Require Origin header outside explicit dev/test to prevent CSWSH.
+      // Defaults to strict when NODE_ENV is unset.
       if (!origin) {
-        if (isProduction) {
+        if (!isDevMode) {
           logger.warn('WS connection rejected: missing origin');
           cb(false, 403, 'Forbidden');
           return;
@@ -446,11 +450,27 @@ export function initWebSocket(server, app, sessionSecret) {
 
   wss.on('close', () => clearInterval(heartbeatTimer));
 
+  // Server-level error: never let a single malformed frame take down the
+  // process. The `ws` library emits 'wsClientError' for frame-decoding errors
+  // (e.g. a payload larger than maxPayload). Logging + closing the socket is
+  // the right response, not crashing the whole Node process.
+  wss.on('wsClientError', (err, socket) => {
+    logger.warn({ err: err.message, code: err.code }, 'WS client error — closing socket');
+    try { socket.destroy(); } catch {}
+  });
+  wss.on('error', (err) => {
+    logger.error({ err }, 'WS server error');
+  });
+
   // Connection handler
   wss.on('connection', async (ws, req) => {
     ws.isAlive = true;
     ws.on('pong', () => {
       ws.isAlive = true;
+    });
+    ws.on('error', (err) => {
+      logger.warn({ err: err.message, code: err.code }, 'WS socket error — closing');
+      try { ws.terminate(); } catch {}
     });
 
     // Buffer messages that arrive during async auth so they aren't lost
@@ -568,8 +588,8 @@ export function initWebSocket(server, app, sessionSecret) {
   return { wss, redisPub, redisSub };
 }
 
-// Test exports — only used in tests
-export const _testing = {
+// Test exports — only populated in NODE_ENV=test so production callers see undefined.
+export const _testing = process.env.NODE_ENV === 'test' ? {
   unsignCookie,
   handleChanges,
   handleCursor,
@@ -591,4 +611,4 @@ export const _testing = {
   getRoom,
   WS_RATE_WINDOW,
   WS_RATE_MAX,
-};
+} : undefined;

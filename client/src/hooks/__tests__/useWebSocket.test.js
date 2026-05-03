@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import useWebSocket from '../useWebSocket.js';
 
 let mockWsInstances = [];
@@ -81,7 +81,6 @@ describe('useWebSocket', () => {
     });
     expect(result.current.wsConnected).toBe(true);
 
-    const ws = mockWsInstances[0];
     // Prevent onclose from trying reconnect by simulating intentional close
     rerender({ u: null });
 
@@ -149,7 +148,7 @@ describe('useWebSocket', () => {
   });
 
   it('handles comment message for matching fileId', () => {
-    const { result } = renderWsHook();
+    renderWsHook();
     act(() => {
       vi.runAllTimers();
     });
@@ -164,7 +163,7 @@ describe('useWebSocket', () => {
   });
 
   it('does not call setComments for non-matching fileId', () => {
-    const { result } = renderWsHook();
+    renderWsHook();
     act(() => {
       vi.runAllTimers();
     });
@@ -178,7 +177,7 @@ describe('useWebSocket', () => {
   });
 
   it('handles tracked-change message for matching fileId', () => {
-    const { result } = renderWsHook();
+    renderWsHook();
     act(() => {
       vi.runAllTimers();
     });

@@ -4,6 +4,7 @@ import AdmZip from 'adm-zip';
 import db from '../db.js';
 import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
+import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
@@ -363,7 +364,7 @@ export async function setTemplateTags(templateId, tagIds) {
 export async function createProject(userId, name) {
   const id = uuid();
   const fileId = uuid();
-  const safeName = (name || 'Untitled').slice(0, 500).replace(/[\\{}$&#^_%~]/g, '');
+  const safeName = (name || 'Untitled').slice(0, 500).replace(/[\\{}$&#^_%~\r\n]/g, '');
   const defaultContent = `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
 
@@ -455,6 +456,708 @@ export async function createProjectFromZip(userId, buffer, originalName) {
 
   await stripCommonPrefix(created);
   return { id: projectId, name: projectName };
+}
+
+/** Create a new project by converting a .docx file to LaTeX using the custom converter. */
+export async function createProjectFromDocx(userId, buffer, originalName, options = {}) {
+  const onProgress = options.onProgress || (() => {});
+  // Pass progress callback to converter — it reports 5-75%
+  options.onProgress = onProgress;
+  // Convert DOCX → LaTeX with exact tracked-change positions
+  let { latex: rawLatex, metadata, bibContent: converterBib, trackedChanges, comments: docxComments, mediaFiles } = await convertDocxToLatex(buffer, options);
+
+  // Strip null bytes that some DOCX files produce — PostgreSQL rejects them
+  const stripNulls = (s) => (typeof s === 'string' ? s.replace(/\0/g, '') : s);
+  rawLatex = stripNulls(rawLatex);
+  converterBib = stripNulls(converterBib);
+  if (metadata) {
+    for (const k of Object.keys(metadata)) metadata[k] = stripNulls(metadata[k]);
+  }
+  for (const tc of trackedChanges) {
+    tc.text = stripNulls(tc.text);
+    tc.author = stripNulls(tc.author);
+  }
+  if (docxComments) {
+    for (const c of docxComments) {
+      c.text = stripNulls(c.text);
+      c.author = stripNulls(c.author);
+    }
+  }
+
+  onProgress('Processing bibliography…', 80);
+  // Bibliography: prefer converter-generated bib (from EndNote field codes),
+  // fall back to extracting from a References section in the LaTeX text
+  let bibContent = '';
+  const bibResult = converterBib
+    ? { tex: rawLatex, bib: '', style: 'authoryear', unresolved: [] }
+    : extractAndReplaceBibliography(rawLatex);
+  let texContent = stripNulls(converterBib ? rawLatex : bibResult.tex);
+  bibContent = stripNulls(converterBib || bibResult.bib);
+
+  // Track how much we shift the text before \begin{document} so TC positions stay accurate.
+  // TC positions are relative to rawLatex; extractAndReplaceBibliography may change text after
+  // \begin{document} (removing the references section), but everything before it is unchanged.
+  // We only need to account for insertions BEFORE \begin{document}.
+  let preambleShift = 0;
+
+  if (bibContent && !converterBib) {
+    // Only insert biblatex preamble for extracted bibliography (not converter-generated)
+    // Converter-generated bib uses natbib + \bibliography{} already in the preamble
+    const biblatexLine = `\\usepackage[backend=bibtex,style=${bibResult.style},maxcitenames=2,natbib=true]{biblatex}\n` +
+      `\\renewcommand*{\\finalnamedelim}{\\addspace\\&\\addspace}\n` +
+      `\\renewcommand*{\\nameyeardelim}{\\addcomma\\addspace}\n` +
+      `\\addbibresource{references.bib}\n`;
+    const insertionText = biblatexLine + '\n';
+    texContent = texContent.replace(/(\\begin\{document\})/, insertionText + '$1');
+    preambleShift += insertionText.length;
+    if (!texContent.includes('\\printbibliography')) {
+      texContent = texContent.replace(/\\end\{document\}/, '\n\\printbibliography\n\\end{document}');
+    }
+  }
+  if (bibResult.unresolved?.length > 0) {
+    const warnings = bibResult.unresolved.map((u) => `% WARNING: Unresolved citation: ${u}`).join('\n');
+    const prefix = warnings + '\n%\n';
+    texContent = prefix + texContent;
+    preambleShift += prefix.length;
+  }
+
+  onProgress('Mapping tracked changes…', 85);
+  // Re-locate tracked change positions in the final texContent.
+  // TC positions are relative to rawLatex. We need to map them through:
+  // 1. extractAndReplaceBibliography's replacements (citation subs + ref section removal)
+  // 2. preambleShift (biblatex preamble + warning insertions before \begin{document})
+  //
+  // The replacements list from extractAndReplaceBibliography tells us exactly which
+  // ranges were substituted and by what, so we can compute precise position offsets.
+  {
+    // Build cumulative shift table from the sorted replacements list.
+    // For a position P in the original text:
+    // - If P is before all replacements, shift = preambleShift only
+    // - If P falls inside a replacement, it maps to the start of the replacement
+    // - Otherwise, accumulate (replacement.length - original.length) for all prior replacements
+    const subs = (bibResult.replacements || []).slice().sort((a, b) => a.from - b.from);
+
+    function remapPosition(pos) {
+      let shift = preambleShift; // constant shift from preamble insertions
+      for (const s of subs) {
+        if (pos <= s.from) break; // before this substitution — done
+        if (pos >= s.to) {
+          // after this substitution — accumulate the length change
+          shift += s.replacement.length - (s.to - s.from);
+        } else {
+          // inside the substitution — map to start of replacement
+          return s.from + shift;
+        }
+      }
+      return pos + shift;
+    }
+
+    for (const tc of trackedChanges) {
+      tc.from = remapPosition(tc.from);
+      tc.to = remapPosition(tc.to);
+      // Update text from the new content at the mapped position
+      tc.text = texContent.slice(tc.from, tc.to);
+    }
+  }
+
+  // Only prettify when the document has no tracked changes.
+  // Prettification adds indentation which changes the text content that TCs reference,
+  // making it impossible to remap positions reliably.
+  if (trackedChanges.length === 0) {
+    texContent = prettifyLatex(texContent);
+  }
+
+  const projectName = (originalName || 'Imported Document').replace(/\.docx?$/i, '');
+  const projectId = uuid();
+
+  onProgress('Saving project…', 90);
+  await db.transaction(async (tx) => {
+    await tx.run('INSERT INTO projects (id, name, compiler) VALUES ($1, $2, $3)', [projectId, projectName, 'xelatex']);
+    await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [projectId, userId, 'owner']);
+
+    await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+      uuid(), projectId, 'main.tex', texContent, false,
+    ]);
+
+    if (bibContent) {
+      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+        uuid(), projectId, 'references.bib', bibContent, false,
+      ]);
+    }
+
+    // Insert extracted media files (images)
+    for (const mf of mediaFiles) {
+      const filePath = mf.path; // e.g. "media/image1.png"
+      if (!isValidFilePath(filePath)) continue;
+      const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+      const isBinary = BINARY_EXTS.has(ext);
+      const content = isBinary ? mf.data.toString('base64') : mf.data.toString('utf8');
+      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
+        uuid(), projectId, filePath, content, isBinary,
+      ]);
+    }
+
+    onProgress('Importing tracked changes…', 95);
+    // Import tracked changes with exact positions from the converter
+    if (trackedChanges.length > 0) {
+      const mainFileRow = await tx.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, 'main.tex']);
+      if (mainFileRow) {
+        const fileId = mainFileRow.id;
+        let mapped = 0;
+        for (const tc of trackedChanges) {
+          await tx.run(
+            `INSERT INTO tracked_changes (id, file_id, project_id, from_pos, to_pos, inserted_text, deleted_text, author_name, status, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              uuid(), fileId, projectId,
+              tc.from, tc.to,
+              tc.type === 'insert' ? tc.text : '',
+              tc.type === 'delete' ? tc.text : '',
+              tc.author || 'Unknown',
+              'pending',
+              tc.date ? new Date(tc.date).toISOString() : new Date().toISOString(),
+            ],
+          );
+          mapped++;
+        }
+        console.log(`[docx] Imported ${mapped} tracked changes into project ${projectId}`);
+      }
+    }
+
+    // Import DOCX comments
+    if (docxComments && docxComments.length > 0) {
+      const mainFileRow = await tx.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, 'main.tex']);
+      if (mainFileRow) {
+        const fileId = mainFileRow.id;
+        // Apply same preamble shift as tracked changes (comments are in body)
+        const bodyStartOrig = rawLatex.indexOf('\\begin{document}');
+        let commentsMapped = 0;
+        for (const c of docxComments) {
+          const shift = c.from >= bodyStartOrig ? preambleShift : 0;
+          const from = c.from + shift;
+          const to = c.to + shift;
+          if (from >= 0 && to > from && from < texContent.length) {
+            await tx.run(
+              `INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, resolved, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                uuid(), fileId,
+                from, Math.min(to, texContent.length),
+                c.text,
+                c.author || 'Unknown',
+                null, // no mapped user
+                false,
+                c.date ? new Date(c.date).toISOString() : new Date().toISOString(),
+              ],
+            );
+            commentsMapped++;
+          }
+        }
+        console.log(`[docx] Imported ${commentsMapped} comments into project ${projectId}`);
+      }
+    }
+  });
+
+  onProgress('Done', 100);
+  return { id: projectId, name: projectName };
+}
+
+/**
+ * Extract the references section from pandoc LaTeX output, parse each reference
+ * into a BibTeX entry, replace inline citations with \cite{} commands, and remove
+ * the plain-text references section.
+ *
+ * Returns { tex, bib, style } where style is 'numeric' or 'authoryear'.
+ */
+function extractAndReplaceBibliography(tex) {
+  // --- 1. Find and extract the references section ---
+  // Pandoc produces: \hypertarget{references}{%\n\section{References}\label{references}}\n\n...entries...\n\n\end{document}
+  // Match the heading + everything until \end{document}
+  const refPatterns = [
+    /(\\hypertarget\{references\}\{%?\s*\n?\\section\*?\{[^}]*\}\\label\{[^}]*\}\})\s*\n([\s\S]*?)(?=\\end\{document\})/i,
+    /(\\hypertarget\{references\}\{\s*\\section\*?\{[^}]*\}[^}]*\})\s*\\label\{[^}]*\}\n?([\s\S]*?)(?=\\end\{document\})/i,
+    /(\\(?:section|chapter)\*?\{(?:References|Bibliography|Works Cited)\}[^\n]*)\n([\s\S]*?)(?=\\(?:section|chapter)\b|\\end\{document\})/i,
+  ];
+  let refSection = '';
+  let refFullMatch = '';
+  for (const pat of refPatterns) {
+    const m = tex.match(pat);
+    if (m) {
+      refSection = m[2];
+      refFullMatch = m[0];
+      break;
+    }
+  }
+
+  if (!refSection.trim()) {
+    return { tex, bib: '', style: 'numeric' };
+  }
+
+  // --- 2. Parse individual reference entries from the LaTeX ---
+  // Two formats: (a) Pandoc blank-line-separated paragraphs, (b) our converter's
+  // {\setlength{\leftskip}{...}\setlength{\parindent}{...} ... \par} blocks.
+  let rawEntries;
+  if (/\{\\setlength\{\\leftskip\}/.test(refSection)) {
+    // Format (b): split on }{ boundary between \par} and {\setlength
+    rawEntries = [...refSection.matchAll(/\{\\setlength\{\\leftskip\}[\s\S]*?\\par\}/g)]
+      .map((m) => m[0].replace(/^\{\\setlength\{[^}]*\}\{[^}]*\}\\setlength\{[^}]*\}\{[^}]*\}\s*/, '').replace(/\\par\}$/, '').trim())
+      .filter((s) => s.length > 15);
+  } else {
+    rawEntries = refSection.split(/\n\s*\n/).filter((s) => s.trim().length > 15);
+  }
+
+  const bibEntries = [];
+  const keysByIndex = [];
+
+  // Common abbreviations that shouldn't end a title
+  const ABBREVS = /(?:vs|etc|ed|eds|vol|no|pp|Jr|Sr|St|Dr|Prof|Fig|eq|al|i\.e|e\.g|dept|assoc|trans|rev|proc|int|natl|acad|sci|soc|psychol|mgmt|org|res|dev|tech|inf|syst|comput|commun|conf|univ)\s*$/i;
+
+  for (let i = 0; i < rawEntries.length; i++) {
+    // Merge adjacent \emph{} runs (Word splits italic text across multiple runs)
+    // e.g. \emph{American }\emph{Journal of }\emph{Sociology} → \emph{American Journal of Sociology}
+    // Also handles \textbf{} and \textit{} splits
+    const rawLatex = rawEntries[i].replace(/\s+/g, ' ').trim()
+      .replace(/\}\\emph\{/g, '')
+      .replace(/\}\\textbf\{/g, '')
+      .replace(/\}\\textit\{/g, '');
+
+    // Use \emph{} markers to identify journal (italicised text after the title)
+    // Pandoc format: "Author (Year). Title. \emph{Journal}, \emph{Vol}(Issue), Pages."
+    const emphMatches = [...rawLatex.matchAll(/\\emph\{([^}]*)\}/g)];
+
+    // Strip LaTeX for text parsing
+    const stripped = rawLatex
+      .replace(/\\href\{[^}]*\}\{([^}]*)\}/g, '$1')
+      .replace(/\\emph\{([^}]*)\}/g, '$1')
+      .replace(/\\textit\{([^}]*)\}/g, '$1')
+      .replace(/\\textbf\{([^}]*)\}/g, '$1')
+      .replace(/\\textsuperscript\{([^}]*)\}/g, '$1')
+      .replace(/\\protect\s*/g, '')
+      .replace(/\\(?:quad|qquad|enspace|hspace\{[^}]*\})\s*/g, ' ')
+      .replace(/\\&/g, '&')
+      .replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1')
+      .replace(/[{}]/g, '')
+      .replace(/~+/g, ' ')
+      .replace(/-{2,}/g, '–')
+      .trim();
+
+    // Remove leading [N] or N.
+    const cleaned = stripped.replace(/^\[?\d+\]?\.?\s*/, '');
+
+    // Parse author(s) and year: "Author, I., & Author, J. (2020a)." pattern
+    const authorYearPat = /^(.+?)\s*\((\d{4}[a-z]?)\)\s*[.,:]?\s*(.+)/;
+    const m = cleaned.match(authorYearPat);
+    if (!m) continue;
+
+    const authors = m[1].replace(/[.,]+$/, '').trim();
+    const yearRaw = m[2];
+    const year = yearRaw.replace(/[a-z]$/, '');
+    const afterYear = m[3];
+
+    // Extract title: everything up to the first \emph{} (journal) in the original LaTeX
+    // If \emph{} exists, the title is text between "(Year). " and the first \emph{}
+    let title = '';
+    let journal = '', volume = '', issue = '', pages = '', doi = '', publisher = '';
+
+    if (emphMatches.length > 0) {
+      // Find position of first \emph{} after the year
+      const yearIdx = rawLatex.indexOf(`(${yearRaw})`);
+      const afterYearLatex = rawLatex.substring(yearIdx + yearRaw.length + 2).replace(/^\s*[.,:]?\s*/, '');
+      const firstEmphIdx = afterYearLatex.indexOf('\\emph{');
+
+      if (firstEmphIdx > 0) {
+        // Title is everything before the first \emph{}, cleaned
+        title = afterYearLatex.substring(0, firstEmphIdx)
+          .replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1')
+          .replace(/[{}]/g, '')
+          .replace(/[.,\s]+$/, '')
+          .replace(/\s+In\s*$/, '') // strip trailing "In" (conference proceedings pattern)
+          .trim();
+      }
+
+      // First \emph{} is usually the journal name
+      journal = emphMatches[0][1].trim();
+      // Second \emph{} is usually the volume
+      if (emphMatches.length > 1) {
+        volume = emphMatches[1][1].trim();
+      }
+
+      // Extract issue number: (N) after volume
+      const volIssueMatch = rawLatex.match(/\\emph\{[^}]*\}\s*,\s*\\emph\{(\d+)\}\((\d+)\)/);
+      if (volIssueMatch) {
+        volume = volIssueMatch[1];
+        issue = volIssueMatch[2];
+      }
+
+      // Extract pages: digits–digits or digits-digits (not anchored to end — may have trailing content)
+      const pagesMatch = stripped.match(/(?:pp\.?\s*)?(\d+)\s*[–-]\s*(\d+)/);
+      if (pagesMatch) {
+        pages = `${pagesMatch[1]}--${pagesMatch[2]}`;
+      }
+
+      // For conference proceedings: extract (Vol. N, pp. X-Y) or (pp. X-Y) after emph
+      const procMatch = stripped.match(/\(\s*(?:Vol\.?\s*(\d+)\s*,?\s*)?pp\.?\s*(\d+)\s*[–-]\s*(\d+)\s*\)/);
+      if (procMatch) {
+        if (procMatch[1] && !volume) volume = procMatch[1];
+        pages = `${procMatch[2]}--${procMatch[3]}`;
+      }
+    }
+
+    // Fallback title extraction if no \emph{} found
+    if (!title) {
+      // Find end of title: look for a period followed by a capital letter (new sentence = journal)
+      // But skip abbreviations like "vs.", "e.g.", "i.e.", etc.
+      let titleEnd = -1;
+      let searchFrom = 0;
+      while (searchFrom < afterYear.length) {
+        const dotIdx = afterYear.indexOf('.', searchFrom);
+        if (dotIdx === -1) break;
+        const beforeDot = afterYear.substring(0, dotIdx);
+        const afterDot = afterYear.substring(dotIdx + 1).trimStart();
+        if (ABBREVS.test(beforeDot) || /^\s*$/.test(afterDot)) {
+          searchFrom = dotIdx + 1;
+          continue;
+        }
+        // Check if next char is uppercase (start of journal/publisher)
+        if (/^[A-Z]/.test(afterDot)) {
+          titleEnd = dotIdx;
+          break;
+        }
+        searchFrom = dotIdx + 1;
+      }
+      if (titleEnd > 0) {
+        title = afterYear.substring(0, titleEnd).trim();
+        // Try to extract journal/booktitle from remaining text (after title period)
+        if (!journal) {
+          const remaining = afterYear.substring(titleEnd + 1).trim();
+          // "In: Proceedings of..." or "In Proceedings of..." → booktitle
+          const inMatch = remaining.match(/^In:?\s+(.+?)(?:\.\s|$)/);
+          if (inMatch) {
+            journal = inMatch[1].replace(/\s*\([^)]*\)\s*$/, '').replace(/[.,]+$/, '').trim();
+          } else {
+            // Plain journal name: take up to the first comma or period
+            const jMatch = remaining.match(/^([A-Z][^,]+?)(?:,\s*\d|\.\s*$)/);
+            if (jMatch) journal = jMatch[1].replace(/[.,]+$/, '').trim();
+          }
+        }
+      } else {
+        title = afterYear.replace(/[.,]+$/, '').trim();
+      }
+    }
+
+    // Extract DOI
+    const doiMatch = stripped.match(/(?:doi[:\s]*|https?:\/\/doi\.org\/)(10\.\S+)/i);
+    if (doiMatch) doi = doiMatch[1].replace(/[.,]+$/, '');
+
+    // Extract publisher (for books/proceedings)
+    const pubMatch = stripped.match(/(?::\s*|,\s*|\.\s+)([A-Z][A-Za-z\s&.]{2,40}(?:Press|Publishing|Publishers|Springer|Wiley|Elsevier|Sage|Routledge|Cambridge|Oxford|MIT|ACM|IEEE))\b/i)
+      || stripped.match(/\.\s+(IEEE|ACM|Springer|Elsevier)\s*\.?\s*$/i);
+    if (pubMatch) publisher = (pubMatch[1] || pubMatch[0]).trim().replace(/\.$/, '');
+
+    // Generate citation key — use first author's surname
+    const firstAuthor = authors.split(/\s*(?:\\?&|(?:\band\b))\s*/i)[0].trim();
+    const commaIdx = firstAuthor.indexOf(',');
+    const surname = commaIdx > 0
+      ? firstAuthor.substring(0, commaIdx).trim().split(/\s+/).pop() || `ref${i + 1}`
+      : firstAuthor.split(/\s+/).filter((w) => w.length > 1 && /^[A-Z]/.test(w)).pop() || `ref${i + 1}`;
+    const surnameKey = surname.toLowerCase().replace(/[^a-z]/g, '');
+    let key = surnameKey + year;
+    // Preserve year suffix (a, b) for disambiguation
+    if (/[a-z]$/.test(yearRaw)) key += yearRaw.slice(-1);
+
+    // Ensure unique keys — first try adding a title keyword, then fall back to a/b/c
+    if (bibEntries.some((e) => e.key === key)) {
+      const STOP_WORDS = new Set(['the','a','an','of','in','on','for','and','or','to','is','are','was','were','by','from','with','as','at','it','its','that','this','how','do','does','can','not','no','be','been','has','have','had','into','between','among','through','about','over','under','new','old']);
+      const titleWord = (title || '').split(/\s+/)
+        .map((w) => w.toLowerCase().replace(/[^a-z]/g, ''))
+        .find((w) => w.length > 2 && !STOP_WORDS.has(w));
+      if (titleWord) {
+        const kwKey = surnameKey + year + titleWord;
+        if (!bibEntries.some((e) => e.key === kwKey)) {
+          key = kwKey;
+        }
+      }
+    }
+    // Final fallback: append a, b, c...
+    const baseKey = key;
+    let keySuffix = 0;
+    while (bibEntries.some((e) => e.key === key)) {
+      key = baseKey + String.fromCharCode(97 + keySuffix);
+      keySuffix++;
+    }
+
+    // Determine entry type
+    let type = 'article';
+    const fullText = stripped.toLowerCase();
+    if (/proceedings|conference/i.test(fullText)) type = 'inproceedings';
+    else if (/\bthesis\b|\bdissertation\b/i.test(fullText)) type = 'phdthesis';
+    else if (/\bpress\b|\bedition\b|\bbook\b/i.test(fullText) && (!journal || !volume || /university|press/i.test(fullText))) {
+      // Book: if the "journal" is actually the book title (no volume/issue pattern), reclassify
+      if (journal && !volume && !issue && !pages) {
+        title = journal;
+        journal = '';
+        type = 'book';
+      } else if (!journal) {
+        type = 'book';
+      }
+    }
+
+    // Clean up title: strip trailing editor references "In S. Worchel & W. Austin (Eds.)" and "In:"
+    title = title
+      .replace(/\.?\s+In\s+.*?\(Eds?\.?\).*$/i, '')
+      .replace(/\.?\s+In:?\s*$/i, '')
+      .replace(/[.,\s]+$/, '')
+      .trim();
+
+    bibEntries.push({ key, type, authors, year, title, journal, volume, issue, pages, doi, publisher });
+    keysByIndex.push(key);
+  }
+
+  if (bibEntries.length === 0) {
+    return { tex, bib: '', style: 'numeric' };
+  }
+
+  // --- 3. Detect citation style and replace inline citations ---
+  const bodyTex = tex.substring(0, tex.indexOf(refFullMatch));
+
+  const numericCites = bodyTex.match(/\[\d+(?:\s*[,;–-]\s*\d+)*\]/g) || [];
+  // Match multi-cite parentheticals: (Author, Year; Author, Year) and (e.g., Author, Year)
+  const harvardParenCites = bodyTex.match(/\([^)]*?[A-Z][a-zà-ž]+[^)]*?\d{4}[^)]*\)/g) || [];
+
+  const isNumeric = numericCites.length >= harvardParenCites.length && numericCites.length > 0;
+  const style = isNumeric ? 'numeric' : 'authoryear';
+
+  // Build lookup table for author-year matching
+  const lookup = bibEntries.map((entry) => {
+    // Parse surnames from the author string: "Surname, I., \& Surname, J."
+    // Split on \& or "and" — each segment is "Surname, Initials"
+    const authorParts = entry.authors.split(/\s*(?:\\?&|(?:\band\b))\s*/i);
+    const surnames = authorParts.map((part) => {
+      // First word before comma is the surname
+      const comma = part.indexOf(',');
+      if (comma > 0) return part.substring(0, comma).trim();
+      // No comma — last capitalised word
+      return part.trim().split(/\s+/).filter((w) => /^[A-Z]/.test(w)).pop() || part.trim();
+    }).filter(Boolean);
+    return { key: entry.key, year: entry.year, yearRaw: entry.year, surnames };
+  });
+
+  // Fuzzy surname match: handles typos (Ghosal vs Ghoshal), accents, hyphens
+  const normSurname = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+  const surnameMatch = (a, b) => {
+    const na = normSurname(a), nb = normSurname(b);
+    if (na === nb) return true;
+    // Multi-word surname: "Van Alstyne" normalized to "vanalstyne" should match "vanalstyne"
+    // Also handle partial: "Alstyne" should match "Van Alstyne" (one ends with the other)
+    if (na.length > 3 && nb.length > 3) {
+      if (na.endsWith(nb) || nb.endsWith(na)) return true;
+      if (na.startsWith(nb.substring(0, 4)) || nb.startsWith(na.substring(0, 4))) return true;
+    }
+    // Simple edit distance check for short names
+    if (Math.abs(na.length - nb.length) <= 2) {
+      let diff = 0;
+      for (let i = 0; i < Math.min(na.length, nb.length); i++) {
+        if (na[i] !== nb[i]) diff++;
+      }
+      diff += Math.abs(na.length - nb.length);
+      if (diff <= 2) return true;
+    }
+    return false;
+  };
+
+  const findKey = (authorPart, year) => {
+    const clean = authorPart.replace(/\s+et\s+al\.?/i, '').replace(/\\?&/g, '&').trim();
+    // Split on & or "and", then extract surname (keep multi-word names like "Van Alstyne")
+    const words = clean.split(/\s+(?:&|and)\s+/i).map((w) => {
+      const part = w.trim().replace(/,.*$/, '').trim(); // remove ", I." initials
+      // If it looks like "Surname, I." format, take everything before comma
+      if (/,/.test(w)) return w.split(',')[0].trim();
+      // Otherwise keep the full name (handles "Van Alstyne", "De Groot", etc.)
+      return part;
+    });
+    const isEtAl = /et\s+al/i.test(authorPart);
+
+    for (const entry of lookup) {
+      if (entry.year !== year) continue;
+      // et al. — match first author only
+      if (isEtAl && surnameMatch(entry.surnames[0], words[0])) return entry.key;
+      // Single author citation — match first surname or any surname in the entry
+      if (words.length === 1) {
+        if (entry.surnames.some((s) => surnameMatch(s, words[0]))) return entry.key;
+      }
+      // Multiple authors — match all listed surnames against any position
+      if (words.length > 1) {
+        const matched = words.every((w) => entry.surnames.some((s) => surnameMatch(s, w)));
+        if (matched) return entry.key;
+      }
+    }
+    return null;
+  };
+
+  // Collect all replacements as {from, to, replacement} tuples so we can
+  // build a position map for TC remapping.
+  const replacements = [];
+  const unresolved = [];
+
+  if (isNumeric) {
+    // [1], [2,3], [1-3] → \cite{keys}
+    for (const m of tex.matchAll(/\[(\d+)\s*[–-]\s*(\d+)\]/g)) {
+      const keys = [];
+      for (let idx = parseInt(m[1]) - 1; idx <= parseInt(m[2]) - 1 && idx < keysByIndex.length; idx++) {
+        if (keysByIndex[idx]) keys.push(keysByIndex[idx]);
+      }
+      if (keys.length) replacements.push({ from: m.index, to: m.index + m[0].length, replacement: `\\cite{${keys.join(',')}}` });
+    }
+    for (const m of tex.matchAll(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g)) {
+      // Skip ranges already handled above
+      if (replacements.some(r => r.from === m.index)) continue;
+      const keys = m[1].split(/\s*[,;]\s*/).map((n) => keysByIndex[parseInt(n) - 1]).filter(Boolean);
+      if (keys.length) replacements.push({ from: m.index, to: m.index + m[0].length, replacement: `\\cite{${keys.join(',')}}` });
+    }
+  } else {
+    // Surname pattern: handles accents (É, ü), hyphens (Méndez-Durón), apostrophes (O'Brien),
+    // multi-word (Van Alstyne), and standard names
+    const SN = `[A-ZÀ-Ž][a-zà-ž]+(?:[-'][A-ZÀ-Ž]?[a-zà-ž]+)*(?:\\s+[A-Z][a-zà-ž]+)*`;
+    const AUTHOR = `${SN}(?:\\s+(?:\\\\?&|and)\\s+${SN})?(?:\\s+et\\s+al\\.?)?`;
+
+    // First: handle Author (Year) → \textcite{key}
+    const textciteRe = new RegExp(`(${AUTHOR})\\s+\\((\\d{4}[a-z]?)\\)`, 'g');
+    for (const m of tex.matchAll(textciteRe)) {
+      const key = findKey(m[1], m[2].replace(/[a-z]$/, ''));
+      if (key) {
+        replacements.push({ from: m.index, to: m.index + m[0].length, replacement: `\\textcite{${key}}` });
+      } else {
+        unresolved.push(`${m[1]} (${m[2]})`);
+      }
+    }
+
+    // Then: handle parenthetical citations (single or multi-cite with semicolons)
+    for (const m of tex.matchAll(/\(([^)]*?\d{4}[a-z]?(?:\s*;[^)]*?\d{4}[a-z]?)*)\)/g)) {
+      const inner = m[1];
+      // Skip if it looks like a non-citation parenthetical
+      if (/^\s*[a-z]\s*[=<>]/.test(inner) || /^\d/.test(inner.trim())) continue;
+      // Skip if overlapping with a textcite replacement already collected
+      if (replacements.some(r => m.index < r.to && m.index + m[0].length > r.from)) continue;
+
+      const parts = inner.split(/\s*;\s*/);
+      const keys = [];
+      let prefix = '';
+      let allResolved = true;
+
+      for (const part of parts) {
+        let cleaned = part.replace(/^(?:e\.?g\.?,?\s*|see\s+|cf\.?\s*|i\.e\.?,?\s*)/i, (pm) => {
+          if (!prefix) prefix = pm.trim() + ' ';
+          return '';
+        });
+        const cm = cleaned.match(/(.+?),?\s*(\d{4}[a-z]?)\s*$/);
+        if (cm) {
+          const key = findKey(cm[1].trim(), cm[2].replace(/[a-z]$/, ''));
+          if (key) {
+            keys.push(key);
+          } else {
+            allResolved = false;
+            unresolved.push(`(${cleaned.trim()})`);
+          }
+        } else {
+          allResolved = false;
+        }
+      }
+
+      if (keys.length > 0 && allResolved) {
+        const replacement = prefix ? `(${prefix}\\cite{${keys.join(',')}})` : `\\parencite{${keys.join(',')}}`;
+        replacements.push({ from: m.index, to: m.index + m[0].length, replacement });
+      }
+    }
+  }
+
+  // --- 4. Remove the references section from the LaTeX ---
+  const refStart = tex.indexOf(refFullMatch);
+  if (refStart >= 0) {
+    replacements.push({ from: refStart, to: refStart + refFullMatch.length, replacement: '' });
+  }
+  // Also remove orphaned \hypertarget{references}
+  for (const m of tex.matchAll(/\\hypertarget\{references\}\{%?\s*\n?\}?\s*\n?/g)) {
+    if (!replacements.some(r => m.index >= r.from && m.index < r.to)) {
+      replacements.push({ from: m.index, to: m.index + m[0].length, replacement: '' });
+    }
+  }
+
+  // Sort replacements by position and apply end-to-start to build result + position map
+  replacements.sort((a, b) => a.from - b.from);
+
+  // Build the new text and a substitution list for position remapping
+  let newTex = tex;
+  // Apply end-to-start so positions stay valid
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const r = replacements[i];
+    newTex = newTex.slice(0, r.from) + r.replacement + newTex.slice(r.to);
+  }
+
+  // --- 5. Build .bib content ---
+  // Escape BibTeX special characters in field values
+  const bibEsc = (s) => {
+    // First normalize: convert \& to just & so we handle everything uniformly
+    let r = s.replace(/\\&/g, '&');
+    // Escape special BibTeX chars: & # % _ ~ need backslash
+    r = r.replace(/([&#%_~])/g, '\\$1');
+    // Remove unbalanced braces to prevent "Extra }" errors
+    let depth = 0;
+    for (const ch of r) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+    }
+    if (depth !== 0) r = r.replace(/[{}]/g, '');
+    return r;
+  };
+  const bibLines = bibEntries.map((e) => {
+    const fields = [];
+    if (e.authors) {
+      // BibTeX author format: "Last1, First1 and Last2, First2"
+      // Source format: "Last1, F., Last2, F., \& Last3, F." or "Last1, F., and Last2, F."
+      // Split on \& or standalone "and" first to get groups
+      const groups = e.authors.split(/\s*(?:\\?&|\band\b)\s*/i);
+      const allAuthors = [];
+      for (const group of groups) {
+        // Each group may be a single author "Surname, I." or multiple "Surname, I., Surname, I."
+        // Split individual authors: match "Word(s), Initial(s)." pattern
+        const authorMatches = [...group.matchAll(/([A-ZÀ-Ž][a-zà-ž]+(?:[-'][A-Za-z][a-zà-ž]*)*(?:\s+(?:von|van|de|del|den|der|di|le|la|el|al|Mc|Mac|O')[A-Za-z]*)*(?:\s+[A-Z][a-zà-ž]+)*),\s*((?:[A-Z]\.?\s*)+(?:[a-z]+\.?\s*)*)/g)];
+        if (authorMatches.length > 0) {
+          for (const m of authorMatches) {
+            allAuthors.push(`${m[1].trim()}, ${m[2].trim().replace(/[,\s]+$/, '')}`);
+          }
+        } else {
+          const cleaned = group.trim().replace(/,+$/, '');
+          if (cleaned) allAuthors.push(cleaned);
+        }
+      }
+      fields.push(`  author = {${allAuthors.join(' and ')}}`);
+    }
+    if (e.title) fields.push(`  title = {${bibEsc(e.title)}}`);
+    if (e.year) fields.push(`  year = {${e.year}}`);
+    if (e.journal) {
+      const jField = e.type === 'inproceedings' ? 'booktitle' : 'journal';
+      fields.push(`  ${jField} = {${bibEsc(e.journal)}}`);
+    }
+    if (e.volume) fields.push(`  volume = {${e.volume}}`);
+    if (e.issue) fields.push(`  number = {${e.issue}}`);
+    if (e.pages) fields.push(`  pages = {${e.pages}}`);
+    if (e.publisher) fields.push(`  publisher = {${bibEsc(e.publisher)}}`);
+    if (e.doi) fields.push(`  doi = {${e.doi}}`);
+    return `@${e.type}{${e.key},\n${fields.join(',\n')}\n}`;
+  });
+
+  // Deduplicate unresolved list and filter false positives
+  const falsePositiveRe = /^\(?(?:pp?\.|vol\.|no\.|ed\.|eds\.|ch\.|fig\.|tab\.|eq\.|sec\.|see\s|cf\.|n\s*=|p\s*[<>=]|\d)/i;
+  const uniqueUnresolved = [...new Set(unresolved)].filter((u) => {
+    const inner = u.replace(/^\(|\)$/g, '').trim();
+    if (falsePositiveRe.test(inner)) return false;
+    // Filter conference/org acronyms like "ECIS 2016", "AIS 2020" — all-caps + year
+    if (/^[A-Z]{2,8}\s+\d{4}/.test(inner)) return false;
+    // Must contain at least one letter that looks like a surname
+    if (!/[A-ZÀ-Ž][a-zà-ž]{2,}/.test(inner)) return false;
+    return true;
+  });
+  return { tex: newTex, bib: bibLines.join('\n\n'), style, unresolved: uniqueUnresolved, replacements };
 }
 
 /** Upload a ZIP file into an existing project, merging with existing files. */
@@ -702,9 +1405,23 @@ export async function updateFileContent(fileId, content, userId, tcPositions) {
 /** Rename/move a file within its project. */
 export async function renameFile(fileId, newPath) {
   if (!isValidFilePath(newPath)) throw new Error('Invalid file path');
+  // Capture the old path BEFORE the rename so we can tell whether this file
+  // was the project's main_file and migrate that pointer to the new path.
+  const before = await db.get('SELECT path, project_id FROM files WHERE id = $1', [fileId]);
   await db.run('UPDATE files SET path = $1, updated_at = NOW() WHERE id = $2', [newPath, fileId]);
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
-  if (file) await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
+  if (file) {
+    if (before && before.path !== newPath) {
+      // If the file we just renamed is the project's main file, follow the
+      // rename so subsequent compiles still target the right entry point.
+      await db.run(
+        'UPDATE projects SET main_file = $1, updated_at = NOW() WHERE id = $2 AND main_file = $3',
+        [newPath, file.project_id, before.path],
+      );
+    } else {
+      await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
+    }
+  }
   return file;
 }
 

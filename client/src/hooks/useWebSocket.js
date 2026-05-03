@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
+// Server-side WS maxPayload is 4 MiB; cap below that to leave headroom and
+// guarantee we never send a frame the receiver can't decode.
+const WS_MAX_FRAME = 3 * 1024 * 1024;
+
 /**
  * Manages WebSocket connection lifecycle, reconnection, and real-time message handling for collaboration.
  * @param {object|null} user - The authenticated user.
@@ -72,6 +76,9 @@ export default function useWebSocket(
       } else if (msg.type === 'comment-edit') {
         setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
       } else if (msg.type === 'tracked-change') {
+        // setTrackedChanges holds only the *active* file's tracked changes;
+        // ignore broadcasts for other files, otherwise we'd pollute the list
+        // with entries belonging to a file the user isn't currently viewing.
         if (activeFileRef.current?.id === msg.fileId) {
           setTrackedChanges((tc) => {
             const idx = tc.findIndex((c) => c.id === msg.change.id);
@@ -116,7 +123,7 @@ export default function useWebSocket(
         reconnectTimer.current = setTimeout(connect, delay);
       }
     };
-  }, [user]);
+  }, [user, activeFileRef, setComments, setHistoryVersion, setTrackedChanges]);
 
   // Connect WS when user is logged in (even without a project, for invitations etc.)
   useEffect(() => {
@@ -161,9 +168,20 @@ export default function useWebSocket(
     return () => window.removeEventListener('ws:connected', onConnected);
   }, [project, user]);
 
+  // Drop oversized frames client-side (see WS_MAX_FRAME above): if a single
+  // edit serializes too large, the local doc still updates and the next HTTP
+  // save will bring collaborators back in sync.
   const sendWsMessage = useCallback((msg) => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+    if (!ws || ws.readyState !== 1) return;
+    const payload = JSON.stringify(msg);
+    if (payload.length > WS_MAX_FRAME) {
+      console.warn(
+        `[ws] dropping ${msg.type} frame (${(payload.length / 1024 / 1024).toFixed(2)} MiB) — exceeds ${WS_MAX_FRAME / 1024 / 1024} MiB cap`,
+      );
+      return;
+    }
+    ws.send(payload);
   }, []);
 
   return {

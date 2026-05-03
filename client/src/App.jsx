@@ -17,11 +17,14 @@ import HistoryView from './components/HistoryView.jsx';
 import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
-import { get, post, patch, getCsrfToken } from './api.js';
+import { get, post, patch, upload } from './api.js';
 import prettyBib from './utils/prettyBib.js';
-import { LANGUAGES, getLanguage } from './utils/spellcheck.js';
+import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
+import { getSetting, setSetting } from './utils/settings.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
+import { EditorRefProvider } from './contexts/EditorRefContext.jsx';
+import { ProjectProvider } from './contexts/ProjectContext.jsx';
 import useProject from './hooks/useProject.js';
 import useWebSocket from './hooks/useWebSocket.js';
 import useCompilation from './hooks/useCompilation.js';
@@ -156,6 +159,8 @@ function AppInner() {
 
   sendWsRef.current = sendWsMessage;
 
+  const [showTrackedChangesInPdf, setShowTrackedChangesInPdf] = useState(false);
+
   const {
     compiling,
     pdfUrl,
@@ -173,10 +178,11 @@ function AppInner() {
     handleCompile,
     handleStopCompile,
     handleDiff,
-  } = useCompilation(project, activeFile, handleSave, editorRef);
+  } = useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges: showTrackedChangesInPdf });
 
-  const { githubLink, setGithubLink, hasGithubToken, setHasGithubToken, autoSyncStatus, handleToggleAutoSync } =
+  const { githubLink, setGithubLink, hasGithubToken, autoSyncStatus, handleToggleAutoSync } =
     useGitHubSync(project);
+  const autoSaveActive = !!hasGithubToken && !!githubLink?.linked && !!githubLink?.autoPush;
 
   const ui = useUIState();
 
@@ -185,9 +191,9 @@ function AppInner() {
   const [groupFilesByType, setGroupFilesByType] = useState(true);
   const [tapsEnabled, setTapsEnabled] = useState(false);
   const [projectSettingsTab, setProjectSettingsTab] = useState(null);
+  const [spellLang, setSpellLangState] = useState(() => getLanguage());
 
   const {
-    editorLine,
     setEditorLine,
     pdfClickPos,
     setPdfClickPos,
@@ -202,6 +208,8 @@ function AppInner() {
     tapsDiagnostics,
     handleTapsCheck,
     handleFormatDocument,
+    formatWarning,
+    setFormatWarning,
     handleWordCount,
     citeKeys,
     labelKeys,
@@ -226,6 +234,7 @@ function AppInner() {
     handleSave,
     setProject,
     handleCompile,
+    handleStopCompile,
   });
 
   const handleUploadBinary = useCallback(
@@ -235,12 +244,7 @@ function AppInner() {
       formData.append('file', file);
       formData.append('path', fileName);
       try {
-        const res = await fetch(`/api/projects/${project.id}/upload-file`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'X-CSRF-Token': getCsrfToken() },
-          body: formData,
-        });
+        const res = await upload(`/api/projects/${project.id}/upload-file`, formData);
         if (!res.ok) return;
         const result = await res.json();
         if (result.updated) {
@@ -255,18 +259,18 @@ function AppInner() {
         console.error('Binary upload failed:', err);
       }
     },
-    [project, handleCompile],
+    [project, handleCompile, setFiles],
   );
 
   useEffect(() => {
     if (project?.id) {
-      const stored = localStorage.getItem(`flowtex-show-box-warnings-${project.id}`);
+      const stored = getSetting(`show-box-warnings-${project.id}`);
       if (stored !== null) setShowBoxWarnings(stored === 'true');
-      const lintStored = localStorage.getItem(`flowtex-show-lint-warnings-${project.id}`);
+      const lintStored = getSetting(`show-lint-warnings-${project.id}`);
       if (lintStored !== null) setShowLintWarnings(lintStored === 'true');
-      const groupStored = localStorage.getItem(`flowtex-group-files-${project.id}`);
+      const groupStored = getSetting(`group-files-${project.id}`);
       if (groupStored !== null) setGroupFilesByType(groupStored !== 'false');
-      const tapsStored = localStorage.getItem(`flowtex-taps-enabled-${project.id}`);
+      const tapsStored = getSetting(`taps-enabled-${project.id}`);
       if (tapsStored !== null) setTapsEnabled(tapsStored !== 'false');
     }
   }, [project?.id]);
@@ -303,6 +307,7 @@ function AppInner() {
       window.removeEventListener('ws:tc-delete-mark', tcDeleteHandler);
       window.removeEventListener('ws:removed-from-project', removedHandler);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // TC resolve: editor content is synced via normal OT from resolveTrackedChangeEdit,
@@ -329,7 +334,7 @@ function AppInner() {
       .then((r) => r.json())
       .then((msgs) => setChatMessages(msgs || []))
       .catch((e) => console.warn('Failed to load chat messages:', e));
-  }, [project]);
+  }, [project, needsAutoCompile, setChatMessages, setCompileLog, setGeneratedFiles, setPdfUrl]);
 
   useEffect(() => {
     const base = project ? `${project.name} — FlowTex` : 'FlowTex';
@@ -391,8 +396,22 @@ function AppInner() {
   }
 
   return (
-    <div className="app">
-      {ui.showHistory ? (
+    <EditorRefProvider value={editorRef}>
+      <ProjectProvider
+        value={{
+          project,
+          setProject,
+          files,
+          setFiles,
+          activeFile,
+          setActiveFile,
+          members,
+          setMembers,
+          switchFile,
+        }}
+      >
+        <div className="app">
+          {ui.showHistory ? (
         <div className="history-toolbar">
           <button className="history-back-btn" onClick={() => ui.setShowHistory(false)}>
             <ChevronLeftIcon />
@@ -439,6 +458,8 @@ function AppInner() {
           showComments={ui.showComments}
           showLineNumbers={ui.showLineNumbers}
           wordWrap={ui.wordWrap}
+          visualMode={ui.visualMode}
+          onToggleVisualMode={() => ui.setVisualMode((v) => !v)}
           onHelp={(topic) => {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);
@@ -455,29 +476,29 @@ function AppInner() {
           onToggleBoxWarnings={() => {
             const newVal = !showBoxWarnings;
             setShowBoxWarnings(newVal);
-            localStorage.setItem(`flowtex-show-box-warnings-${project?.id}`, newVal);
+            setSetting(`show-box-warnings-${project?.id}`, newVal);
           }}
           showChat={showChat}
           onToggleChat={() => setShowChat((v) => !v)}
           onZoomIn={() => editorRef.current?.zoomIn()}
           onZoomOut={() => editorRef.current?.zoomOut()}
+          showTrackedChangesInPdf={showTrackedChangesInPdf}
+          onToggleTrackedChangesInPdf={() => setShowTrackedChangesInPdf((v) => !v)}
           githubLink={githubLink}
           autoSyncStatus={autoSyncStatus}
           lastSyncAt={githubLink?.lastSyncAt}
           onToggleAutoSync={handleToggleAutoSync}
           spellLanguages={LANGUAGES}
-          spellLang={editorRef.current?.getSpellLang?.() || getLanguage()}
-          onSpellLangChange={(code) => editorRef.current?.setSpellLang(code)}
+          spellLang={spellLang}
+          onSpellLangChange={(code) => {
+            setLanguage(code);
+            setSpellLangState(code);
+          }}
           onUploadZip={async (file) => {
             if (!project) return;
             const formData = new FormData();
             formData.append('file', file);
-            const res = await fetch(`/api/projects/${project.id}/upload-zip`, {
-              method: 'POST',
-              body: formData,
-              credentials: 'include',
-              headers: { 'X-CSRF-Token': getCsrfToken() },
-            });
+            const res = await upload(`/api/projects/${project.id}/upload-zip`, formData);
             if (res.ok) {
               const data = await res.json();
               setFiles(data.files);
@@ -492,14 +513,15 @@ function AppInner() {
               const f = files.find((f) => f.id === cursor.fileId);
               if (f) {
                 switchFile(f);
-                // Wait for editor to mount with the new file before jumping
+                // Wait for editor to mount with the new file before jumping.
+                // Always increment `attempts` so we don't loop forever if the
+                // editor never mounts (or mounts immediately).
                 const tryJump = (attempts = 0) => {
+                  if (attempts >= 20) return;
                   const view = editorRef.current;
-                  if (view && attempts < 20) {
-                    setTimeout(() => {
-                      editorRef.current?.goToPosition(cursor.head);
-                    }, 100);
-                  } else if (attempts < 20) {
+                  if (view) {
+                    setTimeout(() => editorRef.current?.goToPosition(cursor.head), 100);
+                  } else {
                     setTimeout(() => tryJump(attempts + 1), 50);
                   }
                 };
@@ -510,18 +532,8 @@ function AppInner() {
         />
       )}
       <ModalContainer
-        project={project}
-        files={files}
-        activeFile={activeFile}
         user={user}
-        members={members}
         ui={ui}
-        setProject={setProject}
-        setMembers={setMembers}
-        setFiles={setFiles}
-        setActiveFile={setActiveFile}
-        switchFile={switchFile}
-        editorRef={editorRef}
         trackChangesMode={trackChangesMode}
         setTrackChangesMode={setTrackChangesMode}
         githubLink={githubLink}
@@ -534,6 +546,28 @@ function AppInner() {
         projectSettingsTab={projectSettingsTab}
         setProjectSettingsTab={setProjectSettingsTab}
       />
+      {formatWarning && (
+        <div className="modal-overlay confirm-dialog-overlay" onClick={() => setFormatWarning(null)}>
+          <div className="modal-card confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <p className="confirm-dialog-message">{formatWarning}</p>
+            <div className="confirm-dialog-actions">
+              <button className="confirm-dialog-cancel" onClick={() => setFormatWarning(null)}>
+                Cancel
+              </button>
+              <button
+                className="confirm-dialog-confirm"
+                onClick={() => {
+                  setFormatWarning(null);
+                  setProjectSettingsTab('editor');
+                  ui.setShowProjectSettings(true);
+                }}
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="main-layout">
         {ui.showHistory && (
           <HistoryView
@@ -606,14 +640,22 @@ function AppInner() {
                     }}
                     onPrettyPrint={(file) => {
                       if (!file.path.endsWith('.bib')) return;
+                      // Pretty-print using the file's own content. Reading from the editor after
+                      // switchFile + setTimeout races against further file switches and could
+                      // pretty-print whichever file the editor happens to show when the timer fires.
+                      const source = file.content;
+                      if (source == null) return;
+                      const pretty = prettyBib(source);
                       switchFile(file);
+                      // After the switch settles, push the pretty content into the editor — but
+                      // only if the editor is still on this file (use the ref so we observe the
+                      // current activeFile, not the closed-over one from click time).
                       setTimeout(() => {
-                        const content = editorRef.current?.getContent();
-                        if (content == null) return;
-                        const pretty = prettyBib(content);
-                        editorRef.current?.replaceContent?.(pretty);
-                        handleSave(pretty);
+                        if (activeFileRef.current?.id === file.id) {
+                          editorRef.current?.replaceContent?.(pretty);
+                        }
                       }, 100);
+                      handleSave(pretty, undefined, file.id);
                     }}
                     onCollapse={() => ui.setShowFiles(false)}
                   />
@@ -654,7 +696,9 @@ function AppInner() {
                                 );
                                 const data = await res.json();
                                 setActiveGenFile({ name: data.name, content: data.content });
-                              } catch {}
+                              } catch (e) {
+                                console.warn('Failed to load generated file', e);
+                              }
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
@@ -687,7 +731,9 @@ function AppInner() {
                           a.download = name;
                           a.click();
                           URL.revokeObjectURL(url);
-                        } catch {}
+                        } catch (e) {
+                          console.warn('Failed to download generated file', e);
+                        }
                       }}
                     />
                   )}
@@ -737,12 +783,13 @@ function AppInner() {
                 </svg>
               </button>
             )}
-            {project && !wsConnected && (
-              <div className="ws-disconnected-banner">
-                Connection lost — reconnecting. Changes are saved locally and will sync when the connection is restored.
-              </div>
-            )}
             <div className="editor-area">
+              {project && !wsConnected && (
+                <div className="ws-disconnected-banner" role="status">
+                  <span className="ws-disconnected-dot" aria-hidden="true" />
+                  Connection lost — reconnecting. Edits stay local until it&apos;s back.
+                </div>
+              )}
               {activeGenFile ? (
                 <div className="generated-file-viewer">
                   <div className="editor-header">
@@ -787,6 +834,9 @@ function AppInner() {
                     onLintDiagnostics={setLintDiagnostics}
                     showLineNumbers={ui.showLineNumbers}
                     wordWrap={ui.wordWrap}
+                    visualMode={ui.visualMode}
+                    onToggleVisualMode={() => ui.setVisualMode((v) => !v)}
+                    spellLang={spellLang}
                     trackChangesMode={trackChangesMode}
                     trackedChanges={trackedChanges}
                     reviewingChangeId={reviewCurrentChange?.id || null}
@@ -814,9 +864,9 @@ function AppInner() {
                     onReviewPrev={reviewPrev}
                     citeKeys={citeKeys}
                     labelKeys={labelKeys}
-                    autoSaveOn={!!hasGithubToken && !!githubLink?.linked && !!githubLink?.autoPush}
+                    autoSaveOn={autoSaveActive}
                     autoSaveLabel={
-                      hasGithubToken && githubLink?.linked && githubLink?.autoPush
+                      autoSaveActive
                         ? autoSyncStatus === 'saving'
                           ? 'Saving...'
                           : autoSyncStatus === 'error'
@@ -919,6 +969,8 @@ function AppInner() {
                 const res = await post(`/api/compile/${project.id}/clean`);
                 const data = await res.json();
                 setConsoleOutput(`Deleted ${data.deleted} generated file(s).`);
+                setCompileLog('');
+                setLintDiagnostics([]);
                 setPdfUrl(null);
                 setGeneratedFiles([]);
                 setActiveGenFile(null);
@@ -939,12 +991,19 @@ function AppInner() {
               }}
               tapsDiagnostics={tapsEnabled ? tapsDiagnostics : []}
               showBoxWarnings={showBoxWarnings}
+              onToggleBoxWarnings={() => {
+                const newVal = !showBoxWarnings;
+                setShowBoxWarnings(newVal);
+                setSetting(`show-box-warnings-${project?.id}`, newVal);
+              }}
               mainFileExists={files.some((f) => f.path === mainFilePath)}
               mainFileChanged={mainFileChanged}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);
                 ui.setShowProjectSettings(true);
               }}
+              showTrackedChangesInPdf={showTrackedChangesInPdf}
+              onToggleTrackedChangesInPdf={() => setShowTrackedChangesInPdf((v) => !v)}
             />
             {showChat ? (
               <ChatPanel
@@ -982,7 +1041,9 @@ function AppInner() {
           </>
         )}
       </div>
-    </div>
+        </div>
+      </ProjectProvider>
+    </EditorRefProvider>
   );
 }
 

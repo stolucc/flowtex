@@ -14,14 +14,13 @@ import { get, post, put, patch, del } from '../../api.js';
 
 describe('useProject', () => {
   let pushStateSpy;
-  let replaceStateSpy;
 
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset URL to / before each test
     window.history.replaceState(null, '', '/');
     pushStateSpy = vi.spyOn(window.history, 'pushState');
-    replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+    vi.spyOn(window.history, 'replaceState');
     // Default: no projects to load from URL
     get.mockResolvedValue({ json: () => Promise.resolve([]) });
   });
@@ -126,6 +125,37 @@ describe('useProject', () => {
     });
 
     expect(put).toHaveBeenCalledWith('/api/projects/files/f1', { content: 'new', tcPositions });
+  });
+
+  it('handleSave honours explicit fileId so a debounced save targets the original file even after the active file changes', async () => {
+    // Regression test for a data-loss bug: a 1-second debounced save
+    // captured the editor's content but resolved the target file from
+    // React's `activeFile`. Switching files within the debounce window
+    // wrote the previous file's text to the new file's id.
+    put.mockResolvedValue({});
+    const f1 = { id: 'f1', path: 'ref.bib', content: 'old bib' };
+    const f2 = { id: 'f2', path: 'main.tex', content: 'old tex' };
+    get.mockImplementation((url) => {
+      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([f1, f2]) });
+      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
+      return Promise.resolve({ json: () => Promise.resolve([]) });
+    });
+
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => {
+      result.current.selectProject({ id: 'p1', name: 'P' });
+    });
+    await act(async () => { await Promise.resolve(); });
+    act(() => { result.current.switchFile(f1); });
+    // User switches to main.tex *before* the bib's debounced save fires.
+    act(() => { result.current.switchFile(f2); });
+    await act(async () => {
+      await result.current.handleSave('formatted bib content', undefined, f1.id);
+    });
+
+    expect(put).toHaveBeenCalledWith('/api/projects/files/f1', { content: 'formatted bib content' });
+    // main.tex must NOT have been overwritten with the bib content.
+    expect(put).not.toHaveBeenCalledWith('/api/projects/files/f2', expect.objectContaining({ content: 'formatted bib content' }));
   });
 
   it('handleCreateFile calls post, adds file, switches to new file', async () => {

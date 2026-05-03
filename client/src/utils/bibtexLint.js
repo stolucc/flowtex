@@ -22,7 +22,6 @@ const TYPE_ALIASES = {
   software: 'misc',
 };
 
-const ENTRY_RE = /@(\w+)\s*[{(]/g;
 const FIELD_RE = /^(\s*)([a-zA-Z_][a-zA-Z0-9_-]*)\s*=/;
 
 /**

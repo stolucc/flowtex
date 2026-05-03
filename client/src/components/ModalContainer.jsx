@@ -5,6 +5,8 @@ import ProjectSettingsModal from './ProjectSettingsModal.jsx';
 import WordCountModal from './WordCountModal.jsx';
 import { get, post, put, patch } from '../api.js';
 import { resolveUsedFiles } from '@shared/texDeps.js';
+import { useEditorRef } from '../contexts/EditorRefContext.jsx';
+import { useProjectContext } from '../contexts/ProjectContext.jsx';
 
 const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
@@ -12,18 +14,8 @@ const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
 
 /** Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.). */
 export default function ModalContainer({
-  project,
-  files,
-  activeFile,
   user,
-  members,
   ui,
-  setProject,
-  setMembers,
-  setFiles,
-  setActiveFile,
-  switchFile,
-  editorRef,
   trackChangesMode,
   setTrackChangesMode,
   githubLink,
@@ -36,6 +28,19 @@ export default function ModalContainer({
   projectSettingsTab,
   setProjectSettingsTab,
 }) {
+  const editorRef = useEditorRef();
+  const {
+    project,
+    setProject,
+    files,
+    setFiles,
+    activeFile,
+    setActiveFile,
+    members,
+    setMembers,
+    switchFile,
+  } = useProjectContext();
+
   return (
     <>
       {ui.showShareModal && (
@@ -212,7 +217,7 @@ export default function ModalContainer({
             file={activeFile}
             onClose={() => ui.setShowBibEnrich(false)}
             onApply={(newContent) => {
-              handleSave(newContent);
+              handleSave(newContent, undefined, activeFile.id);
               setFiles((prev) => prev.map((f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
               setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
             }}
@@ -225,7 +230,7 @@ export default function ModalContainer({
             onClose={() => ui.setShowZotero(false)}
             bibFileExists={files.some((f) => f.path.endsWith('.bib'))}
             existingBibKeys={(() => {
-              const re = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
+              const re = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
               const keys = [];
               for (const f of files) {
                 if (!f.path.endsWith('.bib') || !f.content) continue;
@@ -257,12 +262,16 @@ export default function ModalContainer({
                 return;
               }
               const newContent = bibFile.content.trimEnd() + '\n\n' + bibtex;
-              setFiles((prev) => prev.map((f) => (f.id === bibFile.id ? { ...f, content: newContent } : f)));
-              if (activeFile?.id === bibFile.id) {
+              const targetId = bibFile.id;
+              setFiles((prev) => prev.map((f) => (f.id === targetId ? { ...f, content: newContent } : f)));
+              // Only update the editor view if it's still showing this file —
+              // a setTimeout here previously raced a file switch and could
+              // overwrite the wrong file's editor content.
+              if (activeFile?.id === targetId) {
                 setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
-                setTimeout(() => editorRef.current?.replaceContent(newContent), 50);
+                editorRef.current?.replaceContent?.(newContent);
               }
-              await put(`/api/projects/files/${bibFile.id}`, { content: newContent });
+              await put(`/api/projects/files/${targetId}`, { content: newContent });
             }}
           />
         </Suspense>

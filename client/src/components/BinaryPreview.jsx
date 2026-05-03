@@ -73,7 +73,7 @@ export default function BinaryPreview({ file }) {
           containerRef.current.appendChild(wrapper);
           await page.render({ canvasContext: ctx, viewport }).promise;
         }
-      } catch (e) {
+      } catch {
         if (!cancelled && containerRef.current) {
           containerRef.current.textContent = 'Failed to load PDF';
         }

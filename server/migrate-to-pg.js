@@ -127,7 +127,7 @@ async function migrate() {
           [t.user_id, t.token, t.updated_at || new Date().toISOString()],
         );
       }
-    } catch (e) {
+    } catch {
       console.log('No github_tokens table, skipping.');
     }
 
@@ -149,7 +149,7 @@ async function migrate() {
           ],
         );
       }
-    } catch (e) {
+    } catch {
       console.log('No project_github_links table, skipping.');
     }
 
@@ -163,7 +163,7 @@ async function migrate() {
           [i.id, i.project_id, i.email, i.role, i.inviter_id, i.status, i.created_at || new Date().toISOString()],
         );
       }
-    } catch (e) {
+    } catch {
       console.log('No project_invitations table, skipping.');
     }
 
@@ -177,7 +177,7 @@ async function migrate() {
           [t.id, t.user_id, t.name, t.color, t.created_at || new Date().toISOString()],
         );
       }
-    } catch (e) {
+    } catch {
       console.log('No tags table, skipping.');
     }
 
@@ -191,7 +191,7 @@ async function migrate() {
           pt.tag_id,
         ]);
       }
-    } catch (e) {
+    } catch {
       console.log('No project_tags table, skipping.');
     }
 
@@ -214,7 +214,7 @@ async function migrate() {
           ],
         );
       }
-    } catch (e) {
+    } catch {
       console.log('No file_versions table, skipping.');
     }
 

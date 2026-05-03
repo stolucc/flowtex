@@ -113,6 +113,7 @@ function mockRes() {
     }),
     cookie: vi.fn().mockReturnThis(),
     clearCookie: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
   };
   return res;
 }

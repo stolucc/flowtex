@@ -59,3 +59,25 @@ export async function patch(path, body) {
 export async function del(path) {
   return request(path, { method: 'DELETE' });
 }
+
+/**
+ * Upload a FormData payload (e.g. multipart/form-data file uploads).
+ * Mirrors the CSRF / credentials / 401 handling of `post`/`put`/`patch`,
+ * but lets the browser set the multipart Content-Type and boundary itself.
+ * @param {string} path - API path appended to BASE.
+ * @param {FormData} formData - The multipart payload.
+ * @returns {Promise<Response>}
+ */
+export async function upload(path, formData) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-CSRF-Token': getCsrfToken() },
+    body: formData,
+  });
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    window.dispatchEvent(new Event('auth:expired'));
+    throw new Error('Not authenticated');
+  }
+  return res;
+}

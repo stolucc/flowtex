@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { requireMember } from '../middleware/auth.js';
 import * as gh from '../services/githubService.js';
 import logger from '../logger.js';
+import { stripPaths } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -118,7 +119,7 @@ router.put('/link/:projectId', async (req, res) => {
   const { repo, branch } = req.body;
   if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim()))
     return res.status(400).json({ error: 'Repo must be in owner/repo format' });
-  if (branch && (!/^[a-zA-Z0-9._\/-]+$/.test(branch) || branch.startsWith('-'))) {
+  if (branch && (!/^[a-zA-Z0-9._/-]+$/.test(branch) || branch.startsWith('-'))) {
     return res.status(400).json({ error: 'Invalid branch name' });
   }
 
@@ -232,8 +233,8 @@ router.post('/import', async (req, res) => {
     res.json(project);
   } catch (err) {
     logger.error({ err }, 'GitHub import error');
-    const safeMsg = (err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@');
-    res.status(err.status || 500).json({ error: safeMsg });
+    const msg = stripPaths((err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@'));
+    res.status(err.status || 500).json({ error: msg });
   }
 });
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { UUID_RE } from '../middleware/auth.js';
-import logger from '../logger.js';
+import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -22,8 +22,7 @@ router.get('/:projectId', async (req, res) => {
     messages.reverse();
     res.json(messages);
   } catch (err) {
-    logger.error({ err }, 'Chat history error');
-    res.status(500).json({ error: 'Internal server error' });
+    sendError(res, err);
   }
 });
 

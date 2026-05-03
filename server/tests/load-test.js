@@ -16,7 +16,6 @@
 import http from 'http';
 import https from 'https';
 import { WebSocket } from 'ws';
-import crypto from 'crypto';
 import pg from 'pg';
 
 // ── Config ─────────────────────────────────────────────────────────────
@@ -64,328 +63,6 @@ async function fetchSourceFiles() {
   }
 }
 
-// DEAD CODE — kept for reference but replaced by real project content
-function generateLatexDocument(userName, projectName) {
-  const sectionNames = [
-    'Introduction',
-    'Background and Related Work',
-    'Theoretical Framework',
-    'Methodology',
-    'System Architecture',
-    'Experimental Setup',
-    'Results and Analysis',
-    'Statistical Validation',
-    'Ablation Studies',
-    'Scalability Analysis',
-    'Discussion',
-    'Limitations and Future Work',
-    'Ethical Considerations',
-    'Conclusion',
-  ];
-
-  const loremParas = [
-    `Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
-incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis
-nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore
-eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt
-in culpa qui officia deserunt mollit anim id est laborum.`,
-    `Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac
-turpis egestas. Vestibulum tortor quam, feugiat vitae, ultricies eget, tempor
-sit amet, ante. Donec eu libero sit amet quam egestas semper. Aenean ultricies
-mi vitae est. Mauris placerat eleifend leo. Quisque sit amet est et sapien
-ullamcorper pharetra. Vestibulum erat wisi, condimentum sed, commodo vitae,
-ornare sit amet, wisi.`,
-    `Curabitur dictum gravida mauris. Nam arcu libero, nonummy eget, consectetuer
-id, vulputate a, magna. Donec vehicula augue eu neque. Pellentesque habitant
-morbi tristique senectus et netus et malesuada fames ac turpis egestas. Mauris
-ut leo. Cras viverra metus rhoncus sem. Nulla et lectus vestibulum urna
-fringilla ultrices. Phasellus eu tellus sit amet tortor gravida placerat.
-Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.`,
-    `Praesent eget sem vel leo ultrices bibendum. Aenean faucibus. Morbi dolor
-nulla, malesuada eu, pulvinar at, mollis ac, nulla. Curabitur auctor semper
-nulla. Donec varius orci eget risus. Duis nibh mi, congue eu, accumsan
-eleifend, sagittis quis, diam. Duis eget orci sit amet orci dignissim
-rutrum. Nam dui ligula, fringilla a, euismod sodales, sollicitudin vel, wisi.`,
-  ];
-
-  function randPara() {
-    return loremParas[Math.floor(Math.random() * loremParas.length)];
-  }
-
-  const sections = sectionNames.map((name, i) => {
-    let content = `\n\\section{${name}}\n\n${randPara()}\n\n${randPara()}\n`;
-
-    // Math subsection every section
-    content += `
-\\subsection{Formal Analysis}
-
-The core relationship in this context is captured by:
-\\begin{equation}
-  \\mathcal{L}_{${i + 1}}(\\theta) = -\\frac{1}{N}\\sum_{j=1}^{N} \\left[ y_j \\log\\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b) + (1 - y_j)\\log(1 - \\sigma(\\mathbf{w}^\\top\\mathbf{x}_j + b)) \\right] + \\frac{\\lambda}{2}\\|\\theta\\|_2^2
-  \\label{eq:loss${i + 1}}
-\\end{equation}
-
-where $\\sigma(z) = (1 + e^{-z})^{-1}$ is the logistic sigmoid, $\\theta = (\\mathbf{w}, b)$
-are the model parameters, and $\\lambda > 0$ is the regularisation coefficient. The gradient
-with respect to $\\mathbf{w}$ is:
-\\[
-  \\nabla_{\\mathbf{w}}\\mathcal{L} = -\\frac{1}{N}\\sum_{j=1}^{N}(y_j - \\hat{y}_j)\\mathbf{x}_j + \\lambda\\mathbf{w}
-\\]
-
-For the multi-class generalisation, we employ the softmax function:
-\\[
-  P(Y = k \\mid \\mathbf{x}) = \\frac{\\exp(\\mathbf{w}_k^\\top \\mathbf{x})}{\\sum_{c=1}^{C} \\exp(\\mathbf{w}_c^\\top \\mathbf{x})}
-\\]
-
-The Hessian matrix is given by $\\mathbf{H} = \\mathbf{X}^\\top \\mathbf{S} \\mathbf{X} + \\lambda\\mathbf{I}$,
-where $\\mathbf{S} = \\mathrm{diag}(\\hat{y}_j(1-\\hat{y}_j))$. Since $\\mathbf{H} \\succ 0$,
-the objective is strictly convex and admits a unique minimiser.
-
-${randPara()}
-`;
-
-    // Table every 2 sections
-    if (i % 2 === 0) {
-      content += `
-\\subsection{Quantitative Results}
-
-\\begin{table}[h]
-\\centering
-\\caption{Performance metrics for Section~${i + 1} experiments.}
-\\label{tab:results${i + 1}}
-\\begin{tabular}{lcccccc}
-\\toprule
-\\textbf{Method} & \\textbf{Prec.} & \\textbf{Rec.} & \\textbf{F1} & \\textbf{AUC} & \\textbf{Time (s)} & \\textbf{Params} \\\\
-\\midrule
-Baseline-A       & 0.72 & 0.68 & 0.70 & 0.74 & 12.3  & 1.2M \\\\
-Baseline-B       & 0.75 & 0.71 & 0.73 & 0.77 & 15.7  & 2.1M \\\\
-Transformer-S    & 0.81 & 0.79 & 0.80 & 0.85 & 45.2  & 12M  \\\\
-Transformer-L    & 0.84 & 0.82 & 0.83 & 0.88 & 128.6 & 110M \\\\
-Ours (small)     & 0.86 & 0.85 & 0.86 & 0.90 & 23.1  & 4.5M \\\\
-Ours (large)     & \\textbf{0.91} & \\textbf{0.89} & \\textbf{0.90} & \\textbf{0.94} & 67.8  & 35M  \\\\
-\\bottomrule
-\\end{tabular}
-\\end{table}
-
-As shown in Table~\\ref{tab:results${i + 1}}, our proposed method achieves
-superior performance across all metrics while using significantly fewer
-parameters than the Transformer-L baseline. The efficiency gains are
-particularly notable in the small variant.
-
-${randPara()}
-`;
-    }
-
-    // Lists every 3 sections
-    if (i % 3 === 0) {
-      content += `
-\\subsection{Key Observations}
-
-The principal findings from this analysis are:
-\\begin{itemize}
-  \\item The convergence rate scales as $\\mathcal{O}(1/\\sqrt{T})$ for the stochastic variant
-        and $\\mathcal{O}(1/T^2)$ for the accelerated version with Nesterov momentum
-  \\item Memory consumption grows linearly with batch size $B$ and quadratically with
-        sequence length $L$, i.e., $\\Theta(BL^2d)$ for attention-based models
-  \\item Wall-clock time is dominated by the matrix decomposition step when $d > 10^4$
-  \\item Gradient clipping with threshold $\\tau = 1.0$ prevents training instability
-        without degrading final accuracy by more than $0.3\\%$
-  \\item The algorithm achieves near-optimal performance when the condition number
-        $\\kappa(\\mathbf{A}) < 10^3$, degrading gracefully beyond this threshold
-\\end{itemize}
-
-The recommended procedure is:
-\\begin{enumerate}
-  \\item Preprocess inputs via whitening: $\\tilde{\\mathbf{x}} = \\mathbf{\\Sigma}^{-1/2}(\\mathbf{x} - \\boldsymbol{\\mu})$
-  \\item Apply the learned transformation $\\phi: \\mathbb{R}^d \\to \\mathbb{R}^k$ where $k \\ll d$
-  \\item Initialise weights using He initialisation: $w_{ij} \\sim \\mathcal{N}(0, 2/n_{\\mathrm{in}})$
-  \\item Optimise via AdamW with learning rate $\\eta = 3 \\times 10^{-4}$, $\\beta_1 = 0.9$, $\\beta_2 = 0.999$
-  \\item Apply cosine annealing schedule: $\\eta_t = \\eta_{\\min} + \\frac{1}{2}(\\eta_{\\max} - \\eta_{\\min})(1 + \\cos(\\pi t/T))$
-  \\item Validate on held-out set every 500 steps; apply early stopping with patience 10
-\\end{enumerate}
-`;
-    }
-
-    // Algorithm block every 4 sections
-    if (i % 4 === 1) {
-      content += `
-\\subsection{Algorithmic Detail}
-
-The optimisation procedure is formalised below.
-
-\\medskip
-\\noindent\\textbf{Algorithm ${Math.floor(i / 4) + 1}:} Adaptive Gradient Method (Variant ${i + 1})
-\\begin{quote}
-\\textbf{Input:} Dataset $\\mathcal{D} = \\{(\\mathbf{x}_i, y_i)\\}_{i=1}^N$, learning rate $\\eta$, epochs $T$ \\\\
-\\textbf{Output:} Optimised parameters $\\theta^*$ \\\\[4pt]
-Initialise $\\theta_0$, $\\mathbf{m}_0 \\leftarrow \\mathbf{0}$, $\\mathbf{v}_0 \\leftarrow \\mathbf{0}$ \\\\
-\\textbf{for} $t = 1$ \\textbf{to} $T$ \\textbf{do} \\\\
-\\quad Sample mini-batch $\\mathcal{B}_t \\subset \\mathcal{D}$ with $|\\mathcal{B}_t| = B$ \\\\
-\\quad $\\mathbf{g}_t \\leftarrow \\frac{1}{B}\\sum_{(\\mathbf{x},y) \\in \\mathcal{B}_t} \\nabla_\\theta \\ell(f_\\theta(\\mathbf{x}), y)$ \\\\
-\\quad $\\mathbf{m}_t \\leftarrow \\beta_1 \\mathbf{m}_{t-1} + (1-\\beta_1)\\mathbf{g}_t$ \\\\
-\\quad $\\mathbf{v}_t \\leftarrow \\beta_2 \\mathbf{v}_{t-1} + (1-\\beta_2)\\mathbf{g}_t^2$ \\\\
-\\quad $\\hat{\\mathbf{m}}_t \\leftarrow \\mathbf{m}_t / (1 - \\beta_1^t)$, \\quad $\\hat{\\mathbf{v}}_t \\leftarrow \\mathbf{v}_t / (1 - \\beta_2^t)$ \\\\
-\\quad $\\theta_t \\leftarrow \\theta_{t-1} - \\eta \\cdot \\hat{\\mathbf{m}}_t / (\\sqrt{\\hat{\\mathbf{v}}_t} + \\epsilon)$ \\\\
-\\textbf{end for} \\\\
-\\textbf{return} $\\theta_T$
-\\end{quote}
-
-${randPara()}
-`;
-    }
-
-    // Extra paragraphs to fill pages
-    content += `\n${randPara()}\n\n${randPara()}\n`;
-
-    return content;
-  });
-
-  return `\\documentclass[11pt,a4paper]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[T1]{fontenc}
-\\usepackage{amsmath,amssymb,amsfonts,amsthm}
-\\usepackage{mathtools}
-\\usepackage{graphicx}
-\\usepackage{booktabs}
-\\usepackage{hyperref}
-\\usepackage[margin=2.5cm]{geometry}
-\\usepackage{fancyhdr}
-\\usepackage{enumitem}
-\\usepackage{microtype}
-
-\\pagestyle{fancy}
-\\fancyhead{}
-\\fancyhead[L]{\\textit{${projectName}}}
-\\fancyhead[R]{\\textit{${userName}}}
-\\fancyfoot[C]{\\thepage}
-
-\\newtheorem{theorem}{Theorem}[section]
-\\newtheorem{lemma}[theorem]{Lemma}
-\\newtheorem{corollary}[theorem]{Corollary}
-
-\\title{${projectName}:\\\\A Comprehensive Analysis of Multi-dimensional\\\\Optimisation Strategies for Large-Scale Systems}
-\\author{${userName}\\\\[6pt]Department of Computer Science\\\\FlowTex University\\\\[4pt]\\texttt{${userName.toLowerCase().replace(/ /g, '.')}@flowtex.edu}}
-\\date{\\today}
-
-\\begin{document}
-
-\\maketitle
-
-\\begin{abstract}
-This paper presents a comprehensive analysis of multi-dimensional optimisation
-strategies for large-scale machine learning systems. We evaluate several approaches
-including stochastic gradient methods, second-order techniques, evolutionary
-algorithms, and novel hybrid strategies across twelve benchmark datasets spanning
-computer vision, natural language processing, and tabular domains. Our proposed
-\\textit{Adaptive Hierarchical Optimiser} (AHO) achieves state-of-the-art performance
-while maintaining computational efficiency, demonstrating a $15.3\\%$ improvement
-in convergence speed (measured in wall-clock time to target accuracy) and an
-$8.7\\%$ improvement in final test accuracy compared to AdamW, the strongest baseline.
-We provide theoretical convergence guarantees under standard smoothness assumptions
-and validate our analysis through extensive empirical evaluation comprising over
-2,400 GPU-hours of experimentation. Code and pre-trained models are available at
-\\url{https://github.com/flowtex/aho-optimizer}.
-
-\\medskip
-\\noindent\\textbf{Keywords:} optimisation, deep learning, convergence analysis,
-adaptive methods, large-scale systems
-\\end{abstract}
-
-\\tableofcontents
-\\newpage
-
-${sections.join('\n\\newpage\n')}
-
-\\appendix
-\\section{Convergence Proofs}
-
-\\begin{theorem}[Convergence of AHO]
-For any $L$-smooth convex function $f: \\mathbb{R}^n \\to \\mathbb{R}$ with bounded
-gradients $\\|\\nabla f(x)\\| \\leq G$ for all $x$ in the feasible set, the AHO
-algorithm with step size $\\eta_t = \\eta_0 / \\sqrt{t}$ satisfies:
-\\[
-  f\\left(\\frac{1}{T}\\sum_{t=1}^{T} x_t\\right) - f(x^*) \\leq \\frac{\\|x_0 - x^*\\|^2}{2\\eta_0\\sqrt{T}} + \\frac{\\eta_0 G^2 \\sqrt{T}}{2}
-\\]
-Setting $\\eta_0 = \\|x_0 - x^*\\| / (G\\sqrt[4]{T})$ yields a rate of $\\mathcal{O}(T^{-1/2})$.
-\\end{theorem}
-
-\\begin{proof}
-By the descent lemma and $L$-smoothness:
-\\begin{align}
-  f(x_{t+1}) &\\leq f(x_t) + \\langle \\nabla f(x_t), x_{t+1} - x_t \\rangle + \\frac{L}{2}\\|x_{t+1} - x_t\\|^2 \\\\
-  &= f(x_t) - \\eta_t\\|\\nabla f(x_t)\\|^2 + \\frac{L\\eta_t^2}{2}\\|\\nabla f(x_t)\\|^2 \\\\
-  &= f(x_t) - \\eta_t\\left(1 - \\frac{L\\eta_t}{2}\\right)\\|\\nabla f(x_t)\\|^2
-\\end{align}
-
-For $\\eta_t \\leq 1/L$, the term $(1 - L\\eta_t/2) \\geq 1/2 > 0$. Summing over $t = 1, \\ldots, T$:
-\\begin{align}
-  \\sum_{t=1}^{T} \\eta_t \\|\\nabla f(x_t)\\|^2 &\\leq 2\\left(f(x_1) - f(x^*)\\right)
-\\end{align}
-
-By convexity, $f(x_t) - f(x^*) \\leq \\langle \\nabla f(x_t), x_t - x^* \\rangle$. Combining
-with the update rule $x_{t+1} = x_t - \\eta_t \\nabla f(x_t)$:
-\\begin{align}
-  \\|x_{t+1} - x^*\\|^2 &= \\|x_t - x^*\\|^2 - 2\\eta_t\\langle \\nabla f(x_t), x_t - x^*\\rangle + \\eta_t^2\\|\\nabla f(x_t)\\|^2 \\\\
-  &\\leq \\|x_t - x^*\\|^2 - 2\\eta_t(f(x_t) - f(x^*)) + \\eta_t^2 G^2
-\\end{align}
-
-Rearranging and telescoping yields the stated bound. \\qed
-\\end{proof}
-
-\\begin{lemma}[Gradient Bound]
-Under the assumptions of Theorem~1, the averaged gradient norm satisfies:
-\\[
-  \\frac{1}{T}\\sum_{t=1}^{T}\\|\\nabla f(x_t)\\|^2 \\leq \\frac{2(f(x_0) - f(x^*))}{T\\eta_{\\min}} + LG^2\\eta_{\\max}
-\\]
-where $\\eta_{\\min} = \\min_t \\eta_t$ and $\\eta_{\\max} = \\max_t \\eta_t$.
-\\end{lemma}
-
-\\section{Hyperparameter Sensitivity}
-
-\\begin{table}[h]
-\\centering
-\\caption{Sensitivity of AHO to key hyperparameters on CIFAR-100.}
-\\begin{tabular}{ccccc}
-\\toprule
-$\\eta_0$ & $\\beta_1$ & $\\beta_2$ & Test Acc. (\\%) & Train Loss \\\\
-\\midrule
-$10^{-2}$ & 0.9 & 0.999 & 78.2 & 0.142 \\\\
-$3 \\times 10^{-3}$ & 0.9 & 0.999 & \\textbf{81.4} & 0.098 \\\\
-$10^{-3}$ & 0.9 & 0.999 & 80.1 & 0.112 \\\\
-$3 \\times 10^{-4}$ & 0.9 & 0.999 & 77.8 & 0.156 \\\\
-$3 \\times 10^{-3}$ & 0.95 & 0.999 & 80.9 & 0.101 \\\\
-$3 \\times 10^{-3}$ & 0.85 & 0.999 & 80.7 & 0.105 \\\\
-$3 \\times 10^{-3}$ & 0.9 & 0.99 & 79.3 & 0.128 \\\\
-$3 \\times 10^{-3}$ & 0.9 & 0.9999 & 81.1 & 0.100 \\\\
-\\bottomrule
-\\end{tabular}
-\\end{table}
-
-\\section{Full Experimental Results}
-
-\\begin{table}[h]
-\\centering
-\\caption{Complete results across all 12 benchmark datasets (test accuracy \\%).}
-\\resizebox{\\textwidth}{!}{
-\\begin{tabular}{lccccccccccccc}
-\\toprule
-\\textbf{Method} & \\textbf{C-10} & \\textbf{C-100} & \\textbf{IN-1k} & \\textbf{SST-2} & \\textbf{MNLI} & \\textbf{SQuAD} & \\textbf{Tab-A} & \\textbf{Tab-B} & \\textbf{Tab-C} & \\textbf{TS-1} & \\textbf{TS-2} & \\textbf{Graph} & \\textbf{Avg.} \\\\
-\\midrule
-SGD+M        & 93.1 & 74.5 & 76.2 & 91.8 & 84.1 & 88.2 & 82.4 & 79.1 & 85.3 & 71.2 & 68.9 & 77.4 & 81.0 \\\\
-Adam         & 93.8 & 77.2 & 77.8 & 93.1 & 85.9 & 89.7 & 84.1 & 81.3 & 86.7 & 73.5 & 71.2 & 79.8 & 82.8 \\\\
-AdamW        & 94.2 & 78.4 & 78.5 & 93.5 & 86.4 & 90.1 & 84.8 & 82.0 & 87.2 & 74.1 & 72.0 & 80.5 & 83.5 \\\\
-LAMB         & 94.0 & 77.8 & 78.1 & 93.2 & 86.0 & 89.8 & 84.3 & 81.6 & 86.9 & 73.8 & 71.6 & 80.1 & 83.1 \\\\
-Shampoo      & 94.5 & 79.1 & 79.2 & 93.8 & 86.8 & 90.5 & 85.2 & 82.5 & 87.6 & 74.6 & 72.5 & 81.0 & 83.9 \\\\
-\\textbf{AHO} & \\textbf{95.1} & \\textbf{81.4} & \\textbf{80.8} & \\textbf{94.7} & \\textbf{87.9} & \\textbf{91.8} & \\textbf{86.5} & \\textbf{83.9} & \\textbf{88.8} & \\textbf{76.2} & \\textbf{74.1} & \\textbf{82.7} & \\textbf{85.3} \\\\
-\\bottomrule
-\\end{tabular}
-}
-\\end{table}
-
-\\end{document}
-`;
-}
 
 // ── Stats ──────────────────────────────────────────────────────────────
 const stats = {
@@ -529,7 +206,7 @@ class SimUser {
         stats.registrations++;
       }
       return res;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -692,7 +369,7 @@ class SimUser {
         resolve(true);
       });
 
-      this.ws.on('message', (raw) => {
+      this.ws.on('message', (_raw) => {
         stats.wsMsgRecv++;
       });
 
@@ -700,12 +377,12 @@ class SimUser {
         stats.wsConnected = Math.max(0, stats.wsConnected - 1);
       });
 
-      this.ws.on('error', (err) => {
+      this.ws.on('error', (_err) => {
         clearTimeout(timeout);
         resolve(false);
       });
 
-      this.ws.on('unexpected-response', (req, res) => {
+      this.ws.on('unexpected-response', (_req, _res) => {
         clearTimeout(timeout);
         resolve(false);
       });

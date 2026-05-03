@@ -67,11 +67,6 @@ function hashLineDiff(oldLines, newLines) {
     oldMap.get(line).push(i);
   }
 
-  // Find longest increasing subsequence of matching positions
-  // Use a greedy approach: for each new line, find matching old positions
-  const matches = []; // [oldIdx, newIdx] pairs
-  const usedOld = new Set();
-
   // First pass: find unique-in-both-sides anchors (patience diff idea)
   const newCount = new Map();
   for (const line of newLines) {

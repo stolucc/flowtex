@@ -334,7 +334,11 @@ export default function generateLatexTable({
             content = `\\multicolumn{${merge.colSpan}}{${mcolAlign}}{${content}}`;
           }
         } else if (merge.rowSpan > 1) {
-          content = `\\multirow{${merge.rowSpan}}{=}{${content}}`;
+          // Use '=' (column width) for p{} columns where text should wrap;
+          // use '*' (natural width) for l/c/r columns which have no fixed width
+          const cs = colSettings?.[c];
+          const mrWidth = (cs?.align === 'p' && cs?.width) ? '=' : '*';
+          content = `\\multirow{${merge.rowSpan}}{${mrWidth}}{${content}}`;
         }
       }
 
@@ -345,8 +349,6 @@ export default function generateLatexTable({
     const needsCline = activeMerges.some((m) => r >= m.row && r < m.row + m.rowSpan - 1);
     const wantRule = (isHeader && (isBooktabs || hlineHeader)) || (!isHeader && hlineAll && r < rows - 1);
     const isLastRow = r === rows - 1;
-    // Bottom rule: always full-width since no multirow can span past the last row
-    const wantBottom = isLastRow && !longtablePreamble && (isBooktabs || hlineBottom);
 
     lines.push(rowStr);
 

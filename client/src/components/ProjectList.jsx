@@ -54,7 +54,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newMenuRef = useRef(null);
   const zipInputRef = useRef(null);
+  const docxInputRef = useRef(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showDocxDialog, setShowDocxDialog] = useState(false);
+  const [docxFile, setDocxFile] = useState(null);
+  const [docxDocType, setDocxDocType] = useState('book');
+  const [docxImporting, setDocxImporting] = useState(false);
+  const [docxProgress, setDocxProgress] = useState({ message: '', percent: 0 });
+  const docxAbortRef = useRef(null);
   const [showGitHubImport, setShowGitHubImport] = useState(false);
   const [ghImportRepo, setGhImportRepo] = useState('');
   const [ghImportBranch, setGhImportBranch] = useState('');
@@ -162,6 +169,64 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** Import a .docx file to create a new project. Reads SSE progress events. */
+  const handleImportDocx = async (file, options = {}) => {
+    setDocxImporting(true);
+    setDocxProgress({ message: 'Uploading…', percent: 5 });
+    const abortController = new AbortController();
+    docxAbortRef.current = abortController;
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options.docType) formData.append('docType', options.docType);
+    try {
+      const res = await fetch('/api/projects/from-docx', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
+        signal: abortController.signal,
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        // Parse SSE lines
+        const lines = buf.split('\n');
+        buf = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              setDocxProgress({ message: evt.message, percent: evt.percent });
+            } else if (evt.type === 'result') {
+              setDocxImporting(false);
+              setShowDocxDialog(false);
+              setDocxFile(null);
+              onSelect(evt);
+              return;
+            } else if (evt.type === 'error') {
+              setDocxImporting(false);
+              alert(evt.error || 'Failed to import .docx file');
+              return;
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+      // If we get here without a result event, something went wrong
+      setDocxImporting(false);
+      alert('Import failed — no response from server');
+    } catch (err) {
+      setDocxImporting(false);
+      docxAbortRef.current = null;
+      if (err.name === 'AbortError') return; // user cancelled
+      alert(err.message || 'Failed to import .docx file');
+    }
+  };
+
   const isOwner = (project) => project.owner_id === user?.id;
 
   const handleDelete = async (id) => {
@@ -240,7 +305,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         const data = await res.json().catch(() => ({}));
         alert(data.error || 'Failed to accept invitation');
       }
-    } catch (err) {
+    } catch {
       alert('Failed to accept invitation');
     }
   };
@@ -254,7 +319,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         const data = await res.json().catch(() => ({}));
         alert(data.error || 'Failed to decline invitation');
       }
-    } catch (err) {
+    } catch {
       alert('Failed to decline invitation');
     }
   };
@@ -532,6 +597,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 <UploadIcon />
                 Upload ZIP
               </button>
+              <button
+                onClick={() => {
+                  setShowNewMenu(false);
+                  docxInputRef.current?.click();
+                }}
+              >
+                <UploadIcon />
+                Import .docx
+              </button>
               <button onClick={openGitHubImport}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
@@ -571,6 +645,21 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleUploadZip(file);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={docxInputRef}
+            type="file"
+            accept=".docx,.doc"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                setDocxFile(file);
+                setDocxDocType('book');
+                setShowDocxDialog(true);
+              }
               e.target.value = '';
             }}
           />
@@ -1133,6 +1222,75 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           onAccountDeleted={onLogout}
           initialTab={settingsInitialTab}
         />
+      )}
+      {showDocxDialog && (
+        <div className="modal-overlay" onClick={docxImporting ? undefined : () => { setShowDocxDialog(false); setDocxFile(null); }}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Import .docx</h2>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
+              {docxFile?.name}
+            </p>
+            {docxImporting ? (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  {docxProgress.message}
+                </div>
+                <div style={{
+                  height: 6, borderRadius: 3,
+                  background: 'var(--bg-tertiary, var(--bg-secondary))',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3,
+                    background: 'var(--accent)',
+                    width: `${docxProgress.percent}%`,
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <button
+                  className="modal-btn modal-btn-secondary"
+                  style={{ marginTop: 12 }}
+                  onClick={() => {
+                    docxAbortRef.current?.abort();
+                    docxAbortRef.current = null;
+                    setDocxImporting(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <label style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: 'block' }}>Document type</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                  {[
+                    { value: 'book', label: 'Book / Thesis' },
+                    { value: 'journal', label: 'Journal paper' },
+                    { value: 'conference', label: 'Conference paper' },
+                  ].map((opt) => (
+                    <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="docType"
+                        value={opt.value}
+                        checked={docxDocType === opt.value}
+                        onChange={() => setDocxDocType(opt.value)}
+                        style={{ accentColor: 'var(--accent)' }}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button className="modal-btn modal-btn-secondary" onClick={() => { setShowDocxDialog(false); setDocxFile(null); }}>Cancel</button>
+                  <button className="modal-btn modal-btn-primary" onClick={() => {
+                    handleImportDocx(docxFile, { docType: docxDocType });
+                  }}>Import</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
       {showGitHubImport && (
         <div className="modal-overlay" onClick={() => setShowGitHubImport(false)}>

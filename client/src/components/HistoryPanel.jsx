@@ -192,9 +192,39 @@ function renderSegments(prefix, mid, suffix) {
   );
 }
 
+// A hunk over this many rows is collapsed by default. Rendering 11k-row
+// near-total-rewrite hunks (44k+ DOM cells, plus an O(n²) char-diff pass)
+// blocks the main thread for hundreds of ms. The user can expand on demand.
+const MAX_HUNK_ROWS = 400;
+
+function HunkRows({ rows }) {
+  return (
+    <table className="gh-diff-table">
+      <tbody>
+        {rows.map((row, ri) => (
+          <tr key={ri} className={`gh-diff-row gh-diff-row-${row.type}`}>
+            <td className="gh-diff-num gh-diff-num-old">{row.oldNum ?? ''}</td>
+            <td className="gh-diff-num gh-diff-num-new">{row.newNum ?? ''}</td>
+            <td className="gh-diff-marker">{row.type === 'add' ? '+' : row.type === 'remove' ? '−' : ''}</td>
+            <td className="gh-diff-code">{row.segments || row.text || ' '}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** Renders a GitHub-style unified diff with line numbers and inline highlights. */
 function DiffView({ diff }) {
   const hunks = buildHunks(diff);
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleHunk = (hi) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(hi)) next.delete(hi); else next.add(hi);
+      return next;
+    });
+  };
 
   return (
     <div className="gh-diff">
@@ -207,7 +237,9 @@ function DiffView({ diff }) {
             </div>
           );
         }
-        const annotatedLines = annotateHunkLines(hunk.lines || []);
+        const lines = hunk.lines || [];
+        const isLarge = lines.length > MAX_HUNK_ROWS;
+        const isExpanded = expanded.has(hi);
         return (
           <div key={hi} className="gh-diff-hunk">
             {hunk.collapsedBefore > 0 && (
@@ -217,18 +249,28 @@ function DiffView({ diff }) {
               </div>
             )}
             {hunk.header && <div className="gh-diff-hunk-header">{hunk.header}</div>}
-            <table className="gh-diff-table">
-              <tbody>
-                {annotatedLines.map((row, ri) => (
-                  <tr key={ri} className={`gh-diff-row gh-diff-row-${row.type}`}>
-                    <td className="gh-diff-num gh-diff-num-old">{row.oldNum ?? ''}</td>
-                    <td className="gh-diff-num gh-diff-num-new">{row.newNum ?? ''}</td>
-                    <td className="gh-diff-marker">{row.type === 'add' ? '+' : row.type === 'remove' ? '−' : ''}</td>
-                    <td className="gh-diff-code">{row.segments || row.text || '\u00A0'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {isLarge && !isExpanded ? (
+              <button
+                type="button"
+                className="gh-diff-large-toggle"
+                onClick={() => toggleHunk(hi)}
+              >
+                Show {lines.length.toLocaleString()} lines
+              </button>
+            ) : (
+              <>
+                <HunkRows rows={annotateHunkLines(lines)} />
+                {isLarge && (
+                  <button
+                    type="button"
+                    className="gh-diff-large-toggle"
+                    onClick={() => toggleHunk(hi)}
+                  >
+                    Collapse
+                  </button>
+                )}
+              </>
+            )}
           </div>
         );
       })}
@@ -258,6 +300,10 @@ export default function HistoryPanel({
   const [viewingFile, setViewingFile] = useState(null);
 
   const pendingAutoSelect = useRef(true);
+  // Per-mount memo of computed diffs, keyed by `${snapshotId}:${fileId}`.
+  // Lets the user flick back and forth between snapshots without re-fetching
+  // both versions and re-running the LCS. Cleared on unmount automatically.
+  const diffCache = useRef(new Map());
 
   // Load snapshot list
   useEffect(() => {
@@ -279,26 +325,8 @@ export default function HistoryPanel({
       pendingAutoSelect.current = false;
       selectSnapshot(snapshots[0]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshots]);
-
-  // When a file is clicked in the history files panel, load its diff
-  useEffect(() => {
-    if (!historyFileId || !selected) return;
-    if (viewingFile?.id === historyFileId) return;
-
-    setViewingFile({ id: historyFileId, path: historyFilePath });
-    setDiff(null);
-
-    (async () => {
-      try {
-        const res = await get(`/api/history/snapshot/${selected.id}/file/${historyFileId}`);
-        const data = await res.json();
-        setDiff(lineDiff(data.previousContent, data.currentContent));
-      } catch (e) {
-        console.error('Failed to load file diff', e);
-      }
-    })();
-  }, [historyFileId, selected]);
 
   /** Select a snapshot and notify the parent to load its details. */
   const selectSnapshot = useCallback(
@@ -311,23 +339,36 @@ export default function HistoryPanel({
     [onSelectVersion],
   );
 
-  // Once a snapshot is selected and its metadata loaded (via onSelectVersion -> App),
-  // auto-load the first edited file's diff
+  // Single effect that loads (or pulls from cache) the diff whenever the
+  // selected snapshot or selected file changes. Replaces a pair of nearly
+  // identical effects that were each running the fetch + LCS on every click.
   useEffect(() => {
     if (!selected || !historyFileId) return;
-    // historyFileId gets set by App.jsx after onSelectVersion fetches snapshot details
     setViewingFile({ id: historyFileId, path: historyFilePath });
+
+    const cacheKey = `${selected.id}:${historyFileId}`;
+    const cached = diffCache.current.get(cacheKey);
+    if (cached) {
+      setDiff(cached);
+      return;
+    }
     setDiff(null);
 
+    let cancelled = false;
     (async () => {
       try {
         const res = await get(`/api/history/snapshot/${selected.id}/file/${historyFileId}`);
         const data = await res.json();
-        setDiff(lineDiff(data.previousContent, data.currentContent));
+        if (cancelled) return;
+        const computed = lineDiff(data.previousContent, data.currentContent);
+        diffCache.current.set(cacheKey, computed);
+        setDiff(computed);
       } catch (e) {
-        console.error('Failed to load file diff', e);
+        if (!cancelled) console.error('Failed to load file diff', e);
       }
     })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, historyFileId]);
 
   /** Restore all project files to the selected snapshot's state. */

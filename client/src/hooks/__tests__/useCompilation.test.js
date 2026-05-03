@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import useCompilation from '../useCompilation.js';
 
@@ -68,9 +68,10 @@ describe('useCompilation', () => {
       compilePromise = result.current.handleCompile();
     });
 
-    // Should have saved first
+    // Should have saved first, pinned to the active file's id so the save can't drift
+    // to a different file if the user switches mid-compile.
     await waitFor(() => {
-      expect(handleSave).toHaveBeenCalledWith('editor content');
+      expect(handleSave).toHaveBeenCalledWith('editor content', undefined, 'f1');
     });
 
     // EventSource should be created

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
+import { getSetting, setSetting } from '../utils/settings.js';
 
 /**
  * Manages tracked changes: creating, merging, accepting/rejecting changes, undo cleanup, and review walkthrough.
@@ -10,7 +11,7 @@ import { get, post, patch, del } from '../api.js';
  */
 export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef) {
   const [trackChangesMode, setTrackChangesMode] = useState(
-    () => localStorage.getItem('flowtex-track-changes') === 'true',
+    () => getSetting('track-changes') === 'true',
   );
   const [trackedChanges, setTrackedChanges] = useState([]);
   const [tcPopup, setTcPopup] = useState(null);
@@ -19,7 +20,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
   const trackChangeLock = useRef(Promise.resolve());
 
   useEffect(() => {
-    localStorage.setItem('flowtex-track-changes', trackChangesMode);
+    setSetting('track-changes', trackChangesMode);
   }, [trackChangesMode]);
 
   // Load tracked changes for active file
@@ -51,11 +52,21 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
 
   const doHandleTrackChange = useCallback(
     async (change) => {
-      if (!activeFile) return;
+      // Prefer the fileId pinned by the editor at edit time over activeFile, which may have
+      // moved on if the user switched files during the debounce window.
+      const targetFileId = change.fileId ?? activeFile?.id;
+      if (!targetFileId) return;
+      // The merge-with-existing-pending logic only makes sense for changes on the file the
+      // user is currently looking at, since trackedChangesRef holds that file's TCs.
+      const canMerge = targetFileId === activeFile?.id;
+      // Strip fileId before sending to the server — it isn't part of the persisted change shape.
+      const { fileId: _ignored, ...changePayload } = change;
       try {
-        const myPending = trackedChangesRef.current.filter(
-          (tc) => tc.status === 'pending' && tc.author_id === user?.id && tc.inserted_text,
-        );
+        const myPending = canMerge
+          ? trackedChangesRef.current.filter(
+              (tc) => tc.status === 'pending' && tc.author_id === user?.id && tc.inserted_text,
+            )
+          : [];
 
         if (change.deleted_text && !change.inserted_text) {
           for (const existing of myPending) {
@@ -67,7 +78,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
               if (!newInserted && !existing.deleted_text) {
                 await del(`/api/tracked-changes/${existing.id}`);
                 setTrackedChanges((tc) => tc.filter((c) => c.id !== existing.id));
-                sendWsRef.current?.({ type: 'tracked-change-delete', fileId: activeFile.id, changeId: existing.id });
+                sendWsRef.current?.({ type: 'tracked-change-delete', fileId: targetFileId, changeId: existing.id });
                 return;
               }
               const res = await patch(`/api/tracked-changes/${existing.id}`, {
@@ -77,7 +88,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
               });
               const updated = await res.json();
               setTrackedChanges((tc) => tc.map((c) => (c.id === existing.id ? updated : c)));
-              sendWsRef.current?.({ type: 'tracked-change', fileId: activeFile.id, change: updated });
+              sendWsRef.current?.({ type: 'tracked-change', fileId: targetFileId, change: updated });
               return;
             }
           }
@@ -96,17 +107,18 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
               });
               const updated = await res.json();
               setTrackedChanges((tc) => tc.map((c) => (c.id === existing.id ? updated : c)));
-              sendWsRef.current?.({ type: 'tracked-change', fileId: activeFile.id, change: updated });
+              sendWsRef.current?.({ type: 'tracked-change', fileId: targetFileId, change: updated });
               return;
             }
           }
         }
 
-        const res = await post(`/api/tracked-changes/${activeFile.id}`, change);
+        const res = await post(`/api/tracked-changes/${targetFileId}`, changePayload);
         const saved = await res.json();
-        setTrackedChanges((tc) => [...tc, saved]);
-        sendWsRef.current?.({ type: 'tracked-change', fileId: activeFile.id, change: saved });
-      } catch (err) {
+        // Only update local state if the saved change belongs to the file currently shown.
+        if (canMerge) setTrackedChanges((tc) => [...tc, saved]);
+        sendWsRef.current?.({ type: 'tracked-change', fileId: targetFileId, change: saved });
+      } catch {
         // ignore
       }
     },

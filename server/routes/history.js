@@ -18,6 +18,57 @@ function decompressSnapshot(buf) {
   }
 }
 
+// Snapshots are immutable, so once decompressed we can cache the parsed
+// object. Selecting a snapshot in the History panel triggers two requests
+// back-to-back (`/snapshot/:id` and `/snapshot/:id/file/:fileId`), each of
+// which decompresses both the snapshot and its predecessor. With this LRU
+// the second request hits warm cache on both, turning the click latency
+// from "decompress 4 archives" into "decompress 0".
+const SNAPSHOT_CACHE_MAX = 16;
+const snapshotCache = new Map();
+function cacheSnapshot(id, parsed) {
+  if (snapshotCache.has(id)) snapshotCache.delete(id); // re-insert to bump LRU position
+  snapshotCache.set(id, parsed);
+  while (snapshotCache.size > SNAPSHOT_CACHE_MAX) {
+    snapshotCache.delete(snapshotCache.keys().next().value);
+  }
+}
+
+/** Fetch a snapshot row + decompressed payload, cached by id. */
+async function loadSnapshot(snapshotId) {
+  const cached = snapshotCache.get(snapshotId);
+  if (cached) {
+    snapshotCache.delete(snapshotId);
+    snapshotCache.set(snapshotId, cached);
+    return cached;
+  }
+  const row = await db.get('SELECT id, project_id, created_at, author_id, data FROM project_snapshots WHERE id = $1', [snapshotId]);
+  if (!row) return null;
+  const parsed = { meta: row, body: decompressSnapshot(row.data) };
+  cacheSnapshot(snapshotId, parsed);
+  return parsed;
+}
+
+/** Find + decompress the snapshot immediately preceding the given one (if any). */
+async function loadPreviousSnapshot(projectId, beforeCreatedAt) {
+  const row = await db.get(
+    `SELECT id, project_id, created_at, data FROM project_snapshots
+     WHERE project_id = $1 AND created_at < $2
+     ORDER BY created_at DESC LIMIT 1`,
+    [projectId, beforeCreatedAt],
+  );
+  if (!row) return { files: [] };
+  const cached = snapshotCache.get(row.id);
+  if (cached) {
+    snapshotCache.delete(row.id);
+    snapshotCache.set(row.id, cached);
+    return cached.body;
+  }
+  const body = decompressSnapshot(row.data);
+  cacheSnapshot(row.id, { meta: row, body });
+  return body;
+}
+
 /** GET /api/history/:projectId -- List version snapshots for a project (metadata only). */
 router.get('/:projectId', async (req, res) => {
   const member = await isProjectMember(req.params.projectId, req.session.userId);
@@ -38,75 +89,45 @@ router.get('/:projectId', async (req, res) => {
 
 /** GET /api/history/snapshot/:snapshotId -- Get snapshot details: file list and which files changed vs previous. */
 router.get('/snapshot/:snapshotId', async (req, res) => {
-  const snap = await db.get('SELECT * FROM project_snapshots WHERE id = $1', [req.params.snapshotId]);
+  const snap = await loadSnapshot(req.params.snapshotId);
   if (!snap) return res.status(404).json({ error: 'Snapshot not found' });
 
-  const member = await isProjectMember(snap.project_id, req.session.userId);
+  const member = await isProjectMember(snap.meta.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
 
-  const current = decompressSnapshot(snap.data);
+  const current = snap.body;
+  const previous = await loadPreviousSnapshot(snap.meta.project_id, snap.meta.created_at);
 
-  // Get previous snapshot
-  const prevSnap = await db.get(
-    `
-    SELECT data FROM project_snapshots
-    WHERE project_id = $1 AND created_at < $2
-    ORDER BY created_at DESC LIMIT 1
-  `,
-    [snap.project_id, snap.created_at],
-  );
-
-  const previous = prevSnap ? decompressSnapshot(prevSnap.data) : { files: [] };
-
-  // Build lookup maps
   const prevMap = new Map(previous.files.map((f) => [f.id, f]));
   const curMap = new Map(current.files.map((f) => [f.id, f]));
 
-  // Determine which files changed
   const editedFileIds = [];
   for (const f of current.files) {
     const prev = prevMap.get(f.id);
-    if (!prev || prev.content !== f.content) {
-      editedFileIds.push(f.id);
-    }
+    if (!prev || prev.content !== f.content) editedFileIds.push(f.id);
   }
-  // Files that were deleted (in prev but not in current)
   for (const f of previous.files) {
-    if (!curMap.has(f.id)) {
-      editedFileIds.push(f.id);
-    }
+    if (!curMap.has(f.id)) editedFileIds.push(f.id);
   }
 
   res.json({
     files: current.files.map((f) => ({ id: f.id, path: f.path, is_binary: f.is_binary })),
     editedFileIds,
-    snapshotTime: snap.created_at,
+    snapshotTime: snap.meta.created_at,
   });
 });
 
 /** GET /api/history/snapshot/:snapshotId/file/:fileId -- Get a file's content diff between a snapshot and its predecessor. */
 router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   const { snapshotId, fileId } = req.params;
-  const snap = await db.get('SELECT * FROM project_snapshots WHERE id = $1', [snapshotId]);
+  const snap = await loadSnapshot(snapshotId);
   if (!snap) return res.status(404).json({ error: 'Snapshot not found' });
 
-  const member = await isProjectMember(snap.project_id, req.session.userId);
+  const member = await isProjectMember(snap.meta.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
 
-  const current = decompressSnapshot(snap.data);
-  const curFile = current.files.find((f) => f.id === fileId);
-
-  // Get previous snapshot
-  const prevSnap = await db.get(
-    `
-    SELECT data FROM project_snapshots
-    WHERE project_id = $1 AND created_at < $2
-    ORDER BY created_at DESC LIMIT 1
-  `,
-    [snap.project_id, snap.created_at],
-  );
-
-  const previous = prevSnap ? decompressSnapshot(prevSnap.data) : { files: [] };
+  const curFile = snap.body.files.find((f) => f.id === fileId);
+  const previous = await loadPreviousSnapshot(snap.meta.project_id, snap.meta.created_at);
   const prevFile = previous.files.find((f) => f.id === fileId);
 
   res.json({

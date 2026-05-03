@@ -105,6 +105,7 @@ export default function useProject(user) {
           }
         }
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
   // Load members when project changes
@@ -121,14 +122,18 @@ export default function useProject(user) {
 
   // File operations
   const handleSave = useCallback(
-    async (content, tcPositions) => {
-      const file = activeFile;
-      if (!file) return;
+    async (content, tcPositions, fileId) => {
+      // Caller may pass an explicit fileId. The editor *must* do this for
+      // debounced saves and file-switch flushes — otherwise this falls back
+      // to whichever file is *currently* active, which can race the user's
+      // file switch and save the old file's text to the new file's id.
+      const targetId = fileId ?? activeFile?.id;
+      if (!targetId) return;
       const body = { content };
       if (Array.isArray(tcPositions) && tcPositions.length > 0) body.tcPositions = tcPositions;
-      await put(`/api/projects/files/${file.id}`, body);
-      setActiveFile((f) => (f?.id === file.id ? { ...f, content } : f));
-      setFiles((fs) => fs.map((f) => (f.id === file.id ? { ...f, content } : f)));
+      await put(`/api/projects/files/${targetId}`, body);
+      setActiveFile((f) => (f?.id === targetId ? { ...f, content } : f));
+      setFiles((fs) => fs.map((f) => (f.id === targetId ? { ...f, content } : f)));
     },
     [activeFile],
   );
@@ -158,10 +163,23 @@ export default function useProject(user) {
     [activeFile, switchFile],
   );
 
-  const handleRenameFile = useCallback(async (fileId, newPath) => {
-    await patch(`/api/projects/files/${fileId}`, { path: newPath });
-    setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, path: newPath } : f)));
-  }, []);
+  const handleRenameFile = useCallback(
+    async (fileId, newPath) => {
+      const old = files.find((f) => f.id === fileId);
+      await patch(`/api/projects/files/${fileId}`, { path: newPath });
+      setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, path: newPath } : f)));
+      // Editor header reads activeFile.path directly; if the renamed file is the
+      // open one, update activeFile too so the header reflects the new name.
+      setActiveFile((f) => (f?.id === fileId ? { ...f, path: newPath } : f));
+      // If we just renamed the project's main file, follow the rename in client
+      // state too. The server-side rename does the same DB update, so this keeps
+      // the two in sync without a refetch.
+      if (old && project && project.main_file === old.path) {
+        setProject((p) => (p ? { ...p, main_file: newPath } : p));
+      }
+    },
+    [files, project],
+  );
 
   const handleRenameFolder = useCallback(
     async (oldPrefix, newPrefix) => {
@@ -178,8 +196,20 @@ export default function useProject(user) {
           return f;
         }),
       );
+      setActiveFile((f) => {
+        if (!f) return f;
+        if (f.path === oldPrefix || f.path.startsWith(oldPrefix + '/')) {
+          return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
+        }
+        return f;
+      });
+      // Folder rename can move the main file along with everything else.
+      if (project?.main_file && (project.main_file === oldPrefix || project.main_file.startsWith(oldPrefix + '/'))) {
+        const newMain = newPrefix + project.main_file.slice(oldPrefix.length);
+        setProject((p) => (p ? { ...p, main_file: newMain } : p));
+      }
     },
-    [files],
+    [files, project],
   );
 
   const handleDeleteFolder = useCallback(

@@ -46,15 +46,15 @@ export function validatePassword(password) {
 /** Check if an account is locked due to too many failed login attempts. */
 export async function isAccountLocked(email, ip) {
   const result = await db.get(
-    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - INTERVAL '${LOCKOUT_WINDOW_MINUTES} minutes'`,
-    [email],
+    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+    [email, LOCKOUT_WINDOW_MINUTES],
   );
   if (parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS) return true;
   // Also lock out by IP to prevent cross-account brute force
   if (ip) {
     const ipResult = await db.get(
-      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - INTERVAL '${LOCKOUT_WINDOW_MINUTES} minutes'`,
-      [ip],
+      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+      [ip, LOCKOUT_WINDOW_MINUTES],
     );
     if (parseInt(ipResult?.cnt || 0) >= MAX_FAILED_ATTEMPTS * 3) return true;
   }
@@ -106,13 +106,15 @@ export async function registerUser(email, name, password) {
 
   const id = uuid();
   const password_hash = await bcrypt.hash(password, 12);
+  // Strip CR/LF so the name can't be used to inject email headers when reused in subjects.
+  const safeName = name.replace(/[\r\n]+/g, ' ').trim();
   await db.run('INSERT INTO users (id, email, name, password_hash, email_verified) VALUES ($1, $2, $3, $4, FALSE)', [
     id,
     normalizedEmail,
-    name.trim(),
+    safeName,
     password_hash,
   ]);
-  return { id, email: normalizedEmail, name: name.trim(), totpEnabled: false, isAdmin: false, emailVerified: false };
+  return { id, email: normalizedEmail, name: safeName, totpEnabled: false, isAdmin: false, emailVerified: false };
 }
 
 /**
@@ -205,8 +207,8 @@ export async function createTrustedDevice(userId, userAgent) {
   const deviceName = userAgent?.substring(0, 200) || 'Unknown device';
   const TRUST_DAYS = 30;
   await db.run(
-    `INSERT INTO trusted_devices (id, user_id, token_hash, device_name, expires_at) VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${TRUST_DAYS} days')`,
-    [uuid(), userId, tokenHash, deviceName],
+    `INSERT INTO trusted_devices (id, user_id, token_hash, device_name, expires_at) VALUES ($1, $2, $3, $4, NOW() + make_interval(days => $5))`,
+    [uuid(), userId, tokenHash, deviceName, TRUST_DAYS],
   );
   return { token, maxAge: TRUST_DAYS * 24 * 60 * 60 * 1000 };
 }
@@ -233,6 +235,16 @@ export async function getCurrentUser(userId) {
     totpEnabled: !!user.totp_enabled,
     isAdmin: !!user.is_admin,
   };
+}
+
+/** Update a user's mutable profile fields. Currently: name only. */
+export async function updateProfile(userId, { name }) {
+  // Strip CR/LF so the name can't inject email headers when reused in subjects.
+  const safeName = name.replace(/[\r\n]+/g, ' ').trim();
+  if (!safeName) throw Object.assign(new Error('Name cannot be empty'), { status: 400 });
+  if (safeName.length > 200) throw Object.assign(new Error('Name too long'), { status: 400 });
+  await db.run('UPDATE users SET name = $1 WHERE id = $2', [safeName, userId]);
+  return getCurrentUser(userId);
 }
 
 // --- TOTP management ---

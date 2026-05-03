@@ -31,9 +31,9 @@ router.post('/', async (req, res) => {
       safeColor,
     ]);
     res.json({ id, name: name.trim(), color: safeColor });
-  } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
-    throw e;
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
+    throw err;
   }
 });
 

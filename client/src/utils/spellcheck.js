@@ -1,4 +1,6 @@
 import Typo from 'typo-js';
+import { findMatchingBrace } from './latexParser.js';
+import { getSetting, setSetting, getJsonSetting, setJsonSetting } from './settings.js';
 
 // Supported languages
 export const LANGUAGES = [
@@ -13,21 +15,16 @@ export const LANGUAGES = [
   { code: 'pl_PL', label: 'Polish' },
 ];
 
-const LANG_KEY = 'flowtex-spell-language';
-let currentLang = localStorage.getItem(LANG_KEY) || 'en_US';
+const LANG_KEY = 'spell-language';
+let currentLang = getSetting(LANG_KEY) || 'en_US';
 let dictionary = null;
 let loadedLang = null;
 let loading = false;
 const callbacks = [];
 
 // Custom dictionary — words the user has added
-const CUSTOM_DICT_KEY = 'flowtex-custom-dictionary';
-let customWords;
-try {
-  customWords = new Set(JSON.parse(localStorage.getItem(CUSTOM_DICT_KEY) || '[]'));
-} catch {
-  customWords = new Set();
-}
+const CUSTOM_DICT_KEY = 'custom-dictionary';
+const customWords = new Set(getJsonSetting(CUSTOM_DICT_KEY, []));
 
 // Session-only ignored words
 const ignoredWords = new Set();
@@ -43,7 +40,7 @@ export function getLanguage() {
  */
 export function setLanguage(lang) {
   currentLang = lang;
-  localStorage.setItem(LANG_KEY, lang);
+  setSetting(LANG_KEY, lang);
   // Reset dictionary so it reloads
   if (loadedLang !== lang) {
     dictionary = null;
@@ -58,7 +55,7 @@ export function setLanguage(lang) {
  */
 export function addToCustomDictionary(word) {
   customWords.add(word.toLowerCase());
-  localStorage.setItem(CUSTOM_DICT_KEY, JSON.stringify([...customWords]));
+  setJsonSetting(CUSTOM_DICT_KEY, [...customWords]);
 }
 
 /**
@@ -192,6 +189,10 @@ const SKIP_ENVIRONMENTS = new Set([
  */
 function skipBracketGroup(text, i, open, close) {
   if (i >= text.length || text[i] !== open) return i;
+  if (open === '{' && close === '}') {
+    const closeIdx = findMatchingBrace(text, i);
+    return closeIdx === -1 ? text.length : closeIdx + 1;
+  }
   let depth = 1;
   i++;
   while (i < text.length && depth > 0) {

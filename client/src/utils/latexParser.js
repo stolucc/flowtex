@@ -370,6 +370,44 @@ const COMMANDS_WITH_ARGS = new Set([
   'date',
   'thanks',
   'institute',
+  'subtitle',
+  'shortauthors',
+  // Academic metadata (ACM, IEEE, etc.)
+  'affiliation',
+  'email',
+  'institution',
+  'city',
+  'country',
+  'streetaddress',
+  'postcode',
+  'state',
+  'department',
+  'orcid',
+  'authornote',
+  'authornotemark',
+  'additionalaffiliation',
+  'titlenote',
+  'subtitlenote',
+  'keywords',
+  'ccsdesc',
+  'setcopyright',
+  'copyrightyear',
+  'received',
+  'acmDOI',
+  'acmYear',
+  'acmConference',
+  'acmISBN',
+  'acmPrice',
+  'acmJournal',
+  'acmVolume',
+  'acmNumber',
+  'acmArticle',
+  'acmMonth',
+  'IEEEauthorblockN',
+  'IEEEauthorblockA',
+  'IEEEoverridecommandlockouts',
+  'numberofauthors',
+  'conferenceinfo',
   'caption',
   'caption*',
   'footnote',
@@ -425,8 +463,6 @@ const COMMANDS_WITH_ARGS = new Set([
   'resizebox',
   'scalebox',
   'rotatebox',
-  // Floats and figures
-  'centering',
   // Tables
   'multicolumn',
   'multirow',
@@ -440,8 +476,16 @@ const COMMANDS_WITH_ARGS = new Set([
   'textcolor',
   'colorbox',
   'definecolor',
+  'hl',
   // Lists
   'item',
+  // Font & spacing (DOCX-converted documents)
+  'fontsize',
+  'fontspec',
+  'setstretch',
+  'lettrine',
+  'MakeUppercase',
+  'MakeLowercase',
   // Misc
   'phantom',
   'hphantom',
@@ -488,10 +532,6 @@ export function tokenize(source) {
   let i = 0;
   let line = 1;
   let lineStart = 0;
-
-  function col() {
-    return i - lineStart + 1;
-  }
 
   function push(type, from, to, value) {
     tokens.push({ type, value: value ?? source.slice(from, to), from, to, line, col: from - lineStart + 1 });
@@ -742,16 +782,6 @@ export function parse(source) {
     stack.push(node);
   }
 
-  function closeContainer() {
-    if (stack.length > 1) {
-      const closed = stack.pop();
-      closed.to = closed._lastTo || closed.to;
-      delete closed._lastTo;
-      return closed;
-    }
-    return null;
-  }
-
   let ti = 0;
   const tlen = tokens.length;
 
@@ -767,56 +797,44 @@ export function parse(source) {
       ti++;
   }
 
-  // Read a brace group: { ... } — returns a GROUP node or null
-  function readBraceGroup() {
-    if (!peek() || peek().type !== T.OPEN_BRACE) return null;
+  // Shared helper: read a delimited argument (e.g. {...} or [...]) into a node.
+  // Walks tokens with a depth counter; collects children; emits a faithful `text`
+  // slice from the source so newlines and dropped tokens survive (re-parsers
+  // depend on `%` comments terminating at end-of-line).
+  function readDelimited(openType, closeType, nodeType) {
+    if (!peek() || peek().type !== openType) return null;
     const open = advance();
-    const group = { type: N.GROUP, from: open.from, to: open.to, children: [] };
+    const node = { type: nodeType, from: open.from, to: open.to, children: [] };
     let depth = 1;
-    // Collect tokens into group until matching close
     while (ti < tlen && depth > 0) {
       const tok = tokens[ti];
-      if (tok.type === T.OPEN_BRACE) depth++;
-      if (tok.type === T.CLOSE_BRACE) {
+      if (tok.type === openType) depth++;
+      if (tok.type === closeType) {
         depth--;
         if (depth === 0) {
-          group.to = tok.to;
+          node.to = tok.to;
           ti++;
           break;
         }
       }
-      // For the group's text content, just collect raw
-      group.children.push(tok);
+      node.children.push(tok);
       ti++;
     }
-    // Flatten group text for convenience
-    group.text = group.children.map((t) => t.value).join('');
-    return group;
+    node.text = node.to > open.to
+      ? source.slice(open.to, node.to - 1)
+      : node.children.map((t) => t.value).join('');
+    return node;
+  }
+
+  // Read a brace group: { ... } — returns a GROUP node or null
+  function readBraceGroup() {
+    return readDelimited(T.OPEN_BRACE, T.CLOSE_BRACE, N.GROUP);
   }
 
   // Read an optional argument: [ ... ] — returns an OPT_ARG node or null
   function readOptArg() {
     skipWhitespace();
-    if (!peek() || peek().type !== T.OPEN_BRACKET) return null;
-    const open = advance();
-    const arg = { type: N.OPT_ARG, from: open.from, to: open.to, children: [] };
-    let depth = 1;
-    while (ti < tlen && depth > 0) {
-      const tok = tokens[ti];
-      if (tok.type === T.OPEN_BRACKET) depth++;
-      if (tok.type === T.CLOSE_BRACKET) {
-        depth--;
-        if (depth === 0) {
-          arg.to = tok.to;
-          ti++;
-          break;
-        }
-      }
-      arg.children.push(tok);
-      ti++;
-    }
-    arg.text = arg.children.map((t) => t.value).join('');
-    return arg;
+    return readDelimited(T.OPEN_BRACKET, T.CLOSE_BRACKET, N.OPT_ARG);
   }
 
   // Read arguments for a command: optional [...] and required {...}
@@ -1349,7 +1367,6 @@ export function getStructure(tree) {
 export function parseTable(tableInfo, source, preambleSource) {
   const inner = tableInfo.inner || tableInfo;
   const outer = tableInfo.outer || null;
-  const text = source.slice(tableInfo.from ?? inner.from, tableInfo.to ?? inner.to);
 
   const result = {
     env: inner.name,
@@ -1513,8 +1530,6 @@ function parseColumnSpec(spec, result, customTypes) {
   const colWidths = []; // track p{width} values per column
   const vlinePositions = []; // track which positions have |
   let hasVerticalBars = false;
-  let pendingVline = false;
-  let pendingModifier = ''; // content of >{ ... } before a column
   let i = 0;
 
   while (i < spec.length) {
@@ -1523,7 +1538,6 @@ function parseColumnSpec(spec, result, customTypes) {
     // Vertical bar
     if (ch === '|') {
       hasVerticalBars = true;
-      pendingVline = true;
       vlinePositions.push(alignments.length); // position = current column count (before next col)
       i++;
       continue;
@@ -1533,7 +1547,6 @@ function parseColumnSpec(spec, result, customTypes) {
     if ('lcrX'.includes(ch)) {
       alignments.push(ch === 'X' ? 'c' : ch);
       colWidths.push(null);
-      pendingModifier = '';
       i++;
       continue;
     }
@@ -1548,7 +1561,6 @@ function parseColumnSpec(spec, result, customTypes) {
       // For paragraph-type columns, store 'p' as alignment so the table
       // builder knows it's a fixed-width column (not just left-aligned).
       alignments.push('p');
-      pendingModifier = '';
       i++;
       // Extract {width}
       let width = '';
@@ -1572,7 +1584,6 @@ function parseColumnSpec(spec, result, customTypes) {
       const fallbackAlign = ch === 'R' ? 'r' : ch === 'L' ? 'l' : 'c';
       alignments.push(fallbackAlign);
       colWidths.push(null);
-      pendingModifier = '';
       i++;
       // Skip optional [...] (e.g. S[table-format=2.1])
       if (i < spec.length && spec[i] === '[') {
@@ -1599,8 +1610,6 @@ function parseColumnSpec(spec, result, customTypes) {
 
     // Column modifier: >{...} or <{...} or @{...} or !{...}
     if ('><!@'.includes(ch)) {
-      const isPrefix = ch === '>';
-      let modContent = '';
       i++;
       if (i < spec.length && spec[i] === '{') {
         let depth = 1;
@@ -1608,11 +1617,9 @@ function parseColumnSpec(spec, result, customTypes) {
         while (i < spec.length && depth > 0) {
           if (spec[i] === '{') depth++;
           else if (spec[i] === '}') depth--;
-          if (depth > 0) modContent += spec[i];
           i++;
         }
       }
-      if (isPrefix) pendingModifier = modContent;
       continue;
     }
 
@@ -2300,6 +2307,40 @@ export function parseCustomColumnTypes(source) {
     types.set(letter, { hasWidth, alignment, definition: def });
   }
   return types;
+}
+
+/**
+ * Find the position of the `}` that matches the `{` at `openPos`.
+ *
+ * Walks forward from `openPos + 1`, tracking `{`/`}` nesting depth.
+ * Returns the index of the matching closing brace, or -1 if unmatched
+ * (or if `openPos` does not point at a `{`).
+ *
+ * @param {string} text  - Source text to scan.
+ * @param {number} openPos  - Index of the opening `{`.
+ * @param {boolean} [respectEscapes=true]  - If true, `\{` and `\}` (and any
+ *   other backslash-escaped char) are skipped over and don't count toward
+ *   nesting. If false, every `{`/`}` counts.
+ * @returns {number} Index of the matching `}`, or -1 if not found.
+ */
+export function findMatchingBrace(text, openPos, respectEscapes = true) {
+  if (openPos < 0 || openPos >= text.length || text[openPos] !== '{') return -1;
+  let depth = 1;
+  let i = openPos + 1;
+  while (i < text.length && depth > 0) {
+    const c = text[i];
+    if (respectEscapes && c === '\\') {
+      i += 2; // skip escaped char (e.g. \{, \}, \\)
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+    i++;
+  }
+  return -1;
 }
 
 export { VERBATIM_ENVS, MATH_ENVS, ALIGN_ENVS, TABLE_ENVS, NON_PROSE_COMMANDS, PROSE_COMMANDS, MACRO_DEF_COMMANDS };

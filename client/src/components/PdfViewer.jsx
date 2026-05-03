@@ -13,6 +13,7 @@ import {
 } from './Icons.jsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { getSetting, setSetting } from '../utils/settings.js';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { getErrorHelp } from '../utils/latexErrorHelp.js';
 import parseLog from '../utils/latexLogParser.js';
@@ -179,9 +180,12 @@ const PdfViewer = forwardRef(function PdfViewer(
     onGoToFileAndLine,
     tapsDiagnostics,
     showBoxWarnings = true,
+    onToggleBoxWarnings,
     onOpenSettings,
     mainFileExists = true,
     mainFileChanged = false,
+    showTrackedChangesInPdf = false,
+    onToggleTrackedChangesInPdf,
   },
   ref,
 ) {
@@ -197,7 +201,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
   const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | null
-  const [inverted, setInverted] = useState(() => localStorage.getItem('flowtex-pdf-inverted') === 'true');
+  const [inverted, setInverted] = useState(() => getSetting('pdf-inverted') === 'true');
   useEffect(() => {
     const handler = (e) => {
       if (e.detail.pdfInverted !== undefined) setInverted(e.detail.pdfInverted);
@@ -292,6 +296,9 @@ const PdfViewer = forwardRef(function PdfViewer(
     let cancelled = false;
     setError(null);
     const container = containerRef.current;
+    // Capture refs for cleanup (their .current may differ at unmount time)
+    const renderedPages = renderedPagesRef.current;
+    const renderingPages = renderingPagesRef.current;
 
     // Capture scroll position relative to current page before re-render
     let savedPage = 1;
@@ -388,23 +395,6 @@ const PdfViewer = forwardRef(function PdfViewer(
     // Store in ref so scrollToPosition can call it
     renderPageRef.current = renderPageCanvas;
 
-    // Destroy a page's canvas and text layer, returning it to placeholder
-    function destroyPageCanvas(idx) {
-      if (!renderedPagesRef.current.has(idx)) return;
-      const proxy = pageProxyRef.current[idx];
-      if (!proxy) return;
-      if (proxy.canvas) {
-        proxy.canvas.width = 0; // free GPU memory
-        proxy.canvas.remove();
-        proxy.canvas = null;
-      }
-      if (proxy.textLayerDiv) {
-        proxy.textLayerDiv.remove();
-        proxy.textLayerDiv = null;
-      }
-      renderedPagesRef.current.delete(idx);
-    }
-
     const layoutPages = async () => {
       try {
         let pdf = pdfDocRef.current;
@@ -488,8 +478,8 @@ const PdfViewer = forwardRef(function PdfViewer(
       cancelled = true;
       observerRef.current?.disconnect();
       observerRef.current = null;
-      renderedPagesRef.current.clear();
-      renderingPagesRef.current.clear();
+      renderedPages.clear();
+      renderingPages.clear();
       pageProxyRef.current = [];
       renderPageRef.current = null;
     };
@@ -739,6 +729,29 @@ const PdfViewer = forwardRef(function PdfViewer(
           {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning
           {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
         </button>
+        {onToggleBoxWarnings && (
+          <button
+            className={`pdf-zoom-btn ${showBoxWarnings ? 'active' : ''}`}
+            onClick={onToggleBoxWarnings}
+            title={showBoxWarnings ? 'Hide overfull/underfull box warnings' : 'Show overfull/underfull box warnings'}
+            style={{ marginLeft: 2 }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="5" width="14" height="14" rx="1" />
+              <line x1="17" y1="10" x2="22" y2="10" />
+              <polyline points="20,8 22,10 20,12" />
+            </svg>
+          </button>
+        )}
         <button
           className={`pdf-header-btn console-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
           onClick={() => togglePanel('console')}
@@ -746,6 +759,34 @@ const PdfViewer = forwardRef(function PdfViewer(
           Console
           {consoleOutput && showPanel !== 'console' && <span className="console-badge" />}
         </button>
+        {onToggleTrackedChangesInPdf && (
+          <button
+            className={`pdf-zoom-btn pdf-tc-btn ${showTrackedChangesInPdf ? 'active' : ''}`}
+            onClick={onToggleTrackedChangesInPdf}
+            title={showTrackedChangesInPdf ? 'Hide tracked changes in PDF' : 'Show tracked changes in PDF'}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              {showTrackedChangesInPdf && (
+                <>
+                  <line x1="1" y1="1" x2="5" y2="5" stroke="red" strokeWidth="1.5" />
+                  <line x1="1" y1="5" x2="5" y2="1" stroke="red" strokeWidth="1.5" />
+                  <line x1="1" y1="9" x2="6" y2="9" stroke="blue" strokeWidth="1.5" />
+                </>
+              )}
+            </svg>
+          </button>
+        )}
         {url && (
           <a className="pdf-header-btn pdf-download-btn" href={url} download="output.pdf" title="Download PDF">
             <DownloadIcon />
@@ -834,7 +875,7 @@ const PdfViewer = forwardRef(function PdfViewer(
             onClick={() =>
               setInverted((v) => {
                 const n = !v;
-                localStorage.setItem('flowtex-pdf-inverted', String(n));
+                setSetting('pdf-inverted', n);
                 return n;
               })
             }
@@ -971,15 +1012,15 @@ const PdfViewer = forwardRef(function PdfViewer(
       {showPanel === 'console' && <ConsolePanel output={consoleOutput} compiling={compiling} />}
       {!mainFileExists && !url && !compiling && (
         <div className="pdf-no-main-file-banner">
-          No main file found. Right-click a <code>.tex</code> file in the file tree and select "Set as Main File" to
+          No main file found. Right-click a <code>.tex</code> file in the file tree and select &quot;Set as Main File&quot; to
           compile your project.
         </div>
       )}
       {mainFileChanged && !compiling && (
-        <div className="pdf-recompile-banner">Main file changed. Click "PDF" to recompile with the new main file.</div>
+        <div className="pdf-recompile-banner">Main file changed. Click &quot;PDF&quot; to recompile with the new main file.</div>
       )}
       {!url && !compiling && mainFileExists && !mainFileChanged && (
-        <div className="pdf-placeholder">Click "PDF" to generate PDF</div>
+        <div className="pdf-placeholder">Click &quot;PDF&quot; to generate PDF</div>
       )}
       {error && <div className="pdf-error">{error}</div>}
       <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />

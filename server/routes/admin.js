@@ -5,6 +5,7 @@ import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
+import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -308,8 +309,7 @@ router.get('/users/:id/activity', async (req, res) => {
     })),
   });
   } catch (err) {
-    logger.error({ err }, 'Failed to load user activity');
-    res.status(500).json({ error: 'Failed to load user activity' });
+    sendError(res, err);
   }
 });
 
@@ -376,8 +376,9 @@ router.get('/audit-log/export', async (req, res) => {
       .join(','),
   );
 
+  const auditName = `flowtex-audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="flowtex-audit-log-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${auditName}"; filename*=UTF-8''${encodeURIComponent(auditName)}`);
   res.send(header + '\n' + lines.join('\n'));
 });
 
@@ -526,8 +527,7 @@ router.post('/settings/test-email', async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err) {
-    logger.error({ err }, 'SMTP test email failed');
-    res.status(500).json({ error: 'Failed to send test email' });
+    sendError(res, err);
   }
 });
 

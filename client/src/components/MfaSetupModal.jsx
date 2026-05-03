@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { get, post, put, del } from '../api.js';
+import { get, post, put, patch, del } from '../api.js';
 
 /** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
 export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
@@ -13,6 +13,12 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [mfaPassword, setMfaPassword] = useState('');
   const [mfaError, setMfaError] = useState('');
   const [mfaLoading, setMfaLoading] = useState(false);
+
+  // ── Profile (display name) state ───────────────────────────────────
+  const [profileName, setProfileName] = useState(user.name || '');
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // ── Change email state ─────────────────────────────────────────────
   const [emailNewVal, setEmailNewVal] = useState('');
@@ -170,6 +176,31 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     setTimeout(() => setGhSuccess(''), 2000);
   };
 
+  // ── Profile (display name) handler ─────────────────────────────────
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+    const trimmed = profileName.trim();
+    if (!trimmed) { setProfileError('Name is required'); return; }
+    if (trimmed === user.name) { setProfileSuccess('No changes to save'); return; }
+    setProfileLoading(true);
+    try {
+      const res = await patch('/api/auth/me', { name: trimmed });
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data.error || 'Failed to update profile');
+      } else {
+        setProfileSuccess('Name updated');
+        onUpdate?.(data);
+      }
+    } catch {
+      setProfileError('Failed to update profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   // ── Change email handler ───────────────────────────────────────────
   /** Submit a request to change the user's email address. */
   const handleChangeEmail = async (e) => {
@@ -255,6 +286,9 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
         </p>
 
         <div className="settings-tabs">
+          <button className={`settings-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => setTab('profile')}>
+            Profile
+          </button>
           <button className={`settings-tab ${tab === 'mfa' ? 'active' : ''}`} onClick={() => setTab('mfa')}>
             2FA
           </button>
@@ -271,6 +305,35 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             Delete Account
           </button>
         </div>
+
+        {tab === 'profile' && (
+          <div className="settings-section">
+            <p className="mfa-description">
+              The name collaborators see on your cursor, comments, and tracked changes.
+            </p>
+            <form onSubmit={handleSaveProfile} className="auth-form">
+              <input
+                type="text"
+                placeholder="Display name"
+                value={profileName}
+                onChange={(e) => { setProfileName(e.target.value); setProfileError(''); setProfileSuccess(''); }}
+                maxLength={200}
+                autoComplete="name"
+                required
+                className="auth-input"
+              />
+              {profileError && <div className="auth-error">{profileError}</div>}
+              {profileSuccess && <div className="mfa-success">{profileSuccess}</div>}
+              <button
+                type="submit"
+                className="auth-button"
+                disabled={profileLoading || !profileName.trim() || profileName.trim() === user.name}
+              >
+                {profileLoading ? 'Saving...' : 'Save'}
+              </button>
+            </form>
+          </div>
+        )}
 
         {tab === 'mfa' && (
           <div className="settings-section">
@@ -294,7 +357,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 </p>
                 {qrCode && <img src={qrCode} alt="QR Code" className="mfa-qr" />}
                 <details className="mfa-secret-details">
-                  <summary>Can't scan? Enter this key manually</summary>
+                  <summary>Can&apos;t scan? Enter this key manually</summary>
                   <code className="mfa-secret-code">{secret}</code>
                 </details>
                 <form onSubmit={handleVerify} className="auth-form">

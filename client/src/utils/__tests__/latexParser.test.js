@@ -569,7 +569,7 @@ long text & short \\
     const tree = parse(src);
     const tables = findTables(tree);
     const result = parseTable({ inner: tables[0] }, src);
-    expect(result.alignments).toEqual(['l', 'l']);
+    expect(result.alignments).toEqual(['p', 'l']);
     expect(result.cols).toBe(2);
   });
 

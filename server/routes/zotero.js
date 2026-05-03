@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
+import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 const ZOTERO_API = 'https://api.zotero.org';
@@ -44,8 +45,7 @@ router.post('/connect', async (req, res) => {
 
     res.json({ ok: true, zoteroUserId, displayName });
   } catch (err) {
-    logger.error({ err }, 'Zotero connect failed');
-    res.status(500).json({ error: 'Failed to verify Zotero API key' });
+    sendError(res, err);
   }
 });
 
@@ -98,8 +98,7 @@ router.get('/collections', async (req, res) => {
     }));
     res.json(collections);
   } catch (err) {
-    logger.error({ err }, 'Zotero collections fetch failed');
-    res.status(500).json({ error: 'Failed to fetch collections' });
+    sendError(res, err);
   }
 });
 
@@ -144,8 +143,7 @@ router.get('/items', async (req, res) => {
 
     res.json({ items, total: totalResults, start: params.start, limit: params.limit });
   } catch (err) {
-    logger.error({ err }, 'Zotero items fetch failed');
-    res.status(500).json({ error: 'Failed to fetch items' });
+    sendError(res, err);
   }
 });
 
@@ -174,8 +172,7 @@ router.get('/export', async (req, res) => {
     const bibtex = await resp.text();
     res.json({ bibtex });
   } catch (err) {
-    logger.error({ err }, 'Zotero BibTeX export failed');
-    res.status(500).json({ error: 'Failed to export BibTeX' });
+    sendError(res, err);
   }
 });
 

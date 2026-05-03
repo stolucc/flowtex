@@ -20,6 +20,7 @@ vi.mock('../compiler.js', () => ({
   stopCompilation: vi.fn(),
   syncFilesToDisk: vi.fn(),
   invalidateFileCache: vi.fn(),
+  userSuffix: (userId) => (userId ? '_' + userId.slice(0, 8) : ''),
   GENERATED_EXTS: new Set(['.aux', '.log', '.fls', '.fdb_latexmk', '.synctex.gz', '.synctex', '.bbl', '.blg', '.out', '.toc', '.lof', '.lot', '.nav', '.snm', '.vrb', '.idx', '.ind', '.ilg', '.glo', '.gls', '.glg', '.cb', '.cb2', '.bcf', '.run.xml', '.xdv']),
   TEX_PATHS: '/usr/local/texlive/bin',
   getTexPaths: vi.fn(() => '/usr/local/texlive/bin'),

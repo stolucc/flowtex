@@ -67,8 +67,11 @@ export function encrypt(text) {
   return iv.toString('hex') + ':' + tag + ':' + encrypted;
 }
 
-/** @internal — test use only */
+/** @internal — test use only; gated to NODE_ENV=test so production can't reach it. */
 export function _setSaltForTesting(salt) {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_setSaltForTesting is only available in NODE_ENV=test');
+  }
   _salt = salt;
   _key = null;
 }

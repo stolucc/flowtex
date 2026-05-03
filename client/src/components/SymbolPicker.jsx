@@ -63,7 +63,7 @@ function SymbolPicker({ onInsert, onClose, declaredPackages }) {
               </div>
             </div>
           ))}
-          {filtered.length === 0 && <div className="symbol-picker-empty">No symbols match "{filter}"</div>}
+          {filtered.length === 0 && <div className="symbol-picker-empty">No symbols match &quot;{filter}&quot;</div>}
         </div>
         <div className="symbol-picker-footer">
           <div>

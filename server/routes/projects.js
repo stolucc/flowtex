@@ -192,6 +192,46 @@ router.post('/from-zip', upload.single('file'), async (req, res) => {
   }
 });
 
+/** POST /api/projects/from-docx -- Create a new project by importing a .docx file.
+ *  Streams SSE progress events, then a final 'result' or 'error' event. */
+router.post('/from-docx', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  // Set up SSE stream for progress updates
+  // Disable compression for this response so events flush immediately
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (typeof res.flush === 'function') res.flush();
+  };
+
+  // Track client disconnect so we can abort long-running conversions
+  const abortController = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortController.abort(); });
+
+  try {
+    const options = {};
+    if (req.body.docType) options.docType = req.body.docType;
+    options.signal = abortController.signal;
+    options.onProgress = (message, percent) => {
+      sendEvent({ type: 'progress', message, percent });
+    };
+    const result = await projectService.createProjectFromDocx(req.session.userId, req.file.buffer, req.file.originalname, options);
+    sendEvent({ type: 'result', ...result });
+    res.end();
+  } catch (err) {
+    if (abortController.signal.aborted) { res.end(); return; }
+    logger.error({ err }, 'DOCX import error');
+    sendEvent({ type: 'error', error: err.message || 'Failed to import DOCX file' });
+    res.end();
+  }
+});
+
 /** GET /api/projects/invitations/mine -- List pending invitations for the current user. */
 router.get('/invitations/mine', async (req, res) => {
   res.json(await projectService.getMyInvitations(req.session.userId));
@@ -222,7 +262,7 @@ router.patch('/:id', async (req, res) => {
   if (!member) return;
   if (member.role !== 'owner') return res.status(403).json({ error: 'Only the owner can modify project settings' });
   const { name, main_file, snapshot_interval_sec, tex_distribution, compiler } = req.body;
-  if (!name && !main_file && snapshot_interval_sec == null && tex_distribution === undefined && compiler === undefined)
+  if (!name && !main_file && snapshot_interval_sec == null && tex_distribution == null && compiler == null)
     return res.status(400).json({ error: 'Nothing to update' });
   try {
     const updated = await projectService.updateProject(req.params.id, {
@@ -359,7 +399,7 @@ router.get('/:id/zip', async (req, res) => {
   const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [req.params.id]);
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
-  res.set('Content-Disposition', `attachment; filename="${zipName}"`);
+  res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.pipe(res);
   for (const f of files) archive.append(f.is_binary ? Buffer.from(f.content, 'base64') : f.content, { name: f.path });
@@ -377,7 +417,7 @@ router.get('/:id/zip-used', async (req, res) => {
   const usedFiles = files.filter((f) => usedPaths.has(f.path));
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
-  res.set('Content-Disposition', `attachment; filename="${zipName}"`);
+  res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.pipe(res);
   for (const f of usedFiles)

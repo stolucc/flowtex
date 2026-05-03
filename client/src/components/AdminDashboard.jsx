@@ -30,7 +30,7 @@ function BarChart({ data, label, color = 'var(--accent)' }) {
         </div>
         <div className="admin-chart-area">
           <div className="admin-chart-bars">
-            {data.map((d, i) => (
+            {data.map((d) => (
               <div key={d.date} className="admin-chart-bar-col" title={`${d.date}: ${d.count}`}>
                 <div className="admin-chart-bar" style={{ height: `${(d.count / max) * 100}%`, background: color }} />
               </div>
@@ -326,7 +326,7 @@ export default function AdminDashboard({ onBack }) {
   const [userActivity, setUserActivity] = useState(null);
   const [userActivityLoading, setUserActivityLoading] = useState(false);
   const [live, setLive] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(null);
+  const [, setLastRefresh] = useState(null);
   const [system, setSystem] = useState(null);
   const [cpuHistory, setCpuHistory] = useState([]);
   const [compileHistory, setCompileHistory] = useState([]);

@@ -1653,6 +1653,25 @@ html {
   margin-right: 6px;
 }
 
+.gh-diff-large-toggle {
+  display: block;
+  width: 100%;
+  background: #161b22;
+  color: #58a6ff;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  border: none;
+  border-top: 1px solid #30363d;
+  border-bottom: 1px solid #30363d;
+  cursor: pointer;
+}
+
+.gh-diff-large-toggle:hover {
+  background: #1f242c;
+}
+
 .gh-diff-table {
   width: 100%;
   border-collapse: collapse;
@@ -1846,19 +1865,35 @@ html {
   display: inline-block;
 }
 
-/* Connection lost banner */
+/* Connection-lost strip — sits at the top of the editor area as a thin
+   warning bar. Not a separate panel; doesn't reflow the editor below. */
 .ws-disconnected-banner {
-  background: var(--bg-surface);
-  border: 1px solid var(--yellow);
-  border-radius: var(--radius);
-  color: var(--yellow);
-  text-align: center;
-  padding: 12px 16px;
-  margin: 8px 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(255, 193, 7, 0.12);
+  border-bottom: 1px solid rgba(255, 193, 7, 0.5);
+  color: #8a6d00;
+  font-size: 12px;
+  line-height: 1.3;
   flex-shrink: 0;
+}
+
+.ws-disconnected-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f5a524;
+  box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.55);
+  animation: ws-disconnected-pulse 1.6s ease-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes ws-disconnected-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(245, 165, 36, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0); }
 }
 
 /* Template Gallery */
@@ -4198,6 +4233,10 @@ html {
   color: #fff;
 }
 
+.pdf-tc-btn {
+  margin-left: 6px;
+}
+
 .pdf-page-wrapper {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   border-radius: 2px;
@@ -4369,6 +4408,10 @@ html {
   display: flex;
   gap: 4px;
   align-items: center;
+}
+
+.comment-assignment + .comment-top-actions {
+  top: 34px;
 }
 
 .comment-resolve-btn {
@@ -4909,6 +4952,445 @@ html {
 
 .toolbar-btn-logout:hover {
   color: var(--red);
+}
+
+.toolbar-btn-active {
+  background: rgba(91, 156, 245, 0.15);
+  color: #5b9cf5;
+  border-color: rgba(91, 156, 245, 0.3);
+}
+.toolbar-btn-visual {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Visual Mode Style Picker (in main toolbar) ── */
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.toolbar-style-picker {
+  position: relative;
+}
+.toolbar-style-btn {
+  min-width: 110px;
+  text-align: left;
+  padding: 2px 8px !important;
+  font-size: 12px !important;
+}
+.toolbar-style-menu {
+  min-width: 180px;
+}
+.toolbar-style-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.toolbar-style-active {
+  background: rgba(91, 156, 245, 0.12) !important;
+  color: var(--accent) !important;
+}
+.toolbar-style-preview { font-size: 13px; }
+.toolbar-style-preview-part { font-size: 18px; font-weight: bold; }
+.toolbar-style-preview-chapter { font-size: 16px; font-weight: bold; }
+.toolbar-style-preview-section { font-size: 15px; font-weight: bold; }
+.toolbar-style-preview-subsection { font-size: 14px; font-weight: 600; }
+.toolbar-style-preview-subsubsection { font-size: 13px; font-weight: 600; font-style: italic; }
+.toolbar-style-preview-paragraph { font-size: 13px; font-weight: bold; }
+
+.toolbar-fmt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: Georgia, 'Times New Roman', serif;
+  padding: 0;
+  flex-shrink: 0;
+}
+.toolbar-fmt-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.toolbar-fmt-active {
+  background: rgba(91, 156, 245, 0.15);
+  color: #5b9cf5;
+  border-color: rgba(91, 156, 245, 0.3);
+}
+/* Bold B, Italic I, Underline U styling */
+.toolbar-fmt-btn:nth-child(1 of .toolbar-fmt-btn) { font-weight: bold; }
+.toolbar-fmt-btn:nth-child(2 of .toolbar-fmt-btn) { font-style: italic; }
+.toolbar-fmt-btn:nth-child(3 of .toolbar-fmt-btn) { text-decoration: underline; }
+
+/* ── Visual Mode Formatting Toolbar ── */
+.vm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  flex-shrink: 0;
+  z-index: 5;
+}
+.vm-toolbar-select {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 120px;
+}
+.vm-toolbar-select:hover {
+  border-color: var(--accent);
+}
+.vm-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 6px;
+}
+.vm-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+}
+.vm-toolbar-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.vm-toolbar-btn-active {
+  background: rgba(91, 156, 245, 0.15);
+  color: #5b9cf5;
+  border-color: rgba(91, 156, 245, 0.3);
+}
+.vm-toolbar-block-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(91, 156, 245, 0.1);
+  border: 1px solid rgba(91, 156, 245, 0.25);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.vm-toolbar-color-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.vm-color-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 6px;
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-top: 2px;
+}
+
+.vm-color-swatch {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s;
+}
+
+.vm-color-swatch:hover {
+  transform: scale(1.2);
+  border-color: rgba(0, 0, 0, 0.4);
+  z-index: 1;
+}
+
+.vm-color-swatch-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.vm-color-none {
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.vm-color-none::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 141%;
+  height: 2px;
+  background: #e53935;
+  transform-origin: top left;
+  transform: rotate(45deg);
+}
+
+.vm-toolbar-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.vm-cite-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  width: 360px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-top: 2px;
+  overflow: hidden;
+}
+
+.vm-cite-search {
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border, #ddd);
+  outline: none;
+  font-size: 13px;
+  background: transparent;
+  color: var(--text-primary, #222);
+}
+
+.vm-cite-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 270px;
+}
+
+.vm-cite-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-light, #f0f0f0);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary, #222);
+}
+
+.vm-cite-item-active {
+  background: var(--bg-hover, #eef4ff);
+}
+
+.vm-cite-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--accent, #1a73e8);
+}
+
+.vm-cite-detail {
+  font-size: 11px;
+  color: var(--text-secondary, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.vm-cite-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  text-align: center;
+}
+
+.cite-context-menu {
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 240px;
+  padding: 4px 0;
+  font: inherit;
+}
+
+.cite-context-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-light, #eee);
+}
+
+.cite-context-cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-secondary, #777);
+}
+
+.cite-context-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--accent, #1a73e8);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cite-context-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary, #222);
+}
+
+.cite-context-item:hover {
+  background: var(--bg-hover, #eef4ff);
+}
+
+.cite-context-item-current {
+  background: var(--bg-active, #f5f7fb);
+}
+
+.cite-context-item-label {
+  font-size: 13px;
+}
+
+.cite-context-item-hint {
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Reference hover tooltip — used in both visual mode (mounted on document.body
+   from the ref-badge widget) and source mode (mounted by CodeMirror's
+   hoverTooltip extension under .cm-tooltip). */
+.cm-vm-ref-tooltip {
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 12px;
+  color: #222;
+  max-width: 420px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+}
+
+/* CodeMirror's hoverTooltip adds the `.cm-tooltip` class to the SAME element
+   as our `.cm-vm-ref-tooltip`. CM6's baseTheme rule `.cm-editor.cm-light
+   .cm-tooltip` (specificity 0,3,0) is injected at runtime after our CSS
+   loads, so it wins over `.cm-vm-ref-tooltip` (0,1,0) on both specificity
+   and source order. `!important` is required to defeat that runtime style
+   and keep the source-mode tooltip visually identical to the visual-mode
+   badge popup, which mounts on document.body and never sees CM6 styling. */
+.cm-tooltip.cm-vm-ref-tooltip {
+  background: #fff !important;
+  border: 1px solid #d0d7de !important;
+  border-radius: 6px !important;
+  padding: 6px 10px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12) !important;
+}
+
+.cm-vm-ref-tooltip-row + .cm-vm-ref-tooltip-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+}
+
+.cm-vm-ref-tooltip-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+.cm-vm-ref-tooltip-cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #777;
+}
+
+.cm-vm-ref-tooltip-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #1967d2;
+}
+
+.cm-vm-ref-tooltip-body {
+  font-size: 12px;
+  color: #222;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cm-vm-ref-tooltip-kind {
+  text-transform: capitalize;
+  font-weight: 600;
+  color: #444;
+}
+
+.cm-vm-ref-tooltip-title {
+  color: #222;
+  font-weight: 600;
+}
+
+.cm-vm-ref-tooltip-authors {
+  color: #444;
+}
+
+.cm-vm-ref-tooltip-venue {
+  color: #555;
+  font-style: italic;
+}
+
+.cm-vm-ref-tooltip-missing {
+  color: #b00020;
+  font-style: italic;
 }
 
 .toolbar-user-name {
@@ -5733,7 +6215,9 @@ kbd {
 
 /* Account Settings modal */
 .settings-modal {
-  max-width: 480px;
+  /* Overrides .modal-card's fixed width: 420px so the six tabs fit on one row. */
+  width: 600px;
+  max-width: 90vw;
 }
 
 .settings-user-info {
@@ -5744,6 +6228,7 @@ kbd {
 
 .settings-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border);
@@ -5897,7 +6382,8 @@ kbd {
 }
 
 .confirm-dialog-cancel,
-.confirm-dialog-delete {
+.confirm-dialog-delete,
+.confirm-dialog-confirm {
   padding: 7px 18px;
   border-radius: var(--radius-pill);
   cursor: pointer;
@@ -5906,6 +6392,16 @@ kbd {
   transition:
     background 0.15s,
     opacity 0.15s;
+}
+
+.confirm-dialog-confirm {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.confirm-dialog-confirm:hover {
+  background: var(--accent-hover);
 }
 
 .confirm-dialog-cancel {
@@ -7062,6 +7558,23 @@ kbd {
   border-bottom: 2px solid #448aff;
   color: #448aff !important;
   cursor: pointer;
+}
+
+/* Zero-width deletion marker (imported tracked changes) */
+.cm-tc-delete-widget {
+  display: inline;
+  color: #b71c1c;
+  font-weight: bold;
+  font-size: 0.85em;
+  cursor: pointer;
+  vertical-align: baseline;
+  margin: 0 1px;
+  opacity: 0.7;
+}
+.cm-tc-delete-widget:hover {
+  opacity: 1;
+  background: rgba(183, 28, 28, 0.15);
+  border-radius: 2px;
 }
 
 /* Deleted text (struck-through) in editor */

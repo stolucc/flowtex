@@ -15,9 +15,6 @@ import {
   spellcheckText,
   addToCustomDictionary,
   ignoreWord,
-  LANGUAGES,
-  getLanguage,
-  setLanguage,
 } from '../utils/spellcheck.js';
 import latexAutocomplete from '../utils/latexCompletions.js';
 import SymbolPicker from './SymbolPicker.jsx';
@@ -65,6 +62,10 @@ import {
   updateFigureGutterMarkers,
   latexFoldService,
 } from '../utils/editorExtensions.js';
+import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
+import { findMatchingBrace } from '../utils/latexParser.js';
+import VisualModeToolbar from './VisualModeToolbar.jsx';
+import { getSetting, setSetting } from '../utils/settings.js';
 import {
   UndoIcon,
   RedoIcon,
@@ -88,7 +89,6 @@ const Editor = forwardRef(function Editor(
     comments,
     currentUserName,
     onSave,
-    onSelectionChange,
     onLineChange,
     onChanges,
     onCursorChange,
@@ -96,7 +96,6 @@ const Editor = forwardRef(function Editor(
     onRequestComment,
     onScroll,
     onLintDiagnostics,
-    projectId,
     showLineNumbers = true,
     wordWrap = true,
     trackChangesMode = false,
@@ -127,6 +126,9 @@ const Editor = forwardRef(function Editor(
     onToggleAutoSave,
     onGoToFile,
     projectFiles,
+    visualMode = false,
+    onToggleVisualMode,
+    spellLang = 'en_US',
   },
   ref,
 ) {
@@ -136,7 +138,8 @@ const Editor = forwardRef(function Editor(
   const commentCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
   const fontSizeCompartment = useRef(new Compartment());
-  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('flowtex-font-size') || '14', 10));
+  const visualModeCompartment = useRef(new Compartment());
+  const [fontSize, setFontSize] = useState(() => parseInt(getSetting('font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
   const isResolvingTc = useRef(false);
   const errorHighlightTimer = useRef(null);
@@ -145,9 +148,13 @@ const Editor = forwardRef(function Editor(
   const dictRef = useRef(null);
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
-  const tcInsertBuffer = useRef({ from: null, to: null, text: '' }); // buffered insertion for debounce
+  // Track current file id so tracked-change buffer writes can pin to the file the user is
+  // actually editing — buffers may flush after a file switch and must not leak edits across files.
+  const fileIdRef = useRef(file?.id ?? null);
+  fileIdRef.current = file?.id ?? null;
+  const tcInsertBuffer = useRef({ from: null, to: null, text: '', fileId: null }); // buffered insertion for debounce
   const tcInsertTimer = useRef(null);
-  const tcDelBuffer = useRef({ from: null, to: null, text: '' });
+  const tcDelBuffer = useRef({ from: null, to: null, text: '', fileId: null });
   const tcDelTimer = useRef(null);
   // Pending deletion ranges from the transaction filter, piggybacked on the next 'changes' WS message.
   // Stored as old-doc positions so the collaborator can map them through the ChangeSet locally.
@@ -160,8 +167,215 @@ const Editor = forwardRef(function Editor(
   const [lintDiags, setLintDiags] = useState([]);
   const [spellMenu, setSpellMenu] = useState(null); // { x, y, word, from, to }
   const spellMenuRef = useRef(null);
-  const [spellLang, setSpellLang] = useState(() => getLanguage());
-  const [inverted, setInverted] = useState(() => localStorage.getItem('flowtex-editor-inverted') === 'true');
+  const [citeMenu, setCiteMenu] = useState(null); // { x, y, from, to, name, opt, key }
+  const citeMenuRef = useRef(null);
+  const [inverted, setInverted] = useState(() => getSetting('editor-inverted') === 'true');
+
+  // VisualModeToolbar owns its own state; we hold a ref to refresh it on cursor move.
+  const vmToolbarRef = useRef(null);
+
+  /**
+   * Per-doc cache for list-env tag positions. Recomputed only when the CodeMirror
+   * Text reference changes. This matters because findInnermostListEnv runs on
+   * every Enter / Tab / Shift-Tab keystroke under autorepeat.
+   *   { doc, tags: [{ pos, env, type, len }, ...] sorted by pos }
+   */
+  const listEnvTagsCacheRef = useRef(null);
+
+  const getListEnvTags = useCallback((doc) => {
+    const cached = listEnvTagsCacheRef.current;
+    if (cached && cached.doc === doc) return cached.tags;
+    const text = doc.toString();
+    const envNames = ['itemize', 'enumerate', 'description'];
+    const tags = [];
+    for (const env of envNames) {
+      const bt = `\\begin{${env}}`;
+      const et = `\\end{${env}}`;
+      let i = 0;
+      while ((i = text.indexOf(bt, i)) !== -1) { tags.push({ pos: i, env, type: 'begin', len: bt.length }); i += bt.length; }
+      i = 0;
+      while ((i = text.indexOf(et, i)) !== -1) { tags.push({ pos: i, env, type: 'end', len: et.length }); i += et.length; }
+    }
+    tags.sort((a, b) => a.pos - b.pos);
+    listEnvTagsCacheRef.current = { doc, tags };
+    return tags;
+  }, []);
+
+  /**
+   * Find the innermost itemize/enumerate/description env surrounding `pos`.
+   * Returns { env, beginPos, endPos, depth } or null.
+   * beginPos = start of \begin{env}, endPos = start of \end{env}.
+   *
+   * Tag positions are memoized per document version (see listEnvTagsCacheRef);
+   * only the per-position stack walk runs on each call.
+   */
+  const findInnermostListEnv = useCallback((doc, pos) => {
+    const tags = getListEnvTags(doc);
+
+    // Walk through tags, tracking a stack of open envs
+    const stack = []; // { env, beginPos }
+    let result = null;
+    for (const tag of tags) {
+      if (tag.type === 'begin') {
+        stack.push({ env: tag.env, beginPos: tag.pos });
+      } else {
+        // Close the most recent matching begin
+        for (let j = stack.length - 1; j >= 0; j--) {
+          if (stack[j].env === tag.env) {
+            const opened = stack[j];
+            // Does this env surround pos?
+            if (opened.beginPos < pos && tag.pos + tag.len >= pos) {
+              // This env contains pos — is it innermost so far?
+              if (!result || opened.beginPos > result.beginPos) {
+                result = { env: tag.env, beginPos: opened.beginPos, endPos: tag.pos, depth: 0 };
+              }
+            }
+            stack.splice(j, 1);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!result) return null;
+
+    // Compute depth: count how many list envs contain this one
+    let depth = 0;
+    // Re-scan: count how many begin tags before result.beginPos are still open at that point
+    const stack2 = [];
+    for (const tag of tags) {
+      if (tag.pos >= result.beginPos) break;
+      if (tag.type === 'begin') {
+        stack2.push(tag);
+      } else {
+        for (let j = stack2.length - 1; j >= 0; j--) {
+          if (stack2[j].env === tag.env) { stack2.splice(j, 1); break; }
+        }
+      }
+    }
+    depth = stack2.length;
+    result.depth = depth;
+    return result;
+  }, [getListEnvTags]);
+
+  // Insert a list environment around the current selection/lines
+  const vmInsertList = useCallback((envName) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const fromLine = view.state.doc.lineAt(from);
+    const toLine = view.state.doc.lineAt(to);
+    const blockFrom = fromLine.from;
+    const blockTo = toLine.to;
+    const blockText = view.state.doc.sliceString(blockFrom, blockTo);
+
+    // Check if cursor is already inside this list env — if so, unwrap
+    // Scan backwards for \begin{envName} and forwards for \end{envName}
+    const docText = view.state.doc.toString();
+    const beforeCursor = docText.slice(0, blockFrom);
+    const afterCursor = docText.slice(blockTo);
+    const beginIdx = beforeCursor.lastIndexOf(`\\begin{${envName}}`);
+    const endIdx = afterCursor.indexOf(`\\end{${envName}}`);
+
+    if (beginIdx >= 0 && endIdx >= 0) {
+      // Check there's no \end{envName} between beginIdx and cursor (i.e. we're truly inside)
+      const between = docText.slice(beginIdx, blockFrom);
+      if (!between.includes(`\\end{${envName}}`)) {
+        // Unwrap the entire environment
+        const envFrom = beginIdx;
+        const envTo = blockTo + endIdx + `\\end{${envName}}`.length;
+        let envContent = docText.slice(envFrom, envTo);
+        // Strip \begin{env} and \end{env}
+        envContent = envContent
+          .replace(new RegExp('^\\\\begin\\{' + envName + '\\}\\s*\\n?'), '')
+          .replace(new RegExp('\\n?\\s*\\\\end\\{' + envName + '\\}$'), '');
+        // Strip \item from each line
+        const stripped = envContent.replace(/^\s*\\item\s*/gm, '');
+        view.dispatch({ changes: { from: envFrom, to: envTo, insert: stripped } });
+        view.focus();
+        return;
+      }
+    }
+
+    // No selection or empty line — insert a fresh list with one item, cursor after \item
+    if (from === to || !blockText.trim()) {
+      const snippet = `\\begin{${envName}}\n  \\item \n\\end{${envName}}`;
+      const cursorPos = blockFrom + `\\begin{${envName}}\n  \\item `.length;
+      view.dispatch({
+        changes: { from: blockFrom, to: blockTo, insert: snippet },
+        selection: { anchor: cursorPos },
+      });
+      view.focus();
+      return;
+    }
+
+    // Selection exists — wrap each selected line as \item
+    const lines = blockText.split('\n').filter(l => l.trim());
+    const items = lines.map(l => {
+      const trimmed = l.trim();
+      return trimmed.startsWith('\\item') ? '  ' + trimmed : '  \\item ' + trimmed;
+    }).join('\n');
+    const newText = `\\begin{${envName}}\n${items}\n\\end{${envName}}`;
+
+    view.dispatch({
+      changes: { from: blockFrom, to: blockTo, insert: newText },
+    });
+    view.focus();
+  }, []);
+
+  // Wrap or unwrap a `\begin{quote} ... \end{quote}` block. Mirrors the toggle
+  // semantics of vmInsertList: cursor already inside a quote → unwrap;
+  // empty selection → insert an empty quote and place the cursor inside;
+  // non-empty selection → wrap the selected block.
+  const vmInsertQuote = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const fromLine = view.state.doc.lineAt(from);
+    const toLine = view.state.doc.lineAt(to);
+    const blockFrom = fromLine.from;
+    const blockTo = toLine.to;
+    const blockText = view.state.doc.sliceString(blockFrom, blockTo);
+
+    const docText = view.state.doc.toString();
+    const beforeCursor = docText.slice(0, blockFrom);
+    const afterCursor = docText.slice(blockTo);
+    const beginIdx = beforeCursor.lastIndexOf('\\begin{quote}');
+    const endIdx = afterCursor.indexOf('\\end{quote}');
+
+    if (beginIdx >= 0 && endIdx >= 0) {
+      const between = docText.slice(beginIdx, blockFrom);
+      if (!between.includes('\\end{quote}')) {
+        // Unwrap the surrounding quote environment.
+        const envFrom = beginIdx;
+        const envTo = blockTo + endIdx + '\\end{quote}'.length;
+        let envContent = docText.slice(envFrom, envTo);
+        envContent = envContent
+          .replace(/^\\begin\{quote\}\s*\n?/, '')
+          .replace(/\n?\s*\\end\{quote\}$/, '');
+        view.dispatch({ changes: { from: envFrom, to: envTo, insert: envContent } });
+        view.focus();
+        return;
+      }
+    }
+
+    if (from === to || !blockText.trim()) {
+      const snippet = '\\begin{quote}\n  \n\\end{quote}';
+      const cursorPos = blockFrom + '\\begin{quote}\n  '.length;
+      view.dispatch({
+        changes: { from: blockFrom, to: blockTo, insert: snippet },
+        selection: { anchor: cursorPos },
+      });
+      view.focus();
+      return;
+    }
+
+    const indented = blockText.split('\n').map((l) => (l.trim() ? '  ' + l.trim() : '')).join('\n');
+    const newText = `\\begin{quote}\n${indented}\n\\end{quote}`;
+    view.dispatch({ changes: { from: blockFrom, to: blockTo, insert: newText } });
+    view.focus();
+  }, []);
+
   useEffect(() => {
     const handler = (e) => {
       if (e.detail.editorInverted !== undefined) setInverted(e.detail.editorInverted);
@@ -182,7 +396,6 @@ const Editor = forwardRef(function Editor(
   const onGoToFileRef = useRef(onGoToFile);
   const projectFilesRef = useRef(projectFiles);
   const onSaveRef = useRef(onSave);
-  const onSelectionChangeRef = useRef(onSelectionChange);
   const onLineChangeRef = useRef(onLineChange);
   const onChangesRef = useRef(onChanges);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -198,10 +411,12 @@ const Editor = forwardRef(function Editor(
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
   const setSpellMenuRef = useRef(setSpellMenu);
+  const setCiteMenuRef = useRef(setCiteMenu);
+  const onToggleVisualModeRef = useRef(onToggleVisualMode);
+  const visualModeRef = useRef(visualMode);
   onGoToFileRef.current = onGoToFile;
   projectFilesRef.current = projectFiles;
   onSaveRef.current = onSave;
-  onSelectionChangeRef.current = onSelectionChange;
   onLineChangeRef.current = onLineChange;
   onChangesRef.current = onChanges;
   onCursorChangeRef.current = onCursorChange;
@@ -216,11 +431,19 @@ const Editor = forwardRef(function Editor(
   onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
+  onToggleVisualModeRef.current = onToggleVisualMode;
+  visualModeRef.current = visualMode;
   const citeKeysRef = useRef(citeKeys || []);
   citeKeysRef.current = citeKeys || [];
   const labelKeysRef = useRef(labelKeys || []);
   labelKeysRef.current = labelKeys || [];
+  // Keep the bib lookup populated regardless of mode so the cite-hover
+  // tooltip works in source mode too (visual mode also refreshes it via
+  // visualModeExtension, but we run it eagerly here so the data is ready
+  // before the user even toggles into visual mode).
+  updateBibContext(projectFiles, citeKeys);
   setSpellMenuRef.current = setSpellMenu;
+  setCiteMenuRef.current = setCiteMenu;
 
   /** Set of package names declared via \usepackage in the project preamble. */
   const declaredPackages = useMemo(() => {
@@ -425,6 +648,9 @@ const Editor = forwardRef(function Editor(
     },
     applyRemoteChanges(fileId, changes, tracked, deletions) {
       const view = viewRef.current;
+      // Drop OT changes that target a file the user has since switched away
+      // from — applying them to the wrong file's CodeMirror state would
+      // corrupt the visible document and produce out-of-band positions.
       if (!view || fileId !== file?.id) return;
       const prevDocLen = view.state.doc.length;
       isRemoteUpdate.current = true;
@@ -481,13 +707,15 @@ const Editor = forwardRef(function Editor(
           if (effects.length > 0) {
             view.dispatch({ effects });
           }
-        } catch (e) {
+        } catch {
           // Ignore — decoration is non-critical; DB reconciliation will fix it
         }
       }
     },
     applyRemoteTcDelete(fileId, from, to) {
       const view = viewRef.current;
+      // File-identity guard: a remote tracked-deletion is meaningful only on
+      // the file it originated from; positions don't translate to other files.
       if (!view || fileId !== file?.id) return;
       const docLen = view.state.doc.length;
       const clampedFrom = Math.max(0, Math.min(from, docLen));
@@ -535,13 +763,6 @@ const Editor = forwardRef(function Editor(
     },
     openSymbolPicker() {
       setShowSymbolPicker(true);
-    },
-    getSpellLang() {
-      return spellLang;
-    },
-    setSpellLang(code) {
-      setLanguage(code);
-      setSpellLang(code);
     },
     zoomIn() {
       setFontSize((s) => Math.min(32, s + 1));
@@ -618,13 +839,17 @@ const Editor = forwardRef(function Editor(
       }).range(from, to);
       const updated = currentDecos.update({ add: [newMark], sort: true });
       const dispatchSpec = { effects: setTcDeletesEffect.of(updated) };
-      if (cursorPos !== null && cursorPos !== undefined) {
+      if (cursorPos != null) {
         dispatchSpec.selection = { anchor: cursorPos };
       }
       view.dispatch(dispatchSpec);
       if (!skipTcDeleteBroadcast.current) onTrackDeletionRef.current?.(from, to);
       // Buffer for API
       const buf = tcDelBuffer.current;
+      const curFileId = fileIdRef.current;
+      // If the buffer belongs to a different file (user switched files mid-edit), flush first
+      // so the previous file's deletion isn't merged with this one's range.
+      if (buf.from !== null && buf.fileId !== curFileId) flushDelBuffer();
       if (buf.from !== null && (from === buf.from - 1 || from === buf.from || to === buf.to || to === buf.to + 1)) {
         buf.from = Math.min(buf.from, from);
         buf.to = Math.max(buf.to, to);
@@ -634,6 +859,7 @@ const Editor = forwardRef(function Editor(
         buf.from = from;
         buf.to = to;
         buf.text = text;
+        buf.fileId = curFileId;
       }
       clearTimeout(tcDelTimer.current);
       tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
@@ -644,7 +870,7 @@ const Editor = forwardRef(function Editor(
     if (deletionRanges.length === 0) {
       const changes = insertionRanges.map((r) => ({ from: r.from, to: r.to }));
       const dispatchSpec = { changes };
-      if (cursorPos !== null && cursorPos !== undefined) {
+      if (cursorPos != null) {
         dispatchSpec.selection = { anchor: cursorPos };
       }
       isResolvingTc.current = true;
@@ -713,9 +939,12 @@ const Editor = forwardRef(function Editor(
       }
     }
     // Buffer the deletion parts for API
+    const curFileId = fileIdRef.current;
     for (const r of mappedDeletionRanges) {
       const buf = tcDelBuffer.current;
       const rText = view.state.sliceDoc(r.from, r.to);
+      // Flush prior buffer if it belonged to a different file (file switch mid-edit).
+      if (buf.from !== null && buf.fileId !== curFileId) flushDelBuffer();
       if (
         buf.from !== null &&
         (r.from === buf.from - 1 || r.from === buf.from || r.to === buf.to || r.to === buf.to + 1)
@@ -728,10 +957,12 @@ const Editor = forwardRef(function Editor(
         buf.from = r.from;
         buf.to = r.to;
         buf.text = rText;
+        buf.fileId = curFileId;
       }
     }
     clearTimeout(tcDelTimer.current);
     tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const flushDelBuffer = useCallback(() => {
@@ -742,11 +973,72 @@ const Editor = forwardRef(function Editor(
       to_pos: buf.to,
       inserted_text: '',
       deleted_text: buf.text,
+      fileId: buf.fileId,
     });
     buf.from = null;
     buf.to = null;
     buf.text = '';
+    buf.fileId = null;
   }, []);
+
+  // Shared Backspace/Delete handler for track changes mode.
+  // dir = -1 for Backspace (move/delete previous char), +1 for Delete (next char).
+  // Returns true if handled (so the keymap should swallow the event), false to let
+  // the default editor behaviour run (only when track changes mode is off).
+  const tcInterceptDeletion = useCallback((view, dir) => {
+    if (!trackChangesModeRef.current) return false;
+    const sel = view.state.selection.main;
+    if (!sel.empty) {
+      tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
+      return true;
+    }
+    const docLen = view.state.doc.length;
+    if (dir < 0) {
+      // Backspace: at doc start, nothing to delete
+      if (sel.from === 0) return true;
+      let target = sel.from - 1;
+      // Skip backward over already-deleted char (one at a time)
+      if (isPosInDeletion(view.state, target)) {
+        view.dispatch({ selection: { anchor: target } });
+        return true;
+      }
+      // If char is a tracked insertion, just delete it normally (undo the insertion).
+      // Use isResolvingTc (not isRemoteUpdate) so the deletion is still broadcast via OT
+      // but doesn't get re-tracked as a new tracked change.
+      if (isPosInInsertion(view.state, target)) {
+        isResolvingTc.current = true;
+        try {
+          view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
+        } finally {
+          isResolvingTc.current = false;
+        }
+        onDeleteInsertionCharRef.current?.(target);
+        return true;
+      }
+      tcMarkAsDeleted(view, target, target + 1, target);
+      return true;
+    }
+    // Delete (dir > 0): at doc end, nothing to delete
+    if (sel.from >= docLen) return true;
+    // Skip forward over already-deleted chars
+    let target = sel.from;
+    while (target < docLen && isPosInDeletion(view.state, target)) target++;
+    if (target >= docLen) return true;
+    // If char is a tracked insertion, just delete it normally.
+    // Use isResolvingTc so the deletion is broadcast but not re-tracked.
+    if (isPosInInsertion(view.state, target)) {
+      isResolvingTc.current = true;
+      try {
+        view.dispatch({ changes: { from: target, to: target + 1 } });
+      } finally {
+        isResolvingTc.current = false;
+      }
+      onDeleteInsertionCharRef.current?.(target);
+      return true;
+    }
+    tcMarkAsDeleted(view, target, target + 1, sel.from);
+    return true;
+  }, [tcMarkAsDeleted]);
 
   const flushInsBuffer = useCallback(() => {
     const buf = tcInsertBuffer.current;
@@ -756,10 +1048,12 @@ const Editor = forwardRef(function Editor(
       to_pos: buf.to,
       inserted_text: buf.text,
       deleted_text: '',
+      fileId: buf.fileId,
     });
     buf.from = null;
     buf.to = null;
     buf.text = '';
+    buf.fileId = null;
   }, []);
 
   // Create editor when file changes
@@ -775,6 +1069,7 @@ const Editor = forwardRef(function Editor(
 
     commentCompartment.current = new Compartment();
     wrapCompartment.current = new Compartment();
+    visualModeCompartment.current = new Compartment();
 
     const state = EditorState.create({
       doc: file.content || '',
@@ -784,7 +1079,9 @@ const Editor = forwardRef(function Editor(
         syntaxHighlighting(classHighlighter, { fallback: true }),
         latexFoldService,
         latexAutocomplete(citeKeysRef, labelKeysRef),
+        refHoverTooltip,
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
+        visualModeCompartment.current.of(visualMode ? visualModeExtension(projectFiles, citeKeys) : []),
         fontSizeCompartment.current.of(
           EditorView.theme({
             '.cm-content': { fontSize: fontSize + 'px' },
@@ -801,73 +1098,16 @@ const Editor = forwardRef(function Editor(
         // Track changes: intercept Backspace/Delete to mark text as deleted instead of removing it
         Prec.high(
           keymap.of([
-            {
-              key: 'Backspace',
-              run(view) {
-                if (!trackChangesModeRef.current) return false;
-                const sel = view.state.selection.main;
-                if (!sel.empty) {
-                  tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
-                  return true;
-                }
-                if (sel.from === 0) return true;
-                let target = sel.from - 1;
-                // Skip backward over already-deleted char (one at a time)
-                if (isPosInDeletion(view.state, target)) {
-                  view.dispatch({ selection: { anchor: target } });
-                  return true;
-                }
-                // If char is a tracked insertion, just delete it normally (undo the insertion)
-                // Use isResolvingTc (not isRemoteUpdate) so the deletion is still broadcast via OT
-                // but doesn't get re-tracked as a new tracked change.
-                if (isPosInInsertion(view.state, target)) {
-                  isResolvingTc.current = true;
-                  try {
-                    view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
-                  } finally {
-                    isResolvingTc.current = false;
-                  }
-                  onDeleteInsertionCharRef.current?.(target);
-                  return true;
-                }
-                tcMarkAsDeleted(view, target, target + 1, target);
-                return true;
-              },
-            },
-            {
-              key: 'Delete',
-              run(view) {
-                if (!trackChangesModeRef.current) return false;
-                const sel = view.state.selection.main;
-                if (!sel.empty) {
-                  tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
-                  return true;
-                }
-                if (sel.from >= view.state.doc.length) return true;
-                // Skip forward over already-deleted chars
-                let target = sel.from;
-                while (target < view.state.doc.length && isPosInDeletion(view.state, target)) target++;
-                if (target >= view.state.doc.length) return true;
-                // If char is a tracked insertion, just delete it normally
-                // Use isResolvingTc so the deletion is broadcast but not re-tracked
-                if (isPosInInsertion(view.state, target)) {
-                  isResolvingTc.current = true;
-                  try {
-                    view.dispatch({ changes: { from: target, to: target + 1 } });
-                  } finally {
-                    isResolvingTc.current = false;
-                  }
-                  onDeleteInsertionCharRef.current?.(target);
-                  return true;
-                }
-                tcMarkAsDeleted(view, target, target + 1, sel.from);
-                return true;
-              },
-            },
+            { key: 'Backspace', run: (view) => tcInterceptDeletion(view, -1) },
+            { key: 'Delete', run: (view) => tcInterceptDeletion(view, +1) },
           ]),
         ),
         // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
         EditorState.transactionFilter.of((tr) => {
+          // Pass the transaction through unchanged when: track-changes is off,
+          // nothing actually changed, the change came from a remote OT update
+          // (already authoritative), or we're in the middle of resolving a
+          // tracked change (re-tracking would create a loop).
           if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current || isResolvingTc.current)
             return tr;
           let hasDeletion = false;
@@ -937,6 +1177,35 @@ const Editor = forwardRef(function Editor(
           contextmenu(event, view) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos == null) return false;
+            // Cite-family command at this position → offer a variant-swap menu.
+            // Scan a 200-char window around `pos` for `\name[opt]{key}` where
+            // `name` is one of the cite-family commands. Includes optional [arg]
+            // so we can preserve page references like \citep[p.~5]{key}.
+            {
+              const text = view.state.doc.toString();
+              const winStart = Math.max(0, pos - 200);
+              const winEnd = Math.min(text.length, pos + 200);
+              const window = text.slice(winStart, winEnd);
+              const re = /\\(cite|citep|citet|citeauthor|citeyear|parencite|textcite|autocite|citealt|citealp|nocite)\*?(\[[^\]]*\](?:\[[^\]]*\])?)?\{([^}]*)\}/g;
+              let m;
+              while ((m = re.exec(window)) !== null) {
+                const cmdFrom = winStart + m.index;
+                const cmdTo = cmdFrom + m[0].length;
+                if (pos >= cmdFrom && pos < cmdTo) {
+                  event.preventDefault();
+                  setCiteMenuRef.current?.({
+                    x: event.clientX,
+                    y: event.clientY,
+                    from: cmdFrom,
+                    to: cmdTo,
+                    name: m[1],
+                    opt: m[2] || '',
+                    key: m[3],
+                  });
+                  return true;
+                }
+              }
+            }
             // Find tracked change at this position from the trackedChanges array
             const tcs = trackedChangesRef.current || [];
             const tc = tcs.find((c) => {
@@ -1056,9 +1325,9 @@ const Editor = forwardRef(function Editor(
           // Also clean up tracked insertions that were removed by undo.
           for (const tr of update.transactions) {
             if (tr.isUserEvent('undo') || tr.isUserEvent('redo')) {
-              tcDelBuffer.current = { from: null, to: null, text: '' };
+              tcDelBuffer.current = { from: null, to: null, text: '', fileId: null };
               clearTimeout(tcDelTimer.current);
-              tcInsertBuffer.current = { from: null, to: null, text: '' };
+              tcInsertBuffer.current = { from: null, to: null, text: '', fileId: null };
               clearTimeout(tcInsertTimer.current);
 
               // Check which pending tracked insertions no longer match the document after undo
@@ -1126,9 +1395,12 @@ const Editor = forwardRef(function Editor(
                 }
 
                 // Buffer insertion positions — extend existing buffer if adjacent/overlapping
+                const curFileId = fileIdRef.current;
                 update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
                   if (inserted.length > 0 && fromB < toB) {
                     const buf = tcInsertBuffer.current;
+                    // Flush prior buffer if it belonged to a different file (file switch mid-edit).
+                    if (buf.from !== null && buf.fileId !== curFileId) flushInsBuffer();
                     if (buf.from !== null && fromB <= buf.to && toB >= buf.from) {
                       // Overlapping or adjacent — extend
                       buf.from = Math.min(buf.from, fromB);
@@ -1138,6 +1410,7 @@ const Editor = forwardRef(function Editor(
                       if (buf.from !== null) flushInsBuffer();
                       buf.from = fromB;
                       buf.to = toB;
+                      buf.fileId = curFileId;
                     }
                     buf.text = update.state.sliceDoc(buf.from, buf.to);
                   }
@@ -1149,8 +1422,12 @@ const Editor = forwardRef(function Editor(
 
             const content = update.state.doc.toString();
             clearTimeout(saveTimeout.current);
+            // Capture the file id this content belongs to. The save MUST be
+            // pinned to this id — even if the user has since switched files,
+            // the debounced save will still target the original file.
+            const fileIdAtEdit = file?.id;
             saveTimeout.current = setTimeout(() => {
-              onSaveRef.current(content, computeTcPositions(content));
+              onSaveRef.current(content, computeTcPositions(content), fileIdAtEdit);
             }, 1000);
 
             // Hide comment button if doc changed
@@ -1194,7 +1471,6 @@ const Editor = forwardRef(function Editor(
           const fid = file?.id;
           if (fid) sessionStorage.setItem(`flowtex-cursor-${fid}`, String(sel.head));
           if (sel.from !== sel.to) {
-            onSelectionChangeRef.current?.({ from: sel.from, to: sel.to });
             // Show comment button near selection end
             const coords = update.view.coordsAtPos(sel.to);
             const containerRect = update.view.dom.closest('.editor-container')?.getBoundingClientRect();
@@ -1216,14 +1492,8 @@ const Editor = forwardRef(function Editor(
           let inHl = false;
           const hlSearch = doc.lastIndexOf('\\hl{', pos);
           if (hlSearch !== -1) {
-            let depth = 1;
-            let i = hlSearch + 4;
-            while (i < doc.length && depth > 0) {
-              if (doc[i] === '{') depth++;
-              else if (doc[i] === '}') depth--;
-              if (depth > 0) i++;
-            }
-            if (depth === 0 && pos >= hlSearch + 4 && pos <= i) inHl = true;
+            const closeIdx = findMatchingBrace(doc, hlSearch + 3);
+            if (closeIdx !== -1 && pos >= hlSearch + 4 && pos <= closeIdx) inHl = true;
           }
           setCursorInHl(inHl);
 
@@ -1232,6 +1502,7 @@ const Editor = forwardRef(function Editor(
 
           if (update.selectionSet && !isRemoteUpdate.current) {
             onCursorChangeRef.current?.(sel.head, sel.anchor);
+            vmToolbarRef.current?.refresh();
             // Update table builder if open and cursor moved to a different table
             if (tableBuilderRef.current) {
               clearTimeout(tableBuilderUpdateTimeout.current);
@@ -1257,7 +1528,7 @@ const Editor = forwardRef(function Editor(
               run: (view) => {
                 clearTimeout(saveTimeout.current);
                 const content = view.state.doc.toString();
-                onSaveRef.current(content, computeTcPositions(content));
+                onSaveRef.current(content, computeTcPositions(content), file?.id);
                 onCompileRef.current?.();
                 return true;
               },
@@ -1266,6 +1537,229 @@ const Editor = forwardRef(function Editor(
               key: 'Mod-f',
               run: () => {
                 setShowSearch(true);
+                return true;
+              },
+            },
+            {
+              key: 'Mod-Shift-v',
+              run: () => {
+                onToggleVisualModeRef.current?.();
+                return true;
+              },
+            },
+            {
+              key: 'Enter',
+              run: (view) => {
+                if (!visualModeRef.current) return false;
+                const { from, to } = view.state.selection.main;
+                const doc = view.state.doc;
+
+                // Headings and single-line metadata commands cannot contain newlines.
+                // If the cursor is collapsed inside one's braces, close it off and drop
+                // to a new paragraph. Cursor outside the braces falls through to default.
+                if (from === to) {
+                  const text = doc.toString();
+                  const HEADING_RE = /\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph|title|subtitle|author|date|email|institution|department|city|country|state|streetaddress|postcode)\*?\s*(?:\[[^\]]*\]\s*)?\{/g;
+                  const winStart = Math.max(0, from - 2000);
+                  const winEnd = Math.min(text.length, from + 2000);
+                  const window = text.slice(winStart, winEnd);
+                  let m;
+                  while ((m = HEADING_RE.exec(window)) !== null) {
+                    const cmdStart = winStart + m.index;
+                    if (cmdStart > from) break;
+                    const contentFrom = cmdStart + m[0].length;
+                    const j = findMatchingBrace(text, contentFrom - 1);
+                    if (j === -1) continue;
+                    // Trigger only when the cursor is strictly inside the {…}.
+                    if (from >= contentFrom && from <= j) {
+                      // Always insert a newline after the closing `}` so the
+                      // user gets the same visible feedback as pressing Enter
+                      // anywhere else. If a newline already follows, this
+                      // becomes a blank-line paragraph break — desired.
+                      const afterBrace = j + 1;
+                      view.dispatch({
+                        changes: { from: afterBrace, to: afterBrace, insert: '\n' },
+                        selection: { anchor: afterBrace + 1 },
+                        scrollIntoView: true,
+                      });
+                      return true;
+                    }
+                  }
+                }
+
+                const line = doc.lineAt(from);
+
+                // Find the innermost list env the cursor is inside
+                const innerEnv = findInnermostListEnv(doc, from);
+                if (!innerEnv) return false;
+
+                // Current line has \item?
+                if (!/\\item\b/.test(line.text)) return false;
+
+                // Empty item → pop out one level (or exit list at outermost)
+                if (/^\s*\\item\s*$/.test(line.text)) {
+                  const envEndTag = `\\end{${innerEnv.env}}`;
+                  const envContent = doc.sliceString(innerEnv.beginPos, innerEnv.endPos + envEndTag.length);
+                  const itemCount = (envContent.match(/\\item\b/g) || []).length;
+
+                  if (innerEnv.depth === 0) {
+                    // ── Outermost list: exit the environment ──
+                    if (itemCount <= 1) {
+                      // Only item — remove entire environment, cursor after it
+                      const fullFrom = innerEnv.beginPos;
+                      const fullTo = innerEnv.endPos + envEndTag.length;
+                      const adjFrom = fullFrom > 0 && doc.sliceString(fullFrom - 1, fullFrom) === '\n' ? fullFrom - 1 : fullFrom;
+                      const adjTo = fullTo < doc.length && doc.sliceString(fullTo, fullTo + 1) === '\n' ? fullTo + 1 : fullTo;
+                      view.dispatch({
+                        changes: { from: adjFrom, to: adjTo, insert: '' },
+                        selection: { anchor: Math.min(adjFrom, doc.length - (adjTo - adjFrom)) },
+                      });
+                    } else {
+                      // Multiple items — remove the empty item, cursor after \end{env}
+                      const removeFrom = line.from > 0 ? line.from - 1 : line.from;
+                      const removedLen = line.to - removeFrom;
+                      const afterEnd = innerEnv.endPos + envEndTag.length - removedLen;
+                      view.dispatch({
+                        changes: { from: removeFrom, to: line.to, insert: '' },
+                      });
+                      // Place cursor after \end{env} (on the next line or at end)
+                      const newDoc = view.state.doc;
+                      const cursorPos = Math.min(afterEnd, newDoc.length);
+                      view.dispatch({ selection: { anchor: cursorPos } });
+                    }
+                  } else {
+                    // ── Nested list: pop back to parent level ──
+                    if (itemCount <= 1) {
+                      // Only item in nested env — remove entire nested env,
+                      // insert a new \item at the parent level
+                      const fullFrom = innerEnv.beginPos;
+                      const fullTo = innerEnv.endPos + envEndTag.length;
+                      const adjFrom = fullFrom > 0 && doc.sliceString(fullFrom - 1, fullFrom) === '\n' ? fullFrom - 1 : fullFrom;
+                      const adjTo = fullTo < doc.length && doc.sliceString(fullTo, fullTo + 1) === '\n' ? fullTo + 1 : fullTo;
+                      const parentIndent = '  '.repeat(innerEnv.depth);
+                      const newItem = `\n${parentIndent}\\item `;
+                      view.dispatch({
+                        changes: { from: adjFrom, to: adjTo, insert: newItem },
+                        selection: { anchor: adjFrom + newItem.length },
+                      });
+                    } else {
+                      // Multiple items in nested env — remove empty item,
+                      // insert a new \item after the \end{env} at parent level
+                      const removeFrom = line.from > 0 ? line.from - 1 : line.from;
+                      const removedLen = line.to - removeFrom;
+                      const afterEnd = innerEnv.endPos + envEndTag.length;
+                      const parentIndent = '  '.repeat(innerEnv.depth);
+                      const newItem = `\n${parentIndent}\\item `;
+                      // afterEnd is in original doc; shifts back by removedLen
+                      const adjEnd = afterEnd - removedLen;
+                      view.dispatch({ changes: { from: removeFrom, to: line.to } });
+                      view.dispatch({
+                        changes: { from: adjEnd, to: adjEnd, insert: newItem },
+                        selection: { anchor: adjEnd + newItem.length },
+                      });
+                    }
+                  }
+                  return true;
+                }
+
+                // Non-empty item → insert new \item
+                const indent = '  '.repeat(innerEnv.depth + 1);
+                const insert = `\n${indent}\\item `;
+                view.dispatch({
+                  changes: { from, insert },
+                  selection: { anchor: from + insert.length },
+                });
+                return true;
+              },
+            },
+            {
+              key: 'Tab',
+              run: (view) => {
+                if (!visualModeRef.current) return false;
+                const { from } = view.state.selection.main;
+                const doc = view.state.doc;
+                const line = doc.lineAt(from);
+
+                // Must be on a \item line
+                if (!/\\item\b/.test(line.text)) return false;
+
+                const innerEnv = findInnermostListEnv(doc, from);
+                if (!innerEnv) return false;
+
+                // Must NOT be the first \item in this env
+                const contentBeforeItem = doc.sliceString(innerEnv.beginPos, line.from);
+                if (!/\\item\b/.test(contentBeforeItem)) return false; // first item
+
+                // Extract the current \item line content (text after \item)
+                const itemMatch = line.text.match(/^(\s*)\\item\s*(.*)/);
+                if (!itemMatch) return false;
+                const itemContent = itemMatch[2];
+
+                // Wrap this line in a nested sub-environment of the same type
+                const subEnv = innerEnv.env;
+                const indent = '  '.repeat(innerEnv.depth + 1);
+                const subIndent = '  '.repeat(innerEnv.depth + 2);
+                const replacement = `${indent}\\begin{${subEnv}}\n${subIndent}\\item ${itemContent}\n${indent}\\end{${subEnv}}`;
+
+                const cursorPos = line.from + indent.length + `\\begin{${subEnv}}\n`.length + subIndent.length + '\\item '.length + itemContent.length;
+
+                view.dispatch({
+                  changes: { from: line.from, to: line.to, insert: replacement },
+                  selection: { anchor: cursorPos },
+                });
+                return true;
+              },
+            },
+            {
+              key: 'Shift-Tab',
+              run: (view) => {
+                if (!visualModeRef.current) return false;
+                const { from } = view.state.selection.main;
+                const doc = view.state.doc;
+                const line = doc.lineAt(from);
+
+                if (!/\\item\b/.test(line.text)) return false;
+
+                const innerEnv = findInnermostListEnv(doc, from);
+                if (!innerEnv || innerEnv.depth < 1) return false; // not nested
+
+                // Extract item content
+                const itemMatch = line.text.match(/^(\s*)\\item\s*(.*)/);
+                if (!itemMatch) return false;
+                const itemContent = itemMatch[2];
+
+                // Check if this is the only \item in the inner env
+                const envEndTag = `\\end{${innerEnv.env}}`;
+                const envContent = doc.sliceString(innerEnv.beginPos, innerEnv.endPos + envEndTag.length);
+                const items = envContent.match(/\\item\b/g) || [];
+                const parentIndent = '  '.repeat(innerEnv.depth);
+
+                if (items.length <= 1) {
+                  // Only item — remove the entire nested env, replace with \item at parent level
+                  const fullFrom = innerEnv.beginPos;
+                  const fullTo = innerEnv.endPos + envEndTag.length;
+                  const adjFrom = fullFrom > 0 && doc.sliceString(fullFrom - 1, fullFrom) === '\n' ? fullFrom - 1 : fullFrom;
+                  const adjTo = fullTo < doc.length && doc.sliceString(fullTo, fullTo + 1) === '\n' ? fullTo + 1 : fullTo;
+                  const replacement = `\n${parentIndent}\\item ${itemContent}`;
+                  view.dispatch({
+                    changes: { from: adjFrom, to: adjTo, insert: replacement },
+                    selection: { anchor: adjFrom + replacement.length },
+                  });
+                } else {
+                  // Multiple items — remove this line and insert after \end{env}
+                  const removeFrom = line.from > 0 ? line.from - 1 : line.from;
+                  const removedLen = line.to - removeFrom;
+                  const afterEnvEnd = innerEnv.endPos + envEndTag.length;
+                  const insertText = `\n${parentIndent}\\item ${itemContent}`;
+                  // afterEnvEnd is in original doc; after removing earlier text it shifts back
+                  const adjEnd = afterEnvEnd - removedLen;
+                  // Apply as two sequential dispatches to keep it simple
+                  view.dispatch({ changes: { from: removeFrom, to: line.to } });
+                  view.dispatch({
+                    changes: { from: adjEnd, to: adjEnd, insert: insertText },
+                    selection: { anchor: adjEnd + insertText.length },
+                  });
+                }
                 return true;
               },
             },
@@ -1472,7 +1966,11 @@ const Editor = forwardRef(function Editor(
       }, 800);
     }
 
-    // Flush pending save immediately (e.g. on file switch or unmount)
+    // Flush pending save immediately (e.g. on file switch or unmount).
+    // Pin the save to *this* file's id — by the time this cleanup runs on a
+    // file switch, React may have already updated `activeFile` to the new
+    // file. Without pinning, the old file's content gets written to the new
+    // file's row.
     const flushPendingSave = () => {
       if (saveTimeout.current) {
         clearTimeout(saveTimeout.current);
@@ -1480,7 +1978,7 @@ const Editor = forwardRef(function Editor(
         const v = viewRef.current;
         if (v) {
           const content = v.state.doc.toString();
-          onSaveRef.current?.(content, computeTcPositions(content));
+          onSaveRef.current?.(content, computeTcPositions(content), file?.id);
         }
       }
     };
@@ -1529,9 +2027,11 @@ const Editor = forwardRef(function Editor(
       clearTimeout(tcInsertTimer.current);
       clearTimeout(tcDelTimer.current);
       clearTimeout(tableBuilderUpdateTimeout.current);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       clearTimeout(figureBuilderUpdateTimeout.current);
       view.destroy();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id]);
 
   // Re-run spellcheck when language changes (skip .bib files)
@@ -1546,6 +2046,7 @@ const Editor = forwardRef(function Editor(
       applySpellcheck(v, misspelled);
     };
     run();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spellLang]);
 
   useClickOutside(
@@ -1553,6 +2054,24 @@ const Editor = forwardRef(function Editor(
     useCallback(() => setSpellMenu(null), []),
     !!spellMenu,
   );
+
+  useClickOutside(
+    citeMenuRef,
+    useCallback(() => setCiteMenu(null), []),
+    !!citeMenu,
+  );
+
+  const swapCiteVariant = useCallback((newName) => {
+    const v = viewRef.current;
+    if (!v || !citeMenu) return;
+    const replacement = `\\${newName}${citeMenu.opt}{${citeMenu.key}}`;
+    v.dispatch({
+      changes: { from: citeMenu.from, to: citeMenu.to, insert: replacement },
+      selection: { anchor: citeMenu.from + replacement.length },
+    });
+    setCiteMenu(null);
+    v.focus();
+  }, [citeMenu]);
 
   // Update comment decorations without recreating editor
   useEffect(() => {
@@ -1702,6 +2221,16 @@ const Editor = forwardRef(function Editor(
     });
   }, [wordWrap]);
 
+  // Toggle visual mode
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: visualModeCompartment.current.reconfigure(visualMode ? visualModeExtension(projectFiles, citeKeys) : []),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visualMode]);
+
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -1713,7 +2242,7 @@ const Editor = forwardRef(function Editor(
         }),
       ),
     });
-    localStorage.setItem('flowtex-font-size', String(fontSize));
+    setSetting('font-size', fontSize);
   }, [fontSize]);
 
   // Toggle line numbers via CSS class
@@ -1729,6 +2258,63 @@ const Editor = forwardRef(function Editor(
       setCommentBtn(null);
     }
   };
+
+  // Toggle \hl{…} highlight on the current selection (or cursor inside an existing \hl{…}).
+  // Cases handled: outer \hl{…} immediately wrapping selection, selection that *is* an \hl{…},
+  // bare cursor inside an enclosing \hl{…}, otherwise wrap the selection.
+  const handleHighlightToggle = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const selected = view.state.sliceDoc(from, to);
+    const before = view.state.sliceDoc(Math.max(0, from - 4), from);
+    const after = view.state.sliceDoc(to, to + 1);
+    if (before === '\\hl{' && after === '}') {
+      view.dispatch({
+        changes: [
+          { from: from - 4, to: from, insert: '' },
+          { from: to, to: to + 1, insert: '' },
+        ],
+        selection: { anchor: from - 4, head: from - 4 + selected.length },
+      });
+    } else if (selected.startsWith('\\hl{') && selected.endsWith('}')) {
+      const inner = selected.slice(4, -1);
+      view.dispatch({
+        changes: { from, to, insert: inner },
+        selection: { anchor: from + inner.length },
+      });
+    } else if (cursorInHl && from === to) {
+      const doc = view.state.doc.toString();
+      const hlStart = doc.lastIndexOf('\\hl{', from);
+      if (hlStart !== -1) {
+        const i = findMatchingBrace(doc, hlStart + 3);
+        if (i !== -1) {
+          const inner = doc.slice(hlStart + 4, i);
+          view.dispatch({
+            changes: { from: hlStart, to: i + 1, insert: inner },
+            selection: { anchor: hlStart + inner.length },
+          });
+        }
+      }
+    } else {
+      const insert = '\\hl{' + selected + '}';
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+      });
+    }
+    view.focus();
+  }, [cursorInHl]);
+
+  // Insert a generated table from the table builder (replaces existing range if editing).
+  const handleTableBuilderInsert = useCallback((table) => {
+    const view = viewRef.current;
+    if (!view || !tableBuilder) return;
+    const from = tableBuilder.replaceFrom != null ? tableBuilder.replaceFrom : view.state.selection.main.from;
+    const to = tableBuilder.replaceTo != null ? tableBuilder.replaceTo : view.state.selection.main.to;
+    view.dispatch({ changes: { from, to, insert: table } });
+    view.focus();
+  }, [tableBuilder]);
 
   if (!file) {
     return <div className="editor-placeholder">Select a file to edit</div>;
@@ -1829,59 +2415,7 @@ const Editor = forwardRef(function Editor(
         </button>
         <button
           className={`editor-header-btn ${cursorInHl ? 'editor-header-btn-active' : ''}`}
-          onClick={() => {
-            const view = viewRef.current;
-            if (!view) return;
-            const { from, to } = view.state.selection.main;
-            const selected = view.state.sliceDoc(from, to);
-            // Toggle: if selected text is already wrapped in \hl{...}, unwrap it
-            const before = view.state.sliceDoc(Math.max(0, from - 4), from);
-            const after = view.state.sliceDoc(to, to + 1);
-            if (before === '\\hl{' && after === '}') {
-              // Remove the \hl{ and }
-              view.dispatch({
-                changes: [
-                  { from: from - 4, to: from, insert: '' },
-                  { from: to, to: to + 1, insert: '' },
-                ],
-                selection: { anchor: from - 4, head: from - 4 + selected.length },
-              });
-            } else if (selected.startsWith('\\hl{') && selected.endsWith('}')) {
-              // Selection includes the \hl{...} wrapper — strip it
-              const inner = selected.slice(4, -1);
-              view.dispatch({
-                changes: { from, to, insert: inner },
-                selection: { anchor: from + inner.length },
-              });
-            } else if (cursorInHl && from === to) {
-              // Cursor inside \hl{...} with no selection — unwrap the enclosing \hl{}
-              const doc = view.state.doc.toString();
-              const hlStart = doc.lastIndexOf('\\hl{', from);
-              if (hlStart !== -1) {
-                let depth = 1;
-                let i = hlStart + 4;
-                while (i < doc.length && depth > 0) {
-                  if (doc[i] === '{') depth++;
-                  else if (doc[i] === '}') depth--;
-                  if (depth > 0) i++;
-                }
-                if (depth === 0) {
-                  const inner = doc.slice(hlStart + 4, i);
-                  view.dispatch({
-                    changes: { from: hlStart, to: i + 1, insert: inner },
-                    selection: { anchor: hlStart + inner.length },
-                  });
-                }
-              }
-            } else {
-              const insert = '\\hl{' + selected + '}';
-              view.dispatch({
-                changes: { from, to, insert },
-                selection: { anchor: from + insert.length },
-              });
-            }
-            view.focus();
-          }}
+          onClick={handleHighlightToggle}
           title="Highlight text (\hl{…} — requires xcolor, soul packages)"
         >
           <HighlightIcon />
@@ -1918,7 +2452,7 @@ const Editor = forwardRef(function Editor(
           onClick={() =>
             setInverted((v) => {
               const n = !v;
-              localStorage.setItem('flowtex-editor-inverted', String(n));
+              setSetting('editor-inverted', n);
               return n;
             })
           }
@@ -2025,15 +2559,7 @@ const Editor = forwardRef(function Editor(
           initial={tableBuilder.initial}
           multiColumn={tableBuilder.multiColumn}
           declaredPackages={declaredPackages}
-          onInsert={(table) => {
-            const view = viewRef.current;
-            if (view) {
-              const from = tableBuilder.replaceFrom != null ? tableBuilder.replaceFrom : view.state.selection.main.from;
-              const to = tableBuilder.replaceTo != null ? tableBuilder.replaceTo : view.state.selection.main.to;
-              view.dispatch({ changes: { from, to, insert: table } });
-              view.focus();
-            }
-          }}
+          onInsert={handleTableBuilderInsert}
           onClose={() => setTableBuilder(null)}
           onDelete={tableBuilder.replaceFrom != null ? () => {
             const view = viewRef.current;
@@ -2076,6 +2602,14 @@ const Editor = forwardRef(function Editor(
           {lintDiags.length} field {lintDiags.length !== 1 ? 'issues' : 'issue'} — check orange gutter markers
         </div>
       )}
+      <VisualModeToolbar
+        ref={vmToolbarRef}
+        viewRef={viewRef}
+        visualMode={visualMode}
+        onInsertList={vmInsertList}
+        onInsertQuote={vmInsertQuote}
+        citeKeys={citeKeys}
+      />
       <div className={`editor-container ${inverted ? 'editor-inverted' : ''}`} ref={containerRef} />
       {showSearch && viewRef.current && (
         <SearchPanel
@@ -2095,6 +2629,37 @@ const Editor = forwardRef(function Editor(
         >
           + Comment
         </button>
+      )}
+      {citeMenu && (
+        <div
+          ref={citeMenuRef}
+          className="cite-context-menu"
+          style={{ position: 'fixed', left: citeMenu.x, top: citeMenu.y, zIndex: 1000 }}
+        >
+          <div className="cite-context-header">
+            <span className="cite-context-cmd">\{citeMenu.name}</span>
+            <span className="cite-context-key">{citeMenu.key}</span>
+          </div>
+          {[
+            { name: 'cite', label: 'Cite', hint: 'default' },
+            { name: 'citep', label: '(Author, Year)', hint: 'natbib parenthetical' },
+            { name: 'citet', label: 'Author (Year)', hint: 'natbib textual' },
+            { name: 'parencite', label: '(Author, Year)', hint: 'biblatex parenthetical' },
+            { name: 'textcite', label: 'Author (Year)', hint: 'biblatex textual' },
+            { name: 'citeauthor', label: 'Author', hint: 'name only' },
+            { name: 'citeyear', label: 'Year', hint: 'year only' },
+          ].map((variant) => (
+            <button
+              key={variant.name}
+              className={`cite-context-item ${variant.name === citeMenu.name ? 'cite-context-item-current' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => swapCiteVariant(variant.name)}
+            >
+              <span className="cite-context-item-label">{variant.label}</span>
+              <span className="cite-context-item-hint">\{variant.name}{citeMenu.opt} · {variant.hint}</span>
+            </button>
+          ))}
+        </div>
       )}
       {spellMenu && (
         <div

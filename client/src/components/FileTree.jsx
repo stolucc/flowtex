@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { CloseIcon, FolderIcon } from './Icons.jsx';
+import { getSetting, setSetting } from '../utils/settings.js';
 
 /**
  * Builds a nested directory tree structure from a flat file list and empty folder paths.
@@ -131,7 +132,7 @@ export default function FileTree({
 }) {
   const [groupByType, setGroupByType] = useState(() => {
     if (groupByTypeProp !== undefined) return groupByTypeProp;
-    const stored = localStorage.getItem('flowtex-group-files');
+    const stored = getSetting('group-files');
     return stored !== null ? stored === 'true' : true;
   });
   const [newFileName, setNewFileName] = useState('');
@@ -584,7 +585,7 @@ export default function FileTree({
             onClick={() => {
               setGroupByType((v) => {
                 const next = !v;
-                localStorage.setItem('flowtex-group-files', String(next));
+                setSetting('group-files', next);
                 return next;
               });
             }}

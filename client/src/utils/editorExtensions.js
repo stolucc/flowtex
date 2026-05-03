@@ -461,6 +461,26 @@ export function buildTcInsertDecorations(trackedChanges, docLength, currentUserN
  * @param {string} docText - Full document text
  * @returns {DecorationSet}
  */
+/** Widget for zero-width deletion markers (imported tracked changes where deleted text is not in the document). */
+class TcDeleteWidget extends WidgetType {
+  constructor(tc, currentUserName) {
+    super();
+    this.tc = tc;
+    this.currentUserName = currentUserName;
+  }
+  eq(other) { return other.tc.id === this.tc.id; }
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-tc-delete-widget';
+    span.dataset.tcId = this.tc.id;
+    span.dataset.tcAuthor = this.tc.author_name;
+    span.title = `Deleted by ${this.tc.author_name === this.currentUserName ? 'You' : this.tc.author_name}: "${this.tc.deleted_text.length > 60 ? this.tc.deleted_text.slice(0, 57) + '…' : this.tc.deleted_text}"`;
+    span.textContent = '×';
+    return span;
+  }
+  ignoreEvent() { return false; }
+}
+
 export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserName, docText) {
   // First, collect all resolved insert ranges so we can exclude overlaps.
   // A position that is marked as inserted by one TC must NOT also be marked as deleted.
@@ -477,6 +497,17 @@ export function buildTcDeleteDecorations(trackedChanges, docLength, currentUserN
     if (tc.status !== 'pending') continue;
     if (!tc.deleted_text) continue;
     try {
+      // Zero-width deletion (imported from docx): deleted text is not in the document
+      if (tc.from_pos === tc.to_pos) {
+        const pos = Math.max(0, Math.min(tc.from_pos, docLength));
+        decos.push(
+          Decoration.widget({
+            widget: new TcDeleteWidget(tc, currentUserName),
+            side: 1,
+          }).range(pos),
+        );
+        continue;
+      }
       const range = resolveTcRange(tc, 'deleted_text', docLength, docText);
       if (!range) continue;
       // Skip if this delete range overlaps with any insert range
@@ -1126,7 +1157,7 @@ function parseTableFromText(text, offset) {
     );
   if (envMatch) {
     result.env = envMatch[1];
-    const spec = envMatch[2] || envMatch[3] || '';
+    const spec = envMatch[2] || '';
     const stripped = spec
       .replace(/\|/g, '')
       .replace(/[><!@]\{[^}]*\}/g, '')

@@ -1,3 +1,5 @@
+import { findMatchingBrace } from './latexParser.js';
+
 /**
  * Pretty-print a .bib file string.
  * Normalizes whitespace, aligns field names, and adds consistent formatting.
@@ -11,28 +13,16 @@ export default function prettyBib(input) {
     while (i < src.length && /\s/.test(src[i])) i++;
   }
 
-  function readUntil(ch) {
-    let s = '';
-    while (i < src.length && src[i] !== ch) {
-      s += src[i];
-      i++;
-    }
-    return s;
-  }
-
   function readBraced() {
     // Read balanced braces content (assumes i is right after opening '{')
-    let depth = 1;
-    let s = '';
-    while (i < src.length && depth > 0) {
-      if (src[i] === '{') depth++;
-      else if (src[i] === '}') {
-        depth--;
-        if (depth === 0) break;
-      }
-      s += src[i];
-      i++;
+    const closeIdx = findMatchingBrace(src, i - 1, false);
+    if (closeIdx === -1) {
+      const s = src.slice(i);
+      i = src.length;
+      return s;
     }
+    const s = src.slice(i, closeIdx);
+    i = closeIdx; // leave i AT the closing }, matching original behavior
     return s;
   }
 

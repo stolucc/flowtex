@@ -736,7 +736,7 @@ function startCompileSchedulers(projectIds, sessionIds, csrfTokens) {
             console.log(`  Compile failed (${resp.status}): ${text.slice(0, 200)}`);
           }
         }
-      } catch (err) {
+      } catch {
         metrics.compilesFailed++;
       }
       if (!stopped) {

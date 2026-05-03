@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { post } from '../api.js';
+import { findMatchingBrace } from '../utils/latexParser.js';
 
 const ALL_FIELDS = [
   { key: 'doi', label: 'DOI' },
@@ -33,13 +34,8 @@ function parseBibEntries(content) {
     const key = match[2].trim();
     const start = match.index + match[0].length;
 
-    let depth = 1;
-    let i = start;
-    while (i < content.length && depth > 0) {
-      if (content[i] === '{') depth++;
-      else if (content[i] === '}') depth--;
-      i++;
-    }
+    const closeIdx = findMatchingBrace(content, start - 1, false);
+    const i = closeIdx === -1 ? content.length : closeIdx + 1;
     const body = content.slice(start, i - 1);
 
     const fields = {};
@@ -148,6 +144,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     if (selectedEntries === null) {
       setSelectedEntries(new Set(entries.map((e) => e.key)));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
   const toggleField = (key) => {

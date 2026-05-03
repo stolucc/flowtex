@@ -34,7 +34,7 @@ function extractMentions(text, members) {
 }
 
 /** Autocomplete popup for @mentions in a textarea. */
-function MentionAutocomplete({ text, cursorPos, members, currentUserId, onSelect, textareaEl }) {
+function MentionAutocomplete({ text, cursorPos, members, currentUserId, onSelect }) {
   const [candidates, setCandidates] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const popupRef = useRef(null);
@@ -174,10 +174,12 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
       hadText.current = hasText;
       onLayoutChange?.();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyText]);
 
   useEffect(() => {
     onLayoutChange?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
@@ -332,7 +334,7 @@ export default function CommentsSidebar({
     if (!text || !members?.length) return [];
     const names = extractMentions(text, members);
     return members.filter((m) => names.includes(m.name.toLowerCase()));
-  }, [text, members, currentUserId]);
+  }, [text, members]);
 
   useEffect(() => {
     if (selection && selection !== prevSelectionRef.current) {
@@ -371,10 +373,13 @@ export default function CommentsSidebar({
   const resolvedComments = comments.filter((c) => c.resolved);
 
   // Build target position map from commentPositions
-  const posMap = {};
-  for (const p of commentPositions || []) {
-    posMap[p.id] = p.top;
-  }
+  const posMap = useMemo(() => {
+    const map = {};
+    for (const p of commentPositions || []) {
+      map[p.id] = p.top;
+    }
+    return map;
+  }, [commentPositions]);
 
   const hasPositions = commentPositions && commentPositions.length > 0;
   const isPositioned = hasPositions || selectionFormTop != null;

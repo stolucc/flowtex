@@ -23,6 +23,7 @@ export default function useUIState() {
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [visualMode, setVisualMode] = useState(false);
 
   return {
     fileTreeWidth,
@@ -67,5 +68,7 @@ export default function useUIState() {
     setShowShortcuts,
     showAbout,
     setShowAbout,
+    visualMode,
+    setVisualMode,
   };
 }

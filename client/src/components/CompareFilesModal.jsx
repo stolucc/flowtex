@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 
 /** Modal for selecting two .tex files to generate a latexdiff comparison. */
-export default function CompareFilesModal({ projectId, files, onClose, onStartDiff }) {
+export default function CompareFilesModal({ files, onClose, onStartDiff }) {
   const [oldFileId, setOldFileId] = useState('');
   const [newFileId, setNewFileId] = useState('');
   const overlayRef = useRef(null);

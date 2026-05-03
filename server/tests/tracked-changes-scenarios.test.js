@@ -57,7 +57,6 @@ function applyEdit(doc, changes, authorId, edit) {
     }
 
     // Deletion outside any own pending insertion → new deletion change
-    const newDoc = doc.slice(0, from) + doc.slice(to);
     // Don't actually remove from doc for tracked deletions — mark with strikethrough
     // In the real app, deletions keep the text visible but marked. For testing
     // we'll track the change but keep the doc unchanged (deleted text stays until accept).

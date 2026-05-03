@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'path';
 
 // Mock db.js before importing compiler
@@ -27,17 +27,37 @@ vi.mock('fs', async () => {
   };
 });
 
+// `vi.mock` is hoisted, so external references in the factory must be
+// hoisted too via `vi.hoisted`. After syncFilesToDisk switched from
+// fsp.writeFile to fsp.open(path).writeFile(buf), we forward the open()
+// path through the FileHandle stub so existing (path, content) assertions
+// on the writeFile spy still match.
+const { fspWriteFileSpy, makeOpenSpy } = vi.hoisted(() => {
+  const spy = vi.fn(async () => {});
+  let lastPath;
+  const handle = {
+    writeFile: vi.fn(async (buf) => spy(lastPath, buf)),
+    close: vi.fn(async () => {}),
+  };
+  const open = vi.fn(async (p) => {
+    lastPath = p;
+    return handle;
+  });
+  return { fspWriteFileSpy: spy, makeOpenSpy: open };
+});
 vi.mock('fs/promises', () => ({
   default: {
     mkdir: vi.fn(async () => {}),
-    writeFile: vi.fn(async () => {}),
+    writeFile: fspWriteFileSpy,
     readdir: vi.fn(async () => []),
     unlink: vi.fn(async () => {}),
+    open: makeOpenSpy,
   },
   mkdir: vi.fn(async () => {}),
-  writeFile: vi.fn(async () => {}),
+  writeFile: fspWriteFileSpy,
   readdir: vi.fn(async () => []),
   unlink: vi.fn(async () => {}),
+  open: makeOpenSpy,
 }));
 
 // Now import the module under test
@@ -198,15 +218,6 @@ describe('stopCompilation', () => {
 // compileMetrics & recordCompile
 // ---------------------------------------------------------------------------
 describe('compileMetrics', () => {
-  // Save initial state
-  let initialTotal, initialSuccess, initialFailed;
-
-  beforeEach(() => {
-    initialTotal = compileMetrics.total;
-    initialSuccess = compileMetrics.success;
-    initialFailed = compileMetrics.failed;
-  });
-
   it('has the expected shape', () => {
     expect(compileMetrics).toHaveProperty('total');
     expect(compileMetrics).toHaveProperty('success');
@@ -222,13 +233,12 @@ describe('compileMetrics', () => {
 });
 
 describe('recordCompile', () => {
-  let initialTotal, initialSuccess, initialFailed, initialHistoryLen;
+  let initialTotal, initialSuccess, initialFailed;
 
   beforeEach(() => {
     initialTotal = compileMetrics.total;
     initialSuccess = compileMetrics.success;
     initialFailed = compileMetrics.failed;
-    initialHistoryLen = compileMetrics.history.length;
   });
 
   it('increments total and success on successful compile', () => {

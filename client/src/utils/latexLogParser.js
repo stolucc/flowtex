@@ -1,3 +1,8 @@
+/** Strip the compile-job hash suffix from filenames (e.g. "main_3b551ace.aux" → "main.aux"). */
+function stripJobSuffix(filename) {
+  return filename.replace(/_[0-9a-f]{8}(?=\.)/, '');
+}
+
 /**
  * Extract a line number from a LaTeX log line (e.g. "l.42" or "line 42").
  * @param {string} text
@@ -32,7 +37,7 @@ export default function parseLog(log) {
       line.match(/\(([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g);
     if (opens) {
       for (const m of opens) {
-        const f = m.match(/\((.+)/)[1];
+        const f = stripJobSuffix(m.match(/\((.+)/)[1]);
         fileStack.push(f);
         currentFile = f;
       }
@@ -111,14 +116,31 @@ export default function parseLog(log) {
     return true;
   });
 
-  // Separate errors from non-user files (class/package files the user can't edit)
-  const SYSTEM_FILE_RE = /\.(?:sty|cls|clo|def|fd|cfg|ldf|bbx|cbx|lbx)$/;
+  // Strip job suffix from error/warning text (e.g. "main_3b551ace.aux" → "main.aux")
+  const JOB_SUFFIX_RE = /_[0-9a-f]{8}(?=\.)/g;
   for (const e of uniqueErrors) {
+    e.text = e.text.replace(JOB_SUFFIX_RE, '');
+  }
+  for (const w of uniqueWarnings) {
+    w.text = w.text.replace(JOB_SUFFIX_RE, '');
+  }
+
+  // Suppress known harmless biblatex+bibtex backend errors in .aux/.bbl files
+  const suppressedErrors = uniqueErrors.filter((e) => {
+    if (e.file && /\.(?:aux|bbl)$/.test(e.file)) {
+      if (/extra\s*\}|forgotten\s*\\endgroup|unmatched/i.test(e.text)) return false;
+    }
+    return true;
+  });
+
+  // Separate errors from non-user files (class/package files the user can't edit)
+  const SYSTEM_FILE_RE = /\.(?:sty|cls|clo|def|fd|cfg|ldf|bbx|cbx|lbx|aux|bbl)$/;
+  for (const e of suppressedErrors) {
     e.isSystemFile = !!(e.file && SYSTEM_FILE_RE.test(e.file));
   }
   for (const w of uniqueWarnings) {
     w.isSystemFile = !!(w.file && SYSTEM_FILE_RE.test(w.file));
   }
 
-  return { errors: uniqueErrors, warnings: uniqueWarnings };
+  return { errors: suppressedErrors, warnings: uniqueWarnings };
 }

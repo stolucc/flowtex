@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { get, patch } from '../api.js';
+import { getSetting, setSetting } from '../utils/settings.js';
 
 /** Accessible toggle switch button. */
 function Toggle({ on, onChange, disabled }) {
@@ -19,7 +20,6 @@ function Toggle({ on, onChange, disabled }) {
 
 /** Settings section for project name, main file, snapshot interval, and file grouping. */
 function ProjectSection({
-  project,
   files,
   isOwner,
   name,
@@ -340,7 +340,6 @@ export default function ProjectSettingsModal({
   project,
   files,
   isOwner,
-  members,
   onClose,
   onUpdate,
   trackChangesMode,
@@ -354,29 +353,29 @@ export default function ProjectSettingsModal({
   const [mainFile, setMainFile] = useState(project.main_file || 'main.tex');
   const [snapshotInterval, setSnapshotInterval] = useState(project.snapshot_interval_sec || 30);
   const [showBoxWarnings, setShowBoxWarnings] = useState(() => {
-    const stored = localStorage.getItem(`flowtex-show-box-warnings-${project.id}`);
+    const stored = getSetting(`show-box-warnings-${project.id}`);
     return stored === null ? true : stored === 'true';
   });
   const [editorInverted, setEditorInverted] = useState(
-    () => localStorage.getItem('flowtex-editor-inverted') === 'true',
+    () => getSetting('editor-inverted') === 'true',
   );
-  const [pdfInverted, setPdfInverted] = useState(() => localStorage.getItem('flowtex-pdf-inverted') === 'true');
+  const [pdfInverted, setPdfInverted] = useState(() => getSetting('pdf-inverted') === 'true');
   const [compiler, setCompiler] = useState(project.compiler || 'pdflatex');
   const [texDistribution, setTexDistribution] = useState(project.tex_distribution || null);
   const [distributions, setDistributions] = useState([]);
-  const [latexFormatter, setLatexFormatter] = useState(() => localStorage.getItem('flowtex-latex-formatter') || '');
+  const [latexFormatter, setLatexFormatter] = useState(() => getSetting('latex-formatter') || '');
   const [formatters, setFormatters] = useState([]);
   const [showLintWarnings, setShowLintWarnings] = useState(
-    () => localStorage.getItem(`flowtex-show-lint-warnings-${project.id}`) !== 'false',
+    () => getSetting(`show-lint-warnings-${project.id}`) !== 'false',
   );
   const [serverLinter, setServerLinter] = useState(
-    () => localStorage.getItem(`flowtex-server-linter-${project.id}`) || '',
+    () => getSetting(`server-linter-${project.id}`) || '',
   );
   const [groupFilesByType, setGroupFilesByType] = useState(
-    () => localStorage.getItem(`flowtex-group-files-${project.id}`) !== 'false',
+    () => getSetting(`group-files-${project.id}`) !== 'false',
   );
   const [tapsEnabled, setTapsEnabled] = useState(
-    () => localStorage.getItem(`flowtex-taps-enabled-${project.id}`) === 'true',
+    () => getSetting(`taps-enabled-${project.id}`) === 'true',
   );
   const [activeCategory, setActiveCategory] = useState(initialTab || 'project');
   const [saving, setSaving] = useState(false);
@@ -419,14 +418,14 @@ export default function ProjectSettingsModal({
         onUpdate(updated);
       }
 
-      localStorage.setItem(`flowtex-show-box-warnings-${project.id}`, showBoxWarnings);
-      localStorage.setItem('flowtex-editor-inverted', String(editorInverted));
-      localStorage.setItem('flowtex-pdf-inverted', String(pdfInverted));
-      localStorage.setItem('flowtex-latex-formatter', latexFormatter);
-      localStorage.setItem(`flowtex-show-lint-warnings-${project.id}`, String(showLintWarnings));
-      localStorage.setItem(`flowtex-server-linter-${project.id}`, serverLinter);
-      localStorage.setItem(`flowtex-group-files-${project.id}`, String(groupFilesByType));
-      localStorage.setItem(`flowtex-taps-enabled-${project.id}`, String(tapsEnabled));
+      setSetting(`show-box-warnings-${project.id}`, showBoxWarnings);
+      setSetting('editor-inverted', editorInverted);
+      setSetting('pdf-inverted', pdfInverted);
+      setSetting('latex-formatter', latexFormatter);
+      setSetting(`show-lint-warnings-${project.id}`, showLintWarnings);
+      setSetting(`server-linter-${project.id}`, serverLinter);
+      setSetting(`group-files-${project.id}`, groupFilesByType);
+      setSetting(`taps-enabled-${project.id}`, tapsEnabled);
       window.dispatchEvent(
         new CustomEvent('flowtex:settings-changed', {
           detail: {

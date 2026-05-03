@@ -182,7 +182,7 @@ export default function AuthPage({ onAuth }) {
                 color: 'var(--text-secondary)',
               }}
             >
-              <p>We've sent a verification link to</p>
+              <p>We&apos;ve sent a verification link to</p>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{unverifiedEmail}</p>
               <p style={{ marginTop: 12 }}>Click the link in the email to activate your account.</p>
             </div>
@@ -356,7 +356,7 @@ export default function AuthPage({ onAuth }) {
             <p className="auth-switch">
               {mode === 'login' ? (
                 <>
-                  Don't have an account?{' '}
+                  Don&apos;t have an account?{' '}
                   <button
                     onClick={() => {
                       setMode('register');

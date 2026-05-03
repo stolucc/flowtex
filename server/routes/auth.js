@@ -180,12 +180,14 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   const user = await authService.getCurrentUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'User not found' });
+  res.set({ 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' });
   res.json(user);
 });
 
 /** POST /api/auth/totp/setup -- Generate a TOTP secret and QR code for MFA enrollment. */
 router.post('/totp/setup', requireAuth, async (req, res) => {
   try {
+    res.set({ 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' });
     res.json(await authService.setupTotp(req.session.userId));
   } catch (err) {
     sendError(res, err);
@@ -249,6 +251,21 @@ router.post('/reset-password', async (req, res) => {
 });
 
 /** POST /api/auth/change-email -- Change the user's email address after password verification. */
+/** PATCH /api/auth/me -- Update the current user's profile (currently: name only). */
+router.patch('/me', requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+  try {
+    const user = await authService.updateProfile(req.session.userId, { name });
+    await auditLog(req.session.userId, 'profile_updated', { ip: req.ip });
+    res.json(user);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 router.post('/change-email', requireAuth, async (req, res) => {
   const { password, newEmail } = req.body;
   if (!password || !newEmail) return res.status(400).json({ error: 'Password and new email are required' });

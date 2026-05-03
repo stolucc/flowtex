@@ -95,7 +95,13 @@ app.use(
   }),
 );
 
-app.use(compression());
+app.use(compression({
+  filter: (req, res) => {
+    // Don't compress SSE streams — compression buffers the whole response
+    if (res.getHeader('Content-Type') === 'text/event-stream') return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 

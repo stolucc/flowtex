@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
+import { getSetting } from '../utils/settings.js';
 
 /**
  * Handles LaTeX compilation lifecycle: streaming compile output, PDF URL management, linting, and diff compilation.
@@ -8,7 +9,7 @@ import { get, post } from '../api.js';
  * @param {Function} handleSave - Saves the current editor content before compiling.
  * @param {import('react').RefObject} editorRef - Ref to the editor instance.
  */
-export default function useCompilation(project, activeFile, handleSave, editorRef) {
+export default function useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges } = {}) {
   const [compiling, setCompiling] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [compileLog, setCompileLog] = useState('');
@@ -23,6 +24,15 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   useEffect(() => {
     compilingRef.current = compiling;
   }, [compiling]);
+
+  // Invalidate cached PDF when tracked-changes toggle changes so user must recompile
+  const tcRef = useRef(showTrackedChanges);
+  useEffect(() => {
+    if (tcRef.current !== showTrackedChanges) {
+      tcRef.current = showTrackedChanges;
+      setPdfUrl(null);
+    }
+  }, [showTrackedChanges]);
 
   // Clean up EventSource on unmount
   useEffect(() => {
@@ -39,10 +49,13 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     // Prevent double-compile
     if (compilingRef.current) return;
 
-    if (activeFile) {
+    // Snapshot the file we're saving for so the post-compile lint targets the same file,
+    // even if the user switches files during the compile stream.
+    const fileAtStart = activeFile;
+    if (fileAtStart) {
       const currentContent = editorRef.current?.getContent();
       if (currentContent != null) {
-        await handleSave(currentContent);
+        await handleSave(currentContent, undefined, fileAtStart.id);
       }
     }
     setCompiling(true);
@@ -54,9 +67,14 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     }
 
     try {
-      const evtSource = new EventSource(`/api/compile/${project.id}/compile-stream`);
+      const tcParam = showTrackedChanges ? '?showTrackedChanges=1' : '';
+      const evtSource = new EventSource(`/api/compile/${project.id}/compile-stream${tcParam}`);
       compileSourceRef.current = evtSource;
 
+      // Each handler below guards `compileSourceRef.current !== evtSource`: if
+      // the user (re)triggered another compile mid-stream, this EventSource is
+      // superseded and any late events from it must NOT update UI state, or we'd
+      // overwrite the new compile's output/PDF with stale data.
       await new Promise((resolve, reject) => {
         evtSource.addEventListener('output', (e) => {
           if (compileSourceRef.current !== evtSource) return;
@@ -92,12 +110,18 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         .then((d) => setGeneratedFiles(d.files || []))
         .catch((e) => console.warn('Failed to load generated files:', e));
 
-      // Run server-side linter (ChkTeX/lacheck) after compile
-      const serverLinter = localStorage.getItem(`flowtex-server-linter-${project.id}`) || '';
-      if (serverLinter && activeFile?.path?.endsWith('.tex')) {
-        const content = editorRef.current?.getContent();
+      // Run server-side linter (ChkTeX/lacheck) after compile.
+      // Use fileAtStart (the file we compiled for) instead of activeFile, which may have
+      // moved on if the user switched files mid-compile.
+      const serverLinter = getSetting(`server-linter-${project.id}`) || '';
+      if (serverLinter && fileAtStart?.path?.endsWith('.tex')) {
+        // Read content from the editor only if it's still showing the same file; otherwise
+        // fall back to the file's last-known content from the props snapshot.
+        const editorContent =
+          activeFile?.id === fileAtStart.id ? editorRef.current?.getContent() : null;
+        const content = editorContent ?? fileAtStart.content;
         if (content) {
-          post(`/api/compile/${project.id}/lint`, { content, filename: activeFile.path, linter: serverLinter })
+          post(`/api/compile/${project.id}/lint`, { content, filename: fileAtStart.path, linter: serverLinter })
             .then((r) => r.json())
             .then((data) => {
               setLintDiagnostics((data.diagnostics || []).map((d) => ({ ...d, source: serverLinter })));
@@ -108,7 +132,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         setLintDiagnostics([]);
       }
     }
-  }, [project, activeFile, handleSave, editorRef]);
+  }, [project, activeFile, handleSave, editorRef, showTrackedChanges]);
 
   const handleDiff = useCallback(
     (oldFileId, newFileId) => {
@@ -127,6 +151,9 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       );
       compileSourceRef.current = evtSource;
 
+      // Same staleness guard pattern as handleCompile: if a newer compile/diff
+      // replaced this EventSource, ignore its late events so we don't apply
+      // them to the newer compile's state.
       evtSource.addEventListener('output', (e) => {
         if (compileSourceRef.current !== evtSource) return;
         const { text } = JSON.parse(e.data);

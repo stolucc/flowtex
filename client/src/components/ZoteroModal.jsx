@@ -36,7 +36,6 @@ function itemTypeLabel(type) {
  */
 function filterBibtex(bibtex, excludedFields) {
   if (!excludedFields.size) return bibtex;
-  const pattern = new RegExp(`^\\s*(${[...excludedFields].join('|')})\\s*=\\s*\\{.*?\\},?\\s*$`, 'gmi');
   // Handle multi-line field values (braces can span lines)
   let result = '';
   let depth = 0;
@@ -76,7 +75,7 @@ function filterBibtex(bibtex, excludedFields) {
  */
 function extractBibKeys(bibtex) {
   const keys = [];
-  const re = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
+  const re = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
   let m;
   while ((m = re.exec(bibtex)) !== null) keys.push(m[1]);
   return keys;

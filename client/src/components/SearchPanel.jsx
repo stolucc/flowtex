@@ -111,6 +111,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     return () => {
       if (view) view.dispatch({ effects: setSearchHighlightEffect.of(Decoration.none) });
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, caseSensitive, scope]);
 
   /** Navigate to the next or previous search match and scroll it into view. */

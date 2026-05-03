@@ -3,6 +3,7 @@ import db from '../db.js';
 import { registerUser } from '../services/authService.js';
 import { encrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
+import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -12,8 +13,7 @@ router.get('/status', async (req, res) => {
     const admin = await db.get('SELECT id FROM users WHERE is_admin = TRUE LIMIT 1');
     res.json({ needsSetup: !admin });
   } catch (err) {
-    logger.error({ err }, 'Setup status check failed');
-    res.status(500).json({ error: 'Failed to check setup status' });
+    sendError(res, err);
   }
 });
 
@@ -75,8 +75,7 @@ router.post('/init', async (req, res) => {
       emailVerified: true,
     });
   } catch (err) {
-    logger.error({ err }, 'Setup init failed');
-    res.status(500).json({ error: 'Setup failed' });
+    sendError(res, err);
   }
 });
 

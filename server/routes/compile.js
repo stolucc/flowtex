@@ -11,14 +11,15 @@ import {
   synctexForward,
   synctexInverse,
   stopCompilation,
-  syncFilesToDisk,
-  TEX_PATHS,
   getTexPaths,
   detectTexDistributions,
   invalidateFileCache,
+  userSuffix as makeUserSuffix,
   GENERATED_EXTS,
 } from '../compiler.js';
 import latexDiff from '../utils/latexDiff.js';
+import { injectTrackedChangeMarkup } from '../utils/trackedChangeMarkup.js';
+import { stripPaths, safeMsg } from '../middleware/errorHandler.js';
 import path from 'path';
 import logger from '../logger.js';
 
@@ -33,8 +34,10 @@ const router = Router();
 const compileRateMap = new Map();
 const userCompileRateMap = new Map();
 const COMPILE_RATE_WINDOW = 60000;
-const COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 5;
-const USER_COMPILE_RATE_MAX = process.env.DISABLE_RATE_LIMIT === '1' ? Infinity : 20;
+// DISABLE_RATE_LIMIT only takes effect outside production; production ignores it.
+const SKIP_LIMITS = process.env.DISABLE_RATE_LIMIT === '1' && process.env.NODE_ENV !== 'production';
+const COMPILE_RATE_MAX = SKIP_LIMITS ? Infinity : 15;
+const USER_COMPILE_RATE_MAX = SKIP_LIMITS ? Infinity : 30;
 
 /** Check per-project and per-user compilation rate limits. Returns false if limit exceeded. */
 function checkCompileRate(projectId, userId) {
@@ -120,9 +123,7 @@ router.post('/format', async (req, res) => {
     res.json({ formatted });
   } catch (err) {
     logger.error({ err }, 'Format error');
-    // Strip internal paths from error messages
-    const safeMsg = (err.message || 'Formatting failed').replace(/\/[^\s:]+\//g, '');
-    res.status(500).json({ error: safeMsg });
+    res.status(500).json({ error: safeMsg(err, 'Formatting failed') });
   }
 });
 
@@ -135,25 +136,28 @@ router.post('/:projectId', async (req, res) => {
       return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
     }
 
+    const showTC = req.query.showTrackedChanges === '1' || req.body?.showTrackedChanges;
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
 
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
+    const projectDir = path.join(PROJECTS_DIR, projectId);
 
-    const { pdfPath, log } = await compileProject(projectId, mainFile, null, {
+    const { log } = await compileProject(projectId, mainFile, null, {
       files,
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
+      onBeforeCompile: showTC
+        ? async () => { await injectTrackedChangeMarkup(projectId, projectDir); }
+        : undefined,
     });
 
     res.json({ success: true, log });
   } catch (err) {
-    // Strip internal paths from error messages
-    const safeMsg = (err.message || 'Compilation failed').replace(/\/[^\s:]+\//g, '');
-    res.status(400).json({ success: false, log: safeMsg });
+    res.status(400).json({ success: false, log: safeMsg(err, 'Compilation failed') });
   }
 });
 
@@ -162,7 +166,16 @@ router.get('/:projectId/compile-stream', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
   if (!checkCompileRate(projectId, req.session.userId)) {
-    return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
+    // Must respond as SSE so EventSource doesn't infinitely retry a 429.
+    // Send the error as an SSE "done" event, then close.
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(`event: done\ndata: ${JSON.stringify({ success: false, log: 'Too many compilations. Please wait a moment before compiling again.' })}\n\n`);
+    res.end();
+    return;
   }
 
   res.writeHead(200, {
@@ -182,15 +195,17 @@ router.get('/:projectId/compile-stream', async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  
+
   try {
+    const showTC = req.query.showTrackedChanges === '1';
     const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
-
-    const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
-    const { pdfPath, log } = await compileProject(
+    const projectDir = path.join(PROJECTS_DIR, projectId);
+    const { log } = await compileProject(
       projectId,
       mainFile,
       (chunk) => {
@@ -201,9 +216,15 @@ router.get('/:projectId/compile-stream', async (req, res) => {
         userId: req.session.userId,
         texDistribution: project?.tex_distribution,
         compiler: project?.compiler,
-        onBeforeCompile: () => {
+        onBeforeCompile: async () => {
           const compilerName = project?.compiler || 'pdflatex';
           send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile} with ${compilerName}...\n` });
+          // Always process tracked changes: when showTC is off, still accept
+          // structural table changes (e.g. deleted &) that would break compilation.
+          const count = await injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup: showTC });
+          if (showTC && count > 0) {
+            send('output', { text: `Injected ${count} tracked change(s) into PDF markup.\n` });
+          }
         },
       },
     );
@@ -231,9 +252,10 @@ router.get('/:projectId/pdf', async (req, res) => {
 
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const pdfPath = path.join(PROJECTS_DIR, projectId, baseName + userSuffix + '.pdf');
 
+  res.set('Cache-Control', 'no-store');
   res.sendFile(pdfPath, (err) => {
     if (err) {
       res.status(404).json({ error: 'PDF not found. Compile first.' });
@@ -249,7 +271,7 @@ router.get('/:projectId/syncforward', async (req, res) => {
   const { line, column, file } = req.query;
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const result = synctexForward(
     projectId,
     parseInt(line),
@@ -273,7 +295,7 @@ router.get('/:projectId/syncinverse', async (req, res) => {
   const { page, x, y } = req.query;
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const result = synctexInverse(projectId, parseInt(page), parseFloat(x), parseFloat(y), mainFile, userSuffix);
   if (result) {
     res.json(result);
@@ -456,7 +478,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     stopCompilation(projectId).catch((e) => logger.warn({ err: e }, 'Failed to stop compilation on disconnect'));
   });
 
-  const stripPaths = (text) => text.replace(/\/[^\s:)]+\//g, '');
+  
   const send = (event, data) => {
     if (clientDisconnected) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -486,21 +508,21 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     let diffOutput;
     try {
       diffOutput = await latexDiff(oldFile.content || '', newFile.content || '', { workDir: projectDir });
-    } catch (diffErr) {
-      send('output', { text: `Diff error: ${stripPaths(diffErr.message)}\n` });
-      if (diffErr.stderr) send('output', { text: stripPaths(diffErr.stderr) + '\n' });
-      send('done', { success: false, log: stripPaths(diffErr.message) });
+    } catch (err) {
+      send('output', { text: `Diff error: ${stripPaths(err.message)}\n` });
+      if (err.stderr) send('output', { text: stripPaths(err.stderr) + '\n' });
+      send('done', { success: false, log: stripPaths(err.message) });
       if (!clientDisconnected) res.end();
       return;
     }
 
-    const userSuffix = '_' + req.session.userId.slice(0, 8);
+    const userSuffix = makeUserSuffix(req.session.userId);
     const diffJobName = '__diff__' + userSuffix;
 
     // Write diff to temp file and compile
     send('output', { text: 'Compiling diff...\n' });
     try {
-      const { pdfPath, log } = await compileProject(
+      const { log } = await compileProject(
         projectId,
         '__diff__.tex',
         (chunk) => {
@@ -517,7 +539,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
         },
       );
       send('done', { success: true, log: stripPaths(log) });
-    } catch (compileErr) {
+    } catch (err) {
       // Read the log file and stream it to the console
       const diffLogPath = path.join(projectDir, diffJobName + '.log');
       if (fs.existsSync(diffLogPath)) {
@@ -527,9 +549,9 @@ router.get('/:projectId/diff-stream', async (req, res) => {
       // Check if PDF was produced anyway
       const diffPdfPath = path.join(projectDir, diffJobName + '.pdf');
       if (fs.existsSync(diffPdfPath)) {
-        send('done', { success: true, log: stripPaths(compileErr.message) });
+        send('done', { success: true, log: stripPaths(err.message) });
       } else {
-        send('done', { success: false, log: stripPaths(compileErr.message) });
+        send('done', { success: false, log: stripPaths(err.message) });
       }
     }
   } catch (err) {
@@ -544,7 +566,7 @@ router.get('/:projectId/diff-pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const pdfPath = path.join(PROJECTS_DIR, projectId, '__diff__' + userSuffix + '.pdf');
   res.set('Cache-Control', 'no-store');
   res.sendFile(pdfPath, (err) => {
@@ -583,7 +605,7 @@ router.get('/:projectId/generated-files', async (req, res) => {
     '.run.xml',
   ]);
 
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const files = [];
   for (const entry of fs.readdirSync(projectDir)) {
     const ext = '.' + entry.split('.').slice(1).join('.');
@@ -622,7 +644,7 @@ router.get('/:projectId/generated-file', async (req, res) => {
   }
 
   // Only allow access to the requesting user's generated files
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   const baseName = fileName.split('.')[0];
   if (!baseName.endsWith(userSuffix)) {
     return res.status(403).json({ error: 'Access denied' });
@@ -648,7 +670,7 @@ router.post('/:projectId/clean', async (req, res) => {
   if (!fs.existsSync(projectDir)) return res.json({ deleted: 0 });
 
   // Only delete files belonging to the requesting user (scoped by user suffix)
-  const userSuffix = '_' + req.session.userId.slice(0, 8);
+  const userSuffix = makeUserSuffix(req.session.userId);
   let deleted = 0;
   const entries = fs.readdirSync(projectDir);
   for (const entry of entries) {
@@ -705,7 +727,7 @@ function detectFormatters() {
         let version = '';
         try {
           const out = execFileSync(fullPath, ['--version'], { encoding: 'utf-8', timeout: 3000 });
-          const m = out.match(/(\d+\.\d+[\.\d]*)/);
+          const m = out.match(/(\d+\.\d+[.\d]*)/);
           if (m) version = m[1];
         } catch {}
         found.push({ id: fmt.id, name: fmt.name, path: fullPath, version });

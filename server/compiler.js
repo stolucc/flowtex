@@ -116,6 +116,15 @@ export const compileMetrics = {
   history: [], // last 300 entries: { time, duration, success }
 };
 
+// Periodic sanity check: if active counter drifts above the actual number of
+// tracked child processes, reset it. This prevents permanent lockout from leaked counters.
+setInterval(() => {
+  const actual = activeCompilations.size;
+  if (compileMetrics.active > actual) {
+    compileMetrics.active = actual;
+  }
+}, 30000).unref();
+
 /** Record a compilation result in the metrics history ring buffer. */
 function recordCompile(success, duration) {
   compileMetrics.total++;
@@ -155,6 +164,18 @@ export function stopCompilation(projectId) {
     return entry.exitPromise;
   }
   return Promise.resolve(false);
+}
+
+/**
+ * Each user gets a unique jobname so concurrent compilations don't collide.
+ * The suffix flows into latexmk's `-jobname` argument and into filesystem
+ * paths, so it is hex-only — anything outside [a-fA-F0-9] is dropped before
+ * truncation. Returns `''` when the input is falsy or has no usable chars.
+ */
+export function userSuffix(userId) {
+  if (!userId) return '';
+  const safe = String(userId).replace(/[^a-fA-F0-9]/g, '').slice(0, 8);
+  return safe ? '_' + safe : '';
 }
 
 // Supported compilers and their latexmk flags
@@ -197,13 +218,11 @@ export async function compileProject(
 
   const timeoutMs = await getCompileTimeout();
 
-  // Each user gets a unique jobname so concurrent compilations don't collide
-  const userSuffix = userId ? '_' + userId.slice(0, 8) : '';
-  return _doCompile(projectId, mainFile, onOutput, userSuffix, timeoutMs, texDistribution, compiler);
+  return _doCompile(projectId, mainFile, onOutput, userSuffix(userId), timeoutMs, texDistribution, compiler);
 }
 
 /** Internal: spawn latexmk and return a promise for the compilation result. */
-function _doCompile(
+async function _doCompile(
   projectId,
   mainFile,
   onOutput,
@@ -212,6 +231,20 @@ function _doCompile(
   texDistribution = null,
   compiler = null,
 ) {
+  // If there's already an active compilation for this project, kill it and wait
+  const existing = activeCompilations.get(projectId);
+  if (existing) {
+    try { existing.child.kill('SIGTERM'); } catch {}
+    activeCompilations.delete(projectId);
+    // Wait for exit but with a timeout — never hang forever
+    await Promise.race([
+      existing.exitPromise.catch(() => {}),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
+    // Small delay to let the OS release file locks
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
   return new Promise((resolve, reject) => {
     if (compileMetrics.active >= MAX_CONCURRENT_COMPILES) {
       return reject(new Error('Server busy — too many concurrent compilations. Please try again in a moment.'));
@@ -255,29 +288,49 @@ function _doCompile(
 
     compileMetrics.active++;
     const compileStartTime = Date.now();
+    let callbackFired = false;
+
+    // Safety: if the callback never fires (e.g. execFile throws), decrement active
+    // after timeout + 10s grace period to prevent permanent counter leak.
+    const safetyTimer = setTimeout(() => {
+      if (!callbackFired) {
+        callbackFired = true;
+        activeCompilations.delete(projectId);
+        compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+        resolveExit();
+        reject(new Error('Compilation timed out (safety fallback)'));
+      }
+    }, timeoutMs + 10000);
+    safetyTimer.unref();
 
     // Determine the latexmk engine flag based on the selected compiler
     const compilerEntry = COMPILERS.find((c) => c.id === compiler);
     const engineFlag = compilerEntry ? compilerEntry.flag : '-pdf';
 
-    const child = execFile(
-      'latexmk',
-      [
-        engineFlag,
-        '-synctex=1',
-        '-interaction=nonstopmode',
-        '-f',
-        '--no-shell-escape',
-        `-jobname=${jobName}`,
-        `-output-directory=${projectDir}`,
-        mainFile,
-      ],
-      { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        activeCompilations.delete(projectId);
-        compileMetrics.active--;
-        const duration = Date.now() - compileStartTime;
-        resolveExit();
+    let child;
+    try {
+      child = execFile(
+        'latexmk',
+        [
+          engineFlag,
+          '-synctex=1',
+          '-interaction=nonstopmode',
+          '-f',
+          '--no-shell-escape',
+          '-e', '$max_repeat=4',
+          `-jobname=${jobName}`,
+          `-output-directory=${projectDir}`,
+          mainFile,
+        ],
+        { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          if (callbackFired) return; // safety timer already fired
+          callbackFired = true;
+          clearTimeout(safetyTimer);
+          activeCompilations.delete(projectId);
+          compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+          const duration = Date.now() - compileStartTime;
+          resolveExit();
         const pdfName = jobName + '.pdf';
         const pdfPath = path.join(projectDir, pdfName);
 
@@ -307,6 +360,17 @@ function _doCompile(
         }
       },
     );
+
+    } catch (spawnErr) {
+      // execFile failed synchronously (e.g. latexmk not found)
+      if (!callbackFired) {
+        callbackFired = true;
+        clearTimeout(safetyTimer);
+        compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+        resolveExit();
+        return reject(new Error(spawnErr.message || 'Failed to start compiler'));
+      }
+    }
 
     activeCompilations.set(projectId, { child, exitPromise });
 
@@ -390,7 +454,7 @@ export function synctexForward(
       };
     }
     return null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -430,7 +494,7 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
       };
     }
     return null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -449,6 +513,11 @@ export function invalidateFileCache(projectId) {
   for (const key of fileHashCache.keys()) {
     if (key.startsWith(projectId + ':')) fileHashCache.delete(key);
   }
+}
+
+/** Clear the cached hash for a single project file (preferred over the project-wide form). */
+export function invalidateFile(projectId, filePath) {
+  fileHashCache.delete(projectId + ':' + filePath);
 }
 
 // Extensions of files generated by LaTeX compilation — should not be synced from DB to disk
@@ -515,15 +584,36 @@ export async function syncFilesToDisk(projectId, files) {
 
     const dir = path.dirname(filePath);
     await fsp.mkdir(dir, { recursive: true });
-    await fsp.writeFile(filePath, buf);
+    // Refuse to follow symlinks. A hostile TeX package could create a symlink
+    // between removeSymlinks() and this write; O_NOFOLLOW closes that race.
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
+    let handle;
+    try {
+      handle = await fsp.open(filePath, flags);
+    } catch (err) {
+      if (err.code === 'ELOOP' || err.code === 'EMLINK') {
+        // Path was a symlink — unlink and retry once with the same restricted flags.
+        await fsp.unlink(filePath).catch(() => {});
+        handle = await fsp.open(filePath, flags);
+      } else {
+        throw err;
+      }
+    }
+    try {
+      await handle.writeFile(buf);
+    } finally {
+      await handle.close();
+    }
     fileHashCache.set(cacheKey, hash);
   });
 
   await Promise.all(writes);
 }
 
-// Test-only exports for internal helpers
-export const _testing = { safePath, recordCompile, fileHashCache, contentHash };
+// Test-only exports for internal helpers — only populated in NODE_ENV=test.
+export const _testing = process.env.NODE_ENV === 'test'
+  ? { safePath, recordCompile, fileHashCache, contentHash }
+  : undefined;
 
 /** Recursively remove symlinks from a directory tree. */
 async function removeSymlinks(dir) {

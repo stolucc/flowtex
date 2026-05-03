@@ -451,7 +451,7 @@ describe('verifyTotp', () => {
     // db.get returns undefined for isTotpUsed check
     db.get.mockResolvedValue(undefined);
 
-    const result = await verifyTotp('u1', '000000', 'encrypted:' + testSecret);
+    await verifyTotp('u1', '000000', 'encrypted:' + testSecret);
     // '000000' is almost certainly not a valid code for a random secret
     // but there's a 1-in-333333 chance it matches (window=1 covers 3 periods).
     // If it somehow passes validation, the test is still meaningful.

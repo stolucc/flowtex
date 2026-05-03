@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { get, post, put, del } from '../api.js';
 import tapsCheck from '../utils/tapsChecker.js';
+import { getSetting } from '../utils/settings.js';
 
 /** Provides editor-level actions: SyncTeX, word count, formatting, TAPS checks, and citation/label autocomplete data. */
 export default function useEditorActions({
@@ -20,13 +21,14 @@ export default function useEditorActions({
   setComments,
   projectGoBack,
   handleLogout,
-  handleSave,
   setProject,
   handleCompile,
+  handleStopCompile,
 }) {
   const [editorLine, setEditorLine] = useState(1);
   const [pdfClickPos, setPdfClickPos] = useState(null);
   const [wordCountState, setWordCountState] = useState({ open: false, loading: false, data: null, error: null });
+  const [formatWarning, setFormatWarning] = useState(null);
 
   const handleOverwriteFile = useCallback(
     async (fileId, content) => {
@@ -40,7 +42,7 @@ export default function useEditorActions({
       // Trigger recompile since file content changed on the server
       handleCompile?.();
     },
-    [files, switchFile, trackedChanges, handleCompile],
+    [files, switchFile, trackedChanges, handleCompile, setFiles, setTrackedChanges],
   );
 
   const handleSyncForward = useCallback(async () => {
@@ -54,7 +56,7 @@ export default function useEditorActions({
         pdfRef.current?.scrollToPosition(data.page, data.v);
       }
     } catch {}
-  }, [project, activeFile, pdfUrl, editorLine]);
+  }, [project, activeFile, pdfUrl, editorLine, pdfRef]);
 
   const handleSyncInverse = useCallback(
     async (page, x, y) => {
@@ -75,7 +77,7 @@ export default function useEditorActions({
         }
       } catch {}
     },
-    [project, activeFile, files, switchFile],
+    [project, activeFile, files, switchFile, editorRef],
   );
 
   const handleSyncInverseFromArrow = useCallback(async () => {
@@ -84,10 +86,13 @@ export default function useEditorActions({
   }, [pdfClickPos, project, handleSyncInverse]);
 
   const goBack = useCallback(() => {
+    // Abort any in-flight compile so the server frees its latexmk slot and
+    // the user's compile rate-limit isn't held by an abandoned project.
+    handleStopCompile?.().catch(() => {});
     projectGoBack();
     setPdfUrl(null);
     setComments([]);
-  }, [projectGoBack]);
+  }, [projectGoBack, setPdfUrl, setComments, handleStopCompile]);
 
   const handleLogoutFull = useCallback(async () => {
     await handleLogout();
@@ -95,7 +100,7 @@ export default function useEditorActions({
     setFiles([]);
     setActiveFile(null);
     setPdfUrl(null);
-  }, [handleLogout]);
+  }, [handleLogout, setProject, setFiles, setActiveFile, setPdfUrl]);
 
   const mainFilePath = project?.main_file || 'main.tex';
   const tapsDiagnostics = useMemo(() => tapsCheck(files, mainFilePath), [files, mainFilePath]);
@@ -111,12 +116,13 @@ export default function useEditorActions({
       }
       setConsoleOutput(lines.join('\n'));
     }
-  }, [files]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, setConsoleOutput]);
 
   const handleFormatDocument = useCallback(async () => {
-    const formatter = localStorage.getItem('flowtex-latex-formatter');
+    const formatter = getSetting('latex-formatter');
     if (!formatter) {
-      alert('No LaTeX formatter selected. Set one in Project Settings > Editor.');
+      setFormatWarning('No LaTeX formatter selected. Set one in Project Settings > Editor.');
       return;
     }
     if (!activeFile || !activeFile.path.endsWith('.tex')) return;
@@ -135,7 +141,7 @@ export default function useEditorActions({
     } catch (err) {
       setConsoleOutput(`Format error: ${err.message}`);
     }
-  }, [activeFile]);
+  }, [activeFile, editorRef, setConsoleOutput]);
 
   const handleWordCount = useCallback(async () => {
     setWordCountState({ open: true, loading: true, data: null, error: null });
@@ -155,7 +161,7 @@ export default function useEditorActions({
   const citeKeys = useMemo(() => {
     const bibFiles = files.filter((f) => f.path.endsWith('.bib') && f.content);
     const keys = [];
-    const entryPattern = /@\w+\s*\{\s*([\w:.@/+\-]+)/g;
+    const entryPattern = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
     for (const f of bibFiles) {
       let match;
       entryPattern.lastIndex = 0;
@@ -267,6 +273,8 @@ export default function useEditorActions({
     tapsDiagnostics,
     handleTapsCheck,
     handleFormatDocument,
+    formatWarning,
+    setFormatWarning,
     handleWordCount,
     citeKeys,
     labelKeys,

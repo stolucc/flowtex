@@ -11,3 +11,16 @@ git-repos/
 projects/
 .DS_Store
 *.pdf
+
+# Personal LaTeX manuscripts kept in the repo root for convenience —
+# not part of the FlowTex codebase.
+/*.docx
+/Manuscript*.tex
+/main.tex
+/-*.tex
+/sorted_main.bib
+/emse_official.cls
+/spbasic.bst
+/svglov3.clo
+/svjour3.cls
+/latexmkrc

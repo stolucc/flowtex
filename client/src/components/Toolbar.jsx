@@ -68,19 +68,13 @@ export default function Toolbar({
   onInsert,
   onSymbolPicker,
   onToggleComments,
-  onToggleLineNumbers,
-  onToggleWordWrap,
+  onToggleVisualMode,
   onHelp,
   showComments,
-  showLineNumbers,
-  wordWrap,
+  visualMode,
   onCompareFiles,
-  trackChangesMode,
-  onToggleTrackChanges,
   githubLink,
-  autoSyncStatus,
   onToggleAutoSync,
-  lastSyncAt,
   onBibEnrich,
   onZotero,
   spellLanguages,
@@ -96,6 +90,8 @@ export default function Toolbar({
   onToggleChat,
   onZoomIn,
   onZoomOut,
+  showTrackedChangesInPdf,
+  onToggleTrackedChangesInPdf,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -191,6 +187,9 @@ export default function Toolbar({
     { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
     { label: `${showChat ? '✓ ' : ''}Chat`, action: onToggleChat },
     { label: `${showBoxWarnings ? '✓ ' : ''}Overfull/Underfull Warnings`, action: onToggleBoxWarnings },
+    { label: `${showTrackedChangesInPdf ? '✓ ' : ''}Show Changes in PDF`, action: onToggleTrackedChangesInPdf },
+    { label: 'separator' },
+    { label: `${visualMode ? '✓ ' : ''}Visual Mode`, action: onToggleVisualMode },
     { label: 'separator' },
     { label: 'Zoom In', action: onZoomIn },
     { label: 'Zoom Out', action: onZoomOut },
@@ -289,6 +288,27 @@ export default function Toolbar({
             setActiveMenu={setActiveMenu}
           />
         </span>
+        <button
+          className={`toolbar-btn toolbar-btn-visual${visualMode ? ' toolbar-btn-active' : ''}`}
+          onClick={onToggleVisualMode}
+          title="Toggle Visual Mode (⌘⇧V)"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ marginRight: 4, verticalAlign: -2 }}
+          >
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          Visual
+        </button>
       </div>
 
       <div className="toolbar-center">

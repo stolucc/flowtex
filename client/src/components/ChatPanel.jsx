@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Avatar from './Avatar.jsx';
 import { getColor } from './Avatar.jsx';
 import { CloseIcon } from './Icons.jsx';
 
@@ -50,6 +49,7 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose, onTy
     if (typers.length === 0) return;
     const timer = setTimeout(() => setTick((t) => t + 1), 3100);
     return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typingUsers]);
 
   return (
