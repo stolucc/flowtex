@@ -3813,6 +3813,18 @@ html {
   border-color: var(--yellow);
 }
 
+/* Icon-style diagnostics buttons (errors / warnings) — keep the icon and the
+   count tightly grouped so the button reads as a single chip. */
+.pdf-header-diag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-header-diag-count {
+  font-variant-numeric: tabular-nums;
+}
+
 .pdf-download-btn {
   display: inline-flex;
   align-items: center;

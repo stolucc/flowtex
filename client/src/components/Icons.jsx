@@ -392,3 +392,27 @@ export const HighlightIcon = ({ size = 14, ...props }) => (
     <line x1="12.5" y1="5.5" x2="17.5" y2="10.5" />
   </svg>
 );
+
+// Filled circle with white "×" — VS Code-style error indicator. Uses
+// `currentColor` for the circle so callers control the tint via CSS.
+export const ErrorIcon = ({ size = 14, ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" {...props}>
+    <circle cx="8" cy="8" r="7" fill="currentColor" />
+    <path
+      d="M5.5 5.5l5 5M10.5 5.5l-5 5"
+      stroke="#fff"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+// Filled triangle with white "!" — VS Code-style warning indicator. Uses
+// `currentColor` for the fill so callers control the tint via CSS.
+export const WarningIcon = ({ size = 14, ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" {...props}>
+    <path d="M8 1.5 L15 14 L1 14 Z" fill="currentColor" />
+    <rect x="7.25" y="6" width="1.5" height="4.5" rx="0.5" fill="#fff" />
+    <circle cx="8" cy="12" r="0.85" fill="#fff" />
+  </svg>
+);

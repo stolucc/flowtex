@@ -44,7 +44,7 @@
   <tr><th>Resource</th><th>Minimum</th><th>Recommended</th></tr>
   <tr><td>CPU</td><td>2 cores</td><td>4+ cores (LaTeX compilation is CPU-bound)</td></tr>
   <tr><td>RAM</td><td>4 GB</td><td>8+ GB (each concurrent compilation uses ~500 MB)</td></tr>
-  <tr><td>Disk</td><td>15 GB</td><td>30+ GB (TeX Live full is ~7 GB; project files and database grow over time)</td></tr>
+  <tr><td>Disk</td><td>20 GB</td><td>40+ GB (TeX Live full ~7&nbsp;GB; LibreOffice + ImageMagick + librsvg ~2&nbsp;GB; PostgreSQL data + project files + snapshots grow over time)</td></tr>
   <tr><td>OS</td><td colspan="2">Ubuntu 22.04 LTS or Debian 12+ (any modern Linux with apt)</td></tr>
 </table>
 
@@ -100,6 +100,23 @@ sudo apt-get install -y texlive-full</code></pre>
 <h3>2.5 Build Essentials <span class="tag tag-req">Required</span></h3>
 <p>Some npm packages (e.g., <code>bcrypt</code>) compile native addons during <code>npm install</code>.</p>
 <pre><code>sudo apt-get install -y build-essential python3</code></pre>
+
+<h3>2.6 DOCX Import Tooling <span class="tag tag-rec">Recommended</span></h3>
+<p>FlowTex's DOCX → LaTeX importer converts embedded media so it can be used inside the LaTeX project. If any of these tools is missing, that media format will be skipped (the rest of the import still works).</p>
+<pre><code>sudo apt-get install -y librsvg2-bin imagemagick libreoffice</code></pre>
+<table>
+  <tr><th>Tool</th><th>Used for</th></tr>
+  <tr><td><code>rsvg-convert</code> (from <code>librsvg2-bin</code>)</td><td>SVG figures &rarr; PDF (preserves vectors)</td></tr>
+  <tr><td><code>convert</code> (ImageMagick)</td><td>GIF / TIFF / BMP &rarr; PNG</td></tr>
+  <tr><td><code>soffice</code> (LibreOffice headless)</td><td>WMF / EMF (legacy Windows metafiles) &rarr; PDF</td></tr>
+</table>
+<div class="warn"><strong>Security:</strong> These tools run on attacker-controlled bytes — any authenticated user can upload arbitrary SVG / GIF / TIFF / BMP via a DOCX import. FlowTex caps memory / disk / threads on every <code>convert</code> invocation, but you should also:
+<ul>
+  <li>Tighten <code>/etc/ImageMagick-7/policy.xml</code> (disable <code>MVG</code>, <code>MSL</code>, <code>EPHEMERAL</code>, <code>URL</code>, <code>HTTPS</code>, <code>HTTP</code>, <code>FTP</code>, <code>EPS</code>, <code>PS</code>, <code>PDF</code>, <code>XPS</code> coders unless explicitly needed).</li>
+  <li>Run the FlowTex process under <code>bwrap</code> or <code>firejail</code> with the project directory bind-mounted read-write and the rest of the filesystem read-only. See <a href="../SECURITY.md">SECURITY.md</a> for an example wrapper.</li>
+  <li>Set <code>DISABLE_IMAGE_CONVERSION=1</code> in <code>.env</code> if you want to skip the dangerous coders entirely (DOCX images that need conversion are then dropped instead of converted).</li>
+</ul>
+</div>
 
 <h2>3. Optional Packages</h2>
 
@@ -199,31 +216,107 @@ GITHUB_CLIENT_SECRET=
 CORS_ORIGINS=https://flowtex.example.com
 
 <span class="comment"># Admin email</span>
-ADMIN_EMAIL=admin@example.com</code></pre>
+ADMIN_EMAIL=admin@example.com
 
-<div class="warn"><strong>Security:</strong> Generate unique values for <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code>. Never reuse these across environments. Set file permissions: <code>chmod 600 .env</code></div>
+<span class="comment"># Logging (trace, debug, info, warn, error, fatal)</span>
+LOG_LEVEL=info
+
+<span class="comment"># DOCX import — drop image-conversion steps that shell out to</span>
+<span class="comment"># rsvg-convert / ImageMagick / LibreOffice. Set to 1 to disable</span>
+<span class="comment"># if you can't sandbox those binaries. Affected media is skipped.</span>
+<span class="comment"># DISABLE_IMAGE_CONVERSION=1</span>
+
+<span class="comment"># TLS redirect — when NODE_ENV=production, FlowTex redirects HTTP &rarr; HTTPS</span>
+<span class="comment"># based on X-Forwarded-Proto. If your reverse proxy already terminates</span>
+<span class="comment"># TLS upstream and sets a different header, set this to 1 to skip.</span>
+<span class="comment"># DISABLE_TLS_REDIRECT=1</span></code></pre>
+
+<div class="warn"><strong>Security:</strong> Generate unique values for <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code>. Never reuse these across environments. Set file permissions: <code>chmod 600 .env</code>. Ownership: the user that runs the FlowTex process should own <code>.env</code>; nothing else should be able to read it.</div>
 
 <h3>4.3 Start the server</h3>
-<pre><code><span class="comment"># Direct start</span>
-node --env-file=.env server/index.js
+<p>For a one-off check that everything works:</p>
+<pre><code>node --env-file=.env server/index.js</code></pre>
 
-<span class="comment"># Or use a process manager (recommended for production)</span>
-npm install -g pm2
-pm2 start server/index.js --name flowtex -- --env-file=.env
-pm2 save
-pm2 startup</code></pre>
+<p>For production, run under systemd so the service restarts on crash, on reboot, and integrates with <code>journalctl</code> for logs. Create <code>/etc/systemd/system/flowtex.service</code>:</p>
+<pre><code>[Unit]
+Description=FlowTex collaborative LaTeX editor
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=flowtex
+Group=flowtex
+WorkingDirectory=/opt/flowtex
+EnvironmentFile=/opt/flowtex/.env
+ExecStart=/usr/bin/node --env-file=/opt/flowtex/.env /opt/flowtex/server/index.js
+Restart=on-failure
+RestartSec=5
+
+<span class="comment"># Hardening — harmless on most setups, defense in depth</span>
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flowtex/projects /opt/flowtex/git-repos /opt/flowtex/server/logs
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<pre><code><span class="comment"># Create the dedicated user (no shell)</span>
+sudo useradd --system --home /opt/flowtex --shell /usr/sbin/nologin flowtex
+sudo chown -R flowtex:flowtex /opt/flowtex
+
+<span class="comment"># Enable and start</span>
+sudo systemctl daemon-reload
+sudo systemctl enable --now flowtex
+
+<span class="comment"># Tail logs</span>
+sudo journalctl -u flowtex -f</code></pre>
 
 <h3>4.4 First-time setup</h3>
 <p>Open <code>https://flowtex.example.com</code> in a browser. The first-run wizard will prompt you to create the administrator account.</p>
+
+<h3>4.5 Backups</h3>
+<p>FlowTex's persistent state lives in two places: PostgreSQL and the <code>projects/</code> directory.</p>
+<table>
+  <tr><th>What</th><th>Backup with</th></tr>
+  <tr><td>PostgreSQL database (users, projects, file contents, sessions, snapshots, comments, tracked changes)</td><td><code>pg_dump -Fc flowtex &gt; flowtex.dump</code></td></tr>
+  <tr><td><code>/opt/flowtex/projects/</code> (working compilation tree — caches and PDFs, regenerable)</td><td>Optional. Skipping it just means recompiling after restore.</td></tr>
+  <tr><td><code>/opt/flowtex/git-repos/</code> (git working copies for GitHub sync)</td><td>Optional — these can be re-cloned from GitHub.</td></tr>
+  <tr><td><code>/opt/flowtex/.env</code></td><td>Back up <strong>once</strong>, securely, off-server. <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code> rotation invalidates sessions and encrypted GitHub tokens.</td></tr>
+</table>
+
+<p>A daily cron is sufficient:</p>
+<pre><code><span class="comment"># /etc/cron.daily/flowtex-backup</span>
+#!/bin/bash
+set -e
+BACKUP_DIR=/var/backups/flowtex
+mkdir -p "$BACKUP_DIR"
+DATE=$(date +%Y-%m-%d)
+sudo -u postgres pg_dump -Fc flowtex &gt; "$BACKUP_DIR/db-$DATE.dump"
+find "$BACKUP_DIR" -name 'db-*.dump' -mtime +30 -delete</code></pre>
+
+<h3>4.6 Upgrades</h3>
+<p>Upgrade procedure for a deployed instance:</p>
+<pre><code>cd /opt/flowtex
+sudo -u flowtex git pull
+sudo -u flowtex npm install --prefix server --production
+sudo -u flowtex npm install --prefix client
+sudo -u flowtex bash -c "cd client &amp;&amp; npx vite build"
+sudo -u flowtex cp -r client/dist/* server/public/
+sudo systemctl restart flowtex</code></pre>
+<p>If a release adds database migrations, the server runs them automatically on start (you'll see the migration list in <code>journalctl -u flowtex</code>). Take a database backup <em>before</em> upgrading on any schema-bumping release.</p>
 
 <h2>5. Quick Install Script</h2>
 <p>Copy and run on a fresh Ubuntu 22.04+ server:</p>
 <pre><code>#!/bin/bash
 set -e
 
-<span class="comment"># System packages</span>
+<span class="comment"># System packages (texlive-full is ~7GB; pre-stage on slow links)</span>
 sudo apt-get update
-sudo apt-get install -y build-essential python3 git postgresql-16 texlive-full
+sudo apt-get install -y build-essential python3 git postgresql-16 texlive-full \
+                        librsvg2-bin imagemagick libreoffice
 
 <span class="comment"># Node.js 22</span>
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
@@ -262,7 +355,21 @@ echo "  node --env-file=.env server/index.js"</code></pre>
   <tr><td><code>build-essential</code></td><td><span class="tag tag-req">Required</span></td><td>Native npm addon compilation (bcrypt)</td></tr>
   <tr><td><code>python3</code></td><td><span class="tag tag-req">Required</span></td><td>node-gyp build dependency</td></tr>
   <tr><td><code>caddy</code> or <code>nginx</code></td><td><span class="tag tag-rec">Recommended</span></td><td>Reverse proxy, TLS termination, HTTPS</td></tr>
+  <tr><td><code>librsvg2-bin</code></td><td><span class="tag tag-rec">Recommended</span></td><td>SVG &rarr; PDF conversion for DOCX import (provides <code>rsvg-convert</code>)</td></tr>
+  <tr><td><code>imagemagick</code></td><td><span class="tag tag-rec">Recommended</span></td><td>GIF / TIFF / BMP &rarr; PNG conversion for DOCX import (provides <code>convert</code>; tighten <code>policy.xml</code>!)</td></tr>
+  <tr><td><code>libreoffice</code></td><td><span class="tag tag-rec">Recommended</span></td><td>WMF / EMF metafile conversion for DOCX import (provides <code>soffice</code>)</td></tr>
   <tr><td><code>redis-server</code></td><td><span class="tag tag-opt">Optional</span></td><td>WebSocket pub/sub for multi-instance scaling</td></tr>
+</table>
+
+<h2>7. Where to Look When Things Go Wrong</h2>
+<table>
+  <tr><th>Symptom</th><th>Where to look</th></tr>
+  <tr><td>Service won't start</td><td><code>sudo journalctl -u flowtex -n 200</code> — usually a missing env var or a DB connection issue</td></tr>
+  <tr><td>WebSocket fails (no live cursors / collab)</td><td>Reverse proxy must forward <code>Upgrade</code> + <code>Connection: upgrade</code> headers (see Caddyfile / Nginx examples above)</td></tr>
+  <tr><td>Login redirects forever</td><td><code>NODE_ENV=production</code> sets secure cookies — ensure traffic actually reaches the server over HTTPS, or your reverse proxy sets <code>X-Forwarded-Proto: https</code></td></tr>
+  <tr><td>Compilation hangs / OOM</td><td>Each compile uses ~500&nbsp;MB. Check <code>free -h</code> during a compile; raise RAM or limit concurrency. <code>texlive-full</code> packages the whole TeX universe — <code>texlive-base</code> + selective packages can shrink memory pressure but at the cost of more "missing package" errors.</td></tr>
+  <tr><td>DOCX import drops images</td><td>Check that <code>rsvg-convert</code>, <code>convert</code>, and <code>soffice</code> are on <code>$PATH</code> for the FlowTex user (run <code>sudo -u flowtex which rsvg-convert convert soffice</code>). If you've set <code>DISABLE_IMAGE_CONVERSION=1</code> deliberately, this is expected.</td></tr>
+  <tr><td>Sessions / GitHub tokens vanish after restart</td><td>You changed <code>SESSION_SECRET</code> or <code>ENCRYPTION_KEY</code>. Don't rotate these without a re-encryption migration plan.</td></tr>
 </table>
 
 </body>

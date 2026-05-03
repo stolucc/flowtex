@@ -81,13 +81,27 @@ All panels are resizable — drag the borders between them.
 The editor provides a full-featured LaTeX editing experience:
 
 - **Syntax highlighting** for LaTeX commands, environments, math, and comments
-- **Autocomplete**: Type `\` to see LaTeX command suggestions, or start a `\begin{` for environment completion
+- **Autocomplete**: Type `\` to see LaTeX command suggestions, or start a `\begin{` for environment completion. Citation keys (from your `.bib` files) and reference labels are also offered after `\cite{` and `\ref{`.
 - **Bracket matching**: Matching braces, brackets, and parentheses are highlighted
 - **Search & replace**: Use `Cmd/Ctrl+F` to find, `Cmd/Ctrl+H` to replace
 - **Multiple cursors**: `Cmd/Ctrl+D` to select next occurrence
 - **Line numbers**: Shown in the gutter
 - **Spellcheck**: Misspelled words are underlined — right-click for suggestions
 - **Lint diagnostics**: Syntax issues from LaCheck appear as warnings in the gutter
+- **Citation hover**: Hover over any `\cite{key}` to see authors, year, title, and venue (booktitle / journal / publisher) pulled from your project's `.bib` files
+
+### Visual Mode (WYSIWYG)
+
+Toggle Visual Mode from the **View** menu (or `Cmd/Ctrl+Shift+V`) to switch the editor from raw LaTeX source to a rendered preview that still lets you edit the underlying text:
+
+- Bold, italic, underlined, monospace, and small-caps text render with their formatting; the surrounding `\textbf{...}` markup is hidden but never deleted from the source.
+- Section, subsection, and chapter headings render as styled headings.
+- `\begin{itemize}` / `\begin{enumerate}` show as bulleted / numbered lists; `\begin{quote}` becomes an indented block.
+- `\cite{...}` and `\ref{...}` appear as small badges. Hover for full bibliographic details; click to jump to the source.
+- The preamble (everything before `\begin{document}`) and `\end{document}` are hidden so you can focus on content.
+- A floating toolbar appears with bold/italic, headings, lists, quote, and citation insertion buttons.
+
+Visual mode is purely visual — toggling it off restores the exact same source. Type, paste, undo/redo, and collaborate as you normally would.
 
 ### Compiling
 
@@ -106,7 +120,7 @@ The editor provides a full-featured LaTeX editing experience:
 - **Page navigation**: Scroll through pages, or use page up/down
 - **Forward sync** (editor to PDF): Click the right arrow between editor and PDF — jumps the PDF to the location corresponding to your cursor
 - **Inverse sync** (PDF to editor): Double-click a location in the PDF — jumps the editor to the corresponding source line
-- **Lint panel**: Toggle the diagnostics panel to see all warnings/errors
+- **Errors / warnings**: Two icon chips at the top of the PDF panel — a red ⊗ and an amber ▲ — show the live count from the LaTeX log plus the linter. Click either to expand a panel listing each diagnostic with a clickable file/line reference. The icons turn muted when there are zero, and red/amber when there's something to look at.
 - **Console**: Toggle to see full compilation output
 
 ### Comments Sidebar (Far Right)
@@ -116,6 +130,18 @@ The editor provides a full-featured LaTeX editing experience:
 - **Resolve**: Click the checkmark to resolve a comment thread
 - **Edit/Delete**: Use the menu on your own comments to edit or delete them
 - Comments are positioned alongside the relevant lines in the editor
+
+---
+
+## Tracked Changes
+
+Word-style change tracking for review workflows.
+
+- **Enable**: Toggle Track Changes from the toolbar (or via the View menu). Once on, every insertion you make is underlined in your accent color, and every deletion stays visible with a strikethrough rather than disappearing.
+- **Per-user attribution**: Each tracked change records the author. Hovering a change shows who made it.
+- **Review walkthrough**: Click the review eye icon to step through each pending change in order — accept (✓) or reject (✗) one at a time, or accept-all / reject-all from the menu.
+- **Diff PDF**: From File ▸ Compare, pick two snapshots (or two states of the same file) and FlowTex will compile a `latexdiff` PDF showing additions / deletions visually side-by-side with the rest of the document.
+- **Behavior under file switch**: Pending changes follow the file they belong to — switching files mid-edit won't move a change to a different file.
 
 ---
 
@@ -236,6 +262,10 @@ Protect your account with TOTP-based two-factor authentication.
 | `Cmd/Ctrl + /` | Toggle line comment |
 | `Cmd/Ctrl + Z` | Undo |
 | `Cmd/Ctrl + Shift + Z` | Redo |
+| `Cmd/Ctrl + Shift + V` | Toggle Visual Mode |
+| `Cmd/Ctrl + B` | Bold selection |
+| `Cmd/Ctrl + I` | Italicize selection |
+| `Cmd/Ctrl + Click` | Comment on selection |
 | `Tab` | Indent selection |
 | `Shift + Tab` | Dedent selection |
 

@@ -24,3 +24,6 @@ projects/
 /svglov3.clo
 /svjour3.cls
 /latexmkrc
+
+# R session history (created by RStudio when opened in this dir)
+.Rhistory

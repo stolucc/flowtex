@@ -167,6 +167,8 @@ User A (Editor)         Server (WebSocket)        User B (Editor)
 
 With Redis enabled, the server publishes WebSocket messages to a Redis channel, allowing multiple server instances to relay messages to their local clients.
 
+**File-identity invariant.** Both the OT change broadcaster and the tracked-change pipeline carry an explicit `fileId` end-to-end (capture-time on the editor side, payload field on the wire, `change.fileId` in the server-bound POST). Receivers — `applyRemoteChanges`, `applyRemoteTcDelete`, `useTrackedChanges.doHandleTrackChange`, and the WebSocket `tracked-change` handler — drop or shunt-aside any message whose `fileId` doesn't match the file currently being shown / edited. The same pattern protects the local debounced autosave: `handleSave` accepts an explicit `fileId`, and the editor's tcDelBuffer / tcInsertBuffer carry the file id captured at edit time so a buffer flush after a file switch can never write into the wrong file.
+
 ### 3. Compilation Flow
 
 ```
@@ -324,17 +326,21 @@ Client              Server              Git (simple-git)         GitHub
                     │                             │
                     │  auth │ projects │ compile  │
                     │  comments │ history │ github│
-                    │  tags │ health              │
+                    │  bib │ zotero │ chat │ tags │
+                    │  admin │ setup │ health     │
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐
                     │      Core Services           │
                     │                             │
-                    │  compiler.js  - TeX Live    │
-                    │  gitSync.js   - simple-git  │
-                    │  crypto.js    - AES-256-GCM │
-                    │  audit.js     - action log  │
-                    │  latexDiff.js - latexdiff   │
+                    │  compiler.js     - TeX Live │
+                    │  gitSync.js      - simple-git│
+                    │  crypto.js       - AES-256-GCM│
+                    │  audit.js        - action log│
+                    │  latexDiff.js    - latexdiff│
+                    │  docxToLatex.js  - DOCX import│
+                    │  trackedChange-                │
+                    │    Markup.js   - TC → latexdiff│
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐
@@ -354,9 +360,13 @@ Client              Server              Git (simple-git)         GitHub
 main.jsx
   └─ ErrorBoundary
        └─ App
+            ├─ ProjectContextProvider           ← shared project/file state
+            ├─ EditorRefContextProvider         ← imperative handle to CodeMirror
+            │
             ├─ AuthPage (when not authenticated)
             │    ├─ Login form
-            │    └─ Register form
+            │    ├─ Register form
+            │    └─ MFA challenge
             │
             ├─ ProjectList (when no project selected)
             │    ├─ Tag sidebar
@@ -368,19 +378,24 @@ main.jsx
                  │    ├─ Project name / rename
                  │    ├─ Member avatars
                  │    ├─ Compile button
-                 │    └─ Menu (share, history, github, compare, clean, MFA)
+                 │    └─ Menus (File · Edit · Insert · View · Format · Tools · Help)
                  │
                  ├─ FileTree (resizable)
                  │    ├─ Folder nodes (collapsible)
-                 │    └─ File nodes (click to open)
+                 │    └─ File nodes (click to open · context menu: rename / delete /
+                 │      pretty-print BibTeX / set as main / download)
                  │
                  ├─ Editor (CodeMirror 6)
-                 │    ├─ LaTeX syntax highlighting
-                 │    ├─ Autocomplete (commands + environments)
+                 │    ├─ LaTeX / BibTeX syntax highlighting
+                 │    ├─ Autocomplete (commands + environments + cite/ref keys)
                  │    ├─ Lint diagnostics (gutter markers)
                  │    ├─ Spellcheck underlines
                  │    ├─ Comment highlight decorations
-                 │    └─ Remote cursor decorations
+                 │    ├─ Remote cursor decorations
+                 │    ├─ Tracked-change marks (insert / delete) with hover popups
+                 │    ├─ Citation / reference hover tooltips
+                 │    ├─ Visual mode (WYSIWYG) — replace decorations + widget badges
+                 │    └─ VisualModeToolbar (overlay, shown only in visual mode)
                  │
                  ├─ SyncArrows
                  │    ├─ Forward sync button (editor → PDF)
@@ -389,21 +404,49 @@ main.jsx
                  ├─ PdfViewer (resizable)
                  │    ├─ PDF canvas (PDF.js)
                  │    ├─ Zoom controls
-                 │    ├─ Lint panel (toggle)
+                 │    ├─ Error / warning chips (icon + count, click to expand panel)
+                 │    ├─ Lint / log panel (toggle)
                  │    └─ Console output (toggle)
+                 │
+                 ├─ ChatPanel (resizable, toggleable)
                  │
                  ├─ CommentsSidebar (resizable)
                  │    ├─ Comment threads
                  │    └─ Reply forms
                  │
-                 └─ Modals (conditionally rendered)
+                 ├─ HistoryView (full-pane, when viewing snapshots)
+                 │    ├─ Snapshot list
+                 │    ├─ File list (with diff status per file)
+                 │    └─ Hunk-based diff viewer (line cap with show-all toggle)
+                 │
+                 └─ ModalContainer (conditionally rendered)
                       ├─ ShareModal
-                      ├─ HistoryPanel
-                      ├─ GitHubSyncModal
+                      ├─ ProjectSettingsModal (Project · Editor · Compiler · etc.)
+                      ├─ HistoryPanel (snapshot list popover)
+                      ├─ GitHubSyncModal (lazy)
                       ├─ CompareFilesModal
+                      ├─ BibEnrichModal (lazy)
+                      ├─ ZoteroModal (lazy)
+                      ├─ WordCountModal
                       ├─ MfaSetupModal
+                      ├─ Format-warning modal (themed alert replacement)
+                      ├─ Shortcuts modal
+                      ├─ About modal
                       └─ ConfirmDialog
 ```
+
+### Visual Mode (WYSIWYG)
+
+Visual mode is a togglable rendering layer over the existing CodeMirror editor — not a separate document model. Toggling it ON installs a single `EditorView` extension (via a `Compartment` so it can be reconfigured without a full editor rebuild) that:
+
+1. Watches the viewport via a `ViewPlugin` and parses only visible ranges (+ a small buffer) using the LaTeX AST in `latexParser.js`.
+2. Emits a `RangeSet` of decorations: `Decoration.replace` to hide markup (`\textbf{`, closing `}`, preamble, `\begin{itemize}`, `\label{...}`, etc.) and `Decoration.mark` to apply visual styles (`cm-vm-bold`, `cm-vm-italic`, headings, blockquote indentation).
+3. Substitutes widget badges for things that read better as objects: cite/ref labels (with hover popups), list bullets, and inline image / PDF previews.
+4. Marks all replace ranges as `EditorView.atomicRanges` so the cursor and selection skip over hidden markup, preventing partial deletion of LaTeX commands.
+
+The source document is never modified — every visual effect is a decoration on top of the original text. Toggling visual mode off restores the raw `.tex` view immediately. The cite-hover and ref-hover tooltips suppress CM6's own `hoverTooltip` when the position is inside a visual-mode decoration so only the badge's body-mounted popup fires (avoids two competing tooltip systems).
+
+`VisualModeToolbar` (a sibling component overlaid on the editor when visual mode is on) reads the cursor's surrounding LaTeX context via `getCursorStyle` and exposes block / inline formatting controls (bold, italic, headings, lists, quote, citation insertion, color).
 
 ---
 

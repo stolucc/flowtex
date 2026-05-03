@@ -116,6 +116,19 @@ export async function convertDocxToLatex(buffer, options = {}) {
   await progress('Parsing document structure…', 5);
   // Phase 1: Parse XML
   const docXmlRaw = zip.getEntry('word/document.xml')?.getData().toString('utf8') || '';
+  // Cap on the raw OOXML body before we hand it to fast-xml-parser. The
+  // upload route already enforces 50 MB on the .docx; once unzipped, the
+  // largest component is normally word/document.xml. Two-pass parsing
+  // (parser + orderedParser) plus the in-flight LatexBuffer can balloon to
+  // several hundred MB on a doc with deeply nested content. 30 MB of raw
+  // OOXML is comfortably more than any real-world manuscript and stops a
+  // crafted .docx from OOM-ing the server.
+  const MAX_OOXML_BYTES = 30 * 1024 * 1024;
+  if (Buffer.byteLength(docXmlRaw, 'utf8') > MAX_OOXML_BYTES) {
+    throw new Error(
+      `DOCX document too large: word/document.xml exceeds ${MAX_OOXML_BYTES} bytes uncompressed.`,
+    );
+  }
   const stylesXml = parseXml(zip, parser, 'word/styles.xml');
   const numberingXml = parseXml(zip, parser, 'word/numbering.xml');
   const footnotesXml = parseXml(zip, parser, 'word/footnotes.xml');

@@ -153,6 +153,26 @@ app.use((req, res, next) => {
 });
 
 // ── CSRF protection via double-submit token ─────────────────────────────
+// ⚠ csrfExempt invariant: every entry MUST be a *pre-authentication* endpoint
+// (no session yet → no CSRF token to enforce). The fallback protection for
+// these is the Origin-host equality check + browser SameSite=Lax. If you add
+// a path here that's reachable while logged in, you silently disable CSRF
+// for it. Only legitimate pre-auth flows belong on this list.
+const CSRF_EXEMPT_PATHS = Object.freeze([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/setup/init',
+]);
+// Boot-time assertion so a typo or wrong addition fails loudly at startup
+// rather than quietly weakening protection in production.
+for (const p of CSRF_EXEMPT_PATHS) {
+  if (!p.startsWith('/api/auth/') && p !== '/api/setup/init') {
+    throw new Error(`csrfExempt path "${p}" violates pre-auth invariant`);
+  }
+}
+
 app.use((req, res, next) => {
   // Generate a CSRF token and set it as a readable cookie
   if (!req.session.csrfToken) {
@@ -164,16 +184,8 @@ app.use((req, res, next) => {
     secure: process.env.NODE_ENV === 'production',
   });
 
-  // Verify on state-changing requests
-  const csrfExempt = [
-    '/api/auth/login',
-    '/api/auth/register',
-    '/api/auth/forgot-password',
-    '/api/auth/reset-password',
-    '/api/setup/init',
-  ];
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')) {
-    if (csrfExempt.includes(req.path)) {
+    if (CSRF_EXEMPT_PATHS.includes(req.path)) {
       // For CSRF-exempt endpoints, validate Origin header to prevent cross-site login attacks
       const origin = req.headers.origin;
       if (!origin) {

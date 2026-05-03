@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import Redis from 'ioredis';
 import cookie from 'cookie';
+import signature from 'cookie-signature';
 import logger from './logger.js';
 import db from './db.js';
 import { UUID_RE } from './middleware/auth.js';
@@ -76,20 +77,15 @@ function broadcastPresence(projectId) {
 }
 
 // ── Session auth for WebSocket upgrades ─────────────────────────────────
-/** Verify and extract the session ID from a signed cookie value. */
+/** Verify and extract the session ID from a signed cookie value.
+ *  Delegates to `cookie-signature` (the same library express-session uses) so
+ *  the MAC check stays in lockstep with upstream and we don't carry our own
+ *  bespoke crypto routine. The leading "s:" prefix is express-session's
+ *  encoding marker; cookie-signature itself doesn't expect it. */
 function unsignCookie(signedValue, secret) {
-  if (!signedValue.startsWith('s:')) return null;
-  const val = signedValue.slice(2);
-  const dotIdx = val.lastIndexOf('.');
-  if (dotIdx === -1) return null;
-  const id = val.slice(0, dotIdx);
-  const mac = val.slice(dotIdx + 1);
-  const expected = crypto.createHmac('sha256', secret).update(id).digest('base64').replace(/=+$/, '');
-  if (mac.length !== expected.length) return null;
-  const macBuf = Buffer.from(mac);
-  const expectedBuf = Buffer.from(expected);
-  if (!crypto.timingSafeEqual(macBuf, expectedBuf)) return null;
-  return id;
+  if (typeof signedValue !== 'string' || !signedValue.startsWith('s:')) return null;
+  const unsigned = signature.unsign(signedValue.slice(2), secret);
+  return unsigned === false ? null : unsigned;
 }
 
 /** Parse the session cookie from a raw HTTP request and load session data from DB. */

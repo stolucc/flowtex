@@ -10,6 +10,8 @@ import {
   ZoomOutIcon,
   ZoomInIcon,
   ContrastIcon,
+  ErrorIcon,
+  WarningIcon,
 } from './Icons.jsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -716,19 +718,33 @@ const PdfViewer = forwardRef(function PdfViewer(
             </svg>
           </button>
         )}
-        <button
-          className={`pdf-header-btn ${errors.length + lintErrors.length > 0 ? 'has-errors' : ''} ${showPanel === 'errors' ? 'active' : ''}`}
-          onClick={() => togglePanel('errors')}
-        >
-          {errors.length + lintErrors.length} error{errors.length + lintErrors.length !== 1 ? 's' : ''}
-        </button>
-        <button
-          className={`pdf-header-btn ${warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
-          onClick={() => togglePanel('warnings')}
-        >
-          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0)} warning
-          {warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0) !== 1 ? 's' : ''}
-        </button>
+        {(() => {
+          const errorCount = errors.length + lintErrors.length;
+          const warningCount =
+            warnings.length + lintWarnings.length + (tapsDiagnostics?.length || 0);
+          return (
+            <>
+              <button
+                className={`pdf-header-btn pdf-header-diag ${errorCount > 0 ? 'has-errors' : ''} ${showPanel === 'errors' ? 'active' : ''}`}
+                onClick={() => togglePanel('errors')}
+                title={`${errorCount} error${errorCount !== 1 ? 's' : ''}`}
+                aria-label={`${errorCount} error${errorCount !== 1 ? 's' : ''}`}
+              >
+                <ErrorIcon size={14} />
+                <span className="pdf-header-diag-count">{errorCount}</span>
+              </button>
+              <button
+                className={`pdf-header-btn pdf-header-diag ${warningCount > 0 ? 'has-warnings' : ''} ${showPanel === 'warnings' ? 'active' : ''}`}
+                onClick={() => togglePanel('warnings')}
+                title={`${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
+                aria-label={`${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
+              >
+                <WarningIcon size={14} />
+                <span className="pdf-header-diag-count">{warningCount}</span>
+              </button>
+            </>
+          );
+        })()}
         {onToggleBoxWarnings && (
           <button
             className={`pdf-zoom-btn ${showBoxWarnings ? 'active' : ''}`}
