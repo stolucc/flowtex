@@ -50,6 +50,14 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'Name must be 1–200 characters' });
   try {
     const user = await authService.registerUser(email, name, password);
+    // If the email was already registered, registerUser returns
+    // { alreadyExisted: true } without creating anything. We still respond
+    // with the same shape as the success path to avoid leaking which
+    // emails have an account (account-enumeration defense).
+    if (user.alreadyExisted) {
+      await auditLog(null, 'register_duplicate', { ip: req.ip, email: user.email });
+      return res.json({ needsVerification: true, email: user.email });
+    }
     await auditLog(user.id, 'register', { ip: req.ip });
 
     // Send verification email

@@ -57,6 +57,14 @@ function makeWs() {
   return { send: vi.fn(), readyState: 1, close: vi.fn() };
 }
 
+// Stable UUIDs used across the suite. Real fileIds are UUIDs because they
+// come from Postgres; the WS handlers now validate this format, so tests
+// must use the same shape.
+const TEST_FILE_IDS = {
+  f1: '00000000-0000-4000-8000-000000000001',
+  f2: '00000000-0000-4000-8000-000000000002',
+};
+
 function makeState(overrides = {}) {
   const ws = makeWs();
   return {
@@ -65,6 +73,7 @@ function makeState(overrides = {}) {
     projectId: 'project-123',
     clientEntry: { ws, userId: 'user-1', userName: 'Alice', cursor: null },
     memberRole: 'editor',
+    fileIds: new Set(Object.values(TEST_FILE_IDS)),
     ...overrides,
   };
 }
@@ -90,36 +99,36 @@ beforeEach(() => {
 describe('unsignCookie', () => {
   const secret = 'test-secret-key';
 
-  it('returns null for values not prefixed with s:', () => {
+  it('returns null for values not prefixed with s:', async () => {
     expect(unsignCookie('plain-value', secret)).toBeNull();
     expect(unsignCookie('', secret)).toBeNull();
   });
 
-  it('returns null when there is no dot separator', () => {
+  it('returns null when there is no dot separator', async () => {
     expect(unsignCookie('s:nodot', secret)).toBeNull();
   });
 
-  it('returns null for invalid signatures', () => {
+  it('returns null for invalid signatures', async () => {
     expect(unsignCookie('s:session-id.invalidsignature', secret)).toBeNull();
   });
 
-  it('returns null when mac length differs from expected', () => {
+  it('returns null when mac length differs from expected', async () => {
     // Signature that is the wrong length
     expect(unsignCookie('s:session-id.short', secret)).toBeNull();
   });
 
-  it('returns the session ID for a valid signed cookie', () => {
+  it('returns the session ID for a valid signed cookie', async () => {
     const sessionId = 'abc123-session-id';
     const signed = signCookie(sessionId, secret);
     expect(unsignCookie(signed, secret)).toBe(sessionId);
   });
 
-  it('returns null when secret is wrong', () => {
+  it('returns null when secret is wrong', async () => {
     const signed = signCookie('my-session', 'correct-secret');
     expect(unsignCookie(signed, 'wrong-secret')).toBeNull();
   });
 
-  it('handles session IDs containing dots', () => {
+  it('handles session IDs containing dots', async () => {
     const sessionId = 'session.with.dots';
     const signed = signCookie(sessionId, secret);
     // lastIndexOf('.') is used, so this should work
@@ -130,59 +139,59 @@ describe('unsignCookie', () => {
 // ── handleChanges ────────────────────────────────────────────────────────
 
 describe('handleChanges', () => {
-  it('drops message if changes is not an array', () => {
+  it('drops message if changes is not an array', async () => {
     const state = makeState();
     const ws = makeWs();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges({ type: 'changes', changes: 'not-array' }, state, ws);
+    await handleChanges({ type: 'changes', changes: 'not-array' }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if changes is null', () => {
+  it('drops message if changes is null', async () => {
     const state = makeState();
     const ws = makeWs();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges({ type: 'changes', changes: null }, state, ws);
+    await handleChanges({ type: 'changes', changes: null }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if changes array exceeds 1000 elements', () => {
+  it('drops message if changes array exceeds 1000 elements', async () => {
     const state = makeState();
     const ws = makeWs();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const changes = Array.from({ length: 1001 }, () => ({ from: 0, insert: 'x' }));
-    handleChanges({ type: 'changes', changes }, state, ws);
+    await handleChanges({ type: 'changes', changes }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if a change has insert exceeding 500000 chars', () => {
+  it('drops message if a change has insert exceeding 500000 chars', async () => {
     const state = makeState();
     const ws = makeWs();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const changes = [{ from: 0, insert: 'x'.repeat(500001) }];
-    handleChanges({ type: 'changes', changes }, state, ws);
+    await handleChanges({ type: 'changes', changes }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if change.from is not a number', () => {
+  it('drops message if change.from is not a number', async () => {
     const state = makeState();
     const ws = makeWs();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges({ type: 'changes', changes: [{ from: 'bad' }] }, state, ws);
+    await handleChanges({ type: 'changes', changes: [{ from: 'bad' }] }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid changes to other clients in the room', () => {
+  it('broadcasts valid changes to other clients in the room', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -190,35 +199,35 @@ describe('handleChanges', () => {
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const changes = [{ from: 0, to: 5, insert: 'hello' }];
-    handleChanges({ type: 'changes', fileId: 'file-1', changes }, state, ws);
+    await handleChanges({ type: 'changes', fileId: TEST_FILE_IDS.f1, changes }, state, ws);
 
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('changes');
-    expect(sent.fileId).toBe('file-1');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
     expect(sent.changes).toEqual(changes);
     expect(sent.userId).toBe('user-1');
   });
 
-  it('does not send back to the sender', () => {
+  it('does not send back to the sender', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     setupRoom('project-123', [state.clientEntry]);
 
-    handleChanges({ type: 'changes', fileId: 'f1', changes: [{ from: 0 }] }, state, ws);
+    await handleChanges({ type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ from: 0 }] }, state, ws);
     expect(ws.send).not.toHaveBeenCalled();
   });
 
-  it('includes tracked and deletions fields when present', () => {
+  it('includes tracked and deletions fields when present', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges(
-      { type: 'changes', fileId: 'f1', changes: [{ from: 0 }], tracked: true, deletions: [{ id: 'd1' }] },
+    await handleChanges(
+      { type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ from: 0 }], tracked: true, deletions: [{ id: 'd1' }] },
       state,
       ws,
     );
@@ -227,25 +236,25 @@ describe('handleChanges', () => {
     expect(sent.deletions).toEqual([{ id: 'd1' }]);
   });
 
-  it('accepts changes with only insert (no from/to)', () => {
+  it('accepts changes with only insert (no from/to)', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges({ type: 'changes', fileId: 'f1', changes: [{ insert: 'text' }] }, state, ws);
+    await handleChanges({ type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ insert: 'text' }] }, state, ws);
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts empty changes array', () => {
+  it('accepts empty changes array', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleChanges({ type: 'changes', fileId: 'f1', changes: [] }, state, ws);
+    await handleChanges({ type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [] }, state, ws);
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
   });
 });
@@ -253,52 +262,52 @@ describe('handleChanges', () => {
 // ── handleCursor ─────────────────────────────────────────────────────────
 
 describe('handleCursor', () => {
-  it('drops message if head is not a number', () => {
+  it('drops message if head is not a number', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleCursor({ type: 'cursor', head: 'bad', anchor: 0, fileId: 'f1' }, state, ws);
+    await handleCursor({ type: 'cursor', head: 'bad', anchor: 0, fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if anchor is not a number', () => {
+  it('drops message if anchor is not a number', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleCursor({ type: 'cursor', head: 5, anchor: 'bad', fileId: 'f1' }, state, ws);
+    await handleCursor({ type: 'cursor', head: 5, anchor: 'bad', fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if fileId is not a string', () => {
+  it('drops message if fileId is not a string', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleCursor({ type: 'cursor', head: 5, anchor: 0, fileId: 123 }, state, ws);
+    await handleCursor({ type: 'cursor', head: 5, anchor: 0, fileId: 123 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('updates clientEntry.cursor and broadcasts to room', () => {
+  it('updates clientEntry.cursor and broadcasts to room', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleCursor({ type: 'cursor', head: 10, anchor: 5, fileId: 'file-1' }, state, ws);
+    await handleCursor({ type: 'cursor', head: 10, anchor: 5, fileId: TEST_FILE_IDS.f1 }, state, ws);
 
-    expect(state.clientEntry.cursor).toEqual({ fileId: 'file-1', head: 10, anchor: 5 });
+    expect(state.clientEntry.cursor).toEqual({ fileId: TEST_FILE_IDS.f1, head: 10, anchor: 5 });
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('cursor');
     expect(sent.head).toBe(10);
     expect(sent.anchor).toBe(5);
-    expect(sent.fileId).toBe('file-1');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
     expect(sent.userId).toBe('user-1');
     expect(sent.userName).toBe('Alice');
   });
@@ -307,7 +316,7 @@ describe('handleCursor', () => {
 // ── handleComment ────────────────────────────────────────────────────────
 
 describe('handleComment', () => {
-  it('drops message if comment JSON exceeds 10000 chars', () => {
+  it('drops message if comment JSON exceeds 10000 chars', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -315,21 +324,21 @@ describe('handleComment', () => {
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const bigComment = { text: 'x'.repeat(10000) };
-    handleComment({ type: 'comment', fileId: 'f1', comment: bigComment }, state, ws);
+    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment: bigComment }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if comment is falsy', () => {
+  it('drops message if comment is falsy', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleComment({ type: 'comment', fileId: 'f1', comment: null }, state, ws);
+    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment: null }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid comment to room', () => {
+  it('broadcasts valid comment to room', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -337,20 +346,20 @@ describe('handleComment', () => {
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const comment = { id: 'c1', text: 'Great work!' };
-    handleComment({ type: 'comment', fileId: 'f1', comment }, state, ws);
+    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment }, state, ws);
 
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('comment');
     expect(sent.comment).toEqual(comment);
-    expect(sent.fileId).toBe('f1');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
   });
 });
 
 // ── handleCommentReply ───────────────────────────────────────────────────
 
 describe('handleCommentReply', () => {
-  it('drops message if reply JSON exceeds 10000 chars', () => {
+  it('drops message if reply JSON exceeds 10000 chars', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -360,7 +369,7 @@ describe('handleCommentReply', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if reply is falsy', () => {
+  it('drops message if reply is falsy', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -370,7 +379,7 @@ describe('handleCommentReply', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid reply', () => {
+  it('broadcasts valid reply', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -387,7 +396,7 @@ describe('handleCommentReply', () => {
 // ── handleCommentResolve ─────────────────────────────────────────────────
 
 describe('handleCommentResolve', () => {
-  it('drops message if resolved is not a boolean', () => {
+  it('drops message if resolved is not a boolean', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -397,7 +406,7 @@ describe('handleCommentResolve', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid resolve', () => {
+  it('broadcasts valid resolve', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -414,7 +423,7 @@ describe('handleCommentResolve', () => {
 // ── handleCommentDelete ──────────────────────────────────────────────────
 
 describe('handleCommentDelete', () => {
-  it('drops message if commentId is falsy', () => {
+  it('drops message if commentId is falsy', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -424,7 +433,7 @@ describe('handleCommentDelete', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid delete', () => {
+  it('broadcasts valid delete', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -441,7 +450,7 @@ describe('handleCommentDelete', () => {
 // ── handleCommentEdit ────────────────────────────────────────────────────
 
 describe('handleCommentEdit', () => {
-  it('drops message if text is not a string', () => {
+  it('drops message if text is not a string', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -451,7 +460,7 @@ describe('handleCommentEdit', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops message if text exceeds 10000 chars', () => {
+  it('drops message if text exceeds 10000 chars', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -461,7 +470,7 @@ describe('handleCommentEdit', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid edit', () => {
+  it('broadcasts valid edit', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -547,38 +556,38 @@ describe('handleChat', () => {
 // ── handleTrackedChange ──────────────────────────────────────────────────
 
 describe('handleTrackedChange', () => {
-  it('drops if change is falsy', () => {
+  it('drops if change is falsy', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTrackedChange({ type: 'tracked-change', change: null, fileId: 'f1' }, state, ws);
+    await handleTrackedChange({ type: 'tracked-change', change: null, fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops if fileId is not a string', () => {
+  it('drops if fileId is not a string', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTrackedChange({ type: 'tracked-change', change: { from: 0 }, fileId: 123 }, state, ws);
+    await handleTrackedChange({ type: 'tracked-change', change: { from: 0 }, fileId: 123 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops if change JSON exceeds 10000 chars', () => {
+  it('drops if change JSON exceeds 10000 chars', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const bigChange = { text: 'x'.repeat(10000) };
-    handleTrackedChange({ type: 'tracked-change', change: bigChange, fileId: 'f1' }, state, ws);
+    await handleTrackedChange({ type: 'tracked-change', change: bigChange, fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid tracked change', () => {
+  it('broadcasts valid tracked change', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -586,11 +595,11 @@ describe('handleTrackedChange', () => {
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     const change = { from: 0, to: 5, insert: 'new' };
-    handleTrackedChange({ type: 'tracked-change', change, fileId: 'f1' }, state, ws);
+    await handleTrackedChange({ type: 'tracked-change', change, fileId: TEST_FILE_IDS.f1 }, state, ws);
 
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('tracked-change');
-    expect(sent.fileId).toBe('f1');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
     expect(sent.change).toEqual(change);
   });
 });
@@ -598,7 +607,7 @@ describe('handleTrackedChange', () => {
 // ── handleTrackedChangeResolve ───────────────────────────────────────────
 
 describe('handleTrackedChangeResolve', () => {
-  it('drops if status is not accepted or rejected', () => {
+  it('drops if status is not accepted or rejected', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
@@ -608,7 +617,7 @@ describe('handleTrackedChangeResolve', () => {
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid resolve with accepted status', () => {
+  it('broadcasts valid resolve with accepted status', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -621,7 +630,7 @@ describe('handleTrackedChangeResolve', () => {
     expect(sent.status).toBe('accepted');
   });
 
-  it('broadcasts valid resolve with rejected status', () => {
+  it('broadcasts valid resolve with rejected status', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -637,72 +646,72 @@ describe('handleTrackedChangeResolve', () => {
 // ── handleTrackedChangeDelete ────────────────────────────────────────────
 
 describe('handleTrackedChangeDelete', () => {
-  it('drops if changeId is not a string', () => {
+  it('drops if changeId is not a string', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 123, fileId: 'f1' }, state, ws);
+    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 123, fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops if fileId is not a string', () => {
+  it('drops if fileId is not a string', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: 123 }, state, ws);
+    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: 123 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid tracked change delete', () => {
+  it('broadcasts valid tracked change delete', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: 'f1' }, state, ws);
+    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: TEST_FILE_IDS.f1 }, state, ws);
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('tracked-change-delete');
     expect(sent.changeId).toBe('tc1');
-    expect(sent.fileId).toBe('f1');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
   });
 });
 
 // ── handleTcDeleteMark ───────────────────────────────────────────────────
 
 describe('handleTcDeleteMark', () => {
-  it('drops if from is not a number', () => {
+  it('drops if from is not a number', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTcDeleteMark({ type: 'tc-delete-mark', from: 'bad', to: 10, fileId: 'f1' }, state, ws);
+    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 'bad', to: 10, fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('drops if to is not a number', () => {
+  it('drops if to is not a number', async () => {
     const ws = makeWs();
     const state = makeState();
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 'bad', fileId: 'f1' }, state, ws);
+    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 'bad', fileId: TEST_FILE_IDS.f1 }, state, ws);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
   });
 
-  it('broadcasts valid tc-delete-mark', () => {
+  it('broadcasts valid tc-delete-mark', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
-    handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 10, fileId: 'f1' }, state, ws);
+    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 10, fileId: TEST_FILE_IDS.f1 }, state, ws);
     const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('tc-delete-mark');
     expect(sent.from).toBe(0);
@@ -713,7 +722,7 @@ describe('handleTcDeleteMark', () => {
 // ── handleTyping ─────────────────────────────────────────────────────────
 
 describe('handleTyping', () => {
-  it('broadcasts typing indicator to room excluding sender', () => {
+  it('broadcasts typing indicator to room excluding sender', async () => {
     const ws = makeWs();
     const state = makeState();
     state.clientEntry.ws = ws;
@@ -731,7 +740,7 @@ describe('handleTyping', () => {
 // ── writeTypes ───────────────────────────────────────────────────────────
 
 describe('writeTypes', () => {
-  it('contains all write message types', () => {
+  it('contains all write message types', async () => {
     const expected = [
       'changes',
       'comment',
@@ -749,19 +758,19 @@ describe('writeTypes', () => {
     }
   });
 
-  it('does NOT contain join', () => {
+  it('does NOT contain join', async () => {
     expect(writeTypes.has('join')).toBe(false);
   });
 
-  it('does NOT contain cursor', () => {
+  it('does NOT contain cursor', async () => {
     expect(writeTypes.has('cursor')).toBe(false);
   });
 
-  it('does NOT contain chat', () => {
+  it('does NOT contain chat', async () => {
     expect(writeTypes.has('chat')).toBe(false);
   });
 
-  it('does NOT contain typing', () => {
+  it('does NOT contain typing', async () => {
     expect(writeTypes.has('typing')).toBe(false);
   });
 });
@@ -901,7 +910,7 @@ describe('handleJoin', () => {
       ws: makeWs(),
       userId: 'user-2',
       userName: 'Bob',
-      cursor: { fileId: 'f1', head: 42, anchor: 42 },
+      cursor: { fileId: TEST_FILE_IDS.f1, head: 42, anchor: 42 },
     };
     setupRoom(validUUID, [existingPeer]);
 
@@ -924,14 +933,14 @@ describe('handleJoin', () => {
     const cursorMsg = JSON.parse(cursorCall[0]);
     expect(cursorMsg.userId).toBe('user-2');
     expect(cursorMsg.head).toBe(42);
-    expect(cursorMsg.fileId).toBe('f1');
+    expect(cursorMsg.fileId).toBe(TEST_FILE_IDS.f1);
   });
 });
 
 // ── broadcastToRoom ──────────────────────────────────────────────────────
 
 describe('broadcastToRoom', () => {
-  it('sends to all clients except the excluded one', () => {
+  it('sends to all clients except the excluded one', async () => {
     const ws1 = makeWs();
     const ws2 = makeWs();
     const ws3 = makeWs();
@@ -948,7 +957,7 @@ describe('broadcastToRoom', () => {
     expect(ws3.send).toHaveBeenCalledTimes(1);
   });
 
-  it('skips clients with readyState !== 1', () => {
+  it('skips clients with readyState !== 1', async () => {
     const wsOpen = makeWs();
     const wsClosed = { send: vi.fn(), readyState: 3 };
     setupRoom('p1', [
@@ -962,12 +971,12 @@ describe('broadcastToRoom', () => {
     expect(wsClosed.send).not.toHaveBeenCalled();
   });
 
-  it('does nothing if room does not exist', () => {
+  it('does nothing if room does not exist', async () => {
     // Should not throw
     broadcastToRoom('nonexistent', { type: 'test' });
   });
 
-  it('sends to all clients when excludeWs is not provided', () => {
+  it('sends to all clients when excludeWs is not provided', async () => {
     const ws1 = makeWs();
     const ws2 = makeWs();
     setupRoom('p1', [
@@ -984,14 +993,14 @@ describe('broadcastToRoom', () => {
 // ── getRoom ──────────────────────────────────────────────────────────────
 
 describe('getRoom', () => {
-  it('creates a new room if one does not exist', () => {
+  it('creates a new room if one does not exist', async () => {
     const room = getRoom('new-project');
     expect(room).toBeInstanceOf(Set);
     expect(room.size).toBe(0);
     expect(projectRooms.has('new-project')).toBe(true);
   });
 
-  it('returns existing room', () => {
+  it('returns existing room', async () => {
     const existing = new Set([{ ws: makeWs(), userId: 'u1' }]);
     projectRooms.set('existing', existing);
     expect(getRoom('existing')).toBe(existing);
@@ -1001,11 +1010,11 @@ describe('getRoom', () => {
 // ── Rate limiting constants ──────────────────────────────────────────────
 
 describe('rate limiting constants', () => {
-  it('WS_RATE_WINDOW is 1000ms', () => {
+  it('WS_RATE_WINDOW is 1000ms', async () => {
     expect(WS_RATE_WINDOW).toBe(1000);
   });
 
-  it('WS_RATE_MAX is 30', () => {
+  it('WS_RATE_MAX is 30', async () => {
     expect(WS_RATE_MAX).toBe(30);
   });
 });

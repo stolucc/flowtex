@@ -115,6 +115,24 @@ async function getSessionFromRequest(req, sessionSecret) {
 }
 
 // ── Message handlers ────────────────────────────────────────────────────
+
+/**
+ * Verify msg.fileId belongs to the project the WS connection joined.
+ * Caches valid IDs per-connection to avoid a DB hit on every keystroke
+ * broadcast; falls back to a single DB lookup on cache miss (handles new
+ * files created mid-session). Returns true on valid, false otherwise.
+ */
+async function isFileInProject(state, fileId) {
+  if (typeof fileId !== 'string' || !UUID_RE.test(fileId)) return false;
+  if (!state.projectId) return false;
+  if (!state.fileIds) state.fileIds = new Set();
+  if (state.fileIds.has(fileId)) return true;
+  const row = await db.get('SELECT 1 FROM files WHERE id = $1 AND project_id = $2', [fileId, state.projectId]);
+  if (!row) return false;
+  state.fileIds.add(fileId);
+  return true;
+}
+
 /** Handle a 'join' message: verify membership and add client to the project room. */
 async function handleJoin(ws, msg, state) {
   if (typeof msg.projectId !== 'string' || !UUID_RE.test(msg.projectId)) return;
@@ -142,6 +160,12 @@ async function handleJoin(ws, msg, state) {
   }
 
   state.memberRole = member.role;
+  // Seed the per-connection file-id allowlist with the current project's
+  // files so subsequent keystroke broadcasts validate against an in-memory
+  // set instead of hitting the DB. Misses fall back to a one-shot DB lookup
+  // (covers files created mid-session by other clients).
+  const fileRows = await db.all('SELECT id FROM files WHERE project_id = $1', [state.projectId]);
+  state.fileIds = new Set(Array.isArray(fileRows) ? fileRows.map((r) => r.id) : []);
   state.clientEntry = { ws, userId: state.authenticatedUserId, userName: state.authenticatedUserName, cursor: null };
   getRoom(state.projectId).add(state.clientEntry);
   ws.send(JSON.stringify({ type: 'joined', userId: state.authenticatedUserId, userName: state.authenticatedUserName }));
@@ -158,7 +182,7 @@ async function handleJoin(ws, msg, state) {
 }
 
 /** Broadcast editor changes to other clients in the room. */
-function handleChanges(msg, state, ws) {
+async function handleChanges(msg, state, ws) {
   if (!Array.isArray(msg.changes) || msg.changes.length > 1000) return;
   const valid = msg.changes.every(
     (c) =>
@@ -169,6 +193,7 @@ function handleChanges(msg, state, ws) {
       (c.insert === undefined || (typeof c.insert === 'string' && c.insert.length <= 500000)),
   );
   if (!valid) return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
 
   broadcastToRoom(
     state.projectId,
@@ -185,9 +210,9 @@ function handleChanges(msg, state, ws) {
 }
 
 /** Broadcast cursor position updates to other clients. */
-function handleCursor(msg, state, ws) {
+async function handleCursor(msg, state, ws) {
   if (typeof msg.head !== 'number' || typeof msg.anchor !== 'number') return;
-  if (typeof msg.fileId !== 'string') return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
   state.clientEntry.cursor = { fileId: msg.fileId, head: msg.head, anchor: msg.anchor };
   broadcastToRoom(
     state.projectId,
@@ -204,8 +229,9 @@ function handleCursor(msg, state, ws) {
 }
 
 /** Broadcast a new comment to other clients in the room. */
-function handleComment(msg, state, ws) {
+async function handleComment(msg, state, ws) {
   if (!msg.comment || JSON.stringify(msg.comment).length > 10000) return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
   broadcastToRoom(state.projectId, { type: 'comment', fileId: msg.fileId, comment: msg.comment }, ws);
 }
 
@@ -231,25 +257,31 @@ function handleCommentEdit(msg, state, ws) {
 }
 
 /** Broadcast a new tracked change to other clients in the room. */
-function handleTrackedChange(msg, state, ws) {
-  if (!msg.change || typeof msg.fileId !== 'string') return;
+async function handleTrackedChange(msg, state, ws) {
+  if (!msg.change) return;
   if (JSON.stringify(msg.change).length > 10000) return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
   broadcastToRoom(state.projectId, { type: 'tracked-change', fileId: msg.fileId, change: msg.change }, ws);
 }
 
 /** Broadcast a tracked-change accept/reject resolution to the room. */
 function handleTrackedChangeResolve(msg, state, ws) {
   if (!['accepted', 'rejected'].includes(msg.status)) return;
+  // No fileId on this message — the changeId is a server-issued UUID and the
+  // resolution itself is broadcast project-wide so all viewing clients can
+  // update the affected change in their tracked-changes list.
   broadcastToRoom(state.projectId, { type: 'tracked-change-resolve', changeId: msg.changeId, status: msg.status }, ws);
 }
 
-function handleTrackedChangeDelete(msg, state, ws) {
-  if (typeof msg.changeId !== 'string' || typeof msg.fileId !== 'string') return;
+async function handleTrackedChangeDelete(msg, state, ws) {
+  if (typeof msg.changeId !== 'string') return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
   broadcastToRoom(state.projectId, { type: 'tracked-change-delete', fileId: msg.fileId, changeId: msg.changeId }, ws);
 }
 
-function handleTcDeleteMark(msg, state, ws) {
+async function handleTcDeleteMark(msg, state, ws) {
   if (typeof msg.from !== 'number' || typeof msg.to !== 'number') return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
   broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
 }
 

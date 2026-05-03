@@ -33,11 +33,21 @@ const router = Router();
 // Per-project and per-user compilation rate limiting
 const compileRateMap = new Map();
 const userCompileRateMap = new Map();
+const userFormatRateMap = new Map();
 const COMPILE_RATE_WINDOW = 60000;
 // DISABLE_RATE_LIMIT only takes effect outside production; production ignores it.
 const SKIP_LIMITS = process.env.DISABLE_RATE_LIMIT === '1' && process.env.NODE_ENV !== 'production';
 const COMPILE_RATE_MAX = SKIP_LIMITS ? Infinity : 15;
 const USER_COMPILE_RATE_MAX = SKIP_LIMITS ? Infinity : 30;
+// Format runs latexindent / tex-fmt with up to a 30s timeout per call. The
+// global apiLimiter (200/min) is too permissive for that — bound a single
+// authenticated user to 10 format calls per minute so they can't tie up
+// process slots.
+const USER_FORMAT_RATE_MAX = SKIP_LIMITS ? Infinity : 10;
+// Hard cap on the LaTeX source we'll format in one call. Anything larger is
+// almost certainly a misuse rather than a real document, and avoids handing
+// a multi-MB string to latexindent.
+const FORMAT_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Check per-project and per-user compilation rate limits. Returns false if limit exceeded. */
 function checkCompileRate(projectId, userId) {
@@ -95,6 +105,25 @@ router.get('/formatters', (req, res) => {
 router.post('/format', async (req, res) => {
   const { content, formatter } = req.body;
   if (!content) return res.status(400).json({ error: 'No content provided' });
+  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > FORMAT_MAX_BYTES) {
+    return res.status(413).json({ error: 'Content exceeds format size limit' });
+  }
+
+  // Per-user rate limit. The global apiLimiter doesn't bound formatter
+  // process spawns tightly enough — each call is up to 30s of latexindent.
+  const userId = req.session?.userId;
+  if (userId && !SKIP_LIMITS) {
+    const now = Date.now();
+    let entry = userFormatRateMap.get(userId);
+    if (!entry || now - entry.start > COMPILE_RATE_WINDOW) {
+      entry = { start: now, count: 0 };
+      userFormatRateMap.set(userId, entry);
+    }
+    if (entry.count >= USER_FORMAT_RATE_MAX) {
+      return res.status(429).json({ error: 'Too many format requests, slow down a moment.' });
+    }
+    entry.count++;
+  }
 
   const formatters = detectFormatters();
   const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));

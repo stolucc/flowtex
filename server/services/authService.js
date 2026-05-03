@@ -99,10 +99,14 @@ export async function registerUser(email, name, password) {
 
   const normalizedEmail = email.toLowerCase().trim();
   const existing = await db.get('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-  if (existing)
-    throw Object.assign(new Error('Unable to create account. Please try a different email or log in.'), {
-      status: 409,
-    });
+  if (existing) {
+    // Don't leak whether the email is registered. The route returns the same
+    // "verification sent" shape regardless, so an attacker can't distinguish
+    // existing accounts via response status. We still do a dummy bcrypt to
+    // equalize timing between the create-new and skip paths.
+    await bcrypt.hash(password, 12);
+    return { id: null, email: normalizedEmail, name: null, alreadyExisted: true };
+  }
 
   const id = uuid();
   const password_hash = await bcrypt.hash(password, 12);
@@ -162,13 +166,27 @@ export async function verifyEmail(token) {
  * Authenticate a user by email and password.
  * @returns {{user} | {error, status, unverified?, userId?}} The user or an error descriptor.
  */
+// Pre-computed bcrypt hash of a fixed string at the same cost factor as real
+// password hashes. Used to equalize timing on the user-not-found path so an
+// attacker can't tell registered emails from unregistered ones via response
+// timing. The string itself doesn't matter — only the cost factor does.
+const DUMMY_BCRYPT_HASH =
+  '$2a$12$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get(
     'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified FROM users WHERE email = $1',
     [normalizedEmail],
   );
-  if (!user) return { error: 'Invalid credentials', status: 401 };
+  if (!user) {
+    // Dummy bcrypt to make this path take the same time as the real
+    // wrong-password path below. Without this, "user not found" returns in
+    // ~5ms while "user found, wrong password" takes ~150ms — a clear
+    // enumeration oracle.
+    await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+    return { error: 'Invalid credentials', status: 401 };
+  }
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return { error: 'Invalid credentials', status: 401 };

@@ -633,10 +633,19 @@ export function prettifyLatex(latex) {
 
 // ── XML helpers ──────────────────────────────────────────────────────────────
 
+// Per-file size cap on any parsed OOXML part. The 30 MB document.xml ceiling
+// is enforced separately in the main pipeline; this catches the auxiliary
+// parts (styles, numbering, footnotes, endnotes, comments, rels) where a
+// crafted .docx could otherwise inflate parser memory unchecked. 10 MB is
+// generous for these — real-world auxiliary parts are kilobytes.
+const MAX_OOXML_PART_BYTES = 10 * 1024 * 1024;
+
 function parseXml(zip, parser, path) {
   const entry = zip.getEntry(path);
   if (!entry) return null;
-  try { return parser.parse(entry.getData().toString('utf8')); }
+  const data = entry.getData();
+  if (data.length > MAX_OOXML_PART_BYTES) return null;
+  try { return parser.parse(data.toString('utf8')); }
   catch { return null; }
 }
 

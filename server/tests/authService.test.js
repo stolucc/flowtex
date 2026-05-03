@@ -194,12 +194,15 @@ describe('registerUser', () => {
     );
   });
 
-  it('rejects if email already exists', async () => {
+  it('returns alreadyExisted=true (not an error) if email is registered, to defeat enumeration', async () => {
     db.get.mockResolvedValue({ id: 'existing-id' });
 
-    const error = await registerUser('taken@test.com', 'Name', 'Password1').catch((e) => e);
-    expect(error.message).toBe('Unable to create account. Please try a different email or log in.');
-    expect(error.status).toBe(409);
+    const result = await registerUser('taken@test.com', 'Name', 'Password1');
+    expect(result.alreadyExisted).toBe(true);
+    expect(result.email).toBe('taken@test.com');
+    expect(result.id).toBeNull();
+    // Importantly: no INSERT happened.
+    expect(db.run).not.toHaveBeenCalled();
   });
 
   it('rejects invalid passwords', async () => {

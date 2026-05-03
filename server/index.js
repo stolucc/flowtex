@@ -50,12 +50,27 @@ if (process.env.NODE_ENV === 'production' && !process.env.DISABLE_TLS_REDIRECT) 
 
 // ── Security headers ────────────────────────────────────────────────────
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Generate a per-request CSP nonce so the SPA's <script> tags get a unique
+// nonce per page load. Combined with `script-src 'self' 'nonce-XXX'`, this
+// blocks any accidental inline <script> a future code change might add —
+// belt-and-braces over the existing 'self'-only script source.
+app.use((req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+  next();
+});
+
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          // Nonce is injected into served HTML by the SPA-fallback templating
+          // step. Inline scripts without this nonce are blocked.
+          (req, res) => `'nonce-${res.locals.cspNonce}'`,
+        ],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
         connectSrc: ["'self'", ...(isProduction ? [] : ['ws:', 'wss:'])],
@@ -319,7 +334,29 @@ app.get('/api/ready', async (req, res) => {
 const clientDistPrimary = path.join(__dirname, '..', 'client', 'dist');
 const clientDistFallback = path.join(__dirname, 'public');
 const clientDist = fs.existsSync(clientDistPrimary) ? clientDistPrimary : clientDistFallback;
-app.use(express.static(clientDist));
+// `index: false` so express.static won't auto-serve index.html for `/` —
+// the SPA fallback below handles it so the CSP nonce can be injected.
+app.use(express.static(clientDist, { index: false }));
+
+// Cache the SPA shell at boot. Re-read on each request would work but adds
+// a syscall per pageload for no gain — the file doesn't change at runtime.
+let _indexHtmlTemplate = null;
+function loadIndexTemplate() {
+  if (_indexHtmlTemplate !== null) return _indexHtmlTemplate;
+  try {
+    _indexHtmlTemplate = fs.readFileSync(path.join(clientDist, 'index.html'), 'utf8');
+  } catch {
+    _indexHtmlTemplate = '';
+  }
+  return _indexHtmlTemplate;
+}
+function renderIndexWithNonce(nonce) {
+  const tpl = loadIndexTemplate();
+  // Add nonce attribute to every <script> tag. Vite's output has only
+  // src=-loaded module scripts, but adding the attribute future-proofs
+  // against any inline-script regression and enables strict-dynamic later.
+  return tpl.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
+}
 
 // Global error handler — catches unhandled errors in route handlers
 app.use((err, req, res, _next) => {
@@ -335,7 +372,8 @@ const blockedPathPattern =
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) return;
   if (blockedPathPattern.test(req.path)) return res.status(404).end();
-  res.sendFile(path.join(clientDist, 'index.html'));
+  const html = renderIndexWithNonce(res.locals.cspNonce);
+  res.set('Content-Type', 'text/html; charset=utf-8').send(html);
 });
 
 // Use HTTPS if certs are available, otherwise fall back to HTTP
@@ -451,13 +489,29 @@ async function warnIfImageMagickPolicyMissing() {
     const execFile = promisify(execFileCb);
     const { stdout } = await execFile('convert', ['-list', 'policy'], { timeout: 3000 });
     const dangerous = ['PS', 'EPS', 'PDF', 'XPS', 'MVG', 'MSL', 'URL', 'HTTPS', 'HTTP', 'FTP'];
-    const stillEnabled = dangerous.filter((c) => {
-      const re = new RegExp(`Path:\\s+\\[built-in\\][^\\n]*\\n[^\\n]*Coder[^\\n]*name="${c}"[^\\n]*rights="none"`, 'i');
-      // Default ImageMagick output lists "rights=none" only when the coder
-      // is explicitly blocked. If the line for this coder doesn't appear
-      // with rights=none, treat as still enabled.
-      const blocked = new RegExp(`name="${c}"[^\\n]*rights="?none"?`, 'i').test(stdout);
-      return !blocked;
+    // ImageMagick prints policies in two main formats depending on version
+    // and locale:
+    //   IM7:  Policy: Coder
+    //           rights: None
+    //           pattern: PS
+    //   IM6:  Policy: Coder
+    //           name="PS" rights="none"
+    // Plus older Path-prefixed builds. We accept any line that mentions the
+    // coder name (with or without quotes) and the word "none" / "rights:
+    // none" within the same logical block. A coder is "blocked" only if at
+    // least one such line exists for it; absence (or "Read|Write|Read|Write"
+    // rights) means it's still enabled.
+    const stillEnabled = dangerous.filter((coder) => {
+      // Match either the IM6 single-line form `name="X"...rights="none"` or
+      // the IM7 multi-line form where `pattern:` and `rights:` appear in
+      // the same Coder block.
+      const im6 = new RegExp(`(?:name=)?"?${coder}"?[^\\n]*\\brights\\s*[:=]\\s*"?none"?`, 'i').test(stdout);
+      const im7 = new RegExp(
+        `\\bpattern\\s*[:=]\\s*"?${coder}"?[\\s\\S]{0,200}?\\brights\\s*[:=]\\s*"?none"?` +
+        `|\\brights\\s*[:=]\\s*"?none"?[\\s\\S]{0,200}?\\bpattern\\s*[:=]\\s*"?${coder}"?`,
+        'i',
+      ).test(stdout);
+      return !(im6 || im7);
     });
     if (stillEnabled.length > 0) {
       logger.warn(
