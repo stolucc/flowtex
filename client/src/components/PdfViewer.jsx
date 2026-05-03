@@ -661,7 +661,13 @@ const PdfViewer = forwardRef(function PdfViewer(
               'PDF'
             )}
           </button>
-          <button className="compile-menu-toggle" onClick={() => setShowCompileMenu(!showCompileMenu)}>
+          <button
+            className="compile-menu-toggle"
+            onClick={() => setShowCompileMenu(!showCompileMenu)}
+            aria-label="Compile options"
+            aria-expanded={showCompileMenu}
+            aria-haspopup="menu"
+          >
             <DropdownCaretIcon />
           </button>
           {showCompileMenu && (
@@ -1039,7 +1045,15 @@ const PdfViewer = forwardRef(function PdfViewer(
         <div className="pdf-placeholder">Click &quot;PDF&quot; to generate PDF</div>
       )}
       {error && <div className="pdf-error">{error}</div>}
-      <div className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`} ref={containerRef} />
+      <div
+        className={`pdf-container ${inverted ? 'pdf-inverted' : ''}`}
+        ref={containerRef}
+        // axe a11y: scrollable PDF preview must be keyboard-focusable so
+        // users can scroll the rendered output without a mouse.
+        tabIndex={0}
+        role="region"
+        aria-label="Compiled PDF preview"
+      />
     </div>
   );
 });

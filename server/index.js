@@ -104,7 +104,12 @@ app.use(
       // No Origin header = same-origin request (browser navigation, fetch from same host, curl, healthchecks)
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
-      cb(new Error('Not allowed by CORS'));
+      // Disallowed origin: return false (no CORS headers) instead of throwing
+      // an Error. Throwing here produces a 500 in the global error handler,
+      // which (a) is a worse signal in logs (it's actually expected attacker
+      // behaviour) and (b) is downstream of the CSRF Origin-equality check
+      // that returns a clean 403. We let CSRF do that.
+      cb(null, false);
     },
     credentials: true,
   }),

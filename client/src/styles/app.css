@@ -1118,7 +1118,9 @@ html {
 .file-tree-category-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted);
+  /* WCAG 2 AA contrast against the sidebar bg — text-muted (#6c7086) failed
+     at 10px; text-secondary (#a6adc8) clears 4.5:1. */
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }

@@ -572,6 +572,11 @@ export default function FileTree({
     <div
       className={`file-tree ${dragging ? 'file-tree-drag-over' : ''}`}
       style={style}
+      // axe a11y: scrollable regions need keyboard focus so users on
+      // screen readers / keyboard-only navigation can scroll the file list.
+      tabIndex={0}
+      role="region"
+      aria-label="Project files"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
