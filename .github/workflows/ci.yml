@@ -14,10 +14,34 @@ env:
   NODE_VERSION: '22'
 
 jobs:
-  # ── Fast lane: server unit tests (Vitest, mocked DB) ────────────────────
+  # ── Server tests (Vitest). Most tests mock the DB, but the integration
+  #    suite (tracked-changes-integration) needs a live Postgres at :5432. ──
   server-unit:
-    name: Server unit tests (vitest)
+    name: Server tests (vitest)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flowtex
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGDATABASE: flowtex
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      # Throwaway secrets only — these tests don't depend on real values
+      # but the server's crypto/init paths require the env vars to exist.
+      SESSION_SECRET: ci-only-session-secret-do-not-use-in-prod
+      ENCRYPTION_KEY: ci0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
