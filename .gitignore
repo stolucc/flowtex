@@ -27,3 +27,7 @@ projects/
 
 # R session history (created by RStudio when opened in this dir)
 .Rhistory
+
+# Playwright artefacts
+test-results/
+playwright-report/
