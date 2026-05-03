@@ -27,12 +27,34 @@ function signCookie(sessionId) {
   return `s:${sessionId}.${mac}`;
 }
 
+// First-run setup gate: the SPA shows the setup wizard instead of the login
+// form whenever `users WHERE is_admin = TRUE` is empty. Tests that don't
+// care about admin still need the gate cleared, so we ensure one admin
+// exists the first time any seedUser() call runs in this process.
+let _adminEnsured = false;
+async function ensureAdminExists() {
+  if (_adminEnsured) return;
+  const c = await pool().connect();
+  try {
+    const existing = await c.query('SELECT 1 FROM users WHERE is_admin = TRUE LIMIT 1');
+    if (existing.rowCount === 0) {
+      await c.query(
+        `INSERT INTO users (id,email,name,password_hash,email_verified,is_admin)
+         VALUES ($1,$2,$3,$4,TRUE,TRUE)`,
+        [crypto.randomUUID(), 'e2e-bootstrap-admin@test.local', 'E2E Bootstrap Admin', 'x'],
+      );
+    }
+    _adminEnsured = true;
+  } finally { c.release(); }
+}
+
 /**
  * Create a verified user AND a server-side session row, returning the
  * cookie string a Playwright context can inject. Bypasses the login form
  * (and its rate limiter) entirely.
  */
 export async function seedUser(email, name) {
+  await ensureAdminExists();
   const userId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   const csrfToken = crypto.randomBytes(32).toString('hex');

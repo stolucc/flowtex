@@ -12,6 +12,10 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
+  # Opt into Node.js 24 for JavaScript actions (actions/checkout, setup-node).
+  # GitHub will force this default June 2026 anyway; setting it now silences
+  # the deprecation warning that otherwise lands on every job.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # ── Server tests (Vitest). Most tests mock the DB, but the integration
