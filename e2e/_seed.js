@@ -2,6 +2,14 @@
 // Postgres. Also pre-seeds an express-session row + the matching signed
 // cookie value so tests can skip the login form entirely (avoids the 20/15min
 // auth rate limiter, and shaves the bcrypt cost off every test).
+//
+// SAFETY: This file inserts an admin user (`ensureAdminExists`) and bypasses
+// password hashing. It must NEVER run in production. The hard guard below
+// makes a misconfigured deploy fail loudly instead of silently establishing
+// a backdoor admin.
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('e2e/_seed.js must never be loaded in production');
+}
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
