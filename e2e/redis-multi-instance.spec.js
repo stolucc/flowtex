@@ -193,3 +193,102 @@ test('changes broadcast crosses server instances via Redis pub/sub', async () =>
     await close();
   }
 });
+
+// Same property as the test above but with N=5 servers instead of 2: a
+// `changes` broadcast from any one instance must fan out via Redis pub/sub
+// to clients on all the other N-1 instances. Stresses the pub/sub path
+// against more subscribers than a 2-way handshake can prove.
+test(`changes broadcast fans out to N server instances via Redis pub/sub (default N=5, override with REDIS_N_INSTANCES)`, async () => {
+  test.setTimeout(180_000);
+  if (!(await checkRedis())) {
+    test.skip(true, `Redis not reachable at ${REDIS_URL}`);
+  }
+
+  // Pick N free ports starting at 3010 (clear of the dev server on 3001
+  // and the 2-instance test on 3002/3003). N is configurable via env var
+  // so you can stress this without editing the file:
+  //   REDIS_N_INSTANCES=10 npx playwright test redis-multi-instance
+  const PORT_BASE = 3010;
+  const N = parseInt(process.env.REDIS_N_INSTANCES || '5', 10);
+  const ports = [];
+  for (let p = PORT_BASE; ports.length < N && p < PORT_BASE + 50; p++) {
+    if (await isPortFree(p)) ports.push(p);
+  }
+  if (ports.length < N) test.skip(true, `couldn't find ${N} free ports`);
+
+  // One user per instance. Pre-seed all of them as project members.
+  const emails = Array.from({ length: N }, (_, i) => `e2e-redis-n${i}@test.local`);
+  const users = [];
+  for (let i = 0; i < N; i++) users.push(await seedUser(emails[i], `Redis-N User ${i}`));
+  const project = await seedProject({
+    name: 'Redis N-Instance Project',
+    ownerId: users[0].userId,
+    members: users.slice(1).map((u) => ({ userId: u.userId, role: 'editor' })),
+  });
+
+  const servers = [];
+  const sockets = [];
+  try {
+    // Spin up all N servers in parallel — they all share the same Postgres
+    // and Redis. Total cold-start ~3-5s; parallelising keeps the test fast.
+    servers.push(...(await Promise.all(ports.map((p) => startServer(p)))));
+
+    // Connect one WS client per instance and wait for each `joined` ack.
+    for (let i = 0; i < N; i++) {
+      const ws = await connectWs(ports[i], users[i]);
+      ws.send(JSON.stringify({ type: 'join', projectId: project.projectId }));
+      await waitForMessage(ws, (m) => m.type === 'joined');
+      sockets.push(ws);
+    }
+
+    // The first user (sender) emits a `changes` payload. The other N-1
+    // users (each on a DIFFERENT server instance) must all receive it.
+    // Set up the listeners BEFORE the send so we don't miss the broadcast
+    // due to a race.
+    const senderIdx = 0;
+    const payload = {
+      type: 'changes',
+      fileId: project.fileId,
+      changes: [{ from: 0, to: 0, insert: `N-FANOUT-${Date.now()}` }],
+    };
+    const receivers = sockets
+      .map((ws, i) =>
+        i === senderIdx
+          ? null
+          : waitForMessage(ws, (m) => m.type === 'changes' && m.fileId === project.fileId, 10_000),
+      )
+      .filter(Boolean);
+
+    // Also watch the SENDER's socket: the server should NOT echo a
+    // broadcast back to the originator (Redis pub/sub filters via SERVER_ID).
+    let senderEcho = false;
+    const echoListener = (raw) => {
+      try {
+        const m = JSON.parse(raw.toString());
+        if (m.type === 'changes' && m.fileId === project.fileId) senderEcho = true;
+      } catch {}
+    };
+    sockets[senderIdx].on('message', echoListener);
+
+    sockets[senderIdx].send(JSON.stringify(payload));
+
+    // Every receiver must get the broadcast within 10s.
+    const received = await Promise.all(receivers);
+    expect(received).toHaveLength(N - 1);
+    for (const m of received) {
+      expect(m.fileId).toBe(project.fileId);
+      expect(m.changes).toEqual(payload.changes);
+      expect(m.userId).toBe(users[senderIdx].userId);
+    }
+
+    // Give the sender's socket a beat to (not) receive any echo.
+    await new Promise((r) => setTimeout(r, 500));
+    sockets[senderIdx].removeListener('message', echoListener);
+    expect(senderEcho, 'sender should not receive an echo of its own broadcast').toBe(false);
+  } finally {
+    for (const ws of sockets) try { ws.close(); } catch {}
+    for (const s of servers) try { s.kill('SIGTERM'); } catch {}
+    await cleanup(emails);
+    await close();
+  }
+});
