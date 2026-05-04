@@ -12,7 +12,7 @@ import { invalidateFile } from '../compiler.js';
  * math, fragile commands, or some unicode it can't decompose. `\sout`
  * just overlays a rule and works on essentially anything.
  */
-function buildPreamble(content) {
+export function buildPreamble(content) {
   const lines = ['%% --- Tracked-change markup (modelled on latexdiff) ---'];
 
   // Only load xcolor if not already present
@@ -63,7 +63,7 @@ const CITE_CMD_RE = /\\(?:parencite|textcite|autocite|cite[pt]?|nocite|cite)\{[^
  * cannot safely be wrapped in `\TCadd{…}` / `\TCdel{…}` — it would either
  * eat the wrapper's own brace or leave one orphaned.
  */
-function bracesBalanced(text) {
+export function bracesBalanced(text) {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -74,7 +74,7 @@ function bracesBalanced(text) {
   return depth === 0;
 }
 
-function wrapSafe(text, macro) {
+export function wrapSafe(text, macro) {
   if (!text) return '';
 
   // Split into lines, accumulate safe runs, flush at boundaries
@@ -151,7 +151,7 @@ function wrapSafe(text, macro) {
  * windowed search when the text at the stored position doesn't match.
  * This avoids false matches for short strings like "W" or ",".
  */
-function resolvePosition(content, needle, from, to) {
+export function resolvePosition(content, needle, from, to) {
   if (!needle) return null;
 
   // 1. Exact position match — text at stored range matches needle
@@ -200,7 +200,7 @@ function resolvePosition(content, needle, from, to) {
  * the text at the stored position doesn't match.
  * Processes changes end-to-start to preserve character positions.
  */
-function applyMarkup(content, changes, { visualMarkup = true } = {}) {
+export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
   if (!changes.length) return content;
 
   // Idempotence guard: if the content already shows our TC markup, the stored
@@ -348,7 +348,7 @@ function applyMarkup(content, changes, { visualMarkup = true } = {}) {
  * Inserts right before \begin{document} to avoid option clashes with
  * user-loaded packages.
  */
-function ensurePreamble(content) {
+export function ensurePreamble(content) {
   // Don't double-inject
   if (content.includes('--- Tracked-change markup')) return content;
 

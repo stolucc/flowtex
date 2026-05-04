@@ -46,7 +46,7 @@ const TEX_PATHS = [
  *
  * Fix: strip DIF markers from lines containing these table commands.
  */
-function postProcess(tex) {
+export function postProcess(tex) {
   // Commands that use \noalign and break when DIF markers are nearby
   const noalignCmds = /\\(toprule|midrule|bottomrule|addlinespace|caption|endhead|endfirsthead|endfoot|endlastfoot)\b/;
   // Commands that use \omit
