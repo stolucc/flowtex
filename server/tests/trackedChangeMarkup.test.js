@@ -364,6 +364,36 @@ describe('applyMarkup', () => {
     expect(applyMarkup(content, changes)).toBe(content);
   });
 
+  it('skips a change whose range is inside a control-sequence name like \\begin', () => {
+    // Stale-position scenario: a single-char deletion lands on the `e` of
+    // `\begin{document}` because the original target moved away. Wrapping
+    // this would produce `\b\TCdel{e}gin{document}` and break compilation.
+    const content = '\\begin{document}\nbody\n\\end{document}';
+    const eIdx = content.indexOf('\\begin') + 2; // the 'e' in \begin
+    const changes = [{ deleted_text: 'e', from_pos: eIdx, to_pos: eIdx + 1 }];
+    expect(applyMarkup(content, changes)).toBe(content);
+  });
+
+  it('skips a change inside any \\command name (e.g. \\section)', () => {
+    const content = '\\section{Intro}';
+    // Land on the 'c' inside `\section`.
+    const cIdx = content.indexOf('\\section') + 3;
+    const changes = [{ deleted_text: 'c', from_pos: cIdx, to_pos: cIdx + 1 }];
+    expect(applyMarkup(content, changes)).toBe(content);
+  });
+
+  it('still wraps a change inside a command argument (e.g. \\section{...})', () => {
+    // `\section{old}` → `\section{new}` is a legitimate edit and the markup
+    // belongs INSIDE the argument. The control-sequence guard applies only
+    // to the `\section` name, not the `{old}` argument.
+    const content = '\\section{old}';
+    const oIdx = content.indexOf('old');
+    const changes = [{ deleted_text: 'old', from_pos: oIdx, to_pos: oIdx + 3 }];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCdel{old}');
+    expect(out).toContain('\\section{');
+  });
+
   it('removes a structural-table deletion silently (containing &)', () => {
     const content = 'a \\begin{tabular}{ll} x & y \\\\ \\end{tabular} b';
     const changes = [{ deleted_text: 'x & y', from_pos: 22, to_pos: 27 }];

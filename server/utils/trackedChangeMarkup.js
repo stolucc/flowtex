@@ -267,6 +267,19 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
   while ((fm = fragileRe.exec(content)) !== null) {
     fragile.push({ from: fm.index, to: fm.index + fm[0].length });
   }
+
+  // Defensive: index every `\command` token (the backslash-prefixed name,
+  // not its argument). A change whose [from, to] lands inside a command
+  // name produces output like `\b\TCdel{e}gin{document}` — broken LaTeX.
+  // Stale positions from out-of-sync pending changes are the most common
+  // way this happens; the change is still tracked, we just don't visualise
+  // it rather than break the document.
+  const controlSequences = [];
+  const csRe = /\\[a-zA-Z@]+/g;
+  let cm;
+  while ((cm = csRe.exec(content)) !== null) {
+    controlSequences.push({ from: cm.index, to: cm.index + cm[0].length });
+  }
   // Following latexdiff's approach: skip TC markup for changes inside tabular
   // environments. Structural table commands (\multicolumn, \hline, &, \\, etc.)
   // break when wrapped in \TCadd/\TCdel. The changes remain tracked in the
@@ -294,6 +307,12 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
   const tableAcceptedDeletions = [];
   for (const r of deduped) {
     if (fragile.some(f => r.from >= f.from && r.to <= f.to)) continue;
+    // Skip changes that fall inside a command-name token. We use
+    // containment here, not overlap, so a change that legitimately spans
+    // an argument like `\section{old name}` -> `\section{new name}` is
+    // still wrapped — only changes whose entire range sits inside the
+    // `\foo` token itself get filtered out.
+    if (controlSequences.some(cs => r.from >= cs.from && r.to <= cs.to)) continue;
     // Use *containment*, not overlap. A change that straddles a tabular
     // boundary (starts inside, ends outside, or vice-versa) must NOT be
     // wholesale-removed by the table path — we'd delete content from outside

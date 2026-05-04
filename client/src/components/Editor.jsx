@@ -410,6 +410,12 @@ const Editor = forwardRef(function Editor(
   const onTrackDeletionRef = useRef(onTrackDeletion);
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
+  // Live, transaction-mapped positions for each pending tracked change.
+  // Updated synchronously on every CodeMirror docChanged transaction via
+  // `update.changes.mapPos`, so positions stay accurate even between saves
+  // and across rapid editing. Falls back to the prop's stored positions for
+  // any TC we haven't seen yet. Read by computeTcPositions on save.
+  const tcLivePositionsRef = useRef(new Map());
   const setSpellMenuRef = useRef(setSpellMenu);
   const setCiteMenuRef = useRef(setCiteMenu);
   const onToggleVisualModeRef = useRef(onToggleVisualMode);
@@ -431,6 +437,23 @@ const Editor = forwardRef(function Editor(
   onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
+  // Sync the live-positions map: seed any new TC, drop any that are no
+  // longer pending. Crucially, KEEP existing entries — they reflect the
+  // editor's transaction-mapped positions, which are more current than the
+  // prop's last-saved positions.
+  {
+    const seen = new Set();
+    for (const tc of trackedChanges) {
+      if (tc.status !== 'pending') continue;
+      seen.add(tc.id);
+      if (!tcLivePositionsRef.current.has(tc.id)) {
+        tcLivePositionsRef.current.set(tc.id, { from: tc.from_pos, to: tc.to_pos });
+      }
+    }
+    for (const id of tcLivePositionsRef.current.keys()) {
+      if (!seen.has(id)) tcLivePositionsRef.current.delete(id);
+    }
+  }
   onToggleVisualModeRef.current = onToggleVisualMode;
   visualModeRef.current = visualMode;
   const citeKeysRef = useRef(citeKeys || []);
@@ -784,21 +807,41 @@ const Editor = forwardRef(function Editor(
     for (const tc of pending) {
       const text = tc.inserted_text || tc.deleted_text;
       if (!text) continue;
-      // Check if the stored position still matches
-      const from = Math.max(0, Math.min(tc.from_pos, docText.length));
-      const to = Math.max(from, Math.min(tc.to_pos, docText.length));
+      // Prefer the live-mapped position (kept current via mapPos on every
+      // transaction). Fall back to the stored position if we haven't seen
+      // this TC before.
+      const live = tcLivePositionsRef.current.get(tc.id);
+      const anchorFrom = live ? live.from : tc.from_pos;
+      const anchorTo = live ? live.to : tc.to_pos;
+      const from = Math.max(0, Math.min(anchorFrom, docText.length));
+      const to = Math.max(from, Math.min(anchorTo, docText.length));
       if (docText.slice(from, to) === text) {
         positions.push({ id: tc.id, from_pos: from, to_pos: to });
         continue;
       }
-      // Search nearby for the text
-      const searchFrom = Math.max(0, tc.from_pos - 80);
-      const searchTo = Math.min(docText.length, tc.from_pos + 80 + text.length);
+      // Search nearby for the text. We pick the occurrence CLOSEST to the
+      // anchor position, not the first one found — for short needles like
+      // a single 'e', `region.indexOf(text)` returns the leftmost match,
+      // which is consistently 30-80 chars left of where the change belongs.
+      const searchFrom = Math.max(0, anchorFrom - 80);
+      const searchTo = Math.min(docText.length, anchorFrom + 80 + text.length);
       const region = docText.slice(searchFrom, searchTo);
-      const idx = region.indexOf(text);
-      if (idx !== -1) {
-        const correctedFrom = searchFrom + idx;
-        positions.push({ id: tc.id, from_pos: correctedFrom, to_pos: correctedFrom + text.length });
+      let bestAbs = -1;
+      let bestDist = Infinity;
+      let scanFrom = 0;
+      while (true) {
+        const idx = region.indexOf(text, scanFrom);
+        if (idx === -1) break;
+        const absPos = searchFrom + idx;
+        const dist = Math.abs(absPos - anchorFrom);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestAbs = absPos;
+        }
+        scanFrom = idx + 1;
+      }
+      if (bestAbs !== -1) {
+        positions.push({ id: tc.id, from_pos: bestAbs, to_pos: bestAbs + text.length });
       }
       // If not found, skip — don't send stale position
     }
@@ -1340,6 +1383,17 @@ const Editor = forwardRef(function Editor(
           }
 
           if (update.docChanged) {
+            // Map every pending TC's live position through this transaction.
+            // Cheap (a few mapPos calls) and crucial: without it, a TC's
+            // stored from_pos drifts as the document evolves, so on save
+            // computeTcPositions has to fall back to a fuzzy text search,
+            // which for short needles like a single 'e' can land anywhere.
+            for (const pos of tcLivePositionsRef.current.values()) {
+              const newFrom = update.changes.mapPos(pos.from, 1);
+              const newTo = update.changes.mapPos(pos.to, -1);
+              pos.from = newFrom;
+              pos.to = Math.max(newFrom, newTo);
+            }
             // Map tracked-change buffers through ALL document changes (local + remote)
             // so positions stay correct regardless of interleaved OT updates.
             const delBuf = tcDelBuffer.current;
