@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation testing for security-critical and pure-logic server modules. Run with: npm run test:mutation. Slow — not in default CI.",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "reporters": ["progress", "clear-text", "html"],
+  "htmlReporter": { "fileName": "reports/mutation/mutation.html" },
+  "coverageAnalysis": "perTest",
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "mutate": [
+    "utils/crypto.js",
+    "utils/fileTypes.js",
+    "utils/trackedChangeMarkup.js",
+    "utils/audit.js",
+    "utils/mentions.js",
+    "utils/latexDiff.js",
+    "services/authService.js"
+  ],
+  "vitest": {
+    "configFile": "vitest.mutation.config.js"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": "always"
+}

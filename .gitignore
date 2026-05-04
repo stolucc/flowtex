@@ -31,3 +31,7 @@ projects/
 # Playwright artefacts
 test-results/
 playwright-report/
+
+# Stryker mutation-testing artefacts
+.stryker-tmp/
+server/reports/mutation/

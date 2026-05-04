@@ -1,0 +1,45 @@
+name: Mutation testing
+
+# Slow (~tens of seconds today, will grow as targets expand). Not on
+# every push. Runs:
+# - on demand (workflow_dispatch)
+# - weekly, so regressions in mutation score get a Monday-morning report
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+env:
+  NODE_VERSION: '22'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  mutation:
+    name: Stryker (server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm run test:mutation
+        working-directory: server
+      - name: Upload HTML mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: server/reports/mutation/
+          if-no-files-found: ignore
+      - name: Summary
+        if: always()
+        # Stryker's stdout already includes a per-file score table. Surface
+        # it in the run summary so reviewers don't need to download the
+        # HTML report just to see the headline numbers.
+        run: |
+          echo "## Mutation testing summary" >> $GITHUB_STEP_SUMMARY
+          echo "Full HTML report uploaded as the \`mutation-report\` artifact." >> $GITHUB_STEP_SUMMARY
