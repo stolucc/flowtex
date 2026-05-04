@@ -148,6 +148,11 @@ jobs:
       DISABLE_TLS_REDIRECT: '1'
       CORS_ORIGINS: https://localhost:3001,http://localhost:3001
       DISABLE_IMAGE_CONVERSION: '1'
+      # Disables /api/auth rate limiting during the e2e suite. The auth-flow
+      # and email-flows specs together hit ~25 auth requests, well over the
+      # 20-per-15-min cap. Server gates this flag on `NODE_ENV !== production`
+      # so it can never accidentally weaken a real deployment.
+      DISABLE_RATE_LIMIT: '1'
 
     steps:
       - uses: actions/checkout@v4
