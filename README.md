@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/stolucc/flowtex/actions/workflows/ci.yml/badge.svg)](https://github.com/stolucc/flowtex/actions/workflows/ci.yml)
 
-A self-hosted, real-time collaborative LaTeX editor — an open-source alternative to Overleaf. Edit LaTeX documents with live collaboration, compile to PDF, and sync with GitHub.
+A self-hosted, open-source real-time collaborative LaTeX editor. Edit LaTeX documents with live collaboration, compile to PDF, and sync with GitHub.
 
 ## Features
 
