@@ -135,6 +135,127 @@ function corpus() {
         data: '<?xml version="1.0"?>' + '<w:p>'.repeat(5000) + 'x' + '</w:p>'.repeat(5000),
       }]),
     },
+    // ── Expanded corpus (audit follow-up): targets the OOXML auxiliary
+    //    parts, image/ZIP-slip vectors, and parser-state confusions. ──
+    {
+      label: 'styles.xml exceeds 10MB part cap',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/styles.xml', data: Buffer.from('x'.repeat(11 * 1024 * 1024)) },
+      ]),
+    },
+    {
+      label: 'numbering.xml is malformed binary',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/numbering.xml', data: Buffer.from([0x00, 0xff, 0xfe, 0x42, 0x00, 0xff]) },
+      ]),
+    },
+    {
+      label: 'XXE: attempt to read /etc/passwd via external entity',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: '<?xml version="1.0"?><!DOCTYPE root [' +
+          '<!ENTITY xxe SYSTEM "file:///etc/passwd">' +
+          ']><root>&xxe;</root>',
+      }]),
+    },
+    {
+      label: 'CDATA section with embedded markup that looks like a tag',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: '<?xml version="1.0"?><w:document xmlns:w="x"><w:body><w:p><w:r><w:t><![CDATA[</w:t></w:r></w:p></w:body></w:document><script>alert(1)</script>]]></w:t></w:r></w:p></w:body></w:document>',
+      }]),
+    },
+    {
+      label: 'unicode BOM + null bytes interleaved',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: Buffer.concat([
+          Buffer.from([0xef, 0xbb, 0xbf]), // UTF-8 BOM
+          Buffer.from('<?xml version="1.0"?><w:document xmlns:w="x"><w:body><w:p>'),
+          Buffer.from([0x00, 0x00, 0x00]),
+          Buffer.from('text</w:p></w:body></w:document>'),
+        ]),
+      }]),
+    },
+    {
+      label: 'comments.xml with malformed structure (separate parser path)',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/comments.xml', data: '<?xml version="1.0"?><not><well><formed>' }, // no closing
+      ]),
+    },
+    {
+      label: 'footnotes.xml with deeply nested elements',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/footnotes.xml', data: '<?xml version="1.0"?>' + '<a>'.repeat(2000) + 'x' + '</a>'.repeat(2000) },
+      ]),
+    },
+    {
+      label: 'media file with directory-traversal name (zip-slip)',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/media/../../../../tmp/pwned.png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
+      ]),
+    },
+    {
+      label: 'media file with absolute-path name',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: '/etc/cron.d/pwned', data: 'malicious cron content' },
+      ]),
+    },
+    {
+      label: 'PNG-disguised svg (would invoke rsvg if SKIP_CONVERSION=0)',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/media/image1.svg', data: '<svg><script>alert("xss")</script></svg>' },
+      ]),
+    },
+    {
+      label: 'wmf entry would invoke LibreOffice if SKIP_CONVERSION=0',
+      body: makeZip([
+        { name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' },
+        { name: 'word/media/image1.wmf', data: Buffer.from('not actually a wmf file') },
+      ]),
+    },
+    {
+      label: 'XML with extreme attribute count on a single element',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: '<?xml version="1.0"?><w:document xmlns:w="x" ' +
+          Array.from({ length: 5000 }, (_, i) => `attr${i}="value${i}"`).join(' ') +
+          '/>',
+      }]),
+    },
+    {
+      label: 'ZIP with 0-byte document.xml',
+      body: makeZip([{ name: 'word/document.xml', data: '' }]),
+    },
+    {
+      label: 'XML with extremely long single attribute value',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: '<?xml version="1.0"?><w:document xmlns:w="x" data-x="' + 'A'.repeat(10 * 1024 * 1024) + '"/>',
+      }]),
+    },
+    {
+      label: 'ZIP with thousands of tiny entries (entry-count attack)',
+      body: (() => {
+        const entries = [{ name: 'word/document.xml', data: '<?xml version="1.0"?><w:document xmlns:w="x"></w:document>' }];
+        for (let i = 0; i < 5000; i++) entries.push({ name: `word/media/img${i}.png`, data: 'x' });
+        return makeZip(entries);
+      })(),
+    },
+    {
+      label: 'document.xml with mismatched closing tags',
+      body: makeZip([{
+        name: 'word/document.xml',
+        data: '<?xml version="1.0"?><a><b><c></d></e></f>',
+      }]),
+    },
   ];
 }
 
