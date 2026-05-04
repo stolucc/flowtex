@@ -122,9 +122,28 @@ sudo apt-get install -y texlive-full</code></pre>
 <h2>3. Optional Packages</h2>
 
 <h3>3.1 Redis 7+ <span class="tag tag-opt">Optional</span></h3>
-<p>Only required if running multiple FlowTex server instances (horizontal scaling). Redis provides WebSocket pub/sub so real-time collaboration works across instances.</p>
-<pre><code>sudo apt-get install -y redis-server</code></pre>
-<p>Configure via <code>REDIS_URL=redis://localhost:6379</code> in <code>.env</code>.</p>
+<p>Required only if you plan to run more than one FlowTex server instance behind a load balancer. A single instance handles ~1500 concurrent connections on a 1-vCPU box (verified by the bundled soak harness), so most self-hosted deployments don't need Redis.</p>
+
+<p><strong>What it does:</strong> Each FlowTex instance subscribes to one Redis channel (<code>flowtex:ws</code>). When a user on instance A sends a real-time edit / cursor / chat / tracked-change broadcast, the instance publishes the message to that channel. All other instances receive it via the subscription and re-broadcast to their local WS rooms. The publishing instance suppresses its own echo using a per-process <code>SERVER_ID</code> so users don't see duplicates.</p>
+
+<pre><code>sudo apt-get install -y redis-server
+sudo systemctl enable --now redis-server
+redis-cli ping  <span class="comment"># expect: PONG</span></code></pre>
+
+<p>Configure via <code>REDIS_URL=redis://localhost:6379</code> in <code>.env</code>. The server logs <code>Redis pub/sub enabled for WebSocket scaling</code> at startup when it picks the URL up.</p>
+
+<p><strong>Production checklist:</strong></p>
+<ul>
+  <li><strong>Bind to localhost or the docker network</strong>; never expose Redis publicly. The default config does this; verify with <code>ss -tlnp | grep 6379</code>.</li>
+  <li><strong>Set a password</strong> if Redis is shared across services. Use the <code>requirepass</code> directive, then point FlowTex at <code>REDIS_URL=redis://:&lt;password&gt;@localhost:6379</code>.</li>
+  <li><strong>Persistence is unnecessary.</strong> FlowTex uses Redis purely as a pub/sub bus — no state is stored there, so you can disable RDB/AOF (<code>save ""</code> in <code>redis.conf</code>) for slightly less disk I/O.</li>
+  <li><strong>Memory cap:</strong> set <code>maxmemory 64mb</code> with <code>maxmemory-policy allkeys-lru</code>. The pub/sub channel itself uses no persistent memory; this just bounds the worst case if a stuck subscriber causes a backlog.</li>
+  <li><strong>Verify cross-instance broadcast</strong> after deploy: connect a WS client to instance A and another to instance B (same project), have A send an edit, observe B receives it. The bundled e2e suite exercises this with <code>npm run e2e</code> (test: <code>changes broadcast crosses server instances via Redis pub/sub</code>).</li>
+</ul>
+
+<div class="note"><strong>Graceful degradation:</strong> if Redis becomes unreachable at runtime, FlowTex logs <code>Redis publish failed</code> and continues serving — broadcasts within a single instance still work; cross-instance broadcasts silently stop. To detect this, alert on the warning log line or a Redis health probe; users won't see an error.</div>
+
+<div class="note"><strong>Sticky sessions are NOT required.</strong> Each WS connection terminates at one instance, but all instances see all broadcasts via Redis. Clients can land on any instance via simple round-robin at the load balancer.</div>
 
 <h3>3.2 Caddy or Nginx <span class="tag tag-rec">Recommended</span></h3>
 <p>A reverse proxy for TLS termination, automatic HTTPS, and serving on ports 80/443.</p>
@@ -210,7 +229,9 @@ SMTP_FROM=FlowTex &lt;noreply@example.com&gt;
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 
-<span class="comment"># Redis (optional &mdash; for multi-instance scaling)</span>
+<span class="comment"># Redis (only needed if you run >1 FlowTex instance behind a load balancer)</span>
+<span class="comment"># Single-instance deployments handle ~1500 concurrent users without it.</span>
+<span class="comment"># See §3.1 in this guide for production hardening (bind, auth, no-persist).</span>
 <span class="comment"># REDIS_URL=redis://localhost:6379</span>
 
 <span class="comment"># CORS (set to your domain)</span>
@@ -334,6 +355,8 @@ docker compose logs -f app</code></pre>
 <p>The compose file enables container hardening that mirrors the bare-metal systemd setup: <code>read_only: true</code>, <code>cap_drop: [ALL]</code>, <code>no-new-privileges</code>, memory and PID caps, <code>tmpfs</code> for <code>/tmp</code>, and the runtime container drops to UID 10001 (<code>flowtex</code>) per the Dockerfile's <code>USER</code> directive.</p>
 
 <div class="note"><strong>DOCX image conversion in containers:</strong> the default base image does not include <code>rsvg-convert</code> / <code>imagemagick</code> / <code>libreoffice</code>. The compose file therefore sets <code>DISABLE_IMAGE_CONVERSION=1</code> and DOCX images appear as placeholders. To enable, build a custom base that installs those packages plus <code>docs/imagemagick-policy.xml</code> and unset the env var.</div>
+
+<div class="note"><strong>Scaling out with Redis (compose):</strong> the bundled <code>docker-compose.yml</code> has a commented-out <code>redis</code> service. To run multiple <code>app</code> replicas, uncomment the redis block, set <code>REDIS_URL: redis://redis:6379</code> on the <code>app</code> service, and bring up multiple replicas with <code>docker compose up -d --scale app=3</code>. Caddy will round-robin across them; cross-instance broadcasts cross via Redis. See §3.1 for the same details on bare metal.</div>
 
 <h2>5. Quick Install Script</h2>
 <p>Copy and run on a fresh Ubuntu 22.04+ server:</p>
