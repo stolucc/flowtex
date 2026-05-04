@@ -77,6 +77,14 @@ router.post('/:fileId', async (req, res) => {
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
     return res.status(400).json({ error: 'Invalid position values' });
   }
+  // A TC must have something to track. The client's flush buffers can
+  // legitimately collapse to empty after a transaction maps the buffered
+  // range through a deletion that physically removed the chars; the buffer
+  // already bails on its end, but defensively reject here so a future
+  // client bug can't spawn phantom records.
+  if (!inserted_text && !deleted_text) {
+    return res.status(400).json({ error: 'Tracked change must have inserted_text or deleted_text' });
+  }
   const file = await requireFileEditor(req.params.fileId, req.session.userId, res);
   if (!file) return;
 

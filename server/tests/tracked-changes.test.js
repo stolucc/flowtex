@@ -82,7 +82,12 @@ const ACCEPTED_CHANGE = { ...PENDING_CHANGE, id: 'change-2', status: 'accepted' 
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks (vs clearAllMocks) also clears queued one-shot
+  // implementations like `mockResolvedValueOnce`. Without this, a test that
+  // bails early — e.g. when the route validates input before consuming the
+  // queued db mocks — leaks its queue into the next test, producing
+  // confusing cascading failures.
+  vi.resetAllMocks();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -290,20 +295,24 @@ describe('POST /:fileId', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('defaults inserted_text and deleted_text to empty string', async () => {
-    db.get.mockResolvedValueOnce(FILE_ROW);
-    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
-    db.run.mockResolvedValueOnce({});
-    db.get.mockResolvedValueOnce(PENDING_CHANGE);
-
+  it('rejects a TC POST with neither inserted_text nor deleted_text', async () => {
+    // A TC must have something to track. The route used to silently default
+    // both fields to '' and create an empty record; now it 400s so a
+    // client-side buffer flush bug can't spawn phantom records.
     const body = { from_pos: 0, to_pos: 5 };
     const res = mockRes();
     await handler(mockReq({ fileId: 'file-1' }, body), res);
 
-    // The INSERT args should contain empty strings for text fields
-    const insertArgs = db.run.mock.calls[0][1];
-    expect(insertArgs[5]).toBe(''); // inserted_text
-    expect(insertArgs[6]).toBe(''); // deleted_text
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.body.error).toMatch(/inserted_text or deleted_text/);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects a TC POST where both texts are explicit empty strings', async () => {
+    const body = { from_pos: 0, to_pos: 5, inserted_text: '', deleted_text: '' };
+    const res = mockRes();
+    await handler(mockReq({ fileId: 'file-1' }, body), res);
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('uses session userName for author_name', async () => {

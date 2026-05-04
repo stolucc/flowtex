@@ -1011,6 +1011,17 @@ const Editor = forwardRef(function Editor(
   const flushDelBuffer = useCallback(() => {
     const buf = tcDelBuffer.current;
     if (buf.from === null) return;
+    // The buffer's text can collapse to '' if a transaction physically
+    // removed the chars between the deletion mark and this flush (e.g. the
+    // user accepts a deletion that covers the buffered range). Posting an
+    // empty deletion creates a phantom TC with no content; bail and reset.
+    if (!buf.text) {
+      buf.from = null;
+      buf.to = null;
+      buf.text = '';
+      buf.fileId = null;
+      return;
+    }
     onTrackChangeRef.current?.({
       from_pos: buf.from,
       to_pos: buf.to,
@@ -1086,6 +1097,16 @@ const Editor = forwardRef(function Editor(
   const flushInsBuffer = useCallback(() => {
     const buf = tcInsertBuffer.current;
     if (buf.from === null) return;
+    // Same defensive guard as flushDelBuffer: if the buffered insertion's
+    // text collapsed to '' (e.g. an undo physically removed the chars
+    // before the flush), don't POST an empty TC.
+    if (!buf.text) {
+      buf.from = null;
+      buf.to = null;
+      buf.text = '';
+      buf.fileId = null;
+      return;
+    }
     onTrackChangeRef.current?.({
       from_pos: buf.from,
       to_pos: buf.to,
@@ -2202,20 +2223,28 @@ const Editor = forwardRef(function Editor(
     if (removedIds.size === 0) return;
 
     // Case 2: TC resolved — remove decorations for resolved TCs.
-    // Instead of rebuilding all decorations (which would use stale DB positions for remaining
-    // TCs), we filter the existing correctly-mapped decorations to remove only the resolved ones.
-    // We identify them by checking which decorations overlap with the resolved TC's position range.
+    // We only need to manually filter when the resolution did NOT physically
+    // edit the doc. The decoration field's `value.map(tr.changes)` already
+    // drops any decoration whose underlying chars were removed:
+    //   - accept(insertion): chars stay  → filter out the insert decoration.
+    //   - accept(deletion):  chars removed → mapping handled it.
+    //   - reject(insertion): chars removed → mapping handled it.
+    //   - reject(deletion):  chars stay  → filter out the delete decoration.
+    // The previous code filtered unconditionally with a `tc.from_pos ± 2`
+    // dominance check, which incorrectly removed a *neighbour* decoration
+    // whose POST-mapping position landed inside the resolved TC's PRE-
+    // mapping range. That's how accepting `Header` (stored at 241-247)
+    // also nuked the strikethrough on `3` (now at 242-243 after mapping).
     const resolvedTcs = trackedChanges.filter((c) => removedIds.has(c.id));
 
-    // Remove resolved insertion decorations
+    // Remove decorations for accepted insertions only.
     const currentInsertDecos = view.state.field(trackedChangesField);
     let filteredInserts = currentInsertDecos;
     for (const tc of resolvedTcs) {
       if (!tc.inserted_text) continue;
-      // Filter out any insertion decoration that falls within this TC's approximate range
+      if (tc.status !== 'accepted') continue; // rejected: doc edited, mapping handled it
       const ranges = [];
       filteredInserts.between(0, view.state.doc.length, (from, to, deco) => {
-        // Keep decorations that don't overlap with any resolved TC
         let dominated = false;
         if (from >= tc.from_pos - 2 && to <= tc.to_pos + 2) dominated = true;
         if (!dominated) ranges.push(deco.range(from, to));
@@ -2223,11 +2252,12 @@ const Editor = forwardRef(function Editor(
       filteredInserts = Decoration.set(ranges, true);
     }
 
-    // Remove resolved deletion decorations
+    // Remove decorations for rejected deletions only.
     const currentDeleteDecos = view.state.field(tcDeletesField);
     let filteredDeletes = currentDeleteDecos;
     for (const tc of resolvedTcs) {
       if (!tc.deleted_text) continue;
+      if (tc.status !== 'rejected') continue; // accepted: doc edited, mapping handled it
       const ranges = [];
       filteredDeletes.between(0, view.state.doc.length, (from, to, deco) => {
         let dominated = false;
