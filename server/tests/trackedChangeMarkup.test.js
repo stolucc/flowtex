@@ -394,6 +394,48 @@ describe('applyMarkup', () => {
     expect(out).toContain('\\section{');
   });
 
+  it('drops a deletion whose range overlaps a pending insertion', () => {
+    // Mirrors the client editor's UI rule: don't simultaneously mark a
+    // span as inserted AND deleted. Without this, a phantom deletion
+    // record (e.g. left over from a merge-into-insertion race) would
+    // cause the PDF to show strikethrough on chars the editor displays
+    // as plain inserted text.
+    const content = 'hello eee world';
+    const idx = content.indexOf('eee');
+    const changes = [
+      { inserted_text: 'eee', from_pos: idx, to_pos: idx + 3 },
+      { deleted_text: 'e', from_pos: idx + 2, to_pos: idx + 3 }, // phantom
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCadd{eee}');
+    expect(out).not.toContain('\\TCdel');
+  });
+
+  it('drops a deletion fully covered by an insertion at the same range', () => {
+    const content = 'a foo b';
+    const idx = content.indexOf('foo');
+    const changes = [
+      { inserted_text: 'foo', from_pos: idx, to_pos: idx + 3 },
+      { deleted_text: 'foo', from_pos: idx, to_pos: idx + 3 }, // contradiction
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCadd{foo}');
+    expect(out).not.toContain('\\TCdel');
+  });
+
+  it('still wraps a deletion that does not touch any insertion', () => {
+    const content = 'foo bar baz';
+    const fooIdx = 0;
+    const barIdx = content.indexOf('bar');
+    const changes = [
+      { inserted_text: 'foo', from_pos: fooIdx, to_pos: fooIdx + 3 },
+      { deleted_text: 'bar', from_pos: barIdx, to_pos: barIdx + 3 },
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCadd{foo}');
+    expect(out).toContain('\\TCdel{bar}');
+  });
+
   it('removes a structural-table deletion silently (containing &)', () => {
     const content = 'a \\begin{tabular}{ll} x & y \\\\ \\end{tabular} b';
     const changes = [{ deleted_text: 'x & y', from_pos: 22, to_pos: 27 }];

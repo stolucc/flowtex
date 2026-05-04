@@ -13,11 +13,24 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
   const [trackChangesMode, setTrackChangesMode] = useState(
     () => getSetting('track-changes') === 'true',
   );
-  const [trackedChanges, setTrackedChanges] = useState([]);
+  const [trackedChanges, _setTrackedChanges] = useState([]);
   const [tcPopup, setTcPopup] = useState(null);
   const trackedChangesRef = useRef(trackedChanges);
   trackedChangesRef.current = trackedChanges;
   const trackChangeLock = useRef(Promise.resolve());
+
+  // Wrapped setter that synchronously updates BOTH React state and the ref.
+  // The plain useState setter would only refresh the ref on the next render,
+  // which is too slow for code paths queued behind each other in
+  // `trackChangeLock` — they need to see the just-saved TC immediately,
+  // otherwise the merge-into-insertion check misses and we record a
+  // phantom deletion. Exposed instead of the raw setter so external
+  // consumers (useWebSocket, useEditorActions) get the same guarantee.
+  const setTrackedChanges = useCallback((updater) => {
+    const next = typeof updater === 'function' ? updater(trackedChangesRef.current) : updater;
+    trackedChangesRef.current = next;
+    _setTrackedChanges(next);
+  }, []);
 
   useEffect(() => {
     setSetting('track-changes', trackChangesMode);
@@ -48,7 +61,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
       }),
     );
     post(`/api/tracked-changes/file/${fileId}/adjust-positions`, { afterPos: removeTo, delta });
-  }, []);
+  }, [setTrackedChanges]);
 
   const doHandleTrackChange = useCallback(
     async (change) => {
@@ -62,11 +75,24 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
       // Strip fileId before sending to the server — it isn't part of the persisted change shape.
       const { fileId: _ignored, ...changePayload } = change;
       try {
-        const myPending = canMerge
+        // Read fresh from the synchronously-updated ref so a backspace
+        // that fires right after a keystroke can see the just-saved insertion.
+        const allMyPending = canMerge
           ? trackedChangesRef.current.filter(
-              (tc) => tc.status === 'pending' && tc.author_id === user?.id && tc.inserted_text,
+              (tc) => tc.status === 'pending' && tc.author_id === user?.id,
             )
           : [];
+        const myPending = allMyPending.filter((tc) => tc.inserted_text);
+
+        // Dedup: if an identical pending change already exists, drop the new one.
+        // Without this, two transactions for what looks like a single keystroke
+        // (e.g. a debounce racing with a WebSocket echo) produce two records.
+        const isDuplicate = (tc) =>
+          tc.from_pos === change.from_pos &&
+          tc.to_pos === change.to_pos &&
+          (tc.deleted_text || '') === (change.deleted_text || '') &&
+          (tc.inserted_text || '') === (change.inserted_text || '');
+        if (allMyPending.some(isDuplicate)) return;
 
         if (change.deleted_text && !change.inserted_text) {
           for (const existing of myPending) {
@@ -122,7 +148,7 @@ export default function useTrackedChanges(activeFile, user, sendWsRef, editorRef
         // ignore
       }
     },
-    [activeFile, user, sendWsRef],
+    [activeFile, user, sendWsRef, setTrackedChanges],
   );
 
   const handleTrackChange = useCallback(

@@ -242,8 +242,20 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
     }
   }
 
+  // Drop any deletion whose range overlaps a pending insertion — match the
+  // editor's UI rule (buildTcDeleteDecorations also does this). Otherwise
+  // the PDF marks chars as struck that the editor renders as plain inserted
+  // text, so the two views diverge. The most common cause is a phantom
+  // deletion record left behind by a merge-into-insertion race in the
+  // client; the insertion is the user's authentic intent.
+  const insertRanges = resolved.filter((r) => r.type === 'ins').map((r) => ({ from: r.from, to: r.to }));
+  const insertFiltered = resolved.filter((r) => {
+    if (r.type !== 'del') return true;
+    return !insertRanges.some((ir) => r.from < ir.to && r.to > ir.from);
+  });
+
   // Sort by position descending so later edits don't shift earlier positions
-  resolved.sort((a, b) => {
+  insertFiltered.sort((a, b) => {
     if (b.from !== a.from) return b.from - a.from;
     // Deletions before insertions at same position
     return (a.type === 'ins' ? 1 : 0) - (b.type === 'ins' ? 1 : 0);
@@ -252,7 +264,7 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
   // Deduplicate overlapping ranges (keep first = rightmost)
   const used = [];
   const deduped = [];
-  for (const r of resolved) {
+  for (const r of insertFiltered) {
     const overlaps = used.some((u) => r.from < u.to && r.to > u.from);
     if (!overlaps) {
       deduped.push(r);
