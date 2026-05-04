@@ -436,6 +436,49 @@ describe('applyMarkup', () => {
     expect(out).toContain('\\TCdel{bar}');
   });
 
+  it('merges two overlapping deletions into the union', () => {
+    // The user replaced 'Header 2' with 'eee' but two pending deletions
+    // exist (e.g. an earlier `delete 'Header'` plus a later `delete
+    // 'Header 2'`). Without merging, the dedup pass kept just the
+    // shorter one and ' 2' rendered as plain text. Now both spans
+    // become one wrapped \TCdel covering the whole region.
+    const content = 'pre eeeHeader 2 post';
+    const start = content.indexOf('Header');
+    const changes = [
+      { inserted_text: 'eee', from_pos: start - 3, to_pos: start },
+      { deleted_text: 'Header', from_pos: start, to_pos: start + 6 },
+      { deleted_text: 'Header 2', from_pos: start, to_pos: start + 8 },
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCadd{eee}');
+    expect(out).toContain('\\TCdel{Header 2}');
+    // Only ONE TCdel — the two were merged.
+    expect((out.match(/\\TCdel\{/g) || []).length).toBe(1);
+  });
+
+  it('merges chained overlapping deletions (3+ overlapping ranges)', () => {
+    const content = 'abcdefghij';
+    const changes = [
+      { deleted_text: 'abc', from_pos: 0, to_pos: 3 },
+      { deleted_text: 'bcde', from_pos: 1, to_pos: 5 },
+      { deleted_text: 'defg', from_pos: 3, to_pos: 7 },
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCdel{abcdefg}');
+    expect((out.match(/\\TCdel\{/g) || []).length).toBe(1);
+  });
+
+  it('does NOT merge non-overlapping deletions', () => {
+    const content = 'abc xxx def yyy';
+    const changes = [
+      { deleted_text: 'xxx', from_pos: 4, to_pos: 7 },
+      { deleted_text: 'yyy', from_pos: 12, to_pos: 15 },
+    ];
+    const out = applyMarkup(content, changes);
+    expect(out).toContain('\\TCdel{xxx}');
+    expect(out).toContain('\\TCdel{yyy}');
+  });
+
   it('removes a structural-table deletion silently (containing &)', () => {
     const content = 'a \\begin{tabular}{ll} x & y \\\\ \\end{tabular} b';
     const changes = [{ deleted_text: 'x & y', from_pos: 22, to_pos: 27 }];

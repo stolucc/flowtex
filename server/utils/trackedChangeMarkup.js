@@ -254,17 +254,44 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
     return !insertRanges.some((ir) => r.from < ir.to && r.to > ir.from);
   });
 
+  // Merge overlapping deletions into their UNION. Two deletion records
+  // targeting overlapping spans (e.g. an old `delete 'Header'` plus a
+  // new `delete 'Header 2'` covering the same region) should mark the
+  // whole combined region — without merging, the dedup loop below would
+  // keep just the first one and the tail of the longer deletion would
+  // render as plain text. The merged text is read straight from the
+  // content slice so it matches what's actually in the file.
+  const dels = insertFiltered.filter((r) => r.type === 'del').sort((a, b) => a.from - b.from || a.to - b.to);
+  const otherTypes = insertFiltered.filter((r) => r.type !== 'del');
+  const mergedDels = [];
+  for (const d of dels) {
+    const last = mergedDels[mergedDels.length - 1];
+    if (last && d.from <= last.to) {
+      // Overlapping or touching — extend.
+      if (d.to > last.to) {
+        last.to = d.to;
+        last.text = content.slice(last.from, last.to);
+      }
+    } else {
+      mergedDels.push({ ...d });
+    }
+  }
+  const allChanges = [...otherTypes, ...mergedDels];
+
   // Sort by position descending so later edits don't shift earlier positions
-  insertFiltered.sort((a, b) => {
+  allChanges.sort((a, b) => {
     if (b.from !== a.from) return b.from - a.from;
     // Deletions before insertions at same position
     return (a.type === 'ins' ? 1 : 0) - (b.type === 'ins' ? 1 : 0);
   });
 
-  // Deduplicate overlapping ranges (keep first = rightmost)
+  // Deduplicate overlapping ranges (keep first = rightmost). After the
+  // deletion merge above, the only remaining overlap candidates are
+  // insertions vs. deletions at the same boundary, which the
+  // insert-overlap filter already handled.
   const used = [];
   const deduped = [];
-  for (const r of insertFiltered) {
+  for (const r of allChanges) {
     const overlaps = used.some((u) => r.from < u.to && r.to > u.from);
     if (!overlaps) {
       deduped.push(r);
