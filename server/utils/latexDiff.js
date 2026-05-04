@@ -53,7 +53,18 @@ export function postProcess(tex) {
   const omitCmds = /\\(multicolumn|multirow)\b/;
 
   function stripDif(s) {
-    return s.replace(/\\DIF(add|del)(begin|end)(FL)?\s*/g, '').replace(/\\DIF(add|del)FL\{[^}]*\}\s*/g, '');
+    // Preserve a one-character word boundary across the strip: if there's
+    // whitespace on either side of the marker, keep one space so adjacent
+    // tokens don't run together. The previous form `…\s*` greedily ate the
+    // marker's trailing whitespace, which collapsed `prefix\DIFaddbegin foo`
+    // into `prefixfoo`.
+    return s
+      .replace(/(\s)?\\DIF(add|del)(begin|end)(FL)?(\s)?/g, (_m, leading, _a, _b, _fl, trailing) =>
+        leading || trailing ? ' ' : '',
+      )
+      .replace(/(\s)?\\DIF(add|del)FL\{[^}]*\}(\s)?/g, (_m, leading, _a, trailing) =>
+        leading || trailing ? ' ' : '',
+      );
   }
 
   function hasDif(s) {

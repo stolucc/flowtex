@@ -8,13 +8,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 
-vi.mock('../db.js', () => ({
-  default: {
-    get: vi.fn(),
-    run: vi.fn(),
-    transaction: vi.fn(async (fn) => fn({ get: vi.fn(), run: vi.fn() })),
-  },
-}));
+vi.mock('../db.js', () => {
+  const mock = { get: vi.fn(), run: vi.fn() };
+  mock.transaction = vi.fn(async (fn) => fn({ get: mock.get, run: mock.run }));
+  return { default: mock };
+});
 vi.mock('../utils/crypto.js', () => ({
   encrypt: vi.fn((v) => 'encrypted:' + v),
   decrypt: vi.fn((v) => v.replace('encrypted:', '')),

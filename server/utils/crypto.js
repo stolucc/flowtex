@@ -67,10 +67,19 @@ export function encrypt(text) {
   return iv.toString('hex') + ':' + tag + ':' + encrypted;
 }
 
-/** @internal — test use only; gated to NODE_ENV=test so production can't reach it. */
+/**
+ * @internal — test use only; gated to NODE_ENV=test so production can't reach it.
+ * @param {string|null} salt — non-empty string to set; null to clear (used to
+ *   exercise the getSalt() throw path). Anything else is rejected so a
+ *   misuse manifests at the call site rather than as a confusing
+ *   downstream crypto error.
+ */
 export function _setSaltForTesting(salt) {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('_setSaltForTesting is only available in NODE_ENV=test');
+  }
+  if (salt !== null && (typeof salt !== 'string' || salt.length === 0)) {
+    throw new Error('_setSaltForTesting requires a non-empty string or null');
   }
   _salt = salt;
   _key = null;

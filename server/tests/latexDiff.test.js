@@ -34,21 +34,21 @@ describe('postProcess', () => {
     expect(out).toContain('\\toprule');
   });
 
+  // The regex collapses one whitespace on either side of the marker into a
+  // single space so adjacent tokens don't run together when a marker is
+  // sandwiched between non-whitespace.
   it('strips DIF markers from lines containing \\midrule', () => {
-    // The regex \DIF(add|del)(begin|end)(FL)?\s* consumes any trailing
-    // whitespace after the marker; the leading space before \midrule
-    // belongs to the match of \DIFdelbegin\s*.
     const out = postProcess('\\DIFdelbegin \\midrule \\DIFdelend');
-    expect(out).toBe('\\midrule ');
+    expect(out).toBe(' \\midrule ');
   });
 
   it('strips DIF markers from lines containing \\bottomrule', () => {
-    expect(postProcess('\\DIFaddbegin \\bottomrule')).toBe('\\bottomrule');
+    expect(postProcess('\\DIFaddbegin \\bottomrule')).toBe(' \\bottomrule');
   });
 
   it('strips DIF markers from lines containing \\caption', () => {
     expect(postProcess('\\DIFaddbeginFL \\caption{Hi}'))
-      .toBe('\\caption{Hi}');
+      .toBe(' \\caption{Hi}');
   });
 
   it('strips DIF markers from lines containing \\addlinespace', () => {
@@ -61,25 +61,38 @@ describe('postProcess', () => {
   });
 
   it('strips DIF markers from lines containing \\endfirsthead', () => {
-    expect(postProcess('\\DIFaddbegin \\endfirsthead')).toBe('\\endfirsthead');
+    expect(postProcess('\\DIFaddbegin \\endfirsthead')).toBe(' \\endfirsthead');
   });
 
   it('strips DIF markers from lines containing \\endfoot', () => {
-    expect(postProcess('\\DIFdelbegin \\endfoot')).toBe('\\endfoot');
+    expect(postProcess('\\DIFdelbegin \\endfoot')).toBe(' \\endfoot');
   });
 
   it('strips DIF markers from lines containing \\endlastfoot', () => {
-    expect(postProcess('\\DIFaddend \\endlastfoot')).toBe('\\endlastfoot');
+    expect(postProcess('\\DIFaddend \\endlastfoot')).toBe(' \\endlastfoot');
   });
 
   it('strips DIF markers from lines containing \\multicolumn (omit case)', () => {
     expect(postProcess('\\DIFaddbegin \\multicolumn{2}{c}{x}'))
-      .toBe('\\multicolumn{2}{c}{x}');
+      .toBe(' \\multicolumn{2}{c}{x}');
   });
 
   it('strips DIF markers from lines containing \\multirow (omit case)', () => {
     expect(postProcess('\\DIFdelbegin \\multirow{3}{*}{x}'))
-      .toBe('\\multirow{3}{*}{x}');
+      .toBe(' \\multirow{3}{*}{x}');
+  });
+
+  it('preserves a single space when a marker is sandwiched between non-whitespace tokens', () => {
+    // The whole motivation for the fix: `prefix\DIFaddbegin foo` and
+    // `prefix \DIFaddbegin foo` should both yield words separated by one
+    // space — not collapse into `prefixfoo`.
+    expect(postProcess('prefix\\DIFaddbegin foo \\toprule')).toBe('prefix foo \\toprule');
+    expect(postProcess('prefix \\DIFaddbeginfoo \\toprule')).toMatch(/^prefix /);
+  });
+
+  it('does not introduce a phantom space when neither side has whitespace', () => {
+    // No leading or trailing whitespace at all: replacement is empty.
+    expect(postProcess('a\\DIFaddbeginb \\midrule')).toBe('ab \\midrule');
   });
 
   it('strips a DIF marker line entirely if the next non-blank line has \\noalign cmds', () => {
@@ -137,13 +150,13 @@ describe('postProcess', () => {
     expect(out).not.toContain('DIFaddbegin');
   });
 
-  it('strips a \\DIFaddFL{content} marker followed by whitespace (\\s* trailing)', () => {
-    // The regex \DIFaddFL\{[^}]*\}\s* eats the trailing whitespace too;
-    // a mutation that swaps \s* for \S* would leave it behind.
-    const inp = '\\caption{x} \\DIFaddFL{added}   ';
+  it('strips a \\DIFaddFL{content} marker; whitespace becomes single separator', () => {
+    // The marker is replaced by a single space when surrounded by whitespace,
+    // not by an empty string — so adjacent tokens never run together.
+    const inp = '\\caption{x} \\DIFaddFL{added} more';
     const out = postProcess(inp);
     expect(out).not.toMatch(/DIFaddFL/);
-    expect(out).not.toMatch(/\s\s\s$/); // trailing spaces consumed
+    expect(out).toBe('\\caption{x} more');
   });
 
   it('on a DIF-only line whose successor is plain prose, the DIF stays put', () => {

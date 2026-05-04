@@ -6,13 +6,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 
-vi.mock('../db.js', () => ({
-  default: {
-    get: vi.fn(),
-    run: vi.fn(),
-    transaction: vi.fn(async (fn) => fn({ get: vi.fn(), run: vi.fn() })),
-  },
-}));
+// db mock. The transaction mock routes tx.get/tx.run to the same top-level
+// mocks, so a test that does `db.get.mockResolvedValueOnce(...)` works the
+// same whether the production code calls `db.get` directly or `tx.get` inside
+// `db.transaction(...)`.
+vi.mock('../db.js', () => {
+  const mock = { get: vi.fn(), run: vi.fn() };
+  mock.transaction = vi.fn(async (fn) => fn({ get: mock.get, run: mock.run }));
+  return { default: mock };
+});
 
 vi.mock('../utils/crypto.js', () => ({
   encrypt: vi.fn((v) => 'encrypted:' + v),

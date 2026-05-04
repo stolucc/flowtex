@@ -105,7 +105,15 @@ export async function registerUser(email, name, password) {
     // existing accounts via response status. We still do a dummy bcrypt to
     // equalize timing between the create-new and skip paths.
     await bcrypt.hash(password, 12);
-    return { id: null, email: normalizedEmail, name: null, alreadyExisted: true };
+    return {
+      id: null,
+      email: normalizedEmail,
+      name: null,
+      totpEnabled: false,
+      isAdmin: false,
+      emailVerified: false,
+      alreadyExisted: true,
+    };
   }
 
   const id = uuid();
@@ -118,7 +126,15 @@ export async function registerUser(email, name, password) {
     safeName,
     password_hash,
   ]);
-  return { id, email: normalizedEmail, name: safeName, totpEnabled: false, isAdmin: false, emailVerified: false };
+  return {
+    id,
+    email: normalizedEmail,
+    name: safeName,
+    totpEnabled: false,
+    isAdmin: false,
+    emailVerified: false,
+    alreadyExisted: false,
+  };
 }
 
 /**
@@ -351,27 +367,35 @@ export async function resetPassword(token, newPassword) {
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
 
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  const resetToken = await db.get(
-    `UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = $1 AND used = FALSE AND expires_at > NOW() RETURNING id, user_id`,
-    [tokenHash],
-  );
-  if (!resetToken) throw Object.assign(new Error('Invalid or expired reset link'), { status: 400 });
 
-  const currentUser = await db.get('SELECT password_hash FROM users WHERE id = $1', [resetToken.user_id]);
-  if (currentUser && (await bcrypt.compare(newPassword, currentUser.password_hash))) {
-    await db.run('UPDATE password_reset_tokens SET used = FALSE WHERE id = $1', [resetToken.id]);
-    throw Object.assign(new Error('New password must be different from your current password'), { status: 400 });
-  }
+  // The whole reset is wrapped in a transaction: if validation fails or any
+  // statement errors, the row stays unused. The earlier flow marked the token
+  // used eagerly with UPDATE…RETURNING and then rolled back via a second
+  // UPDATE, which left a stranded "used" token if the process died between
+  // the two statements.
+  return db.transaction(async (tx) => {
+    const resetToken = await tx.get(
+      `UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = $1 AND used = FALSE AND expires_at > NOW() RETURNING id, user_id`,
+      [tokenHash],
+    );
+    if (!resetToken) throw Object.assign(new Error('Invalid or expired reset link'), { status: 400 });
 
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-  await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, resetToken.user_id]);
-  await db.run('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND id != $2', [
-    resetToken.user_id,
-    resetToken.id,
-  ]);
-  await db.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [resetToken.user_id]);
-  await db.run('DELETE FROM trusted_devices WHERE user_id = $1', [resetToken.user_id]);
-  return resetToken.user_id;
+    const currentUser = await tx.get('SELECT password_hash FROM users WHERE id = $1', [resetToken.user_id]);
+    if (currentUser && (await bcrypt.compare(newPassword, currentUser.password_hash))) {
+      // Throwing rolls the transaction back, so the token remains unused.
+      throw Object.assign(new Error('New password must be different from your current password'), { status: 400 });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await tx.run('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, resetToken.user_id]);
+    await tx.run('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND id != $2', [
+      resetToken.user_id,
+      resetToken.id,
+    ]);
+    await tx.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [resetToken.user_id]);
+    await tx.run('DELETE FROM trusted_devices WHERE user_id = $1', [resetToken.user_id]);
+    return resetToken.user_id;
+  });
 }
 
 /** Change the user's email after verifying their password. */

@@ -168,6 +168,18 @@ describe('_setSaltForTesting guard', () => {
     delete process.env.NODE_ENV;
     expect(() => _setSaltForTesting('any')).toThrow();
   });
+
+  it('rejects undefined and other non-string inputs (only null or non-empty string allowed)', () => {
+    process.env.NODE_ENV = 'test';
+    expect(() => _setSaltForTesting()).toThrow(/non-empty string or null/);
+    expect(() => _setSaltForTesting(undefined)).toThrow(/non-empty string or null/);
+    expect(() => _setSaltForTesting(123)).toThrow(/non-empty string or null/);
+    expect(() => _setSaltForTesting({})).toThrow(/non-empty string or null/);
+    expect(() => _setSaltForTesting('')).toThrow(/non-empty string or null/);
+    // The two valid forms must NOT throw:
+    expect(() => _setSaltForTesting(null)).not.toThrow();
+    expect(() => _setSaltForTesting('valid-salt')).not.toThrow();
+  });
 });
 
 describe('initCrypto', () => {

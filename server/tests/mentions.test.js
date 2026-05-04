@@ -123,14 +123,14 @@ describe('recordMentions', () => {
     expect(params[2]).toBeNull();
   });
 
-  it('truncates snippet to 200 chars + ellipsis when text exceeds 200 chars', async () => {
+  it('caps snippet at 200 chars total (199 + ellipsis) when text exceeds 200 chars', async () => {
     db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
     const long = '@Alice ' + 'x'.repeat(500);
     await recordMentions({
       text: long, commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
     const snippet = db.run.mock.calls[0][1][6];
-    expect(snippet.length).toBe(201);   // 200 + '…'
+    expect(snippet.length).toBe(200);
     expect(snippet.endsWith('…')).toBe(true);
   });
 

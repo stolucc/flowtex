@@ -54,8 +54,15 @@ const BLANK_RE = /^\s*$/;
  * @param {string} macro - '\\TCadd' or '\\TCdel'
  * @returns {string}
  */
-/** Regex matching citation/ref commands that must stay outside TC markup. */
-const CITE_CMD_RE = /\\(?:parencite|textcite|autocite|cite[pt]?|nocite|cite)\{[^}]*\}/g;
+/**
+ * Pattern source for the citation/ref commands that must stay outside TC
+ * markup. We construct a fresh `RegExp` on each `wrapSafe` call rather than
+ * reusing a module-level `/g` regex — sharing a stateful global regex
+ * across calls means a stray `.test()` or `.exec()` that doesn't reset
+ * `lastIndex` silently produces wrong output on the next call. Per-call
+ * construction is a few microseconds slower and impossible to misuse.
+ */
+const CITE_CMD_PATTERN = '\\\\(?:parencite|textcite|autocite|cite[pt]?|nocite|cite)\\{[^}]*\\}';
 
 /**
  * Returns true if every `{` in `text` has a matching `}` (and vice versa),
@@ -77,6 +84,9 @@ export function bracesBalanced(text) {
 export function wrapSafe(text, macro) {
   if (!text) return '';
 
+  // Fresh regex per call — see CITE_CMD_PATTERN comment above.
+  const citeCmdRe = new RegExp(CITE_CMD_PATTERN, 'g');
+
   // Split into lines, accumulate safe runs, flush at boundaries
   const lines = text.split('\n');
   const out = [];
@@ -89,18 +99,21 @@ export function wrapSafe(text, macro) {
     // surrounding LaTeX. Emit unwrapped — the change is still applied (added
     // text appears, deleted text stays in place) but without TC markup.
     if (!bracesBalanced(chunk)) { out.push(chunk); return; }
-    // If no citation commands, wrap the whole chunk
-    if (!CITE_CMD_RE.test(chunk)) { out.push(`${macro}{${chunk}}`); return; }
-    CITE_CMD_RE.lastIndex = 0;
+    // Drive the matcher off exec() alone so we never juggle lastIndex
+    // between test() and exec() on the same regex.
+    citeCmdRe.lastIndex = 0;
     let last = 0;
     let m;
-    while ((m = CITE_CMD_RE.exec(chunk)) !== null) {
+    let foundAny = false;
+    while ((m = citeCmdRe.exec(chunk)) !== null) {
+      foundAny = true;
       const before = chunk.slice(last, m.index);
       if (before && !BLANK_RE.test(before) && bracesBalanced(before)) out.push(`${macro}{${before}}`);
       else if (before) out.push(before);
       out.push(m[0]); // citation command unwrapped
       last = m.index + m[0].length;
     }
+    if (!foundAny) { out.push(`${macro}{${chunk}}`); return; }
     const after = chunk.slice(last);
     if (after && !BLANK_RE.test(after) && bracesBalanced(after)) out.push(`${macro}{${after}}`);
     else if (after) out.push(after);

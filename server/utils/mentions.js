@@ -22,7 +22,9 @@ export async function recordMentions({ text, commentId, replyId, mentionerUserId
     [projectId],
   );
 
-  const snippet = text.length > 200 ? text.slice(0, 200) + '…' : text;
+  // Cap snippet at 200 chars total (199 + ellipsis when truncated) so the
+  // payload never exceeds the database column.
+  const snippet = text.length > 200 ? text.slice(0, 199) + '…' : text;
   const recorded = [];
 
   for (const mention of rawMentions) {
