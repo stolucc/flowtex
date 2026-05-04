@@ -42,14 +42,19 @@ test('seeded session → open project → edit → server has new content', asyn
   // 3. Editor loads — wait for CodeMirror to mount and show seeded content
   await expect(page.locator('.cm-content')).toContainText('Hello FlowTex', { timeout: 15000 });
 
-  // 4. Insert text. Click into the editor, go to end of line, type a marker.
+  // 4. Insert text. Click into the editor and focus it explicitly — a bare
+  // .click() proved unreliable in headless CI (the marker never reached
+  // the DB on Chromium runners). Then go to end of doc and type.
   const marker = `MARKER-${Date.now()}`;
   await page.locator('.cm-content').click();
-  await page.keyboard.press('End');
-  await page.keyboard.type(`\n${marker}\n`);
+  await page.locator('.cm-content').focus();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
+  await page.keyboard.type(`\n${marker}\n`, { delay: 12 });
 
   // 5. Wait past the 1s debounced save in Editor.jsx, then verify DB has it.
-  await page.waitForTimeout(2000);
+  // Bumped from 2s → 4s for CI runners, which are noticeably slower than the
+  // dev machine; the headless click+type sequence can take longer to land.
+  await page.waitForTimeout(4000);
   const r = await pgPool.query('SELECT content FROM files WHERE id = $1', [project.fileId]);
   expect(r.rows[0].content).toContain(marker);
 });

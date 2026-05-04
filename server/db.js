@@ -114,6 +114,8 @@ async function initSchema() {
     );
 
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS compiler TEXT NOT NULL DEFAULT 'pdflatex';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS tex_distribution TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS snapshot_interval_sec INTEGER NOT NULL DEFAULT 30;
 
     CREATE TABLE IF NOT EXISTS files (
       id TEXT PRIMARY KEY,

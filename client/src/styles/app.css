@@ -4195,7 +4195,9 @@ html {
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: var(--text-muted);
+  /* WCAG 2 AA contrast — text-muted (#6c7086) failed against the dark bg
+     in axe; text-secondary (#a6adc8) clears 4.5:1. */
+  color: var(--text-secondary);
   padding: 20px;
 }
 
