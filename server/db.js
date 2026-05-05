@@ -253,22 +253,9 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project ON project_snapshots(project_id, created_at DESC);
 
-    CREATE TABLE IF NOT EXISTS tracked_changes (
-      id TEXT PRIMARY KEY,
-      file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      from_pos INTEGER NOT NULL,
-      to_pos INTEGER NOT NULL,
-      inserted_text TEXT NOT NULL DEFAULT '',
-      deleted_text TEXT NOT NULL DEFAULT '',
-      author_id TEXT REFERENCES users(id),
-      author_name TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      resolved_by TEXT REFERENCES users(id),
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_tracked_changes_file ON tracked_changes(file_id);
-    CREATE INDEX IF NOT EXISTS idx_tracked_changes_project ON tracked_changes(project_id);
+    -- Tracked changes are stored inline in file content as marker
+    -- syntax (see shared/tcMarkers.js) — the legacy tracked_changes
+    -- table was removed during the redesign.
 
     CREATE TABLE IF NOT EXISTS session (
       sid VARCHAR NOT NULL PRIMARY KEY,
@@ -435,9 +422,6 @@ async function initSchema() {
     -- Invitation queries use LOWER(email) + status
     CREATE INDEX IF NOT EXISTS idx_project_invitations_email_lower ON project_invitations(LOWER(email)) WHERE status = 'pending';
 
-    -- Tracked changes filtered by status
-    CREATE INDEX IF NOT EXISTS idx_tracked_changes_file_status ON tracked_changes(file_id, status);
-
     -- TOTP code expiry cleanup
     CREATE INDEX IF NOT EXISTS idx_used_totp_expires ON used_totp_codes(expires_at);
   `);
@@ -465,10 +449,6 @@ function startCleanupJob() {
       await pool.query('DELETE FROM password_reset_tokens WHERE expires_at < NOW()');
       // Expired email verification tokens
       await pool.query('DELETE FROM email_verification_tokens WHERE expires_at < NOW()');
-      // Resolved tracked changes older than 90 days
-      await pool.query(
-        "DELETE FROM tracked_changes WHERE status != 'pending' AND created_at < NOW() - INTERVAL '90 days'",
-      );
       // Project snapshots: keep max 100 per project, delete oldest beyond that
       await pool.query(`
         DELETE FROM project_snapshots WHERE id IN (

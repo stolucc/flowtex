@@ -163,267 +163,8 @@ export function wrapSafe(text, macro) {
 }
 
 /**
- * Resolve a tracked change's position in the file content.
- *
- * Strategy: trust the stored position first. Only fall back to fuzzy
- * windowed search when the text at the stored position doesn't match.
- * This avoids false matches for short strings like "W" or ",".
- */
-export function resolvePosition(content, needle, from, to) {
-  if (!needle) return null;
-
-  // 1. Exact position match — text at stored range matches needle
-  if (from >= 0 && to <= content.length && content.slice(from, to) === needle) {
-    return { from, to };
-  }
-
-  // 2. Exact match at from..from+len (for deletions where to might equal from)
-  const end2 = from + needle.length;
-  if (from >= 0 && end2 <= content.length && content.slice(from, end2) === needle) {
-    return { from, to: end2 };
-  }
-
-  // 3. Fuzzy: windowed search, but scale window to needle length to
-  //    avoid false positives for very short needles
-  const windowSize = Math.max(100, Math.min(600, needle.length * 20));
-  const searchStart = Math.max(0, from - windowSize);
-  const searchEnd = Math.min(content.length, from + windowSize + needle.length);
-  const window = content.substring(searchStart, searchEnd);
-
-  let bestIdx = -1;
-  let bestDist = Infinity;
-  let idx = 0;
-  while (true) {
-    const found = window.indexOf(needle, idx);
-    if (found === -1) break;
-    const absPos = searchStart + found;
-    const dist = Math.abs(absPos - from);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIdx = absPos;
-    }
-    idx = found + 1;
-  }
-
-  return bestIdx >= 0 ? { from: bestIdx, to: bestIdx + needle.length } : null;
-}
-
-/**
- * Inject tracked-change markup into .tex file content.
- *
- * - Insertions → blue wavy underline (matching latexdiff's UNDERLINE style)
- * - Deletions  → red strikethrough (re-inserted at the deletion position)
- *
- * Trusts stored positions first; falls back to fuzzy search only when
- * the text at the stored position doesn't match.
- * Processes changes end-to-start to preserve character positions.
- */
-export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
-  if (!changes.length) return content;
-
-  // Idempotence guard: if the content already shows our TC markup, the stored
-  // change positions are stale relative to the marked-up text — re-applying
-  // would corrupt the file. The pipeline contract is to invalidate the file
-  // cache after every TC pass so the next compile starts from clean DB
-  // content; this check defends against accidental double-invocation.
-  if (visualMarkup && (content.includes('\\TCadd{') || content.includes('\\TCdel{'))) {
-    return content;
-  }
-
-  // Resolve actual positions, then sort
-  const resolved = [];
-  for (const tc of changes) {
-    if (tc.deleted_text) {
-      const pos = resolvePosition(content, tc.deleted_text, tc.from_pos, tc.to_pos);
-      if (pos) {
-        resolved.push({ type: 'del', from: pos.from, to: pos.to, text: tc.deleted_text });
-      }
-    }
-    if (tc.inserted_text) {
-      const pos = resolvePosition(content, tc.inserted_text, tc.from_pos, tc.to_pos);
-      if (pos) {
-        resolved.push({ type: 'ins', from: pos.from, to: pos.to, text: tc.inserted_text });
-      }
-    }
-  }
-
-  // Drop any deletion whose range overlaps a pending insertion — match the
-  // editor's UI rule (buildTcDeleteDecorations also does this). Otherwise
-  // the PDF marks chars as struck that the editor renders as plain inserted
-  // text, so the two views diverge. The most common cause is a phantom
-  // deletion record left behind by a merge-into-insertion race in the
-  // client; the insertion is the user's authentic intent.
-  const insertRanges = resolved.filter((r) => r.type === 'ins').map((r) => ({ from: r.from, to: r.to }));
-  const insertFiltered = resolved.filter((r) => {
-    if (r.type !== 'del') return true;
-    return !insertRanges.some((ir) => r.from < ir.to && r.to > ir.from);
-  });
-
-  // Merge overlapping deletions into their UNION. Two deletion records
-  // targeting overlapping spans (e.g. an old `delete 'Header'` plus a
-  // new `delete 'Header 2'` covering the same region) should mark the
-  // whole combined region — without merging, the dedup loop below would
-  // keep just the first one and the tail of the longer deletion would
-  // render as plain text. The merged text is read straight from the
-  // content slice so it matches what's actually in the file.
-  const dels = insertFiltered.filter((r) => r.type === 'del').sort((a, b) => a.from - b.from || a.to - b.to);
-  const otherTypes = insertFiltered.filter((r) => r.type !== 'del');
-  const mergedDels = [];
-  for (const d of dels) {
-    const last = mergedDels[mergedDels.length - 1];
-    if (last && d.from <= last.to) {
-      // Overlapping or touching — extend.
-      if (d.to > last.to) {
-        last.to = d.to;
-        last.text = content.slice(last.from, last.to);
-      }
-    } else {
-      mergedDels.push({ ...d });
-    }
-  }
-  const allChanges = [...otherTypes, ...mergedDels];
-
-  // Sort by position descending so later edits don't shift earlier positions
-  allChanges.sort((a, b) => {
-    if (b.from !== a.from) return b.from - a.from;
-    // Deletions before insertions at same position
-    return (a.type === 'ins' ? 1 : 0) - (b.type === 'ins' ? 1 : 0);
-  });
-
-  // Deduplicate overlapping ranges (keep first = rightmost). After the
-  // deletion merge above, the only remaining overlap candidates are
-  // insertions vs. deletions at the same boundary, which the
-  // insert-overlap filter already handled.
-  const used = [];
-  const deduped = [];
-  for (const r of allChanges) {
-    const overlaps = used.some((u) => r.from < u.to && r.to > u.from);
-    if (!overlaps) {
-      deduped.push(r);
-      used.push(r);
-    }
-  }
-
-  // Skip changes inside citation/ref command arguments where markup would break
-  const fragile = [];
-  const fragileRe = /\\(?:cite|parencite|textcite|autocite|citep|citet|nocite|ref|eqref|pageref|label|hyperref|url|href)\{[^}]*\}/g;
-  let fm;
-  while ((fm = fragileRe.exec(content)) !== null) {
-    fragile.push({ from: fm.index, to: fm.index + fm[0].length });
-  }
-
-  // Defensive: index every `\command` token (the backslash-prefixed name,
-  // not its argument). A change whose [from, to] lands inside a command
-  // name produces output like `\b\TCdel{e}gin{document}` — broken LaTeX.
-  // Stale positions from out-of-sync pending changes are the most common
-  // way this happens; the change is still tracked, we just don't visualise
-  // it rather than break the document.
-  const controlSequences = [];
-  const csRe = /\\[a-zA-Z@]+/g;
-  let cm;
-  while ((cm = csRe.exec(content)) !== null) {
-    controlSequences.push({ from: cm.index, to: cm.index + cm[0].length });
-  }
-  // Following latexdiff's approach: skip TC markup for changes inside tabular
-  // environments. Structural table commands (\multicolumn, \hline, &, \\, etc.)
-  // break when wrapped in \TCadd/\TCdel. The changes remain tracked in the
-  // database, just not visually marked in the PDF.
-  // Find all tabular/longtable regions in the content
-  const tabularRegions = [];
-  const tabularStartRe = /\\begin\{(?:tabular|longtable|tabularx)\}/g;
-  let tsm;
-  while ((tsm = tabularStartRe.exec(content)) !== null) {
-    const envName = tsm[0].match(/\{(\w+)\}/)[1];
-    const endTag = `\\end{${envName}}`;
-    const endIdx = content.indexOf(endTag, tsm.index);
-    if (endIdx >= 0) {
-      tabularRegions.push({ from: tsm.index, to: endIdx + endTag.length });
-    }
-  }
-
-  // For table-overlapping changes, distinguish structural vs text-only:
-  // - Structural changes (containing &, \\, \hline, \multicolumn, etc.) must be
-  //   accepted silently — wrapping them would break compilation.
-  // - Text-only changes within cells can still get TC markup safely.
-  const TABLE_STRUCTURAL_RE = /(?:^|[^\\])&|\\\\(?:\s*$|\[)|\\(?:hline|cline|toprule|midrule|bottomrule|multicolumn|multirow|begin\{|end\{|caption|arraystretch|renewcommand|rule\{0pt)/;
-
-  const filtered = [];
-  const tableAcceptedDeletions = [];
-  for (const r of deduped) {
-    if (fragile.some(f => r.from >= f.from && r.to <= f.to)) continue;
-    // Skip changes that fall inside a command-name token. We use
-    // containment here, not overlap, so a change that legitimately spans
-    // an argument like `\section{old name}` -> `\section{new name}` is
-    // still wrapped — only changes whose entire range sits inside the
-    // `\foo` token itself get filtered out.
-    if (controlSequences.some(cs => r.from >= cs.from && r.to <= cs.to)) continue;
-    // Use *containment*, not overlap. A change that straddles a tabular
-    // boundary (starts inside, ends outside, or vice-versa) must NOT be
-    // wholesale-removed by the table path — we'd delete content from outside
-    // the table too. Treat such straddling changes as ordinary changes.
-    const inTable = tabularRegions.some(t => r.from >= t.from && r.to <= t.to);
-    if (inTable) {
-      if (TABLE_STRUCTURAL_RE.test(r.text)) {
-        // Structural change — accept silently (remove deletions, keep insertions)
-        if (r.type === 'del') tableAcceptedDeletions.push(r);
-        continue;
-      }
-      // Text-only change in table — safe to mark up
-    }
-    filtered.push(r);
-  }
-
-  let result = content;
-
-  // First, remove table deletions (process end-to-start to preserve positions)
-  tableAcceptedDeletions.sort((a, b) => b.from - a.from);
-  for (const r of tableAcceptedDeletions) {
-    result = result.slice(0, r.from) + result.slice(r.to);
-  }
-
-  // Adjust positions of remaining filtered changes for any table deletions that shifted text
-  // (table deletions before each change reduce its position)
-  for (const r of filtered) {
-    let shift = 0;
-    for (const td of tableAcceptedDeletions) {
-      if (td.from < r.from) shift += (td.to - td.from);
-    }
-    r.from -= shift;
-    r.to -= shift;
-  }
-
-  if (visualMarkup) {
-    for (const r of filtered) {
-      const macro = r.type === 'ins' ? '\\TCadd' : '\\TCdel';
-
-      if (r.type === 'del') {
-        // Deletion: wrap the still-present deleted text, then replace it
-        // (deletion text is kept in document until accepted)
-        const wrapped = wrapSafe(r.text, macro);
-        result = result.slice(0, r.from) + wrapped + result.slice(r.to);
-      } else {
-        // Insertion: wrap the inserted text in-place.
-        // Keep leading/trailing spaces OUTSIDE the macro — LaTeX can drop
-        // spaces at the boundary of \textcolor/group commands.
-        let text = result.slice(r.from, r.to);
-        let prefix = '';
-        let suffix = '';
-        if (text.startsWith(' ')) { prefix = ' '; text = text.slice(1); }
-        if (text.endsWith(' ') && text.length > 0) { suffix = ' '; text = text.slice(0, -1); }
-        const wrapped = text ? wrapSafe(text, macro) : '';
-        result = result.slice(0, r.from) + prefix + wrapped + suffix + result.slice(r.to);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Convert inline tracked-change markers in `content` to LaTeX visual
- * markup macros. The new, recommended path for tracked changes — see
- * `shared/tcMarkers.js` for the marker format. Replaces the
- * position-based applyMarkup whenever the file content carries markers.
+ * markup macros. See `shared/tcMarkers.js` for the marker format.
  *
  * @param {string} content - File content with possibly-embedded markers.
  * @param {object} [options]
@@ -501,29 +242,10 @@ export function ensurePreamble(content) {
  * @returns {Promise<number>} Number of tracked changes processed.
  */
 export async function injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup = true } = {}) {
-  // Two sources of pending changes:
-  //   - Legacy: rows in the `tracked_changes` table (position-based).
-  //   - New:    inline markers embedded in the file content itself.
-  // Process both during the migration window. Once every pending change
-  // has been moved into the file content, the legacy path can be removed.
-  const legacyChanges = await db.all(
-    `SELECT tc.*, f.path AS file_path
-     FROM tracked_changes tc
-     JOIN files f ON f.id = tc.file_id
-     WHERE tc.project_id = $1 AND tc.status = 'pending'
-     ORDER BY tc.from_pos ASC`,
-    [projectId],
-  );
-
-  // Group legacy changes by file path.
-  const legacyByFile = new Map();
-  for (const tc of legacyChanges) {
-    if (!legacyByFile.has(tc.file_path)) legacyByFile.set(tc.file_path, []);
-    legacyByFile.get(tc.file_path).push(tc);
-  }
-
-  // Enumerate every text file in the project (so we can process inline
-  // markers even when there's no row in tracked_changes).
+  // Walk every text file in the project; convert any inline tcMarkers in
+  // the content into LaTeX visual markup (\TCadd / \TCdel) — or strip
+  // them via acceptAll semantics when visualMarkup is false. Files
+  // without markers are skipped entirely.
   const allFiles = await db.all(
     'SELECT path FROM files WHERE project_id = $1 AND is_binary = FALSE',
     [projectId],
@@ -536,24 +258,13 @@ export async function injectTrackedChangeMarkup(projectId, projectDir, { visualM
     if (!fs.existsSync(absPath)) continue;
 
     const original = fs.readFileSync(absPath, 'utf-8');
-    let content = original;
+    if (!original.includes(TC_START)) continue;
 
-    // 1) Legacy position-based pass.
-    const legacy = legacyByFile.get(filePath);
-    if (legacy && legacy.length > 0) {
-      content = applyMarkup(content, legacy, { visualMarkup });
-      count += legacy.length;
-    }
+    const markersInFile = parseMarkers(original);
+    let content = convertMarkersToTexMarkup(original, { visualMarkup });
+    count += markersInFile.length;
 
-    // 2) Inline-marker pass.
-    if (content.includes(TC_START)) {
-      const beforeMarkers = parseMarkers(content);
-      content = convertMarkersToTexMarkup(content, { visualMarkup });
-      count += beforeMarkers.length;
-    }
-
-    // Inject preamble macros into the file that has \documentclass.
-    if (visualMarkup && content.includes('\\documentclass') && content !== original) {
+    if (visualMarkup && content.includes('\\documentclass')) {
       content = ensurePreamble(content);
     }
 

@@ -213,6 +213,15 @@ function skipBracketGroup(text, i, open, close) {
  * commands, math environments, and brace groups.
  * Returns array of { from, to, word } for misspelled words.
  */
+import { TC_START, parseAt as parseTcMarker } from '@shared/tcMarkers.js';
+
+// At a tracked-change marker's leading sentinel, jump the scan cursor
+// past the metadata header so the author name and other fields aren't
+// spellchecked (the editor hides those, so a flagged misspelling there
+// shows only as a gutter dot with no inline underline). The INNER text
+// portion is still scanned normally on the way through — a typo inside
+// an insertion still gets caught. The closing sentinel itself is
+// naturally skipped because it's a non-letter char.
 export function spellcheckText(text, dict) {
   if (!dict) return [];
   const results = [];
@@ -221,6 +230,20 @@ export function spellcheckText(text, dict) {
 
   while (i < len) {
     const ch = text[i];
+
+    // Tracked-change marker: jump past the metadata header so the
+    // hidden author/type/length fields aren't spellchecked. The
+    // marker's INNER text is still scanned normally; the closing
+    // sentinel is a non-letter char so the loop skips it naturally.
+    if (ch === TC_START) {
+      const m = parseTcMarker(text, i);
+      if (m) {
+        i = m.textFrom;
+        continue;
+      }
+      // Stray opening sentinel without a valid marker — fall through
+      // and treat as a plain non-letter char.
+    }
 
     // Skip comments (% to end of line, unless escaped)
     if (ch === '%' && (i === 0 || text[i - 1] !== '\\')) {
