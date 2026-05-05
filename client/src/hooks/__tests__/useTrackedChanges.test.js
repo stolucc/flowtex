@@ -1,142 +1,129 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import { serialize } from '@shared/tcMarkers.js';
 import useTrackedChanges from '../useTrackedChanges.js';
-
-vi.mock('../../api.js', () => ({
-  get: vi.fn(),
-  post: vi.fn(),
-  put: vi.fn(),
-  patch: vi.fn(),
-  del: vi.fn(),
-}));
 
 vi.mock('../../utils/settings.js', () => ({
   getSetting: vi.fn(() => 'false'),
   setSetting: vi.fn(),
 }));
 
-import { get, post, patch } from '../../api.js';
+const FILE = { id: 'file-1', content: '' };
+const USER = { id: 'u1', name: 'Alice' };
 
-const FILE = { id: 'f1' };
-const USER = { id: 'u1' };
-
-let idCounter;
-function jsonRes(body) {
-  return Promise.resolve({ json: () => Promise.resolve(body) });
+/**
+ * Build a fake editorRef whose `getContent()` returns whatever `docTextRef`
+ * currently points to. Tests mutate docTextRef and call refreshFromDoc to
+ * have the hook re-parse the new content.
+ */
+function makeEditorMocks(initialDoc) {
+  const docTextRef = { current: initialDoc };
+  const calls = { applyMarkerResolution: [], applyMarkerResolutionAll: [], goToPosition: [] };
+  const editor = {
+    getContent: () => docTextRef.current,
+    applyMarkerResolution: vi.fn((id, decision) => {
+      calls.applyMarkerResolution.push({ id, decision });
+      return true;
+    }),
+    applyMarkerResolutionAll: vi.fn((decision) => {
+      calls.applyMarkerResolutionAll.push({ decision });
+      return 0;
+    }),
+    goToPosition: vi.fn((pos) => calls.goToPosition.push(pos)),
+  };
+  return { docTextRef, editor, calls };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  idCounter = 0;
-  // Default: no pending TCs already on this file
-  get.mockResolvedValue({ json: () => Promise.resolve([]) });
-  post.mockImplementation((_url, body) => {
-    idCounter += 1;
-    return jsonRes({
-      id: `tc-${idCounter}`,
-      status: 'pending',
-      author_id: USER.id,
-      author_name: 'Test',
-      ...body,
-    });
-  });
-  patch.mockImplementation((_url, body) => jsonRes({ status: 'pending', ...body }));
 });
 
-describe('useTrackedChanges race + dedup', () => {
-  it('synchronously updates trackedChangesRef so a backspace right after a keystroke merges into the just-saved insertion', async () => {
-    const sendWsRef = { current: vi.fn() };
-    const editorRef = { current: null };
-    const { result } = renderHook(() => useTrackedChanges(FILE, USER, sendWsRef, editorRef));
-
-    // Wait for the file-load effect to settle (empty TC list).
-    await waitFor(() => expect(get).toHaveBeenCalled());
-
-    // Fire two changes back-to-back without awaiting between them: an
-    // insertion of 'e' at pos 100, then a backspace deleting that 'e'.
-    // Without the ref-sync fix, the second handler reads a stale
-    // trackedChangesRef and POSTs a separate deletion. With the fix, it
-    // sees the just-POSTed insertion and merges (deleting the insertion).
-    act(() => {
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 100,
-        to_pos: 101,
-        inserted_text: 'e',
-        deleted_text: '',
-      });
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 100,
-        to_pos: 101,
-        inserted_text: '',
-        deleted_text: 'e',
-      });
-    });
-
-    // Let the lock chain drain.
-    await waitFor(() => {
-      expect(post).toHaveBeenCalledTimes(1); // only the insertion was POSTed
-    });
-    // The merge collapsed it back to nothing — the insertion was deleted.
-    await waitFor(() => {
-      expect(result.current.trackedChanges).toHaveLength(0);
-    });
-    // No phantom deletion record.
-    expect(post.mock.calls.find((c) => c[1]?.deleted_text === 'e' && !c[1]?.inserted_text)).toBeUndefined();
+describe('useTrackedChanges (marker-aware)', () => {
+  it('parses no markers when the doc is plain text', () => {
+    const { editor } = makeEditorMocks('hello world');
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    expect(result.current.trackedChanges).toEqual([]);
+    expect(result.current.pendingChanges).toEqual([]);
   });
 
-  it('drops an exact-duplicate pending change (same pos, same text)', async () => {
-    const sendWsRef = { current: vi.fn() };
-    const { result } = renderHook(() => useTrackedChanges(FILE, USER, sendWsRef, { current: null }));
-    await waitFor(() => expect(get).toHaveBeenCalled());
-
-    // Two identical deletion events arrive (e.g., a debounce racing with
-    // a WebSocket echo). Only the first should hit the server.
-    act(() => {
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 50,
-        to_pos: 51,
-        inserted_text: '',
-        deleted_text: 'x',
-      });
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 50,
-        to_pos: 51,
-        inserted_text: '',
-        deleted_text: 'x',
-      });
+  it('parses an ins marker into a tracked change with type-equivalent fields', () => {
+    const m = serialize({ type: 'ins', id: 'a1', author: 'Alice', text: 'hello' });
+    const { editor } = makeEditorMocks(`pre ${m} post`);
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    expect(result.current.trackedChanges).toHaveLength(1);
+    const tc = result.current.trackedChanges[0];
+    expect(tc).toMatchObject({
+      id: 'a1',
+      file_id: 'file-1',
+      status: 'pending',
+      author_name: 'Alice',
+      inserted_text: 'hello',
+      deleted_text: '',
     });
-
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.trackedChanges).toHaveLength(1));
   });
 
-  it('does not dedup distinct deletions at different positions', async () => {
-    const sendWsRef = { current: vi.fn() };
-    const { result } = renderHook(() => useTrackedChanges(FILE, USER, sendWsRef, { current: null }));
-    await waitFor(() => expect(get).toHaveBeenCalled());
-
-    act(() => {
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 50,
-        to_pos: 51,
-        inserted_text: '',
-        deleted_text: 'x',
-      });
-      result.current.handleTrackChange({
-        fileId: FILE.id,
-        from_pos: 60,
-        to_pos: 61,
-        inserted_text: '',
-        deleted_text: 'y',
-      });
+  it('parses a del marker into a tracked change with deleted_text set', () => {
+    const m = serialize({ type: 'del', id: 'd1', author: 'Alice', text: 'gone' });
+    const { editor } = makeEditorMocks(`pre ${m} post`);
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    expect(result.current.trackedChanges[0]).toMatchObject({
+      deleted_text: 'gone',
+      inserted_text: '',
+      author_name: 'Alice',
     });
+  });
 
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(result.current.trackedChanges).toHaveLength(2));
+  it('handleAcceptChange forwards to the editor with decision="accept"', () => {
+    const m = serialize({ type: 'ins', id: 'a1', author: 'Alice', text: 'hello' });
+    const { editor, calls } = makeEditorMocks(m);
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    act(() => {
+      result.current.handleAcceptChange('a1');
+    });
+    expect(calls.applyMarkerResolution).toEqual([{ id: 'a1', decision: 'accept' }]);
+  });
+
+  it('handleRejectChange forwards to the editor with decision="reject"', () => {
+    const m = serialize({ type: 'del', id: 'd1', author: 'Alice', text: 'gone' });
+    const { editor, calls } = makeEditorMocks(m);
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    act(() => {
+      result.current.handleRejectChange('d1');
+    });
+    expect(calls.applyMarkerResolution).toEqual([{ id: 'd1', decision: 'reject' }]);
+  });
+
+  it('handleAcceptAllChanges and handleRejectAllChanges forward to applyMarkerResolutionAll', () => {
+    const { editor, calls } = makeEditorMocks('');
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    act(() => result.current.handleAcceptAllChanges());
+    act(() => result.current.handleRejectAllChanges());
+    expect(calls.applyMarkerResolutionAll).toEqual([{ decision: 'accept' }, { decision: 'reject' }]);
+  });
+
+  it('refreshFromDoc rebuilds the trackedChanges list from the editor doc', () => {
+    const { docTextRef, editor } = makeEditorMocks('');
+    const { result } = renderHook(() =>
+      useTrackedChanges(FILE, USER, { current: vi.fn() }, { current: editor }),
+    );
+    expect(result.current.trackedChanges).toEqual([]);
+    // Doc text changes (in real life: a transaction the editor applied
+    // and which now needs to be reflected in the review-panel list).
+    docTextRef.current = serialize({ type: 'ins', id: 'a1', author: 'Alice', text: 'new' });
+    act(() => result.current.refreshFromDoc());
+    expect(result.current.trackedChanges).toHaveLength(1);
+    expect(result.current.trackedChanges[0].inserted_text).toBe('new');
   });
 });

@@ -122,6 +122,7 @@ function AppInner() {
     setTrackChangesMode,
     trackedChanges,
     setTrackedChanges,
+    refreshFromDoc,
     tcPopup,
     setTcPopup,
     handleTrackChange,
@@ -822,6 +823,7 @@ function AppInner() {
                         ...(deletions ? { deletions } : {}),
                       })
                     }
+                    onDocChange={refreshFromDoc}
                     onCursorChange={(head, anchor) =>
                       sendWsMessage({ type: 'cursor', fileId: activeFile?.id, head, anchor })
                     }

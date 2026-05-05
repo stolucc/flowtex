@@ -65,6 +65,7 @@ import {
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
 import { tcMarkerExtensions } from '../utils/tcMarkerDecorations.js';
 import { buildTcMarkerInputFilter, tcMarkerSkipAnnotation } from '../utils/tcMarkerInput.js';
+import { parseAll as parseTcMarkers } from '@shared/tcMarkers.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 import VisualModeToolbar from './VisualModeToolbar.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
@@ -93,6 +94,7 @@ const Editor = forwardRef(function Editor(
     onSave,
     onLineChange,
     onChanges,
+    onDocChange,
     onCursorChange,
     onCompile,
     onRequestComment,
@@ -400,6 +402,7 @@ const Editor = forwardRef(function Editor(
   const onSaveRef = useRef(onSave);
   const onLineChangeRef = useRef(onLineChange);
   const onChangesRef = useRef(onChanges);
+  const onDocChangeRef = useRef(onDocChange);
   const onCursorChangeRef = useRef(onCursorChange);
   const onCompileRef = useRef(onCompile);
   const onRequestCommentRef = useRef(onRequestComment);
@@ -427,6 +430,7 @@ const Editor = forwardRef(function Editor(
   onSaveRef.current = onSave;
   onLineChangeRef.current = onLineChange;
   onChangesRef.current = onChanges;
+  onDocChangeRef.current = onDocChange;
   onCursorChangeRef.current = onCursorChange;
   onCompileRef.current = onCompile;
   onRequestCommentRef.current = onRequestComment;
@@ -647,6 +651,55 @@ const Editor = forwardRef(function Editor(
       } finally {
         isResolvingTc.current = false;
       }
+    },
+    /**
+     * Resolve a single inline-marker tracked change by id. Replaces the
+     * marker's range in the doc with either its inner text (kept) or
+     * empty (dropped), depending on the marker type and decision:
+     *   accept(ins) | reject(del)  →  keep inner text
+     *   accept(del) | reject(ins)  →  drop the whole marker
+     * Tagged with tcMarkerSkipAnnotation so the input filter doesn't
+     * re-wrap the dispatched change as a new tracked change.
+     */
+    applyMarkerResolution(markerId, decision) {
+      const view = viewRef.current;
+      if (!view) return false;
+      const docText = view.state.doc.toString();
+      const markers = parseTcMarkers(docText);
+      const m = markers.find((mk) => mk.id === markerId);
+      if (!m) return false;
+      const keep =
+        (m.type === 'ins' && decision === 'accept') ||
+        (m.type === 'del' && decision === 'reject');
+      const replacement = keep ? m.text : '';
+      view.dispatch({
+        changes: { from: m.from, to: m.to, insert: replacement },
+        annotations: tcMarkerSkipAnnotation.of(true),
+      });
+      return true;
+    },
+    /** Apply the same decision to every pending marker in the doc. */
+    applyMarkerResolutionAll(decision) {
+      const view = viewRef.current;
+      if (!view) return 0;
+      const docText = view.state.doc.toString();
+      const markers = parseTcMarkers(docText);
+      if (markers.length === 0) return 0;
+      // Walk in REVERSE document order so each replacement doesn't shift
+      // the positions of yet-to-process markers.
+      const sorted = [...markers].sort((a, b) => b.from - a.from);
+      const changes = sorted.map((m) => {
+        const keep =
+          (m.type === 'ins' && decision === 'accept') ||
+          (m.type === 'del' && decision === 'reject');
+        return { from: m.from, to: m.to, insert: keep ? m.text : '' };
+      });
+      view.dispatch({
+        changes,
+        annotations: tcMarkerSkipAnnotation.of(true),
+        sequential: false,
+      });
+      return markers.length;
     },
     getTopForPos(pos) {
       const view = viewRef.current;
@@ -1353,6 +1406,11 @@ const Editor = forwardRef(function Editor(
           }
 
           if (update.docChanged) {
+            // Notify the marker-aware tracked-changes hook that the doc
+            // moved. Fires for ALL doc-changed transactions (local typing,
+            // remote OT, accept/reject) so the review-panel marker list
+            // stays in sync. Cheap — the receiver re-parses markers in O(n).
+            onDocChangeRef.current?.();
             // Map every pending TC's live position through this transaction.
             // Cheap (a few mapPos calls) and crucial: without it, a TC's
             // stored from_pos drifts as the document evolves, so on save
