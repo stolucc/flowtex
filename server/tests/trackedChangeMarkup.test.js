@@ -26,7 +26,9 @@ import {
   applyMarkup,
   ensurePreamble,
   injectTrackedChangeMarkup,
+  convertMarkersToTexMarkup,
 } from '../utils/trackedChangeMarkup.js';
+import { serialize as serializeMarker } from '../../shared/tcMarkers.js';
 
 describe('buildPreamble', () => {
   it('emits both \\RequirePackage lines when neither package is loaded', () => {
@@ -538,13 +540,72 @@ describe('applyMarkup', () => {
   });
 });
 
+// ─── New marker-based path ─────────────────────────────────────────────
+
+describe('convertMarkersToTexMarkup', () => {
+  const ins = (id, text) => serializeMarker({ type: 'ins', id, author: 'u1', text });
+  const del = (id, text) => serializeMarker({ type: 'del', id, author: 'u1', text });
+
+  it('returns content unchanged when no markers are present', () => {
+    expect(convertMarkersToTexMarkup('plain content')).toBe('plain content');
+  });
+
+  it('replaces an insertion marker with \\TCadd{...}', () => {
+    const out = convertMarkersToTexMarkup(`hi ${ins('a', 'world')}`);
+    expect(out).toBe('hi \\TCadd{world}');
+  });
+
+  it('replaces a deletion marker with \\TCdel{...}', () => {
+    const out = convertMarkersToTexMarkup(`hi ${del('a', 'gone')} foo`);
+    expect(out).toBe('hi \\TCdel{gone} foo');
+  });
+
+  it('handles adjacent insertion + deletion (replace operation)', () => {
+    const content = `Header 1 & ${ins('i1', 'eee')}${del('d1', 'Header 2')} & Header 3`;
+    const out = convertMarkersToTexMarkup(content);
+    expect(out).toBe('Header 1 & \\TCadd{eee}\\TCdel{Header 2} & Header 3');
+  });
+
+  it('preserves leading/trailing spaces of insertions OUTSIDE the macro', () => {
+    const content = `a${ins('a', ' x ')}b`;
+    const out = convertMarkersToTexMarkup(content);
+    expect(out).toBe('a \\TCadd{x} b');
+  });
+
+  it('drops the marker entirely when its insertion text is just whitespace', () => {
+    const content = `a${ins('a', '   ')}b`;
+    const out = convertMarkersToTexMarkup(content);
+    expect(out).toBe('a   b');
+  });
+
+  it('strips markers in visualMarkup=false (acceptAll semantics)', () => {
+    const content = `pre ${ins('a', 'NEW')}${del('b', 'OLD')} post`;
+    expect(convertMarkersToTexMarkup(content, { visualMarkup: false }))
+      .toBe('pre NEW post');
+  });
+
+  it('processes markers right-to-left so positions never collide', () => {
+    const content = `${ins('a', 'X')} mid ${ins('b', 'Y')}`;
+    expect(convertMarkersToTexMarkup(content)).toBe('\\TCadd{X} mid \\TCadd{Y}');
+  });
+});
+
 describe('injectTrackedChangeMarkup', () => {
+  // injectTrackedChangeMarkup runs TWO db.all queries:
+  //   1. legacy `tracked_changes` rows for this project,
+  //   2. every text file in the project (so it can scan for inline markers).
+  // Helper that queues both in the right order.
+  function mockLegacyAndFiles(legacy, files) {
+    db.all.mockResolvedValueOnce(legacy);
+    db.all.mockResolvedValueOnce(files);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns 0 and writes nothing when no pending changes exist', async () => {
-    db.all.mockResolvedValueOnce([]);
+  it('returns 0 and writes nothing when no legacy or marker changes exist', async () => {
+    mockLegacyAndFiles([], []);
     const n = await injectTrackedChangeMarkup('p1', '/tmp/proj');
     expect(n).toBe(0);
     expect(fsMocks.writeFileSync).not.toHaveBeenCalled();
@@ -552,9 +613,10 @@ describe('injectTrackedChangeMarkup', () => {
   });
 
   it('skips files that do not exist on disk', async () => {
-    db.all.mockResolvedValueOnce([
-      { file_path: 'main.tex', file_id: 'f1', inserted_text: 'x', from_pos: 0, to_pos: 1, project_id: 'p1' },
-    ]);
+    mockLegacyAndFiles(
+      [{ file_path: 'main.tex', file_id: 'f1', inserted_text: 'x', from_pos: 0, to_pos: 1, project_id: 'p1' }],
+      [{ path: 'main.tex' }],
+    );
     fsMocks.existsSync.mockReturnValue(false);
     const n = await injectTrackedChangeMarkup('p1', '/tmp/proj');
     expect(n).toBe(0);
@@ -562,9 +624,10 @@ describe('injectTrackedChangeMarkup', () => {
   });
 
   it('writes back the modified content and invalidates the file cache', async () => {
-    db.all.mockResolvedValueOnce([
-      { file_path: 'main.tex', file_id: 'f1', inserted_text: 'world', from_pos: 6, to_pos: 11, project_id: 'p1' },
-    ]);
+    mockLegacyAndFiles(
+      [{ file_path: 'main.tex', file_id: 'f1', inserted_text: 'world', from_pos: 6, to_pos: 11, project_id: 'p1' }],
+      [{ path: 'main.tex' }],
+    );
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.readFileSync.mockReturnValue('hello world');
     const n = await injectTrackedChangeMarkup('p1', '/tmp/proj');
@@ -575,27 +638,30 @@ describe('injectTrackedChangeMarkup', () => {
     expect(invalidateFile).toHaveBeenCalledWith('p1', 'main.tex');
   });
 
-  it('groups changes by file path so each file is written exactly once', async () => {
-    db.all.mockResolvedValueOnce([
-      { file_path: 'a.tex', inserted_text: 'x', from_pos: 0, to_pos: 1 },
-      { file_path: 'a.tex', inserted_text: 'y', from_pos: 2, to_pos: 3 },
-      { file_path: 'b.tex', inserted_text: 'z', from_pos: 0, to_pos: 1 },
-    ]);
+  it('processes each file once, even with multiple legacy changes', async () => {
+    mockLegacyAndFiles(
+      [
+        { file_path: 'a.tex', inserted_text: 'x', from_pos: 0, to_pos: 1 },
+        { file_path: 'a.tex', inserted_text: 'y', from_pos: 2, to_pos: 3 },
+        { file_path: 'b.tex', inserted_text: 'z', from_pos: 0, to_pos: 1 },
+      ],
+      [{ path: 'a.tex' }, { path: 'b.tex' }],
+    );
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.readFileSync.mockImplementation((p) => {
       if (p.endsWith('a.tex')) return 'x y';
       return 'z';
     });
     await injectTrackedChangeMarkup('p1', '/tmp/proj');
-    // 2 unique files → 2 writes
     expect(fsMocks.writeFileSync).toHaveBeenCalledTimes(2);
     expect(invalidateFile).toHaveBeenCalledTimes(2);
   });
 
   it('only injects preamble into files that contain \\documentclass', async () => {
-    db.all.mockResolvedValueOnce([
-      { file_path: 'main.tex', inserted_text: 'x', from_pos: 0, to_pos: 1 },
-    ]);
+    mockLegacyAndFiles(
+      [{ file_path: 'main.tex', inserted_text: 'x', from_pos: 0, to_pos: 1 }],
+      [{ path: 'main.tex' }],
+    );
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.readFileSync.mockReturnValue('no documentclass here, just x');
     await injectTrackedChangeMarkup('p1', '/tmp/proj');
@@ -603,23 +669,41 @@ describe('injectTrackedChangeMarkup', () => {
     expect(written).not.toContain('\\providecommand{\\TCadd}');
   });
 
-  it('does not inject preamble when visualMarkup=false', async () => {
-    db.all.mockResolvedValueOnce([
-      { file_path: 'main.tex', inserted_text: 'x', from_pos: 0, to_pos: 1 },
-    ]);
+  it('does not inject preamble when visualMarkup=false (markers are stripped instead)', async () => {
+    const ins = (id, text) => serializeMarker({ type: 'ins', id, author: 'u1', text });
+    mockLegacyAndFiles([], [{ path: 'main.tex' }]);
     fsMocks.existsSync.mockReturnValue(true);
-    fsMocks.readFileSync.mockReturnValue('\\documentclass{article}\\begin{document}x\\end{document}');
+    fsMocks.readFileSync.mockReturnValue(
+      `\\documentclass{article}\\begin{document}hi ${ins('a', 'world')}\\end{document}`,
+    );
     await injectTrackedChangeMarkup('p1', '/tmp/proj', { visualMarkup: false });
+    expect(fsMocks.writeFileSync).toHaveBeenCalledTimes(1);
     const written = fsMocks.writeFileSync.mock.calls[0][1];
+    // visualMarkup=false: the marker is replaced by its text (acceptAll
+    // semantics) and no preamble is injected.
+    expect(written).toContain('hi world');
     expect(written).not.toContain('\\providecommand{\\TCadd}');
+    expect(written).not.toContain('\\TCadd{world}');
   });
 
   it('queries pending changes for the given project', async () => {
-    db.all.mockResolvedValueOnce([]);
+    mockLegacyAndFiles([], []);
     await injectTrackedChangeMarkup('proj-42', '/tmp/proj');
     const [sql, params] = db.all.mock.calls[0];
     expect(sql).toContain("status = 'pending'");
     expect(sql).toContain('project_id = $1');
     expect(params).toEqual(['proj-42']);
+  });
+
+  it('processes inline markers in a file even when the file has no legacy DB entries', async () => {
+    const ins = (id, text) => serializeMarker({ type: 'ins', id, author: 'u1', text });
+    mockLegacyAndFiles([], [{ path: 'main.tex' }]);
+    fsMocks.existsSync.mockReturnValue(true);
+    fsMocks.readFileSync.mockReturnValue(`\\documentclass{article}\\begin{document}hi ${ins('a', 'world')}\\end{document}`);
+    await injectTrackedChangeMarkup('p1', '/tmp/proj');
+    expect(fsMocks.writeFileSync).toHaveBeenCalledTimes(1);
+    const written = fsMocks.writeFileSync.mock.calls[0][1];
+    expect(written).toContain('\\TCadd{world}');
+    expect(written).toContain('\\providecommand{\\TCadd}');
   });
 });

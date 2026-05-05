@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import db from '../db.js';
 import { invalidateFile } from '../compiler.js';
+import {
+  TC_START,
+  parseAll as parseMarkers,
+  acceptAll as acceptAllMarkers,
+} from '../../shared/tcMarkers.js';
 
 /**
  * Build the preamble snippet, skipping package loads that already exist.
@@ -415,6 +420,59 @@ export function applyMarkup(content, changes, { visualMarkup = true } = {}) {
 }
 
 /**
+ * Convert inline tracked-change markers in `content` to LaTeX visual
+ * markup macros. The new, recommended path for tracked changes — see
+ * `shared/tcMarkers.js` for the marker format. Replaces the
+ * position-based applyMarkup whenever the file content carries markers.
+ *
+ * @param {string} content - File content with possibly-embedded markers.
+ * @param {object} [options]
+ * @param {boolean} [options.visualMarkup=true] - When false, the markers
+ *   are stripped via acceptAll (insertions kept as plain text, deletions
+ *   removed) — i.e. compile the document as if every pending change had
+ *   been accepted, with no preamble or coloured macros.
+ * @returns {string} The content with markers replaced.
+ */
+export function convertMarkersToTexMarkup(content, { visualMarkup = true } = {}) {
+  if (!content || !content.includes(TC_START)) return content;
+  if (!visualMarkup) return acceptAllMarkers(content);
+
+  // Walk the markers in REVERSE document order so each replacement
+  // doesn't shift positions of yet-to-process markers.
+  const markers = parseMarkers(content);
+  if (markers.length === 0) return content;
+
+  let result = content;
+  for (let i = markers.length - 1; i >= 0; i--) {
+    const m = markers[i];
+    const macro = m.type === 'ins' ? '\\TCadd' : '\\TCdel';
+
+    // Same wrap-around-citations and structural-line splitting as the
+    // legacy path. Markers placed by the editor in TC mode never sit
+    // inside fragile arguments because the editor is responsible for not
+    // placing them there, but defensively wrap with wrapSafe so a
+    // marker that contains a structural construct still produces
+    // compilable output.
+    let wrapped;
+    if (m.type === 'ins') {
+      // Preserve leading/trailing whitespace OUTSIDE the macro — LaTeX
+      // can drop spaces at the boundary of textcolor groups.
+      let text = m.text;
+      let prefix = '';
+      let suffix = '';
+      if (text.startsWith(' ')) { prefix = ' '; text = text.slice(1); }
+      if (text.endsWith(' ') && text.length > 0) { suffix = ' '; text = text.slice(0, -1); }
+      wrapped = prefix + (text ? wrapSafe(text, macro) : '') + suffix;
+    } else {
+      wrapped = wrapSafe(m.text, macro);
+    }
+    result = result.slice(0, m.from) + wrapped + result.slice(m.to);
+  }
+
+  return result;
+}
+
+/**
  * Inject TC preamble into the document.
  * Inserts right before \begin{document} to avoid option clashes with
  * user-loaded packages.
@@ -443,7 +501,12 @@ export function ensurePreamble(content) {
  * @returns {Promise<number>} Number of tracked changes processed.
  */
 export async function injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup = true } = {}) {
-  const changes = await db.all(
+  // Two sources of pending changes:
+  //   - Legacy: rows in the `tracked_changes` table (position-based).
+  //   - New:    inline markers embedded in the file content itself.
+  // Process both during the migration window. Once every pending change
+  // has been moved into the file content, the legacy path can be removed.
+  const legacyChanges = await db.all(
     `SELECT tc.*, f.path AS file_path
      FROM tracked_changes tc
      JOIN files f ON f.id = tc.file_id
@@ -452,34 +515,55 @@ export async function injectTrackedChangeMarkup(projectId, projectDir, { visualM
     [projectId],
   );
 
-  if (!changes.length) return 0;
-
-  // Group by file path
-  const byFile = new Map();
-  for (const tc of changes) {
-    if (!byFile.has(tc.file_path)) byFile.set(tc.file_path, []);
-    byFile.get(tc.file_path).push(tc);
+  // Group legacy changes by file path.
+  const legacyByFile = new Map();
+  for (const tc of legacyChanges) {
+    if (!legacyByFile.has(tc.file_path)) legacyByFile.set(tc.file_path, []);
+    legacyByFile.get(tc.file_path).push(tc);
   }
 
+  // Enumerate every text file in the project (so we can process inline
+  // markers even when there's no row in tracked_changes).
+  const allFiles = await db.all(
+    'SELECT path FROM files WHERE project_id = $1 AND is_binary = FALSE',
+    [projectId],
+  );
+
   let count = 0;
-  for (const [filePath, fileChanges] of byFile) {
+  for (const fileRow of allFiles) {
+    const filePath = fileRow.path;
     const absPath = path.join(projectDir, filePath);
     if (!fs.existsSync(absPath)) continue;
 
-    let content = fs.readFileSync(absPath, 'utf-8');
-    content = applyMarkup(content, fileChanges, { visualMarkup });
+    const original = fs.readFileSync(absPath, 'utf-8');
+    let content = original;
 
-    // Inject preamble macros into the file that has \documentclass
-    if (visualMarkup && content.includes('\\documentclass')) {
+    // 1) Legacy position-based pass.
+    const legacy = legacyByFile.get(filePath);
+    if (legacy && legacy.length > 0) {
+      content = applyMarkup(content, legacy, { visualMarkup });
+      count += legacy.length;
+    }
+
+    // 2) Inline-marker pass.
+    if (content.includes(TC_START)) {
+      const beforeMarkers = parseMarkers(content);
+      content = convertMarkersToTexMarkup(content, { visualMarkup });
+      count += beforeMarkers.length;
+    }
+
+    // Inject preamble macros into the file that has \documentclass.
+    if (visualMarkup && content.includes('\\documentclass') && content !== original) {
       content = ensurePreamble(content);
     }
 
-    fs.writeFileSync(absPath, content);
-    // This file on disk now diverges from the DB-content hash that
-    // syncFilesToDisk caches; invalidate just this entry so the next compile
-    // re-writes clean content here without churning the rest of the project.
-    invalidateFile(projectId, filePath);
-    count += fileChanges.length;
+    if (content !== original) {
+      fs.writeFileSync(absPath, content);
+      // The file on disk diverges from the DB-content hash that
+      // syncFilesToDisk caches; invalidate this entry so the next
+      // compile starts from clean DB content without churning siblings.
+      invalidateFile(projectId, filePath);
+    }
   }
 
   return count;
