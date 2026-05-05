@@ -122,16 +122,14 @@ export default function useProject(user) {
 
   // File operations
   const handleSave = useCallback(
-    async (content, tcPositions, fileId) => {
+    async (content, fileId) => {
       // Caller may pass an explicit fileId. The editor *must* do this for
       // debounced saves and file-switch flushes — otherwise this falls back
       // to whichever file is *currently* active, which can race the user's
       // file switch and save the old file's text to the new file's id.
       const targetId = fileId ?? activeFile?.id;
       if (!targetId) return;
-      const body = { content };
-      if (Array.isArray(tcPositions) && tcPositions.length > 0) body.tcPositions = tcPositions;
-      await put(`/api/projects/files/${targetId}`, body);
+      await put(`/api/projects/files/${targetId}`, { content });
       setActiveFile((f) => (f?.id === targetId ? { ...f, content } : f));
       setFiles((fs) => fs.map((f) => (f.id === targetId ? { ...f, content } : f)));
     },

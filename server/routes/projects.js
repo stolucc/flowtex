@@ -501,13 +501,13 @@ router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
   }
 });
 
-/** PUT /api/projects/files/:fileId -- Update a file's content (and optionally tracked-change positions). */
+/** PUT /api/projects/files/:fileId -- Update a file's content. */
 router.put('/files/:fileId', async (req, res) => {
-  const { content, tcPositions } = req.body;
+  const { content } = req.body;
   if (content && content.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 10MB)' });
   const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
   if (access.error) return res.status(access.status).json({ error: access.error });
-  const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId, tcPositions);
+  const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId);
   if (result.newSnapshot) {
     req.app.locals.broadcastToRoom?.(result.projectId, { type: 'history_update', authorName: result.authorName });
   }

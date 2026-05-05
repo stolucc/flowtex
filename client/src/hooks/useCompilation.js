@@ -55,7 +55,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     if (fileAtStart) {
       const currentContent = editorRef.current?.getContent();
       if (currentContent != null) {
-        await handleSave(currentContent, undefined, fileAtStart.id);
+        await handleSave(currentContent, fileAtStart.id);
       }
     }
     setCompiling(true);

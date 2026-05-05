@@ -1349,12 +1349,11 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
-/** Save file content, update tracked-change positions, and create a snapshot if due. */
-export async function updateFileContent(fileId, content, userId, tcPositions) {
+/** Save file content and create a snapshot if due. */
+export async function updateFileContent(fileId, content, userId) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
-  const hasTcUpdates = Array.isArray(tcPositions) && tcPositions.length > 0;
-  if (file.content === content && !hasTcUpdates) return { ok: true, newSnapshot: false };
+  if (file.content === content) return { ok: true, newSnapshot: false };
 
   const user = userId ? await db.get('SELECT id, name FROM users WHERE id = $1', [userId]) : null;
   const authorId = user?.id || null;
@@ -1364,18 +1363,6 @@ export async function updateFileContent(fileId, content, userId, tcPositions) {
   await db.transaction(async (tx) => {
     await tx.run('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2', [content, file.id]);
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
-
-    // Atomically update tracked change positions so DB stays consistent with saved content
-    if (Array.isArray(tcPositions)) {
-      for (const tc of tcPositions) {
-        if (tc.id && typeof tc.from_pos === 'number' && typeof tc.to_pos === 'number') {
-          await tx.run(
-            'UPDATE tracked_changes SET from_pos = $1, to_pos = $2 WHERE id = $3 AND file_id = $4 AND status = $5',
-            [tc.from_pos, tc.to_pos, tc.id, fileId, 'pending'],
-          );
-        }
-      }
-    }
 
     const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [file.project_id]);
     const intervalSec = proj?.snapshot_interval_sec || 30;

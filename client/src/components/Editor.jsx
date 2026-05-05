@@ -33,8 +33,6 @@ import {
   trackedChangesField,
   setTcDeletesEffect,
   tcDeletesField,
-  isPosInDeletion,
-  isPosInInsertion,
   tcInsertGutterField,
   tcDeleteGutterField,
   tcInsertGutterExtension,
@@ -996,15 +994,10 @@ const Editor = forwardRef(function Editor(
               // Track changes are now produced inline as content markers by
               // the buildTcMarkerInputFilter transaction filter. The doc
               // changes that reach this listener already CONTAIN the
-              // marker syntax, so we skip the legacy "buffer for POST +
-              // add immediate decoration" pass — it would double-decorate
-              // the marker metadata and create a phantom DB row.
-              // OT broadcast still fires unconditionally; collaborators
-              // receive the doc text including the marker and apply it
-              // verbatim.
-              const dels = pendingTcDeletions.current;
-              pendingTcDeletions.current = null;
-              onChangesRef.current?.(changes, /* isTracked= */ false, dels);
+              // marker syntax, so OT broadcast just sends the text
+              // verbatim — collaborators receive marker syntax and apply
+              // it like any other character.
+              onChangesRef.current?.(changes, /* isTracked= */ false);
             }
 
             const content = update.state.doc.toString();
@@ -1014,7 +1007,7 @@ const Editor = forwardRef(function Editor(
             // the debounced save will still target the original file.
             const fileIdAtEdit = file?.id;
             saveTimeout.current = setTimeout(() => {
-              onSaveRef.current(content, computeTcPositions(content), fileIdAtEdit);
+              onSaveRef.current(content, fileIdAtEdit);
             }, 1000);
 
             // Hide comment button if doc changed
@@ -1115,7 +1108,7 @@ const Editor = forwardRef(function Editor(
               run: (view) => {
                 clearTimeout(saveTimeout.current);
                 const content = view.state.doc.toString();
-                onSaveRef.current(content, computeTcPositions(content), file?.id);
+                onSaveRef.current(content, file?.id);
                 onCompileRef.current?.();
                 return true;
               },
@@ -1565,7 +1558,7 @@ const Editor = forwardRef(function Editor(
         const v = viewRef.current;
         if (v) {
           const content = v.state.doc.toString();
-          onSaveRef.current?.(content, computeTcPositions(content), file?.id);
+          onSaveRef.current?.(content, file?.id);
         }
       }
     };
@@ -1611,8 +1604,6 @@ const Editor = forwardRef(function Editor(
       clearTimeout(lintTimeout.current);
       clearTimeout(spellTimeout.current);
       clearTimeout(errorHighlightTimer.current);
-      clearTimeout(tcInsertTimer.current);
-      clearTimeout(tcDelTimer.current);
       clearTimeout(tableBuilderUpdateTimeout.current);
       // eslint-disable-next-line react-hooks/exhaustive-deps
       clearTimeout(figureBuilderUpdateTimeout.current);

@@ -3,7 +3,7 @@
 // (verify/reset/setup/disable/etc.) plus mutation-killing boundary tests
 // for the partially-covered ones, so the original file stays focused on
 // the core auth flow.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 
 // db mock. The transaction mock routes tx.get/tx.run to the same top-level

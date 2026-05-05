@@ -121,7 +121,6 @@ function AppInner() {
     trackChangesMode,
     setTrackChangesMode,
     trackedChanges,
-    setTrackedChanges,
     refreshFromDoc,
     tcPopup,
     setTcPopup,
@@ -153,7 +152,7 @@ function AppInner() {
     typingUsers,
     sendWsMessage,
     wsConnected,
-  } = useWebSocket(user, project, activeFileRef, { setComments, setTrackedChanges, setHistoryVersion });
+  } = useWebSocket(user, project, activeFileRef, { setComments, setHistoryVersion });
 
   sendWsRef.current = sendWsMessage;
 
@@ -217,8 +216,6 @@ function AppInner() {
     files,
     activeFile,
     switchFile,
-    trackedChanges,
-    setTrackedChanges,
     setFiles,
     setActiveFile,
     editorRef,
@@ -645,7 +642,7 @@ function AppInner() {
                           editorRef.current?.replaceContent?.(pretty);
                         }
                       }, 100);
-                      handleSave(pretty, undefined, file.id);
+                      handleSave(pretty, file.id);
                     }}
                     onCollapse={() => ui.setShowFiles(false)}
                   />

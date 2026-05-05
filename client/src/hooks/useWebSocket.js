@@ -15,7 +15,7 @@ export default function useWebSocket(
   user,
   project,
   activeFileRef,
-  { setComments, setTrackedChanges, setHistoryVersion },
+  { setComments, setHistoryVersion },
 ) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState({});
@@ -102,7 +102,7 @@ export default function useWebSocket(
         reconnectTimer.current = setTimeout(connect, delay);
       }
     };
-  }, [user, activeFileRef, setComments, setHistoryVersion, setTrackedChanges]);
+  }, [user, activeFileRef, setComments, setHistoryVersion]);
 
   // Connect WS when user is logged in (even without a project, for invitations etc.)
   useEffect(() => {

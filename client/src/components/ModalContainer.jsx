@@ -217,7 +217,7 @@ export default function ModalContainer({
             file={activeFile}
             onClose={() => ui.setShowBibEnrich(false)}
             onApply={(newContent) => {
-              handleSave(newContent, undefined, activeFile.id);
+              handleSave(newContent, activeFile.id);
               setFiles((prev) => prev.map((f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
               setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
             }}

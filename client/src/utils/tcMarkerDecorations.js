@@ -12,7 +12,7 @@
 // (i.e. converting keystrokes into markers) is the input layer's job —
 // see useTrackedChanges + Editor input handling.
 import { Decoration, EditorView } from '@codemirror/view';
-import { StateField, EditorState, RangeSet, RangeSetBuilder } from '@codemirror/state';
+import { StateField, RangeSet, RangeSetBuilder } from '@codemirror/state';
 import { parseAll, TC_START } from '@shared/tcMarkers.js';
 
 // Hide a span entirely. `inclusive: true` so cursor motions skip past

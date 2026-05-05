@@ -9,8 +9,6 @@ export default function useEditorActions({
   files,
   activeFile,
   switchFile,
-  trackedChanges,
-  setTrackedChanges,
   setFiles,
   setActiveFile,
   editorRef,
@@ -43,7 +41,7 @@ export default function useEditorActions({
       // Trigger recompile since file content changed on the server
       handleCompile?.();
     },
-    [files, switchFile, trackedChanges, handleCompile, setFiles, setTrackedChanges],
+    [files, switchFile, handleCompile, setFiles],
   );
 
   const handleSyncForward = useCallback(async () => {

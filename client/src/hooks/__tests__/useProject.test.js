@@ -104,30 +104,7 @@ describe('useProject', () => {
     expect(result.current.files[0].content).toBe('new content');
   });
 
-  it('handleSave includes tcPositions when provided', async () => {
-    put.mockResolvedValue({});
-    const file = { id: 'f1', path: 'main.tex', content: 'old' };
-    get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([file]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
-    });
-
-    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
-    act(() => {
-      result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' });
-    });
-    await waitFor(() => expect(result.current.activeFile).not.toBeNull());
-
-    const tcPositions = [{ from: 0, to: 5 }];
-    await act(async () => {
-      await result.current.handleSave('new', tcPositions);
-    });
-
-    expect(put).toHaveBeenCalledWith('/api/projects/files/f1', { content: 'new', tcPositions });
-  });
-
-  it('handleSave honours explicit fileId so a debounced save targets the original file even after the active file changes', async () => {
+it('handleSave honours explicit fileId so a debounced save targets the original file even after the active file changes', async () => {
     // Regression test for a data-loss bug: a 1-second debounced save
     // captured the editor's content but resolved the target file from
     // React's `activeFile`. Switching files within the debounce window
@@ -150,7 +127,7 @@ describe('useProject', () => {
     // User switches to main.tex *before* the bib's debounced save fires.
     act(() => { result.current.switchFile(f2); });
     await act(async () => {
-      await result.current.handleSave('formatted bib content', undefined, f1.id);
+      await result.current.handleSave('formatted bib content', f1.id);
     });
 
     expect(put).toHaveBeenCalledWith('/api/projects/files/f1', { content: 'formatted bib content' });
