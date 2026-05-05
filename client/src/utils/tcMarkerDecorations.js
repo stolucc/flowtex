@@ -11,7 +11,7 @@
 // The extension is purely presentational. Recording new tracked changes
 // (i.e. converting keystrokes into markers) is the input layer's job —
 // see useTrackedChanges + Editor input handling.
-import { Decoration, EditorView, keymap } from '@codemirror/view';
+import { Decoration, EditorView, keymap, gutter, GutterMarker } from '@codemirror/view';
 import { StateField, RangeSet, RangeSetBuilder, Prec } from '@codemirror/state';
 import { parseAll, TC_START } from '@shared/tcMarkers.js';
 
@@ -178,7 +178,83 @@ const tcMarkerArrowKeymap = Prec.high(
   ]),
 );
 
+// Gutter markers — one dot per line that contains a tracked-change
+// marker. Built directly from parseAll so the dots can never drift.
+
+class TcInsertGutterMarker extends GutterMarker {
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'cm-tc-gutter-insert';
+    return el;
+  }
+}
+class TcDeleteGutterMarker extends GutterMarker {
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'cm-tc-gutter-delete';
+    return el;
+  }
+}
+const tcInsertMarkerInstance = new TcInsertGutterMarker();
+const tcDeleteMarkerInstance = new TcDeleteGutterMarker();
+
+function buildGutterMarkers(state, type) {
+  const docText = state.doc.toString();
+  if (!docText.includes(TC_START)) return RangeSet.empty;
+  const markers = parseAll(docText);
+  if (markers.length === 0) return RangeSet.empty;
+  // One dot per line; collect distinct line starts so two markers on
+  // the same line don't render two dots stacked.
+  const lines = new Set();
+  for (const m of markers) {
+    if (m.type !== type) continue;
+    if (m.from < 0 || m.from > state.doc.length) continue;
+    lines.add(state.doc.lineAt(m.from).from);
+  }
+  const sorted = [...lines].sort((a, b) => a - b);
+  const inst = type === 'ins' ? tcInsertMarkerInstance : tcDeleteMarkerInstance;
+  return RangeSet.of(sorted.map((p) => inst.range(p)));
+}
+
+const tcInsertGutterField = StateField.define({
+  create(state) {
+    return buildGutterMarkers(state, 'ins');
+  },
+  update(value, tr) {
+    if (!tr.docChanged) return value;
+    return buildGutterMarkers(tr.state, 'ins');
+  },
+});
+
+const tcDeleteGutterField = StateField.define({
+  create(state) {
+    return buildGutterMarkers(state, 'del');
+  },
+  update(value, tr) {
+    if (!tr.docChanged) return value;
+    return buildGutterMarkers(tr.state, 'del');
+  },
+});
+
+const tcInsertGutter = gutter({
+  class: 'cm-tc-insert-gutter',
+  markers: (view) => view.state.field(tcInsertGutterField),
+});
+
+const tcDeleteGutter = gutter({
+  class: 'cm-tc-delete-gutter',
+  markers: (view) => view.state.field(tcDeleteGutterField),
+});
+
 /** Returns the bundle of extensions consumers should add to the editor. */
 export function tcMarkerExtensions() {
-  return [tcMarkerDecorationsField, tcMarkerAtomicRanges, tcMarkerArrowKeymap];
+  return [
+    tcMarkerDecorationsField,
+    tcMarkerAtomicRanges,
+    tcMarkerArrowKeymap,
+    tcInsertGutterField,
+    tcDeleteGutterField,
+    tcInsertGutter,
+    tcDeleteGutter,
+  ];
 }

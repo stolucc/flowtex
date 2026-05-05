@@ -1,10 +1,38 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
-import { EditorView, keymap, Decoration } from '@codemirror/view';
-import { undo as cmUndo, redo as cmRedo, invertedEffects } from '@codemirror/commands';
-import { EditorState, ChangeSet, Compartment, Prec } from '@codemirror/state';
-import { basicSetup } from 'codemirror';
-import { StreamLanguage, syntaxHighlighting } from '@codemirror/language';
+import {
+  EditorView,
+  keymap,
+  Decoration,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+} from '@codemirror/view';
+import {
+  history,
+  defaultKeymap,
+  historyKeymap,
+  undo as cmUndo,
+  redo as cmRedo,
+} from '@codemirror/commands';
+import { EditorState, Compartment, Prec } from '@codemirror/state';
+import {
+  StreamLanguage,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  indentOnInput,
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+} from '@codemirror/language';
+import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { completionKeymap } from '@codemirror/autocomplete';
+import { lintKeymap } from '@codemirror/lint';
 import { classHighlighter } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { bibtex } from '../utils/bibtexMode.js';
@@ -29,18 +57,6 @@ import {
   setErrorHighlightEffect,
   errorHighlightField,
   cursorColor,
-  setTrackedChangesEffect,
-  trackedChangesField,
-  setTcDeletesEffect,
-  tcDeletesField,
-  tcInsertGutterField,
-  tcDeleteGutterField,
-  tcInsertGutterExtension,
-  tcDeleteGutterExtension,
-  buildTcInsertDecorations,
-  buildTcDeleteDecorations,
-  setTcReviewHighlightEffect,
-  tcReviewHighlightField,
   setSearchHighlightEffect,
   searchHighlightField,
   spellcheckField,
@@ -652,71 +668,21 @@ const Editor = forwardRef(function Editor(
       if (!view) return { scrollTop: 0, clientHeight: 0 };
       return { scrollTop: view.scrollDOM.scrollTop, clientHeight: view.scrollDOM.clientHeight };
     },
-    applyRemoteChanges(fileId, changes, tracked, deletions) {
+    applyRemoteChanges(fileId, changes) {
       const view = viewRef.current;
       // Drop OT changes that target a file the user has since switched away
       // from — applying them to the wrong file's CodeMirror state would
       // corrupt the visible document and produce out-of-band positions.
       if (!view || fileId !== file?.id) return;
-      const prevDocLen = view.state.doc.length;
       isRemoteUpdate.current = true;
       try {
         view.dispatch({ changes });
       } finally {
         isRemoteUpdate.current = false;
       }
-      // If the remote user had track-changes on, mark the inserted ranges immediately
-      if (tracked) {
-        try {
-          const cs = ChangeSet.of(changes, prevDocLen);
-          const insertDecos = [];
-          cs.iterChanges((fromA, toA, fromB, toB, inserted) => {
-            if (inserted.length > 0 && fromB < toB) {
-              insertDecos.push(
-                Decoration.mark({
-                  class: 'cm-tc-insert',
-                  attributes: { 'data-tc-type': 'insert' },
-                }).range(fromB, toB),
-              );
-            }
-          });
-
-          // Compute deletion marks from piggybacked old-doc deletion ranges.
-          // The collaborator maps these through the same ChangeSet that was just applied,
-          // so both users compute identical positions — no separate message needed.
-          const deleteDecos = [];
-          if (Array.isArray(deletions)) {
-            const docLen = view.state.doc.length;
-            for (const d of deletions) {
-              const mappedFrom = Math.max(0, Math.min(cs.mapPos(d.from, 1), docLen));
-              const mappedTo = Math.max(mappedFrom, Math.min(cs.mapPos(d.to, 1), docLen));
-              if (mappedFrom < mappedTo) {
-                deleteDecos.push(
-                  Decoration.mark({
-                    class: 'cm-tc-delete',
-                    attributes: { 'data-tc-type': 'delete' },
-                  }).range(mappedFrom, mappedTo),
-                );
-              }
-            }
-          }
-
-          const effects = [];
-          if (insertDecos.length > 0) {
-            const currentInsert = view.state.field(trackedChangesField);
-            effects.push(setTrackedChangesEffect.of(currentInsert.update({ add: insertDecos, sort: true })));
-          }
-          if (deleteDecos.length > 0) {
-            const currentDelete = view.state.field(tcDeletesField);
-            effects.push(setTcDeletesEffect.of(currentDelete.update({ add: deleteDecos, sort: true })));
-          }
-          if (effects.length > 0) {
-            view.dispatch({ effects });
-          }
-        } catch {
-          // Ignore — decoration is non-critical; DB reconciliation will fix it
-        }
-      }
+      // No separate decoration-building step: tracked changes ride inside
+      // the doc as inline tcMarkers, and tcMarkerDecorationsField rebuilds
+      // automatically when the doc changes.
     },
     setRemoteCursors(cursors) {
       const view = viewRef.current;
@@ -776,8 +742,6 @@ const Editor = forwardRef(function Editor(
       viewRef.current.destroy();
     }
     setCommentBtn(null);
-    prevPendingIdsRef.current = new Set();
-    tcDecorationsBuiltForFileRef.current = null;
 
     commentCompartment.current = new Compartment();
     wrapCompartment.current = new Compartment();
@@ -786,7 +750,33 @@ const Editor = forwardRef(function Editor(
     const state = EditorState.create({
       doc: file.content || '',
       extensions: [
-        basicSetup,
+        // Equivalent of `basicSetup` without `closeBrackets()` and its
+        // keymap — auto-pairing { → {} or ' → '' interferes with LaTeX
+        // typing and was filed as a bug. Everything else from basicSetup
+        // is preserved (line numbers, history, fold gutter, etc.).
+        lineNumbers(),
+        highlightActiveLineGutter(),
+        highlightSpecialChars(),
+        history(),
+        foldGutter(),
+        drawSelection(),
+        dropCursor(),
+        EditorState.allowMultipleSelections.of(true),
+        indentOnInput(),
+        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        bracketMatching(),
+        rectangularSelection(),
+        crosshairCursor(),
+        highlightActiveLine(),
+        highlightSelectionMatches(),
+        keymap.of([
+          ...defaultKeymap,
+          ...searchKeymap,
+          ...historyKeymap,
+          ...foldKeymap,
+          ...completionKeymap,
+          ...lintKeymap,
+        ]),
         StreamLanguage.define(file?.path?.endsWith('.bib') ? bibtex : stex),
         syntaxHighlighting(classHighlighter, { fallback: true }),
         latexFoldService,
@@ -802,14 +792,10 @@ const Editor = forwardRef(function Editor(
         ),
         EditorView.contentAttributes.of({ spellcheck: 'false' }),
         remoteCursorsField,
-        trackedChangesField,
-        tcDeletesField,
-        // New marker-based TC extension: scans the doc for inline tcMarkers
+        // Marker-based TC extension: scans the doc for inline tcMarkers
         // and renders insertion / deletion decorations driven by the doc
         // text itself. Position drift is impossible because the markers
-        // ARE the position. Coexists with the legacy
-        // trackedChangesField / tcDeletesField until the migration drops
-        // the table-driven path.
+        // ARE the position.
         ...tcMarkerExtensions(),
         // Input filter that wraps user keystrokes in inline markers when
         // track-changes mode is on. Bypassed for transactions tagged with
@@ -819,7 +805,6 @@ const Editor = forwardRef(function Editor(
           getAuthor: () => currentUserNameRef.current || '',
           shouldSkip: () => isResolvingTc.current || isRemoteUpdate.current,
         }),
-        tcReviewHighlightField,
         tableGutterField,
         tableGutterExtension,
         // Track changes: Backspace/Delete fall through to default keybindings.
@@ -865,57 +850,18 @@ const Editor = forwardRef(function Editor(
                 }
               }
             }
-            // Find tracked change at this position from the trackedChanges array
-            const tcs = trackedChangesRef.current || [];
-            const tc = tcs.find((c) => {
-              if (c.status !== 'pending') return false;
-              // Check if position is within this change's range
-              if (pos >= c.from_pos && pos < c.to_pos) return true;
-              return false;
-            });
-            if (tc) {
-              event.preventDefault();
-              onTrackedChangeClickRef.current?.(tc.id, { x: event.clientX, y: event.clientY });
-              return true;
-            }
-            // Also check decorations — DB positions may be stale, but decorations
-            // are mapped through edits and always reflect the current document.
-            let decoRange = null;
-            view.state.field(tcDeletesField).between(pos, pos + 1, (from, to) => {
-              if (pos >= from && pos < to) decoRange = { from, to, type: 'delete' };
-            });
-            if (!decoRange) {
-              view.state.field(trackedChangesField).between(pos, pos + 1, (from, to) => {
-                if (pos >= from && pos < to) decoRange = { from, to, type: 'insert' };
-              });
-            }
-            if (decoRange) {
-              // Find the best matching pending TC — DB positions may have drifted,
-              // so pick the closest TC of the right type by distance to click position.
-              let bestTc = null;
-              let bestDist = Infinity;
-              for (const c of tcs) {
-                if (c.status !== 'pending') continue;
-                if (decoRange.type === 'delete' && !c.deleted_text) continue;
-                if (decoRange.type === 'insert' && !c.inserted_text) continue;
-                // Distance: 0 if pos is inside the TC's DB range, otherwise gap to nearest edge
-                const dist =
-                  pos >= c.from_pos && pos < c.to_pos
-                    ? 0
-                    : Math.min(Math.abs(pos - c.from_pos), Math.abs(pos - c.to_pos));
-                if (dist < bestDist) {
-                  bestDist = dist;
-                  bestTc = c;
-                }
-              }
-              if (bestTc) {
+            // Tracked change at this position? Walk markers parsed from
+            // the live doc. The marker's RANGE [from, to) is authoritative
+            // — no DB positions, no fuzzy text-search heuristics.
+            {
+              const docText = view.state.doc.toString();
+              const markers = parseTcMarkers(docText);
+              const m = markers.find((mm) => pos >= mm.from && pos < mm.to);
+              if (m) {
                 event.preventDefault();
-                onTrackedChangeClickRef.current?.(bestTc.id, { x: event.clientX, y: event.clientY });
+                onTrackedChangeClickRef.current?.(m.id, { x: event.clientX, y: event.clientY });
                 return true;
               }
-              // Decoration exists but no matching TC yet — just block default menu
-              event.preventDefault();
-              return true;
             }
             // Check for misspelled word at this position
             let spellHit = null;
@@ -961,23 +907,7 @@ const Editor = forwardRef(function Editor(
         lintGutterExtension,
         spellGutterField,
         spellGutterExtension,
-        tcInsertGutterField,
-        tcInsertGutterExtension,
-        tcDeleteGutterField,
-        tcDeleteGutterExtension,
         citeKeyHighlighter,
-        // Make tracked-deletion decorations undoable via CM6's history.
-        // When a setTcDeletesEffect is dispatched (e.g. from tcMarkAsDeleted),
-        // the history records the inverse (previous decoration set) so Cmd+Z restores it.
-        invertedEffects.of((tr) => {
-          const effects = [];
-          for (const e of tr.effects) {
-            if (e.is(setTcDeletesEffect)) {
-              effects.push(setTcDeletesEffect.of(tr.startState.field(tcDeletesField)));
-            }
-          }
-          return effects;
-        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             // Notify the marker-aware tracked-changes hook that the doc
@@ -1477,22 +1407,9 @@ const Editor = forwardRef(function Editor(
 
     viewRef.current = view;
 
-    // Build TC decorations immediately if data is already available (eliminates race condition
-    // where the separate TC useEffect fires before the view is ready or after refs are reset)
-    const tcs = trackedChangesRef.current || [];
-    const pendingTcs = tcs.filter((c) => c.status === 'pending');
-    if (pendingTcs.length > 0) {
-      const docLen = view.state.doc.length;
-      const docText = view.state.doc.toString();
-      view.dispatch({
-        effects: [
-          setTrackedChangesEffect.of(buildTcInsertDecorations(tcs, docLen, currentUserNameRef.current, docText)),
-          setTcDeletesEffect.of(buildTcDeleteDecorations(tcs, docLen, currentUserNameRef.current, docText)),
-        ],
-      });
-      tcDecorationsBuiltForFileRef.current = file?.id;
-      prevPendingIdsRef.current = new Set(pendingTcs.map((c) => c.id));
-    }
+    // (Tracked-change decorations are built by tcMarkerDecorationsField
+    // automatically as soon as the doc text is set on the EditorState —
+    // no separate dispatch needed.)
 
     // Initial table and figure gutter markers
     updateTableGutterMarkers(view);
@@ -1660,144 +1577,14 @@ const Editor = forwardRef(function Editor(
     });
   }, [comments]);
 
-  // Tracked change decoration management.
-  //
-  // Real-time decorations are added by:
-  //   - Local edits: update listener (insertions) + tcMarkAsDeleted (deletions)
-  //   - Remote edits: applyRemoteChanges (tracked insertions) + applyRemoteTcDelete (deletions)
-  // These auto-map through OT changes via value.map(tr.changes), staying correctly positioned.
-  //
-  // This useEffect handles two cases:
-  //   1. File load — full rebuild from DB positions (correct because doc just loaded too)
-  //   2. TC resolved — selectively remove decorations for no-longer-pending TCs
-  //
-  // It must NOT rebuild on new TC IDs from WS, because those DB positions are relative to
-  // the author's document at save time and may be stale on the collaborator's view.
-  const prevPendingIdsRef = useRef(new Set());
-  const tcDecorationsBuiltForFileRef = useRef(null);
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
+  // (No legacy decoration management useEffect — tcMarkerDecorationsField
+  // rebuilds from doc text on every transaction and is the single source
+  // of truth for tracked-change visual styling.)
 
-    const currentFileId = file?.id;
-    const currentPendingIds = new Set(trackedChanges.filter((c) => c.status === 'pending').map((c) => c.id));
-    const prevIds = prevPendingIdsRef.current;
-
-    // Case 1: Full rebuild from DB data.
-    // Triggers: file changed, OR new TC IDs appeared when we had none previously
-    // (i.e. TC API data arrived after the editor was created with empty TCs).
-    const isNewFile = tcDecorationsBuiltForFileRef.current !== currentFileId;
-    const addedIds = new Set();
-    for (const id of currentPendingIds) {
-      if (!prevIds.has(id)) addedIds.add(id);
-    }
-
-    const needsRebuild = currentPendingIds.size > 0 && (isNewFile || (addedIds.size > 0 && prevIds.size === 0));
-
-    if (needsRebuild) {
-      tcDecorationsBuiltForFileRef.current = currentFileId;
-      prevPendingIdsRef.current = currentPendingIds;
-      const docLen = view.state.doc.length;
-      const docText = view.state.doc.toString();
-      view.dispatch({
-        effects: [
-          setTrackedChangesEffect.of(
-            buildTcInsertDecorations(trackedChanges, docLen, currentUserNameRef.current, docText),
-          ),
-          setTcDeletesEffect.of(buildTcDeleteDecorations(trackedChanges, docLen, currentUserNameRef.current, docText)),
-        ],
-      });
-      return;
-    }
-    // If file is new but no pending TCs, just update tracking refs (don't mark as "built"
-    // so that when TCs arrive later, we'll know we still need to build them)
-    if (isNewFile && currentPendingIds.size === 0) {
-      prevPendingIdsRef.current = currentPendingIds;
-      return;
-    }
-
-    // Detect IDs that were removed (TC resolved via accept/reject)
-    const removedIds = new Set();
-    for (const id of prevIds) {
-      if (!currentPendingIds.has(id)) removedIds.add(id);
-    }
-    prevPendingIdsRef.current = currentPendingIds;
-
-    if (removedIds.size === 0) return;
-
-    // Case 2: TC resolved — remove decorations for resolved TCs.
-    // We only need to manually filter when the resolution did NOT physically
-    // edit the doc. The decoration field's `value.map(tr.changes)` already
-    // drops any decoration whose underlying chars were removed:
-    //   - accept(insertion): chars stay  → filter out the insert decoration.
-    //   - accept(deletion):  chars removed → mapping handled it.
-    //   - reject(insertion): chars removed → mapping handled it.
-    //   - reject(deletion):  chars stay  → filter out the delete decoration.
-    // The previous code filtered unconditionally with a `tc.from_pos ± 2`
-    // dominance check, which incorrectly removed a *neighbour* decoration
-    // whose POST-mapping position landed inside the resolved TC's PRE-
-    // mapping range. That's how accepting `Header` (stored at 241-247)
-    // also nuked the strikethrough on `3` (now at 242-243 after mapping).
-    const resolvedTcs = trackedChanges.filter((c) => removedIds.has(c.id));
-
-    // Remove decorations for accepted insertions only.
-    const currentInsertDecos = view.state.field(trackedChangesField);
-    let filteredInserts = currentInsertDecos;
-    for (const tc of resolvedTcs) {
-      if (!tc.inserted_text) continue;
-      if (tc.status !== 'accepted') continue; // rejected: doc edited, mapping handled it
-      const ranges = [];
-      filteredInserts.between(0, view.state.doc.length, (from, to, deco) => {
-        let dominated = false;
-        if (from >= tc.from_pos - 2 && to <= tc.to_pos + 2) dominated = true;
-        if (!dominated) ranges.push(deco.range(from, to));
-      });
-      filteredInserts = Decoration.set(ranges, true);
-    }
-
-    // Remove decorations for rejected deletions only.
-    const currentDeleteDecos = view.state.field(tcDeletesField);
-    let filteredDeletes = currentDeleteDecos;
-    for (const tc of resolvedTcs) {
-      if (!tc.deleted_text) continue;
-      if (tc.status !== 'rejected') continue; // accepted: doc edited, mapping handled it
-      const ranges = [];
-      filteredDeletes.between(0, view.state.doc.length, (from, to, deco) => {
-        let dominated = false;
-        if (from >= tc.from_pos - 2 && to <= tc.to_pos + 2) dominated = true;
-        if (!dominated) ranges.push(deco.range(from, to));
-      });
-      filteredDeletes = Decoration.set(ranges, true);
-    }
-
-    const effects = [];
-    if (filteredInserts !== currentInsertDecos) {
-      effects.push(setTrackedChangesEffect.of(filteredInserts));
-    }
-    if (filteredDeletes !== currentDeleteDecos) {
-      effects.push(setTcDeletesEffect.of(filteredDeletes));
-    }
-    if (effects.length > 0) {
-      view.dispatch({ effects });
-    }
-  }, [trackedChanges, file]);
-
-  // Review walkthrough highlight
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const docLen = view.state.doc.length;
-    let decos = Decoration.none;
-    if (reviewingChangeId) {
-      const change = trackedChanges.find((c) => c.id === reviewingChangeId);
-      if (change && change.from_pos >= 0 && change.to_pos <= docLen) {
-        decos = Decoration.set([
-          Decoration.mark({ class: 'cm-tc-review-active' }).range(change.from_pos, change.to_pos),
-        ]);
-      }
-    }
-    view.dispatch({ effects: setTcReviewHighlightEffect.of(decos) });
-  }, [reviewingChangeId, trackedChanges]);
+  // (Review walkthrough highlight disabled — the legacy implementation
+  // depended on stale from_pos/to_pos. A marker-aware version can be
+  // added later if needed; the standard TC underline already shows the
+  // active change clearly enough for now.)
 
   // Toggle word wrap
   useEffect(() => {

@@ -97,13 +97,28 @@ export function wrapSafe(text, macro) {
   const out = [];
   let buf = [];
 
+  // For DEL markers we DROP unbalanced-brace text instead of emitting
+  // it raw: the deletion is meant to remove those chars from the
+  // document, and emitting them keeps the brace count from the
+  // pre-edit state — that's exactly the bug where "track-changes
+  // PDF" double-closes a group when the user added one `}` and
+  // deleted another in the same edit.
+  const isDel = macro === '\\TCdel';
+
   /** Wrap a chunk, splitting around citation commands that break inside \textcolor. */
   function wrapChunk(chunk) {
     if (BLANK_RE.test(chunk)) { out.push(chunk); return; }
     // If braces don't balance inside the chunk, wrapping would corrupt the
-    // surrounding LaTeX. Emit unwrapped — the change is still applied (added
-    // text appears, deleted text stays in place) but without TC markup.
-    if (!bracesBalanced(chunk)) { out.push(chunk); return; }
+    // surrounding LaTeX (the unmatched `}` would close `\TCadd{`/`\TCdel{`
+    // early). For INS, emit unwrapped — the inserted brace probably
+    // balances something elsewhere in the doc, and losing the colour is
+    // acceptable. For DEL, emit nothing — keeping the deleted brace
+    // would double-up the group balance against a matching INS or simply
+    // re-emit text the user said should be gone.
+    if (!bracesBalanced(chunk)) {
+      if (!isDel) out.push(chunk);
+      return;
+    }
     // Drive the matcher off exec() alone so we never juggle lastIndex
     // between test() and exec() on the same regex.
     citeCmdRe.lastIndex = 0;
@@ -114,14 +129,14 @@ export function wrapSafe(text, macro) {
       foundAny = true;
       const before = chunk.slice(last, m.index);
       if (before && !BLANK_RE.test(before) && bracesBalanced(before)) out.push(`${macro}{${before}}`);
-      else if (before) out.push(before);
+      else if (before && !isDel) out.push(before);
       out.push(m[0]); // citation command unwrapped
       last = m.index + m[0].length;
     }
     if (!foundAny) { out.push(`${macro}{${chunk}}`); return; }
     const after = chunk.slice(last);
     if (after && !BLANK_RE.test(after) && bracesBalanced(after)) out.push(`${macro}{${after}}`);
-    else if (after) out.push(after);
+    else if (after && !isDel) out.push(after);
   }
 
   function flush() {

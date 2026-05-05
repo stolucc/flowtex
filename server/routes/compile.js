@@ -179,9 +179,12 @@ router.post('/:projectId', async (req, res) => {
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
-      onBeforeCompile: showTC
-        ? async () => { await injectTrackedChangeMarkup(projectId, projectDir); }
-        : undefined,
+      // Always run TC processing: when showTC is on, render markers as
+      // \TCadd / \TCdel; when off, accept-all so the markers are
+      // stripped (otherwise raw ins:... bytes leak into the PDF).
+      onBeforeCompile: async () => {
+        await injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup: showTC });
+      },
     });
 
     res.json({ success: true, log });

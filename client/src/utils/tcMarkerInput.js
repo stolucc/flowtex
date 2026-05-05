@@ -90,12 +90,16 @@ function markerStartingAt(content, pos, type, author) {
 export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
   return EditorState.transactionFilter.of((tr) => {
     if (!tr.docChanged) return tr;
-    if (!isOn()) return tr;
     if (shouldSkip && shouldSkip(tr)) return tr;
     if (tr.annotation(tcMarkerSkipAnnotation)) return tr;
 
+    const tcOn = isOn();
     const author = getAuthor() || '';
     const beforeDoc = tr.startState.doc.toString();
+    // Fast path: no markers in the doc, no protection or wrapping
+    // needed when TC is off either. (Wrapping path below still handles
+    // TC-on edits in a doc that hasn't acquired a marker yet.)
+    if (!tcOn && !beforeDoc.includes(TC_START)) return tr;
     const existingMarkers = parseAll(beforeDoc);
 
     // Markers are atomic from the user's perspective — they can't be
@@ -110,21 +114,25 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
     // fresh del marker INSIDE the existing one, leaving the outer
     // marker's length-prefixed header pointing at corrupted bytes.
     let crossesMarker = false;
-    tr.changes.iterChanges((fromA, toA) => {
+    let delOverlap = false;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
       for (const m of existingMarkers) {
         if (fromA === toA) {
-          // Pure insertion at a point: only the strict interior of the
-          // marker corrupts it. m.from and m.to are valid edit points
-          // (they sit just outside the marker). m.textFrom and m.textTo
-          // are technically interior, but they collapse visually onto
-          // m.from and m.to (the metadata and closing sentinel have
-          // zero visual width), so a click between two adjacent markers
-          // commonly lands at one of these interior boundaries — let
-          // them through and the rewrite step below remaps them.
+          // Pure insertion at a point: only the strict interior of a
+          // FOREIGN marker corrupts it. Insertions strictly inside the
+          // user's own ins marker are valid (the rewrite step grows
+          // the marker). m.textFrom and m.textTo collapse visually
+          // onto m.from and m.to (zero-width metadata + closing
+          // sentinel) so they are also let through and remapped.
           if (fromA > m.from && fromA < m.to &&
               fromA !== m.textFrom && fromA !== m.textTo) {
-            crossesMarker = true;
-            break;
+            const insideOwnIns =
+              m.type === 'ins' && m.author === author &&
+              fromA >= m.textFrom && fromA <= m.textTo;
+            if (!insideOwnIns) {
+              crossesMarker = true;
+              break;
+            }
           }
           continue;
         }
@@ -133,14 +141,63 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         const fullyInsideOwnInsText =
           fromA >= m.textFrom && toA <= m.textTo &&
           m.type === 'ins' && m.author === author;
-        if (fullyInsideOwnInsText) continue;
+        // Backspace at the right edge of the user's own ins marker —
+        // CM's atomic-range handling expanded the original [to-1, to)
+        // deletion to span the (invisible) closing sentinel. Treat it
+        // as "shrink the marker by one inner char."
+        const rightEdgeOwnIns =
+          fromA >= m.textTo && toA === m.to &&
+          m.type === 'ins' && m.author === author;
+        if (fullyInsideOwnInsText || rightEdgeOwnIns) continue;
+        // Backspace that overlaps a DEL marker (the chars are already
+        // marked for deletion). Don't apply the change — but flag so
+        // the caller can move the caret backward instead of just
+        // dropping the transaction silently.
+        if (m.type === 'del' && inserted.length === 0) {
+          delOverlap = true;
+        }
         crossesMarker = true;
         break;
       }
     });
     if (crossesMarker) {
-      // Drop the transaction entirely. The user has to position the
-      // caret outside the marker, or use Accept/Reject.
+      if (delOverlap) {
+        const head = tr.startState.selection.main.head;
+        // Special case: backspace at the left edge of a del marker
+        // (caret on m.textFrom or m.from after walking through the
+        // strikethrough). The user wants this press to extend the
+        // deletion to include the char immediately before the marker
+        // — otherwise the caret jumps two visible positions in one
+        // step and the next backspace deletes the wrong char.
+        for (const m of existingMarkers) {
+          if (m.type !== 'del' || m.author !== author) continue;
+          if (head !== m.textFrom && head !== m.from) continue;
+          if (m.from === 0) continue;
+          const beforeIdx = m.from - 1;
+          // Bail if the preceding char is itself inside another marker
+          // (would corrupt that marker's length-prefixed header).
+          const inOther = existingMarkers.some(
+            (om) => om !== m && beforeIdx >= om.from && beforeIdx < om.to,
+          );
+          if (inOther) break;
+          const charBefore = beforeDoc[beforeIdx];
+          const merged = serialize({
+            type: 'del',
+            id: m.id || shortId(),
+            author,
+            text: charBefore + m.text,
+          });
+          return [{
+            changes: [{ from: beforeIdx, to: m.to, insert: merged }],
+            selection: { anchor: beforeIdx },
+            annotations: tcMarkerSkipAnnotation.of(true),
+          }];
+        }
+        // Default delOverlap behaviour: move the caret one visible
+        // position to the left in lieu of deleting (chars already
+        // pending deletion).
+        return [{ selection: { anchor: caretLeftSkipBoundaries(head, existingMarkers) } }];
+      }
       return [];
     }
 
@@ -171,6 +228,29 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         return;
       }
 
+      // TC OFF: don't wrap; just remap interior-boundary positions so
+      // that typing at m.textTo (cursor visually at end of marker's
+      // visible text but doc-wise just before the hidden closing
+      // sentinel) appends AFTER the marker instead of corrupting its
+      // length header. The cross-marker check above already rejected
+      // changes that would corrupt a marker some other way.
+      if (!tcOn) {
+        let effectiveFromA = fromA;
+        let effectiveToA = toA;
+        for (const m of existingMarkers) {
+          if (fromA === m.textFrom) effectiveFromA = m.from;
+          else if (fromA === m.textTo) effectiveFromA = m.to;
+          if (toA === m.textFrom) effectiveToA = m.from;
+          else if (toA === m.textTo) effectiveToA = m.to;
+        }
+        if (effectiveFromA !== fromA || effectiveToA !== toA) {
+          rewrites.push({ from: effectiveFromA, to: effectiveToA, insert: insertText });
+          cursorTarget = effectiveFromA + insertText.length;
+          didRewrite = true;
+        }
+        return;
+      }
+
       // Try to merge an INSERTION into an existing same-author 'ins'
       // marker that ends at fromA. The merge replaces the marker with
       // a wider one whose text has the new chars appended.
@@ -185,6 +265,30 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
       // out to the marker's outer boundary so the standard merge path
       // catches it.
       if (insertText && !deletedText) {
+        // Insertion strictly inside the user's own ins marker — grow
+        // the marker's text in place. (Without this branch, typing in
+        // the middle of an ins block — including a multi-line one
+        // where line breaks are inside the marker's inner text —
+        // would be rejected.)
+        for (const m of existingMarkers) {
+          if (m.type !== 'ins' || m.author !== author) continue;
+          if (!(fromA > m.textFrom && fromA < m.textTo)) continue;
+          const offset = fromA - m.textFrom;
+          const newText = m.text.slice(0, offset) + insertText + m.text.slice(offset);
+          const replacement = serialize({
+            type: 'ins',
+            id: m.id || shortId(),
+            author,
+            text: newText,
+          });
+          rewrites.push({ from: m.from, to: m.to, insert: replacement });
+          // Caret lands right after the inserted chars in the new doc.
+          // headerLen is constant so the caret is at:
+          //   m.from + (m.textFrom - m.from) + offset + insertText.length
+          cursorTarget = m.textFrom + offset + insertText.length;
+          didRewrite = true;
+          return;
+        }
         let effectiveFromA = fromA;
         for (const m of existingMarkers) {
           if (fromA === m.textFrom) { effectiveFromA = m.from; break; }
@@ -210,6 +314,38 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
           const ins = serialize({ type: 'ins', id: shortId(), author, text: insertText });
           rewrites.push({ from: effectiveFromA, to: effectiveFromA, insert: ins });
           cursorTarget = effectiveFromA + ins.length;
+          didRewrite = true;
+          return;
+        }
+      }
+
+      // Backspace at the right edge of the user's own ins marker.
+      // After CM's atomic-range adjustment the deletion spans
+      // [m.textTo, m.to) (just the closing sentinel) and possibly
+      // some trailing inner text. The user's intent is "delete the
+      // last char of my just-typed text," so shrink the marker.
+      if (deletedText && !insertText) {
+        for (const m of existingMarkers) {
+          if (m.type !== 'ins' || m.author !== author) continue;
+          if (toA !== m.to) continue;
+          if (fromA < m.textTo) continue;
+          // Deletion covered only the closing sentinel + (possibly
+          // none of) the inner text. Shrink m.text by one char from
+          // the right; if that empties the marker, drop it entirely.
+          const newText = m.text.slice(0, -1);
+          if (newText) {
+            const replacement = serialize({
+              type: 'ins',
+              id: m.id || shortId(),
+              author,
+              text: newText,
+            });
+            rewrites.push({ from: m.from, to: m.to, insert: replacement });
+            cursorTarget = m.from + replacement.length;
+          } else {
+            rewrites.push({ from: m.from, to: m.to, insert: '' });
+            cursorTarget = m.from;
+          }
           didRewrite = true;
           return;
         }
@@ -277,10 +413,11 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
               text: newText,
             });
             rewrites.push({ from: enclosing.from, to: enclosing.to, insert: replacement });
-            // Caret stays where the user just deleted, mapped through
-            // the rewrite — that's the position right after the
-            // shrunk text.
-            cursorTarget = enclosing.from + (replacement.length - 1);
+            // Caret stays at the left edge of the deletion, in the
+            // NEW doc's coordinate space. headerLen = replacement
+            // length minus the inner text minus the closing sentinel.
+            const newHeaderLen = replacement.length - newText.length - 1;
+            cursorTarget = enclosing.from + newHeaderLen + offset;
           } else {
             // Drop the marker entirely.
             rewrites.push({ from: enclosing.from, to: enclosing.to, insert: '' });
@@ -311,6 +448,25 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
     }
     return [spec];
   });
+}
+
+/**
+ * Compute the position one VISIBLE char to the left of `head`, jumping
+ * over marker hidden zones in a single step (mirrors what the arrow
+ * keymap does at boundary positions). Used when backspace overlaps a
+ * del marker — the caret moves backward instead of deleting since the
+ * chars are already pending deletion.
+ */
+function caretLeftSkipBoundaries(head, markers) {
+  for (const m of markers) {
+    if (head === m.to) {
+      return m.text.length > 0 ? m.textTo - 1 : Math.max(0, m.from - 1);
+    }
+    if (head === m.textFrom) {
+      return Math.max(0, m.from - 1);
+    }
+  }
+  return Math.max(0, head - 1);
 }
 
 /**

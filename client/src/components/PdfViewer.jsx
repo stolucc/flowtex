@@ -777,8 +777,12 @@ const PdfViewer = forwardRef(function PdfViewer(
         <button
           className={`pdf-header-btn console-btn ${showPanel === 'console' ? 'active' : ''} ${consoleOutput ? 'has-console' : ''}`}
           onClick={() => togglePanel('console')}
+          title="Console"
         >
-          Console
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
           {consoleOutput && showPanel !== 'console' && <span className="console-badge" />}
         </button>
         {onToggleTrackedChangesInPdf && (
@@ -787,25 +791,11 @@ const PdfViewer = forwardRef(function PdfViewer(
             onClick={onToggleTrackedChangesInPdf}
             title={showTrackedChangesInPdf ? 'Hide tracked changes in PDF' : 'Show tracked changes in PDF'}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              {showTrackedChangesInPdf && (
-                <>
-                  <line x1="1" y1="1" x2="5" y2="5" stroke="red" strokeWidth="1.5" />
-                  <line x1="1" y1="5" x2="5" y2="1" stroke="red" strokeWidth="1.5" />
-                  <line x1="1" y1="9" x2="6" y2="9" stroke="blue" strokeWidth="1.5" />
-                </>
-              )}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="8" y1="13" x2="16" y2="13" stroke="#e06c75" strokeWidth="2" />
+              <line x1="8" y1="17" x2="13" y2="17" stroke="#61afef" strokeWidth="2" />
             </svg>
           </button>
         )}
