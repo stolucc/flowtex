@@ -1181,77 +1181,11 @@ const Editor = forwardRef(function Editor(
         // delete change in an inline tcMarker so the chars are visually
         // marked deleted rather than removed. Previous code intercepted
         // these keys to call tcMarkAsDeleted; that path is bypassed now.
-        // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
-        EditorState.transactionFilter.of((tr) => {
-          // Pass the transaction through unchanged when: track-changes is off,
-          // nothing actually changed, the change came from a remote OT update
-          // (already authoritative), or we're in the middle of resolving a
-          // tracked change (re-tracking would create a loop).
-          if (!trackChangesModeRef.current || !tr.docChanged || isRemoteUpdate.current || isResolvingTc.current)
-            return tr;
-          let hasDeletion = false;
-          tr.changes.iterChanges((fromA, toA) => {
-            if (fromA < toA) hasDeletion = true;
-          });
-          if (!hasDeletion) return tr; // pure insertion, let through
-          // Build insert-only changes and record deletions
-          const insertParts = [];
-          const deletionParts = [];
-          tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-            if (inserted.length > 0) {
-              insertParts.push({ from: fromA, to: fromA, insert: inserted.toString() });
-            }
-            if (fromA < toA) {
-              deletionParts.push({ from: fromA, to: toA, text: tr.startState.sliceDoc(fromA, toA) });
-            }
-          });
-          // Store raw deletion ranges (old-doc positions) so the update listener can
-          // piggyback them on the OT 'changes' message.  The collaborator will map
-          // these through the ChangeSet locally — no separate tc-delete-mark needed.
-          {
-            const filteredDels = deletionParts.filter((d) => {
-              for (let p = d.from; p < d.to; p++) {
-                if (!isPosInDeletion(tr.startState, p)) return true;
-              }
-              return false;
-            });
-            pendingTcDeletions.current = filteredDels.length > 0 ? filteredDels : null;
-          }
-          // Schedule local deletion decorations + API buffer (runs after dispatch).
-          // skipTcDeleteBroadcast prevents the duplicate WS send — info is already
-          // piggybacked on the changes message via pendingTcDeletions.
-          queueMicrotask(() => {
-            skipTcDeleteBroadcast.current = true;
-            try {
-              let offset = 0;
-              for (const ins of insertParts) offset += ins.insert.length;
-              for (const d of deletionParts) {
-                let skip = true;
-                for (let p = d.from; p < d.to; p++) {
-                  if (!isPosInDeletion(tr.startState, p)) {
-                    skip = false;
-                    break;
-                  }
-                }
-                if (!skip && viewRef.current) {
-                  const adjFrom = d.from + offset;
-                  const adjTo = d.to + offset;
-                  tcMarkAsDeleted(viewRef.current, adjFrom, adjTo, null);
-                }
-              }
-            } finally {
-              skipTcDeleteBroadcast.current = false;
-            }
-          });
-          if (insertParts.length === 0) {
-            return { selection: tr.selection };
-          }
-          const lastIns = insertParts[insertParts.length - 1];
-          return {
-            changes: insertParts,
-            selection: { anchor: lastIns.from + lastIns.insert.length },
-          };
-        }),
+        // (Removed: legacy transaction filter that converted deletions in
+        // track-changes mode into insertions + scheduled tcMarkAsDeleted.
+        // The new buildTcMarkerInputFilter further down replaces every
+        // user change with an inline tcMarker and is the sole path for
+        // recording tracked changes.)
         EditorView.domEventHandlers({
           contextmenu(event, view) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
