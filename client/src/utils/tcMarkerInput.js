@@ -96,6 +96,34 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
 
     const author = getAuthor() || '';
     const beforeDoc = tr.startState.doc.toString();
+    const existingMarkers = parseAll(beforeDoc);
+
+    // Markers are atomic from the user's perspective — they can't be
+    // deleted by raw selection-delete or backspace, only by the
+    // Accept/Reject UI. A deletion whose range PARTIALLY overlaps a
+    // marker (starts outside, ends inside, or vice versa) is rejected
+    // outright: pretending to do something sensible would either leave
+    // a marker with a sentinel in its text (breaking parsing) or
+    // silently lose user content. The exception is a deletion fully
+    // inside the user's own ins marker — that's a backspace inside
+    // their own typing and is handled by the shrink path below.
+    let crossesMarker = false;
+    tr.changes.iterChanges((fromA, toA) => {
+      if (fromA >= toA) return; // pure insertion
+      for (const m of existingMarkers) {
+        const overlap = fromA < m.to && toA > m.from;
+        const fullyInside = fromA >= m.textFrom && toA <= m.textTo;
+        if (overlap && !fullyInside) {
+          crossesMarker = true;
+          break;
+        }
+      }
+    });
+    if (crossesMarker) {
+      // Drop the transaction entirely. The user has to position the
+      // caret outside the marker, or use Accept/Reject.
+      return [];
+    }
 
     // Build a brand-new changes array. We DO NOT use ChangeSet.compose
     // because the rewritten changes overlap the original change's

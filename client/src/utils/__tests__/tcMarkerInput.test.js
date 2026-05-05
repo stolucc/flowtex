@@ -115,6 +115,48 @@ describe('tcMarkerInput filter', () => {
     expect(parseAll(s.doc.toString())).toEqual([]);
   });
 
+  it('refuses a deletion that partially overlaps a marker (atomic invariant)', () => {
+    on = true;
+    let s = makeState('');
+    s = applyChange(s, { changes: { from: 0, to: 0, insert: 'eee' } });
+    // Now the doc holds an ins marker with text 'eee'. The user
+    // selects from inside the marker text out to plain content and
+    // hits delete. The filter must drop the deletion so we don't
+    // synthesise a del marker whose text contains a sentinel.
+    const docLen = s.doc.length;
+    const m = parseAll(s.doc.toString())[0];
+    // Start inside marker text, end past the marker entirely.
+    const before = s.doc.toString();
+    const next = applyChange(s, { changes: { from: m.textFrom, to: docLen, insert: '' } });
+    expect(next.doc.toString()).toBe(before);
+  });
+
+  it('refuses a deletion that fully encloses a marker', () => {
+    on = true;
+    let s = makeState('XYZ');
+    s = applyChange(s, { changes: { from: 1, to: 2, insert: 'q' } });
+    // Doc: X<ins:q>Z. Now select [0..end] and try to delete.
+    const before = s.doc.toString();
+    const next = applyChange(s, { changes: { from: 0, to: s.doc.length, insert: '' } });
+    expect(next.doc.toString()).toBe(before);
+  });
+
+  it('still allows a deletion that touches no markers', () => {
+    on = true;
+    let s = makeState('hello world');
+    // Insert a marker at the end so the doc HAS a marker but the
+    // deletion target doesn't touch it.
+    s = applyChange(s, { changes: { from: 11, to: 11, insert: '!' } });
+    const before = s.doc.toString();
+    // Delete 'world' (positions 6..11 in original — still 6..11 in
+    // current doc because the marker was added past position 11).
+    const next = applyChange(s, { changes: { from: 6, to: 11, insert: '' } });
+    expect(next.doc.toString()).not.toBe(before);
+    // 'world' was wrapped as a del marker, so the doc grew, not shrunk.
+    const markers = parseAll(next.doc.toString());
+    expect(markers.find((m) => m.text === 'world')).toBeTruthy();
+  });
+
   it('ignores transactions tagged with the skip annotation', () => {
     on = true;
     const s = makeState('abc');
