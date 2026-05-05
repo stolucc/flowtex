@@ -63,6 +63,7 @@ import {
   latexFoldService,
 } from '../utils/editorExtensions.js';
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
+import { tcMarkerExtensions } from '../utils/tcMarkerDecorations.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 import VisualModeToolbar from './VisualModeToolbar.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
@@ -1156,6 +1157,13 @@ const Editor = forwardRef(function Editor(
         remoteCursorsField,
         trackedChangesField,
         tcDeletesField,
+        // New marker-based TC extension: scans the doc for inline tcMarkers
+        // and renders insertion / deletion decorations driven by the doc
+        // text itself. Position drift is impossible because the markers
+        // ARE the position. Coexists with the legacy
+        // trackedChangesField / tcDeletesField until the migration drops
+        // the table-driven path.
+        ...tcMarkerExtensions(),
         tcReviewHighlightField,
         tableGutterField,
         tableGutterExtension,
