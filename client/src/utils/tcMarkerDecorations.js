@@ -11,8 +11,8 @@
 // The extension is purely presentational. Recording new tracked changes
 // (i.e. converting keystrokes into markers) is the input layer's job —
 // see useTrackedChanges + Editor input handling.
-import { Decoration, EditorView } from '@codemirror/view';
-import { StateField, RangeSet, RangeSetBuilder } from '@codemirror/state';
+import { Decoration, EditorView, keymap } from '@codemirror/view';
+import { StateField, RangeSet, RangeSetBuilder, Prec } from '@codemirror/state';
 import { parseAll, TC_START } from '@shared/tcMarkers.js';
 
 // Hide a span entirely. `inclusive: true` so cursor motions skip past
@@ -78,11 +78,19 @@ export const tcMarkerDecorationsField = StateField.define({
 });
 
 /**
- * Atomic-range facet so cursor motions (arrow keys, click placement,
- * selection extension) skip over the hidden metadata regions instead
- * of letting the caret land inside a marker's header. Without this the
- * user could land between the leading sentinel and the inner text and
- * then break the marker by typing.
+ * Atomic-range facet so cursor motions skip over the hidden metadata
+ * regions instead of letting the caret land between the leading
+ * sentinel and the inner text. Only the hidden zones are atomic; the
+ * inner text stays normally navigable so backspace can shrink the
+ * user's own ins markers one char at a time.
+ *
+ * Note: m.textFrom and m.textTo remain valid cursor positions because
+ * they're the LEFT/RIGHT boundary of an atomic range. They visually
+ * collapse onto the marker's outer boundaries (m.from / m.to) since
+ * the metadata and closing sentinel have zero width — so a click that
+ * lands at one of those interior positions has to be remapped at the
+ * input-filter level, otherwise the resulting edit either gets
+ * rejected or corrupts the marker.
  */
 export const tcMarkerAtomicRanges = EditorView.atomicRanges.of((view) => {
   const docText = view.state.doc.toString();
@@ -91,17 +99,86 @@ export const tcMarkerAtomicRanges = EditorView.atomicRanges.of((view) => {
   if (markers.length === 0) return RangeSet.empty;
   const builder = new RangeSetBuilder();
   for (const m of markers) {
-    // Cover the metadata-header region [from, textFrom) and the closing
-    // sentinel [textTo, to). The inner text [textFrom, textTo) stays
-    // editable so the user can still select / copy the inserted or
-    // deleted text within a marker.
     if (m.textFrom > m.from) builder.add(m.from, m.textFrom, Decoration.mark({}));
     if (m.to > m.textTo) builder.add(m.textTo, m.to, Decoration.mark({}));
   }
   return builder.finish();
 });
 
+/**
+ * Keymap that makes ArrowLeft/ArrowRight feel natural at marker
+ * boundaries. The hidden metadata + closing sentinel each occupy one
+ * doc position with zero visual width — so a single default arrow
+ * press at the edge of a marker traverses a hidden position and looks
+ * like a no-op. We intercept those edge positions and dispatch a
+ * 2-position jump in one keypress.
+ *
+ * Boundary positions and what each press should do (non-empty marker):
+ *   ArrowLeft  at `to`        → cursor lands at textTo - 1
+ *   ArrowLeft  at textFrom    → cursor lands at from - 1
+ *   ArrowRight at `from`      → cursor lands at textFrom + 1
+ *   ArrowRight at textTo      → cursor lands at `to` + 1
+ *
+ * For empty-text markers the whole marker has zero visual width, so
+ * any press from any of its boundary positions jumps clear past the
+ * marker.
+ */
+function jumpAtBoundary(view, isLeft) {
+  const { state } = view;
+  if (!state.selection.main.empty) return false;
+  const head = state.selection.main.head;
+  const docText = state.doc.toString();
+  if (!docText.includes(TC_START)) return false;
+  const markers = parseAll(docText);
+  for (const m of markers) {
+    if (m.text.length === 0) {
+      if (isLeft && (head === m.to || head === m.textTo || head === m.textFrom)) {
+        view.dispatch({ selection: { anchor: Math.max(0, m.from - 1) }, scrollIntoView: true });
+        return true;
+      }
+      if (!isLeft && (head === m.from || head === m.textFrom || head === m.textTo)) {
+        view.dispatch({
+          selection: { anchor: Math.min(state.doc.length, m.to + 1) },
+          scrollIntoView: true,
+        });
+        return true;
+      }
+      continue;
+    }
+    if (isLeft) {
+      if (head === m.to) {
+        view.dispatch({ selection: { anchor: m.textTo - 1 }, scrollIntoView: true });
+        return true;
+      }
+      if (head === m.textFrom) {
+        view.dispatch({ selection: { anchor: Math.max(0, m.from - 1) }, scrollIntoView: true });
+        return true;
+      }
+    } else {
+      if (head === m.from) {
+        view.dispatch({ selection: { anchor: m.textFrom + 1 }, scrollIntoView: true });
+        return true;
+      }
+      if (head === m.textTo) {
+        view.dispatch({
+          selection: { anchor: Math.min(state.doc.length, m.to + 1) },
+          scrollIntoView: true,
+        });
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const tcMarkerArrowKeymap = Prec.high(
+  keymap.of([
+    { key: 'ArrowLeft', run: (view) => jumpAtBoundary(view, true) },
+    { key: 'ArrowRight', run: (view) => jumpAtBoundary(view, false) },
+  ]),
+);
+
 /** Returns the bundle of extensions consumers should add to the editor. */
 export function tcMarkerExtensions() {
-  return [tcMarkerDecorationsField, tcMarkerAtomicRanges];
+  return [tcMarkerDecorationsField, tcMarkerAtomicRanges, tcMarkerArrowKeymap];
 }

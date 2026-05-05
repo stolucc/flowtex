@@ -99,24 +99,43 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
     const existingMarkers = parseAll(beforeDoc);
 
     // Markers are atomic from the user's perspective — they can't be
-    // deleted by raw selection-delete or backspace, only by the
-    // Accept/Reject UI. A deletion whose range PARTIALLY overlaps a
-    // marker (starts outside, ends inside, or vice versa) is rejected
-    // outright: pretending to do something sensible would either leave
-    // a marker with a sentinel in its text (breaking parsing) or
-    // silently lose user content. The exception is a deletion fully
-    // inside the user's own ins marker — that's a backspace inside
-    // their own typing and is handled by the shrink path below.
+    // edited by raw typing or backspace, only via the Accept/Reject UI.
+    // The one exception is a change fully inside the user's OWN ins
+    // marker's inner text: that's the user editing their own pending
+    // typing, and the shrink path below handles it. Everything else is
+    // rejected outright — pretending to apply such a change would either
+    // leave a marker with a sentinel in its text (breaking parsing) or
+    // silently lose user content. In particular, backspacing a char
+    // inside an existing DEL marker used to wrap that backspace in a
+    // fresh del marker INSIDE the existing one, leaving the outer
+    // marker's length-prefixed header pointing at corrupted bytes.
     let crossesMarker = false;
     tr.changes.iterChanges((fromA, toA) => {
-      if (fromA >= toA) return; // pure insertion
       for (const m of existingMarkers) {
-        const overlap = fromA < m.to && toA > m.from;
-        const fullyInside = fromA >= m.textFrom && toA <= m.textTo;
-        if (overlap && !fullyInside) {
-          crossesMarker = true;
-          break;
+        if (fromA === toA) {
+          // Pure insertion at a point: only the strict interior of the
+          // marker corrupts it. m.from and m.to are valid edit points
+          // (they sit just outside the marker). m.textFrom and m.textTo
+          // are technically interior, but they collapse visually onto
+          // m.from and m.to (the metadata and closing sentinel have
+          // zero visual width), so a click between two adjacent markers
+          // commonly lands at one of these interior boundaries — let
+          // them through and the rewrite step below remaps them.
+          if (fromA > m.from && fromA < m.to &&
+              fromA !== m.textFrom && fromA !== m.textTo) {
+            crossesMarker = true;
+            break;
+          }
+          continue;
         }
+        const overlap = fromA < m.to && toA > m.from;
+        if (!overlap) continue;
+        const fullyInsideOwnInsText =
+          fromA >= m.textFrom && toA <= m.textTo &&
+          m.type === 'ins' && m.author === author;
+        if (fullyInsideOwnInsText) continue;
+        crossesMarker = true;
+        break;
       }
     });
     if (crossesMarker) {
@@ -155,8 +174,23 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
       // Try to merge an INSERTION into an existing same-author 'ins'
       // marker that ends at fromA. The merge replaces the marker with
       // a wider one whose text has the new chars appended.
+      //
+      // First, remap interior boundary positions: when two markers sit
+      // back-to-back (m1.to === m2.from) the visible spot between them
+      // collapses onto three doc positions — m1.textTo, m1.to / m2.from,
+      // and m2.textFrom — and a click typically lands at one of the
+      // interior ones. Without remapping, typing there would either be
+      // rejected or wrap a fresh marker INSIDE m1 / m2, corrupting the
+      // length-prefixed header. The remap pushes the interior boundary
+      // out to the marker's outer boundary so the standard merge path
+      // catches it.
       if (insertText && !deletedText) {
-        const prev = markerEndingAt(beforeDoc, fromA, 'ins', author);
+        let effectiveFromA = fromA;
+        for (const m of existingMarkers) {
+          if (fromA === m.textFrom) { effectiveFromA = m.from; break; }
+          if (fromA === m.textTo) { effectiveFromA = m.to; break; }
+        }
+        const prev = markerEndingAt(beforeDoc, effectiveFromA, 'ins', author);
         if (prev) {
           const merged = serialize({
             type: 'ins',
@@ -166,6 +200,16 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
           });
           rewrites.push({ from: prev.from, to: prev.to, insert: merged });
           cursorTarget = prev.from + merged.length;
+          didRewrite = true;
+          return;
+        }
+        // No merge candidate. If the click sat on an interior boundary,
+        // emit a fresh ins marker at the OUTER boundary (otherwise the
+        // wrap would land in the middle of a marker and break parsing).
+        if (effectiveFromA !== fromA) {
+          const ins = serialize({ type: 'ins', id: shortId(), author, text: insertText });
+          rewrites.push({ from: effectiveFromA, to: effectiveFromA, insert: ins });
+          cursorTarget = effectiveFromA + ins.length;
           didRewrite = true;
           return;
         }

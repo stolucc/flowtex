@@ -191,6 +191,71 @@ describe('tcMarkerInput filter', () => {
     expect(markers.find((m) => m.text === 'world')).toBeTruthy();
   });
 
+  it('refuses a backspace inside an existing del marker (would corrupt the length-prefixed header)', () => {
+    on = true;
+    let s = makeState('abcdef');
+    // Wrap 'cd' as a del marker.
+    s = applyChange(s, { changes: { from: 2, to: 4, insert: '' } });
+    const before = s.doc.toString();
+    const m = parseAll(before)[0];
+    // User's caret lands at textTo (just past the strikethrough). They
+    // backspace — deletion range [textTo-1, textTo] is fully inside the
+    // del marker's inner text. Wrapping it would inject a fresh del
+    // marker into the outer marker's middle, the outer header's
+    // length field would stop matching, and the metadata would leak
+    // into the doc as visible 'del:id:author:N:' text. The filter
+    // must drop the change.
+    const next = applyChange(s, { changes: { from: m.textTo - 1, to: m.textTo, insert: '' } });
+    expect(next.doc.toString()).toBe(before);
+  });
+
+  it('typing at the textTo boundary of an own ins marker grows that marker (visually identical to m.to)', () => {
+    on = true;
+    let s = makeState('abc');
+    s = applyChange(s, { changes: { from: 1, to: 2, insert: 'q' } });
+    // Doc: a<ins:q>c. textTo and m.to collapse onto the same visible
+    // spot since the closing sentinel has zero width — a click that
+    // landed at textTo must behave like one at m.to and extend the
+    // marker, not get rejected and not corrupt the marker.
+    const m = parseAll(s.doc.toString())[0];
+    const next = applyChange(s, { changes: { from: m.textTo, to: m.textTo, insert: 'X' } });
+    const markers = parseAll(next.doc.toString());
+    expect(markers).toHaveLength(2); // grown ins + del('b')
+    const ins = markers.find((mm) => mm.type === 'ins');
+    expect(ins.text).toBe('qX');
+  });
+
+  it('typing in the gap between two adjacent ins markers extends the LEFT one', () => {
+    on = true;
+    // Build doc with two distinct ins markers back-to-back: type 'a',
+    // move past, type 'b' as a separate marker. Easiest: directly seed
+    // the doc with two markers via raw applyChange + skip annotation.
+    let s = makeState('');
+    // Two separate transactions so they DON'T merge into one marker.
+    s = applyChange(s, { changes: { from: 0, to: 0, insert: 'a' } });
+    // Move caret away then back so the next keystroke isn't at the
+    // merge point — we explicitly want two separate markers.
+    const m1 = parseAll(s.doc.toString())[0];
+    s = applyChange(s, {
+      // Insert 'b' at m1.from (before m1) so it's a separate marker.
+      changes: { from: m1.from, to: m1.from, insert: 'b' },
+    });
+    const markers = parseAll(s.doc.toString());
+    expect(markers).toHaveLength(2);
+    // The second marker now sits before the first. Their boundary is
+    // at markers[0].to === markers[1].from. Type 'X' at the interior
+    // boundary on the LEFT marker's side (markers[0].textTo): should
+    // grow markers[0], not corrupt either.
+    const interior = markers[0].textTo;
+    const next = applyChange(s, { changes: { from: interior, to: interior, insert: 'X' } });
+    const after = parseAll(next.doc.toString());
+    expect(after).toHaveLength(2);
+    // The marker at the same start as markers[0] grew by one char.
+    const grown = after.find((mm) => mm.from === markers[0].from);
+    expect(grown.text.length).toBe(markers[0].text.length + 1);
+    expect(grown.text.endsWith('X')).toBe(true);
+  });
+
   it('ignores transactions tagged with the skip annotation', () => {
     on = true;
     const s = makeState('abc');
