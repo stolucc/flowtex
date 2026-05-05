@@ -125,9 +125,6 @@ function AppInner() {
     refreshFromDoc,
     tcPopup,
     setTcPopup,
-    handleTrackChange,
-    handleDeleteInsertionChar,
-    handleUndoInsertions,
     handleAcceptChange,
     handleRejectChange,
     handleAcceptAllChanges,
@@ -293,26 +290,18 @@ function AppInner() {
     const changesHandler = (e) => {
       editorRef.current?.applyRemoteChanges(e.detail.fileId, e.detail.changes, e.detail.tracked, e.detail.deletions);
     };
-    const tcDeleteHandler = (e) => {
-      editorRef.current?.applyRemoteTcDelete(e.detail.fileId, e.detail.from, e.detail.to);
-    };
     const removedHandler = () => {
       alert('You have been removed from this project.');
       goBack();
     };
     window.addEventListener('ws:changes', changesHandler);
-    window.addEventListener('ws:tc-delete-mark', tcDeleteHandler);
     window.addEventListener('ws:removed-from-project', removedHandler);
     return () => {
       window.removeEventListener('ws:changes', changesHandler);
-      window.removeEventListener('ws:tc-delete-mark', tcDeleteHandler);
       window.removeEventListener('ws:removed-from-project', removedHandler);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // TC resolve: editor content is synced via normal OT from resolveTrackedChangeEdit,
-  // so receiving user only needs the status update (handled in useWebSocket)
 
   useEffect(() => {
     if (!project) return;
@@ -842,14 +831,8 @@ function AppInner() {
                     trackChangesMode={trackChangesMode}
                     trackedChanges={trackedChanges}
                     reviewingChangeId={reviewCurrentChange?.id || null}
-                    onTrackChange={handleTrackChange}
                     onTrackedChangeClick={(changeId, pos) =>
                       setTcPopup((prev) => (prev?.changeId === changeId ? null : { changeId, x: pos.x, y: pos.y }))
-                    }
-                    onDeleteInsertionChar={handleDeleteInsertionChar}
-                    onUndoInsertions={handleUndoInsertions}
-                    onTrackDeletion={(from, to) =>
-                      sendWsMessage({ type: 'tc-delete-mark', fileId: activeFile?.id, from, to })
                     }
                     onToggleTrackChanges={() => setTrackChangesMode((m) => !m)}
                     pendingChangesCount={pendingChanges.length}

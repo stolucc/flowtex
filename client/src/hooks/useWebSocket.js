@@ -54,8 +54,6 @@ export default function useWebSocket(
         setActiveUsers(msg.users);
       } else if (msg.type === 'changes') {
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
-      } else if (msg.type === 'tc-delete-mark') {
-        window.dispatchEvent(new CustomEvent('ws:tc-delete-mark', { detail: msg }));
       } else if (msg.type === 'cursor') {
         setRemoteCursors((prev) => ({
           ...prev,
@@ -75,25 +73,6 @@ export default function useWebSocket(
         setComments((cs) => cs.filter((c) => c.id !== msg.commentId));
       } else if (msg.type === 'comment-edit') {
         setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
-      } else if (msg.type === 'tracked-change') {
-        // setTrackedChanges holds only the *active* file's tracked changes;
-        // ignore broadcasts for other files, otherwise we'd pollute the list
-        // with entries belonging to a file the user isn't currently viewing.
-        if (activeFileRef.current?.id === msg.fileId) {
-          setTrackedChanges((tc) => {
-            const idx = tc.findIndex((c) => c.id === msg.change.id);
-            if (idx >= 0) {
-              const updated = [...tc];
-              updated[idx] = msg.change;
-              return updated;
-            }
-            return [...tc, msg.change];
-          });
-        }
-      } else if (msg.type === 'tracked-change-resolve') {
-        setTrackedChanges((tc) => tc.map((c) => (c.id === msg.changeId ? { ...c, status: msg.status } : c)));
-      } else if (msg.type === 'tracked-change-delete') {
-        setTrackedChanges((tc) => tc.filter((c) => c.id !== msg.changeId));
       } else if (msg.type === 'history_update') {
         setHistoryVersion((v) => (v || 0) + 1);
       } else if (msg.type === 'chat') {

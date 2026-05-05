@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { get, post, put, del } from '../api.js';
+import { get, post, put } from '../api.js';
 import tapsCheck from '../utils/tapsChecker.js';
 import { getSetting } from '../utils/settings.js';
 
@@ -32,11 +32,12 @@ export default function useEditorActions({
 
   const handleOverwriteFile = useCallback(
     async (fileId, content) => {
+      // Overwriting the file replaces its content wholesale; any inline
+      // tcMarkers it carried go with the old content. The trackedChanges
+      // list — which is now derived from parsing markers in the editor's
+      // doc — refreshes automatically once the new content lands.
       await put(`/api/projects/files/${fileId}`, { content });
       setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, content } : f)));
-      const fileTcs = trackedChanges.filter((c) => c.file_id === fileId && c.status === 'pending');
-      for (const tc of fileTcs) await del(`/api/tracked-changes/${tc.id}`);
-      setTrackedChanges((tcs) => tcs.filter((c) => c.file_id !== fileId));
       const file = files.find((f) => f.id === fileId);
       if (file) switchFile({ ...file, content });
       // Trigger recompile since file content changed on the server

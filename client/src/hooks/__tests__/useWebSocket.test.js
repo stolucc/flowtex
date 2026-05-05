@@ -176,22 +176,6 @@ describe('useWebSocket', () => {
     expect(callbacks.setComments).not.toHaveBeenCalled();
   });
 
-  it('handles tracked-change message for matching fileId', () => {
-    renderWsHook();
-    act(() => {
-      vi.runAllTimers();
-    });
-
-    const ws = mockWsInstances[0];
-    act(() => {
-      ws.onmessage({
-        data: JSON.stringify({ type: 'tracked-change', fileId: 'f1', change: { id: 'tc1', text: 'added' } }),
-      });
-    });
-
-    expect(callbacks.setTrackedChanges).toHaveBeenCalled();
-  });
-
   it('sendWsMessage sends JSON through WebSocket', () => {
     const { result } = renderWsHook();
     act(() => {

@@ -105,11 +105,7 @@ const Editor = forwardRef(function Editor(
     trackChangesMode = false,
     trackedChanges = [],
     reviewingChangeId = null,
-    onTrackChange,
     onTrackedChangeClick,
-    onDeleteInsertionChar,
-    onUndoInsertions,
-    onTrackDeletion,
     onToggleTrackChanges,
     pendingChangesCount = 0,
     reviewing = false,
@@ -399,11 +395,7 @@ const Editor = forwardRef(function Editor(
   const onRequestCommentRef = useRef(onRequestComment);
   const onScrollRef = useRef(onScroll);
   const onLintDiagnosticsRef = useRef(onLintDiagnostics);
-  const onTrackChangeRef = useRef(onTrackChange);
   const onTrackedChangeClickRef = useRef(onTrackedChangeClick);
-  const onDeleteInsertionCharRef = useRef(onDeleteInsertionChar);
-  const onUndoInsertionsRef = useRef(onUndoInsertions);
-  const onTrackDeletionRef = useRef(onTrackDeletion);
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
   const setSpellMenuRef = useRef(setSpellMenu);
@@ -421,11 +413,7 @@ const Editor = forwardRef(function Editor(
   onRequestCommentRef.current = onRequestComment;
   onScrollRef.current = onScroll;
   onLintDiagnosticsRef.current = onLintDiagnostics;
-  onTrackChangeRef.current = onTrackChange;
   onTrackedChangeClickRef.current = onTrackedChangeClick;
-  onDeleteInsertionCharRef.current = onDeleteInsertionChar;
-  onUndoInsertionsRef.current = onUndoInsertions;
-  onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
   onToggleVisualModeRef.current = onToggleVisualMode;
@@ -606,20 +594,6 @@ const Editor = forwardRef(function Editor(
         isRemoteUpdate.current = false;
       }
     },
-    // Edit that broadcasts via OT but doesn't create a new tracked change
-    resolveTrackedChangeEdit(from, to, text) {
-      const view = viewRef.current;
-      if (!view) return;
-      const docLen = view.state.doc.length;
-      const clampedFrom = Math.min(Math.max(0, from), docLen);
-      const clampedTo = Math.min(Math.max(clampedFrom, to), docLen);
-      isResolvingTc.current = true;
-      try {
-        view.dispatch({ changes: { from: clampedFrom, to: clampedTo, insert: text } });
-      } finally {
-        isResolvingTc.current = false;
-      }
-    },
     /**
      * Resolve a single inline-marker tracked change by id. Replaces the
      * marker's range in the doc with either its inner text (kept) or
@@ -679,18 +653,6 @@ const Editor = forwardRef(function Editor(
       const view = viewRef.current;
       if (!view) return { scrollTop: 0, clientHeight: 0 };
       return { scrollTop: view.scrollDOM.scrollTop, clientHeight: view.scrollDOM.clientHeight };
-    },
-    updateTrackedChanges(changes) {
-      const view = viewRef.current;
-      if (!view) return;
-      const docLen = view.state.doc.length;
-      const docText = view.state.doc.toString();
-      view.dispatch({
-        effects: [
-          setTrackedChangesEffect.of(buildTcInsertDecorations(changes, docLen, currentUserNameRef.current, docText)),
-          setTcDeletesEffect.of(buildTcDeleteDecorations(changes, docLen, currentUserNameRef.current, docText)),
-        ],
-      });
     },
     applyRemoteChanges(fileId, changes, tracked, deletions) {
       const view = viewRef.current;
@@ -757,22 +719,6 @@ const Editor = forwardRef(function Editor(
           // Ignore — decoration is non-critical; DB reconciliation will fix it
         }
       }
-    },
-    applyRemoteTcDelete(fileId, from, to) {
-      const view = viewRef.current;
-      // File-identity guard: a remote tracked-deletion is meaningful only on
-      // the file it originated from; positions don't translate to other files.
-      if (!view || fileId !== file?.id) return;
-      const docLen = view.state.doc.length;
-      const clampedFrom = Math.max(0, Math.min(from, docLen));
-      const clampedTo = Math.max(clampedFrom, Math.min(to, docLen));
-      if (clampedFrom >= clampedTo) return;
-      const newMark = Decoration.mark({
-        class: 'cm-tc-delete',
-        attributes: { 'data-tc-type': 'delete' },
-      }).range(clampedFrom, clampedTo);
-      const current = view.state.field(tcDeletesField);
-      view.dispatch({ effects: setTcDeletesEffect.of(current.update({ add: [newMark], sort: true })) });
     },
     setRemoteCursors(cursors) {
       const view = viewRef.current;

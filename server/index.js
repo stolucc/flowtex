@@ -21,7 +21,6 @@ import authRouter from './routes/auth.js';
 import historyRouter from './routes/history.js';
 import githubRouter from './routes/github.js';
 import tagsRouter from './routes/tags.js';
-import trackedChangesRouter from './routes/tracked-changes.js';
 import adminRouter from './routes/admin.js';
 import setupRouter from './routes/setup.js';
 import bibRouter from './routes/bib.js';
@@ -315,7 +314,6 @@ app.use(
   githubRouter,
 );
 app.use('/api/tags', requireAuth, tagsRouter);
-app.use('/api/tracked-changes', requireAuth, trackedChangesRouter);
 app.use('/api/chat', requireAuth, chatRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
