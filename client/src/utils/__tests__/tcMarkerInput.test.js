@@ -115,6 +115,40 @@ describe('tcMarkerInput filter', () => {
     expect(parseAll(s.doc.toString())).toEqual([]);
   });
 
+  it('places the caret AFTER a fresh insertion so the next keystroke merges', () => {
+    on = true;
+    let s = makeState('');
+    s = applyChange(s, { changes: { from: 0, to: 0, insert: 's' } });
+    // The caret must be at marker.to so simulating a follow-up
+    // keystroke at `s.selection.main.head` lands it at the right
+    // position to trigger the merge path.
+    const m = parseAll(s.doc.toString())[0];
+    expect(s.selection.main.head).toBe(m.to);
+    // Simulate the next keystroke at the current caret.
+    const head = s.selection.main.head;
+    s = applyChange(s, { changes: { from: head, to: head, insert: 'd' } });
+    const markers = parseAll(s.doc.toString());
+    expect(markers).toHaveLength(1);
+    expect(markers[0].text).toBe('sd');
+  });
+
+  it('places the caret at the START of a fresh deletion (so further backspace extends it)', () => {
+    on = true;
+    let s = makeState('abcdef');
+    s = applyChange(s, { changes: { from: 5, to: 6, insert: '' } }); // backspace 'f'
+    const m = parseAll(s.doc.toString())[0];
+    expect(m.text).toBe('f');
+    expect(s.selection.main.head).toBe(m.from);
+    // Backspace again from the current caret. With the caret at m.from,
+    // the deletion targets m.from-1..m.from = 'e'. The merge-with-right
+    // path picks up the existing 'f' marker and extends it to 'ef'.
+    const head = s.selection.main.head;
+    s = applyChange(s, { changes: { from: head - 1, to: head, insert: '' } });
+    const markers = parseAll(s.doc.toString());
+    expect(markers).toHaveLength(1);
+    expect(markers[0].text).toBe('ef');
+  });
+
   it('refuses a deletion that partially overlaps a marker (atomic invariant)', () => {
     on = true;
     let s = makeState('');

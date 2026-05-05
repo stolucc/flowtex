@@ -131,6 +131,16 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
     // with a single change in the same range that inserts the wrapped
     // text instead.
     const rewrites = [];
+    // Track each rewrite's intended caret destination. After a typing
+    // insertion the caret has to land just past the new marker so the
+    // NEXT keystroke's transaction has fromA === marker.to and the
+    // merge path fires; otherwise the caret would land inside the
+    // marker, the merge check would miss, and each new char would
+    // produce a fresh nested marker (the bug the user just reported).
+    // For deletions the caret stays at the START of the marker so a
+    // follow-up backspace continues to extend by deleting the char to
+    // the left of the strikethrough.
+    let cursorTarget = null;
     let didRewrite = false;
     tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
       const insertText = inserted.toString();
@@ -155,6 +165,7 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
             text: prev.text + insertText,
           });
           rewrites.push({ from: prev.from, to: prev.to, insert: merged });
+          cursorTarget = prev.from + merged.length;
           didRewrite = true;
           return;
         }
@@ -173,6 +184,7 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
             text: deletedText + right.text,
           });
           rewrites.push({ from: fromA, to: right.to, insert: merged });
+          cursorTarget = fromA;
           didRewrite = true;
           return;
         }
@@ -185,6 +197,7 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
             text: left.text + deletedText,
           });
           rewrites.push({ from: left.from, to: toA, insert: merged });
+          cursorTarget = left.from;
           didRewrite = true;
           return;
         }
@@ -192,8 +205,11 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
 
       // No merge — emit fresh marker(s).
       let wrapped = '';
+      let insMarkerLen = 0;
       if (insertText) {
-        wrapped += serialize({ type: 'ins', id: shortId(), author, text: insertText });
+        const ins = serialize({ type: 'ins', id: shortId(), author, text: insertText });
+        wrapped += ins;
+        insMarkerLen = ins.length;
       }
       if (deletedText) {
         wrapped += serialize({ type: 'del', id: shortId(), author, text: deletedText });
@@ -217,9 +233,14 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
               text: newText,
             });
             rewrites.push({ from: enclosing.from, to: enclosing.to, insert: replacement });
+            // Caret stays where the user just deleted, mapped through
+            // the rewrite — that's the position right after the
+            // shrunk text.
+            cursorTarget = enclosing.from + (replacement.length - 1);
           } else {
             // Drop the marker entirely.
             rewrites.push({ from: enclosing.from, to: enclosing.to, insert: '' });
+            cursorTarget = enclosing.from;
           }
           didRewrite = true;
           return;
@@ -227,11 +248,24 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
       }
 
       rewrites.push({ from: fromA, to: toA, insert: wrapped });
+      // For a pure insertion, the caret has to land just past the new
+      // ins marker so the next keystroke triggers the merge path. For a
+      // pure deletion or a replacement, the caret lands at the start of
+      // the new wrap — visually before the strikethrough.
+      if (insertText && !deletedText) {
+        cursorTarget = fromA + insMarkerLen;
+      } else {
+        cursorTarget = fromA;
+      }
       didRewrite = true;
     });
 
     if (!didRewrite) return tr;
-    return [{ changes: rewrites, sequential: false }];
+    const spec = { changes: rewrites, sequential: false };
+    if (cursorTarget !== null) {
+      spec.selection = { anchor: cursorTarget };
+    }
+    return [spec];
   });
 }
 
