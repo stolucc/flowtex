@@ -64,6 +64,7 @@ import {
 } from '../utils/editorExtensions.js';
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
 import { tcMarkerExtensions } from '../utils/tcMarkerDecorations.js';
+import { buildTcMarkerInputFilter, tcMarkerSkipAnnotation } from '../utils/tcMarkerInput.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 import VisualModeToolbar from './VisualModeToolbar.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
@@ -1164,16 +1165,22 @@ const Editor = forwardRef(function Editor(
         // trackedChangesField / tcDeletesField until the migration drops
         // the table-driven path.
         ...tcMarkerExtensions(),
+        // Input filter that wraps user keystrokes in inline markers when
+        // track-changes mode is on. Bypassed for transactions tagged with
+        // the skip annotation (accept/reject doc edits, OT applies).
+        buildTcMarkerInputFilter({
+          isOn: () => trackChangesModeRef.current,
+          getAuthor: () => currentUserNameRef.current || '',
+          shouldSkip: () => isResolvingTc.current || isRemoteUpdate.current,
+        }),
         tcReviewHighlightField,
         tableGutterField,
         tableGutterExtension,
-        // Track changes: intercept Backspace/Delete to mark text as deleted instead of removing it
-        Prec.high(
-          keymap.of([
-            { key: 'Backspace', run: (view) => tcInterceptDeletion(view, -1) },
-            { key: 'Delete', run: (view) => tcInterceptDeletion(view, +1) },
-          ]),
-        ),
+        // Track changes: Backspace/Delete fall through to default keybindings.
+        // The buildTcMarkerInputFilter transaction filter wraps the resulting
+        // delete change in an inline tcMarker so the chars are visually
+        // marked deleted rather than removed. Previous code intercepted
+        // these keys to call tcMarkAsDeleted; that path is bypassed now.
         // Transaction filter: prevent deletions in track changes mode for select+type, cut, etc.
         EditorState.transactionFilter.of((tr) => {
           // Pass the transaction through unchanged when: track-changes is off,
@@ -1447,60 +1454,18 @@ const Editor = forwardRef(function Editor(
               update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
                 changes.push({ from: fromA, to: toA, insert: inserted.toString() });
               });
-              const isTracked = trackChangesModeRef.current && !isResolvingTc.current;
-              // Attach pending deletion ranges (old-doc positions) so collaborator can
-              // compute deletion marks locally after applying the OT change.
+              // Track changes are now produced inline as content markers by
+              // the buildTcMarkerInputFilter transaction filter. The doc
+              // changes that reach this listener already CONTAIN the
+              // marker syntax, so we skip the legacy "buffer for POST +
+              // add immediate decoration" pass — it would double-decorate
+              // the marker metadata and create a phantom DB row.
+              // OT broadcast still fires unconditionally; collaborators
+              // receive the doc text including the marker and apply it
+              // verbatim.
               const dels = pendingTcDeletions.current;
               pendingTcDeletions.current = null;
-              onChangesRef.current?.(changes, isTracked, dels);
-
-              // Record as tracked change if mode is on (debounced), but not when resolving a TC
-              if (isTracked) {
-                // Add immediate insertion decoration so blue underline appears instantly
-                const insertDecos = [];
-                update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-                  if (inserted.length > 0 && fromB < toB) {
-                    insertDecos.push(
-                      Decoration.mark({
-                        class: 'cm-tc-insert',
-                        attributes: { 'data-tc-type': 'insert' },
-                      }).range(fromB, toB),
-                    );
-                  }
-                });
-                if (insertDecos.length > 0) {
-                  const currentDecos = update.state.field(trackedChangesField);
-                  const updated = currentDecos.update({ add: insertDecos, sort: true });
-                  // Use queueMicrotask to avoid dispatching during an update listener
-                  queueMicrotask(() => {
-                    viewRef.current?.dispatch({ effects: setTrackedChangesEffect.of(updated) });
-                  });
-                }
-
-                // Buffer insertion positions — extend existing buffer if adjacent/overlapping
-                const curFileId = fileIdRef.current;
-                update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-                  if (inserted.length > 0 && fromB < toB) {
-                    const buf = tcInsertBuffer.current;
-                    // Flush prior buffer if it belonged to a different file (file switch mid-edit).
-                    if (buf.from !== null && buf.fileId !== curFileId) flushInsBuffer();
-                    if (buf.from !== null && fromB <= buf.to && toB >= buf.from) {
-                      // Overlapping or adjacent — extend
-                      buf.from = Math.min(buf.from, fromB);
-                      buf.to = Math.max(buf.to, toB);
-                    } else {
-                      // Disjoint — flush old buffer, start new one
-                      if (buf.from !== null) flushInsBuffer();
-                      buf.from = fromB;
-                      buf.to = toB;
-                      buf.fileId = curFileId;
-                    }
-                    buf.text = update.state.sliceDoc(buf.from, buf.to);
-                  }
-                });
-                clearTimeout(tcInsertTimer.current);
-                tcInsertTimer.current = setTimeout(flushInsBuffer, tcFlushDelay);
-              }
+              onChangesRef.current?.(changes, /* isTracked= */ false, dels);
             }
 
             const content = update.state.doc.toString();
