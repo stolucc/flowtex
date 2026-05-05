@@ -152,19 +152,10 @@ const Editor = forwardRef(function Editor(
   const dictRef = useRef(null);
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
-  // Track current file id so tracked-change buffer writes can pin to the file the user is
-  // actually editing — buffers may flush after a file switch and must not leak edits across files.
+  // Track current file id so any deferred operations pin to the file the user is
+  // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
   fileIdRef.current = file?.id ?? null;
-  const tcInsertBuffer = useRef({ from: null, to: null, text: '', fileId: null }); // buffered insertion for debounce
-  const tcInsertTimer = useRef(null);
-  const tcDelBuffer = useRef({ from: null, to: null, text: '', fileId: null });
-  const tcDelTimer = useRef(null);
-  // Pending deletion ranges from the transaction filter, piggybacked on the next 'changes' WS message.
-  // Stored as old-doc positions so the collaborator can map them through the ChangeSet locally.
-  const pendingTcDeletions = useRef(null);
-  // When true, tcMarkAsDeleted skips the onTrackDeletion WS broadcast (info is piggybacked instead).
-  const skipTcDeleteBroadcast = useRef(false);
   const [commentBtn, setCommentBtn] = useState(null); // { x, y, from, to }
   const [cursorInHl, setCursorInHl] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -415,12 +406,6 @@ const Editor = forwardRef(function Editor(
   const onTrackDeletionRef = useRef(onTrackDeletion);
   const trackChangesModeRef = useRef(trackChangesMode);
   const trackedChangesRef = useRef(trackedChanges);
-  // Live, transaction-mapped positions for each pending tracked change.
-  // Updated synchronously on every CodeMirror docChanged transaction via
-  // `update.changes.mapPos`, so positions stay accurate even between saves
-  // and across rapid editing. Falls back to the prop's stored positions for
-  // any TC we haven't seen yet. Read by computeTcPositions on save.
-  const tcLivePositionsRef = useRef(new Map());
   const setSpellMenuRef = useRef(setSpellMenu);
   const setCiteMenuRef = useRef(setCiteMenu);
   const onToggleVisualModeRef = useRef(onToggleVisualMode);
@@ -443,23 +428,6 @@ const Editor = forwardRef(function Editor(
   onTrackDeletionRef.current = onTrackDeletion;
   trackChangesModeRef.current = trackChangesMode;
   trackedChangesRef.current = trackedChanges;
-  // Sync the live-positions map: seed any new TC, drop any that are no
-  // longer pending. Crucially, KEEP existing entries — they reflect the
-  // editor's transaction-mapped positions, which are more current than the
-  // prop's last-saved positions.
-  {
-    const seen = new Set();
-    for (const tc of trackedChanges) {
-      if (tc.status !== 'pending') continue;
-      seen.add(tc.id);
-      if (!tcLivePositionsRef.current.has(tc.id)) {
-        tcLivePositionsRef.current.set(tc.id, { from: tc.from_pos, to: tc.to_pos });
-      }
-    }
-    for (const id of tcLivePositionsRef.current.keys()) {
-      if (!seen.has(id)) tcLivePositionsRef.current.delete(id);
-    }
-  }
   onToggleVisualModeRef.current = onToggleVisualMode;
   visualModeRef.current = visualMode;
   const citeKeysRef = useRef(citeKeys || []);
@@ -850,330 +818,11 @@ const Editor = forwardRef(function Editor(
     },
   }));
 
-  // Compute corrected TC positions by finding each TC's text in the current document.
-  // Returns an array of { id, from_pos, to_pos } for all pending TCs whose text can be located.
-  const computeTcPositions = useCallback((docText) => {
-    const tcs = trackedChangesRef.current;
-    if (!tcs || tcs.length === 0) return null;
-    const pending = tcs.filter((tc) => tc.status === 'pending');
-    if (pending.length === 0) return null;
 
-    const positions = [];
-    for (const tc of pending) {
-      const text = tc.inserted_text || tc.deleted_text;
-      if (!text) continue;
-      // Prefer the live-mapped position (kept current via mapPos on every
-      // transaction). Fall back to the stored position if we haven't seen
-      // this TC before.
-      const live = tcLivePositionsRef.current.get(tc.id);
-      const anchorFrom = live ? live.from : tc.from_pos;
-      const anchorTo = live ? live.to : tc.to_pos;
-      const from = Math.max(0, Math.min(anchorFrom, docText.length));
-      const to = Math.max(from, Math.min(anchorTo, docText.length));
-      if (docText.slice(from, to) === text) {
-        positions.push({ id: tc.id, from_pos: from, to_pos: to });
-        continue;
-      }
-      // Search nearby for the text. We pick the occurrence CLOSEST to the
-      // anchor position, not the first one found — for short needles like
-      // a single 'e', `region.indexOf(text)` returns the leftmost match,
-      // which is consistently 30-80 chars left of where the change belongs.
-      const searchFrom = Math.max(0, anchorFrom - 80);
-      const searchTo = Math.min(docText.length, anchorFrom + 80 + text.length);
-      const region = docText.slice(searchFrom, searchTo);
-      let bestAbs = -1;
-      let bestDist = Infinity;
-      let scanFrom = 0;
-      while (true) {
-        const idx = region.indexOf(text, scanFrom);
-        if (idx === -1) break;
-        const absPos = searchFrom + idx;
-        const dist = Math.abs(absPos - anchorFrom);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestAbs = absPos;
-        }
-        scanFrom = idx + 1;
-      }
-      if (bestAbs !== -1) {
-        positions.push({ id: tc.id, from_pos: bestAbs, to_pos: bestAbs + text.length });
-      }
-      // If not found, skip — don't send stale position
-    }
-    return positions.length > 0 ? positions : null;
-  }, []);
+  // (Legacy tcMarkAsDeleted / tcInterceptDeletion / flushDelBuffer /
+  //  flushInsBuffer / their buffer refs deleted in phase 5c.1.
+  //  All input now flows through tcMarkerInput.js.)
 
-  // Debounce delay (ms) for flushing TC buffers to the API.
-  // Set to 0 for immediate flush; increase to batch adjacent keystrokes.
-  const tcFlushDelay = 0;
-
-  // Mark a range as deleted (for track changes mode).
-  // If the range contains tracked insertions, those are actually removed from the document
-  // (they were never part of the original text). Only non-insertion text gets a deletion mark.
-  const tcMarkAsDeleted = useCallback((view, from, to, cursorPos) => {
-    const state = view.state;
-    const text = state.sliceDoc(from, to);
-    if (!text) return;
-
-    // Split [from, to) into insertion vs non-insertion sub-ranges
-    const insertionRanges = [];
-    const deletionRanges = [];
-    let i = from;
-    while (i < to) {
-      const inIns = isPosInInsertion(state, i);
-      let end = i + 1;
-      while (end < to && isPosInInsertion(state, end) === inIns) end++;
-      if (inIns) insertionRanges.push({ from: i, to: end });
-      else deletionRanges.push({ from: i, to: end });
-      i = end;
-    }
-
-    // --- Case 1: No insertions in range — original simple path ---
-    if (insertionRanges.length === 0) {
-      const currentDecos = state.field(tcDeletesField);
-      const newMark = Decoration.mark({
-        class: 'cm-tc-delete',
-        attributes: { 'data-tc-type': 'delete' },
-      }).range(from, to);
-      const updated = currentDecos.update({ add: [newMark], sort: true });
-      const dispatchSpec = { effects: setTcDeletesEffect.of(updated) };
-      if (cursorPos != null) {
-        dispatchSpec.selection = { anchor: cursorPos };
-      }
-      view.dispatch(dispatchSpec);
-      if (!skipTcDeleteBroadcast.current) onTrackDeletionRef.current?.(from, to);
-      // Buffer for API
-      const buf = tcDelBuffer.current;
-      const curFileId = fileIdRef.current;
-      // If the buffer belongs to a different file (user switched files mid-edit), flush first
-      // so the previous file's deletion isn't merged with this one's range.
-      if (buf.from !== null && buf.fileId !== curFileId) flushDelBuffer();
-      if (buf.from !== null && (from === buf.from - 1 || from === buf.from || to === buf.to || to === buf.to + 1)) {
-        buf.from = Math.min(buf.from, from);
-        buf.to = Math.max(buf.to, to);
-        buf.text = state.sliceDoc(buf.from, buf.to);
-      } else {
-        if (buf.from !== null) flushDelBuffer();
-        buf.from = from;
-        buf.to = to;
-        buf.text = text;
-        buf.fileId = curFileId;
-      }
-      clearTimeout(tcDelTimer.current);
-      tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
-      return;
-    }
-
-    // --- Case 2: Only insertions, no original text — just remove them ---
-    if (deletionRanges.length === 0) {
-      const changes = insertionRanges.map((r) => ({ from: r.from, to: r.to }));
-      const dispatchSpec = { changes };
-      if (cursorPos != null) {
-        dispatchSpec.selection = { anchor: cursorPos };
-      }
-      isResolvingTc.current = true;
-      try {
-        view.dispatch(dispatchSpec);
-      } finally {
-        isResolvingTc.current = false;
-      }
-      for (const r of insertionRanges) {
-        for (let p = r.to - 1; p >= r.from; p--) {
-          onDeleteInsertionCharRef.current?.(p);
-        }
-      }
-      return;
-    }
-
-    // --- Case 3: Mixed — remove insertions from doc, mark original text as deleted ---
-    // Build document changes (remove insertion text)
-    const changes = insertionRanges.map((r) => ({ from: r.from, to: r.to }));
-    const cs = ChangeSet.of(
-      changes.map((c) => ({ from: c.from, to: c.to, insert: '' })),
-      state.doc.length,
-    );
-
-    // Map deletion ranges into post-change coordinate space
-    const mappedDeletionRanges = deletionRanges
-      .map((r) => ({
-        from: cs.mapPos(r.from, 1),
-        to: cs.mapPos(r.to, -1),
-      }))
-      .filter((r) => r.from < r.to);
-
-    // Build decorations in post-change space
-    const currentDecos = state.field(tcDeletesField).map(cs);
-    const newMarks = mappedDeletionRanges.map((r) =>
-      Decoration.mark({
-        class: 'cm-tc-delete',
-        attributes: { 'data-tc-type': 'delete' },
-      }).range(r.from, r.to),
-    );
-    const updatedDecos = currentDecos.update({ add: newMarks, sort: true });
-
-    const newCursor = cursorPos !== null && cursorPos !== undefined ? cs.mapPos(cursorPos, 1) : cs.mapPos(from, 1);
-
-    isResolvingTc.current = true;
-    try {
-      view.dispatch({
-        changes,
-        effects: setTcDeletesEffect.of(updatedDecos),
-        selection: { anchor: newCursor },
-      });
-    } finally {
-      isResolvingTc.current = false;
-    }
-
-    // Notify collaborators about deletion marks (skip if piggybacked on changes message)
-    if (!skipTcDeleteBroadcast.current) {
-      for (const r of mappedDeletionRanges) {
-        onTrackDeletionRef.current?.(r.from, r.to);
-      }
-    }
-    // Notify about removed insertion chars (original pre-change positions)
-    for (const r of insertionRanges) {
-      for (let p = r.to - 1; p >= r.from; p--) {
-        onDeleteInsertionCharRef.current?.(p);
-      }
-    }
-    // Buffer the deletion parts for API
-    const curFileId = fileIdRef.current;
-    for (const r of mappedDeletionRanges) {
-      const buf = tcDelBuffer.current;
-      const rText = view.state.sliceDoc(r.from, r.to);
-      // Flush prior buffer if it belonged to a different file (file switch mid-edit).
-      if (buf.from !== null && buf.fileId !== curFileId) flushDelBuffer();
-      if (
-        buf.from !== null &&
-        (r.from === buf.from - 1 || r.from === buf.from || r.to === buf.to || r.to === buf.to + 1)
-      ) {
-        buf.from = Math.min(buf.from, r.from);
-        buf.to = Math.max(buf.to, r.to);
-        buf.text = view.state.sliceDoc(buf.from, buf.to);
-      } else {
-        if (buf.from !== null) flushDelBuffer();
-        buf.from = r.from;
-        buf.to = r.to;
-        buf.text = rText;
-        buf.fileId = curFileId;
-      }
-    }
-    clearTimeout(tcDelTimer.current);
-    tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const flushDelBuffer = useCallback(() => {
-    const buf = tcDelBuffer.current;
-    if (buf.from === null) return;
-    // The buffer's text can collapse to '' if a transaction physically
-    // removed the chars between the deletion mark and this flush (e.g. the
-    // user accepts a deletion that covers the buffered range). Posting an
-    // empty deletion creates a phantom TC with no content; bail and reset.
-    if (!buf.text) {
-      buf.from = null;
-      buf.to = null;
-      buf.text = '';
-      buf.fileId = null;
-      return;
-    }
-    onTrackChangeRef.current?.({
-      from_pos: buf.from,
-      to_pos: buf.to,
-      inserted_text: '',
-      deleted_text: buf.text,
-      fileId: buf.fileId,
-    });
-    buf.from = null;
-    buf.to = null;
-    buf.text = '';
-    buf.fileId = null;
-  }, []);
-
-  // Shared Backspace/Delete handler for track changes mode.
-  // dir = -1 for Backspace (move/delete previous char), +1 for Delete (next char).
-  // Returns true if handled (so the keymap should swallow the event), false to let
-  // the default editor behaviour run (only when track changes mode is off).
-  const tcInterceptDeletion = useCallback((view, dir) => {
-    if (!trackChangesModeRef.current) return false;
-    const sel = view.state.selection.main;
-    if (!sel.empty) {
-      tcMarkAsDeleted(view, sel.from, sel.to, sel.from);
-      return true;
-    }
-    const docLen = view.state.doc.length;
-    if (dir < 0) {
-      // Backspace: at doc start, nothing to delete
-      if (sel.from === 0) return true;
-      let target = sel.from - 1;
-      // Skip backward over already-deleted char (one at a time)
-      if (isPosInDeletion(view.state, target)) {
-        view.dispatch({ selection: { anchor: target } });
-        return true;
-      }
-      // If char is a tracked insertion, just delete it normally (undo the insertion).
-      // Use isResolvingTc (not isRemoteUpdate) so the deletion is still broadcast via OT
-      // but doesn't get re-tracked as a new tracked change.
-      if (isPosInInsertion(view.state, target)) {
-        isResolvingTc.current = true;
-        try {
-          view.dispatch({ changes: { from: target, to: target + 1 }, selection: { anchor: target } });
-        } finally {
-          isResolvingTc.current = false;
-        }
-        onDeleteInsertionCharRef.current?.(target);
-        return true;
-      }
-      tcMarkAsDeleted(view, target, target + 1, target);
-      return true;
-    }
-    // Delete (dir > 0): at doc end, nothing to delete
-    if (sel.from >= docLen) return true;
-    // Skip forward over already-deleted chars
-    let target = sel.from;
-    while (target < docLen && isPosInDeletion(view.state, target)) target++;
-    if (target >= docLen) return true;
-    // If char is a tracked insertion, just delete it normally.
-    // Use isResolvingTc so the deletion is broadcast but not re-tracked.
-    if (isPosInInsertion(view.state, target)) {
-      isResolvingTc.current = true;
-      try {
-        view.dispatch({ changes: { from: target, to: target + 1 } });
-      } finally {
-        isResolvingTc.current = false;
-      }
-      onDeleteInsertionCharRef.current?.(target);
-      return true;
-    }
-    tcMarkAsDeleted(view, target, target + 1, sel.from);
-    return true;
-  }, [tcMarkAsDeleted]);
-
-  const flushInsBuffer = useCallback(() => {
-    const buf = tcInsertBuffer.current;
-    if (buf.from === null) return;
-    // Same defensive guard as flushDelBuffer: if the buffered insertion's
-    // text collapsed to '' (e.g. an undo physically removed the chars
-    // before the flush), don't POST an empty TC.
-    if (!buf.text) {
-      buf.from = null;
-      buf.to = null;
-      buf.text = '';
-      buf.fileId = null;
-      return;
-    }
-    onTrackChangeRef.current?.({
-      from_pos: buf.from,
-      to_pos: buf.to,
-      inserted_text: buf.text,
-      deleted_text: '',
-      fileId: buf.fileId,
-    });
-    buf.from = null;
-    buf.to = null;
-    buf.text = '';
-    buf.fileId = null;
-  }, []);
 
   // Create editor when file changes
   useEffect(() => {
@@ -1386,60 +1035,12 @@ const Editor = forwardRef(function Editor(
           return effects;
         }),
         EditorView.updateListener.of((update) => {
-          // Clear TC buffers on undo/redo — the history restores decorations directly,
-          // so any pending buffer would create a stale/duplicate tracked change.
-          // Also clean up tracked insertions that were removed by undo.
-          for (const tr of update.transactions) {
-            if (tr.isUserEvent('undo') || tr.isUserEvent('redo')) {
-              tcDelBuffer.current = { from: null, to: null, text: '', fileId: null };
-              clearTimeout(tcDelTimer.current);
-              tcInsertBuffer.current = { from: null, to: null, text: '', fileId: null };
-              clearTimeout(tcInsertTimer.current);
-
-              // Check which pending tracked insertions no longer match the document after undo
-              if (trackChangesModeRef.current && tr.docChanged) {
-                const doc = update.state.doc.toString();
-                onUndoInsertionsRef.current?.(doc);
-              }
-              break;
-            }
-          }
-
           if (update.docChanged) {
             // Notify the marker-aware tracked-changes hook that the doc
             // moved. Fires for ALL doc-changed transactions (local typing,
             // remote OT, accept/reject) so the review-panel marker list
             // stays in sync. Cheap — the receiver re-parses markers in O(n).
             onDocChangeRef.current?.();
-            // Map every pending TC's live position through this transaction.
-            // Cheap (a few mapPos calls) and crucial: without it, a TC's
-            // stored from_pos drifts as the document evolves, so on save
-            // computeTcPositions has to fall back to a fuzzy text search,
-            // which for short needles like a single 'e' can land anywhere.
-            for (const pos of tcLivePositionsRef.current.values()) {
-              const newFrom = update.changes.mapPos(pos.from, 1);
-              const newTo = update.changes.mapPos(pos.to, -1);
-              pos.from = newFrom;
-              pos.to = Math.max(newFrom, newTo);
-            }
-            // Map tracked-change buffers through ALL document changes (local + remote)
-            // so positions stay correct regardless of interleaved OT updates.
-            const delBuf = tcDelBuffer.current;
-            if (delBuf.from !== null) {
-              delBuf.from = update.changes.mapPos(delBuf.from, 1);
-              delBuf.to = update.changes.mapPos(delBuf.to, -1);
-              delBuf.text = update.state.sliceDoc(delBuf.from, delBuf.to);
-              clearTimeout(tcDelTimer.current);
-              tcDelTimer.current = setTimeout(flushDelBuffer, tcFlushDelay);
-            }
-            const insBuf = tcInsertBuffer.current;
-            if (insBuf.from !== null) {
-              insBuf.from = update.changes.mapPos(insBuf.from, 1);
-              insBuf.to = update.changes.mapPos(insBuf.to, -1);
-              insBuf.text = update.state.sliceDoc(insBuf.from, insBuf.to);
-              clearTimeout(tcInsertTimer.current);
-              tcInsertTimer.current = setTimeout(flushInsBuffer, tcFlushDelay);
-            }
 
             if (!isRemoteUpdate.current) {
               const changes = [];
