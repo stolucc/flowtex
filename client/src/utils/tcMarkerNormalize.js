@@ -96,30 +96,66 @@ export function normalizeChange({ beforeDoc, markers, fromA, toA, insertText, tc
   }
 
   // ── Phase 0: edit fully inside user's own ins marker. ──────────────
-  // Reserialize in place — keeps the marker's id/author and rewrites
-  // its inner text so the length-prefixed header always matches.
-  // Without this branch a TC-OFF in-place edit would chop the inner
-  // text without updating the header (length mismatch → unparseable
-  // marker → metadata leaks visibly into the doc).
+  // With TC ON: reserialize the marker in place — the new chars are
+  // part of the same tracked insertion (extends the marker's text).
+  // With TC OFF: SPLIT the marker around the edit so the new chars
+  // (insertText) end up as PLAIN, untracked text. The user explicitly
+  // turned tracking off; their new typing shouldn't be marked as
+  // inserted just because the caret happens to sit inside a previous
+  // pending insertion. Either branch keeps the length-prefixed header
+  // consistent — the marker(s) emitted always have valid headers.
   for (const m of markers) {
     if (m.type !== 'ins' || m.author !== author) continue;
     if (fromA < m.textFrom || toA > m.textTo) continue;
     const offset = fromA - m.textFrom;
     const len = toA - fromA;
-    const newText = m.text.slice(0, offset) + insertText + m.text.slice(offset + len);
-    if (!newText) {
-      return { changes: [{ from: m.from, to: m.to, insert: '' }], cursor: m.from };
+    const beforeText = m.text.slice(0, offset);
+    const afterText = m.text.slice(offset + len);
+    if (tcOn || insertText.length === 0) {
+      // Reserialize in place. TC ON: grows / shrinks the marker as
+      // part of the tracked edit. TC OFF + pure deletion: shrinks
+      // (no new content to keep untracked, so no need to split).
+      const newText = beforeText + insertText + afterText;
+      if (!newText) {
+        return { changes: [{ from: m.from, to: m.to, insert: '' }], cursor: m.from };
+      }
+      const replacement = serialize({
+        type: 'ins',
+        id: m.id || shortId(),
+        author: m.author,
+        text: newText,
+      });
+      const newHeaderLen = replacement.length - newText.length - 1;
+      return {
+        changes: [{ from: m.from, to: m.to, insert: replacement }],
+        cursor: m.from + newHeaderLen + offset + insertText.length,
+      };
     }
-    const replacement = serialize({
-      type: 'ins',
-      id: m.id || shortId(),
-      author: m.author,
-      text: newText,
-    });
-    const newHeaderLen = replacement.length - newText.length - 1;
+    // TC OFF + insertion/replacement — split.
+    let replacement = '';
+    let beforeMarkerLen = 0;
+    if (beforeText) {
+      const before = serialize({
+        type: 'ins',
+        id: m.id || shortId(),
+        author: m.author,
+        text: beforeText,
+      });
+      replacement += before;
+      beforeMarkerLen = before.length;
+    }
+    replacement += insertText;
+    if (afterText) {
+      replacement += serialize({
+        type: 'ins',
+        id: shortId(),
+        author: m.author,
+        text: afterText,
+      });
+    }
     return {
       changes: [{ from: m.from, to: m.to, insert: replacement }],
-      cursor: m.from + newHeaderLen + offset + insertText.length,
+      cursor: m.from + beforeMarkerLen + insertText.length,
     };
   }
 

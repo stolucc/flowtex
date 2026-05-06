@@ -251,18 +251,45 @@ describe('normalizeChange — targeted edge cases', () => {
     expect(ms[0].text).toBe('XYZ');
   });
 
-  it('TC OFF: in-place edit inside own ins reserializes the marker', () => {
-    // Set up: own ins with text 'hello'.
+  it('TC OFF: pure deletion inside own ins shrinks the marker (no split needed)', () => {
     let s = apply('', call('', 0, 0, 'hello'));
     const m = parseAll(s)[0];
-    // Backspace one char at offset 3 — the equivalent of the user
-    // turning off TC and editing inside their own pending ins.
     const r = call(s, m.textFrom + 3, m.textFrom + 4, '', { tcOn: false });
     s = apply(s, r);
     const ms = parseAll(s);
     expect(ms).toHaveLength(1);
     expect(ms[0].text).toBe('helo');
     expect(isWellFormed(s)).toBe(true);
+  });
+
+  it('TC OFF: typing inside own ins splits the marker so new chars stay UNTRACKED', () => {
+    let s = apply('', call('', 0, 0, 'hello'));
+    const m = parseAll(s)[0];
+    // Type 'X' at offset 3 inside the marker. With TC OFF, X must
+    // NOT be marked as inserted — it ends up as plain text between
+    // a left-half ins ('hel') and a right-half ins ('lo').
+    const r = call(s, m.textFrom + 3, m.textFrom + 3, 'X', { tcOn: false });
+    s = apply(s, r);
+    const ms = parseAll(s);
+    expect(ms).toHaveLength(2);
+    expect(ms[0].text).toBe('hel');
+    expect(ms[1].text).toBe('lo');
+    // The 'X' sits between them as plain text.
+    const between = s.slice(ms[0].to, ms[1].from);
+    expect(between).toBe('X');
+    expect(isWellFormed(s)).toBe(true);
+  });
+
+  it('TC OFF: typing at the START of own ins inner text → plain X before, marker keeps its full text', () => {
+    let s = apply('', call('', 0, 0, 'hello'));
+    const m = parseAll(s)[0];
+    const r = call(s, m.textFrom, m.textFrom, 'X', { tcOn: false });
+    s = apply(s, r);
+    const ms = parseAll(s);
+    expect(ms).toHaveLength(1);
+    expect(ms[0].text).toBe('hello');
+    // 'X' lands right before the marker, plain.
+    expect(s.slice(0, ms[0].from)).toBe('X');
   });
 
   it('TC OFF: deletion that visually covers a del marker drops the marker entirely', () => {
