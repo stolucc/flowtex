@@ -149,30 +149,52 @@ describe('tcMarkerInput filter', () => {
     expect(markers[0].text).toBe('ef');
   });
 
-  it('refuses a deletion that partially overlaps a marker (atomic invariant)', () => {
+  it('a deletion that visually contains a marker absorbs it (own ins → drop, own del → folded into a new del)', () => {
     on = true;
+    // Set up: ins marker with text 'eee', surrounded by nothing.
     let s = makeState('');
     s = applyChange(s, { changes: { from: 0, to: 0, insert: 'eee' } });
-    // Now the doc holds an ins marker with text 'eee'. The user
-    // selects from inside the marker text out to plain content and
-    // hits delete. The filter must drop the deletion so we don't
-    // synthesise a del marker whose text contains a sentinel.
-    const docLen = s.doc.length;
     const m = parseAll(s.doc.toString())[0];
-    // Start inside marker text, end past the marker entirely.
-    const before = s.doc.toString();
-    const next = applyChange(s, { changes: { from: m.textFrom, to: docLen, insert: '' } });
-    expect(next.doc.toString()).toBe(before);
+    // Selection visually contains the marker — start at m.textFrom
+    // (visual left edge, collapses onto m.from) and end past it.
+    s = applyChange(s, { changes: { from: m.textFrom, to: s.doc.length, insert: '' } });
+    // The own ins is dropped (undo of own insertion); no other plain
+    // chars in the range, so the new del has empty text → no marker.
+    expect(parseAll(s.doc.toString())).toEqual([]);
   });
 
-  it('refuses a deletion that fully encloses a marker', () => {
+  it('selecting a whole line with a pre-existing del marker and backspacing produces one merged del', () => {
     on = true;
+    // Build: "XYZ" → replace 'Y' with 'q' (creates ins:q + del:Y).
     let s = makeState('XYZ');
     s = applyChange(s, { changes: { from: 1, to: 2, insert: 'q' } });
-    // Doc: X<ins:q>Z. Now select [0..end] and try to delete.
-    const before = s.doc.toString();
-    const next = applyChange(s, { changes: { from: 0, to: s.doc.length, insert: '' } });
-    expect(next.doc.toString()).toBe(before);
+    // Now select everything and backspace.
+    s = applyChange(s, { changes: { from: 0, to: s.doc.length, insert: '' } });
+    const after = parseAll(s.doc.toString());
+    expect(after).toHaveLength(1);
+    expect(after[0].type).toBe('del');
+    // Visible text in the deleted range was 'X' + (ins:q dropped) +
+    // 'Y' (del:Y absorbed) + 'Z' = 'XYZ'.
+    expect(after[0].text).toBe('XYZ');
+  });
+
+  it('select-line-with-trailing-newline + backspace removes own ins line and wraps the newline as del', () => {
+    on = true;
+    // Two-line doc: ins marker on line 1, then a newline + plain text.
+    let s = makeState('\nworld');
+    // Type "hello" at the start (line 1 above the existing newline).
+    s = applyChange(s, { changes: { from: 0, to: 0, insert: 'hello' } });
+    // Doc structure: <ins:hello>\nworld
+    const before = parseAll(s.doc.toString())[0];
+    expect(before.text).toBe('hello');
+    // Select [m.from, m.to + 1) — entire ins marker plus the newline.
+    s = applyChange(s, { changes: { from: before.from, to: before.to + 1, insert: '' } });
+    const after = parseAll(s.doc.toString());
+    expect(after).toHaveLength(1);
+    expect(after[0].type).toBe('del');
+    // Visible text in the deleted range: ins:hello dropped (own undo) +
+    // '\n' = '\n'.
+    expect(after[0].text).toBe('\n');
   });
 
   it('still allows a deletion that touches no markers', () => {

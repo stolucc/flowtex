@@ -115,6 +115,13 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
     // marker's length-prefixed header pointing at corrupted bytes.
     let crossesMarker = false;
     let delOverlap = false;
+    // Track markers whose ENTIRE visible content sits inside a deletion
+    // range — those get absorbed: del markers contribute their inner
+    // text to the new del's text; ins markers are dropped (the user is
+    // undoing their insertion as part of the bigger deletion). Marker
+    // syntax in either case is stripped from the new del's text.
+    const absorbedDels = new Set();
+    const absorbedIns = new Set();
     tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
       for (const m of existingMarkers) {
         if (fromA === toA) {
@@ -148,12 +155,43 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         const rightEdgeOwnIns =
           fromA >= m.textTo && toA === m.to &&
           m.type === 'ins' && m.author === author;
-        if (fullyInsideOwnInsText || rightEdgeOwnIns) continue;
-        // Backspace that overlaps a DEL marker (the chars are already
-        // marked for deletion). Don't apply the change — but flag so
-        // the caller can move the caret backward instead of just
-        // dropping the transaction silently.
+        // Deletion fully contains a marker (visually). Use textFrom/
+        // textTo as the visual edges since the metadata + closing
+        // sentinel collapse onto m.from / m.to — when CM places the
+        // selection end at the visual end of the marker, that doc
+        // position is m.textTo, not m.to.
+        const containsMarker =
+          inserted.length === 0 &&
+          fromA <= m.textFrom && toA >= m.textTo;
+        // Selection partially overlaps a DEL marker's visible inner
+        // text (selection enters or exits the strikethrough). Absorb
+        // the whole del marker into the deletion — the chars are
+        // already pending deletion, so extending the deletion bounds
+        // to cover the rest of the marker is harmless and matches
+        // user intent of "delete everything I selected (and adjacent
+        // markers)."
+        const partialOverlapsDelInner =
+          inserted.length === 0 &&
+          m.type === 'del' &&
+          fromA < m.textTo && toA > m.textFrom;
+        if (fullyInsideOwnInsText || rightEdgeOwnIns || containsMarker || partialOverlapsDelInner) {
+          if (containsMarker || partialOverlapsDelInner) {
+            if (m.type === 'del') absorbedDels.add(m);
+            else absorbedIns.add(m);
+          }
+          continue;
+        }
+        // Backspace that overlaps a DEL marker on the metadata/sentinel
+        // boundaries only (not the visible inner text). With TC ON
+        // that's a "navigate through the strikethrough" press — move
+        // the caret and let further backspaces extend the marker on
+        // its left edge. With TC OFF the user is past TC, so just
+        // absorb the marker and remove it on this press.
         if (m.type === 'del' && inserted.length === 0) {
+          if (!tcOn) {
+            absorbedDels.add(m);
+            continue;
+          }
           delOverlap = true;
         }
         crossesMarker = true;
@@ -235,6 +273,43 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
       // length header. The cross-marker check above already rejected
       // changes that would corrupt a marker some other way.
       if (!tcOn) {
+        // Edits fully inside the user's own ins marker's inner text
+        // need to be reserialized through the marker's header so the
+        // length-prefixed text stays consistent. Without this, an
+        // in-place edit (typing or deleting one char inside the
+        // marker) would chop the inner text but leave the header's
+        // length field pointing at the old byte count — the marker
+        // becomes unparseable and its `ins:id:author:N:` prefix leaks
+        // into the visible document.
+        const enclosing = (() => {
+          for (const m of existingMarkers) {
+            if (m.type !== 'ins' || m.author !== author) continue;
+            if (fromA >= m.textFrom && toA <= m.textTo) return m;
+          }
+          return null;
+        })();
+        if (enclosing) {
+          const offset = fromA - enclosing.textFrom;
+          const len = toA - fromA;
+          const newText =
+            enclosing.text.slice(0, offset) + insertText + enclosing.text.slice(offset + len);
+          if (newText) {
+            const replacement = serialize({
+              type: 'ins',
+              id: enclosing.id || shortId(),
+              author: enclosing.author,
+              text: newText,
+            });
+            rewrites.push({ from: enclosing.from, to: enclosing.to, insert: replacement });
+            const newHeaderLen = replacement.length - newText.length - 1;
+            cursorTarget = enclosing.from + newHeaderLen + offset + insertText.length;
+          } else {
+            rewrites.push({ from: enclosing.from, to: enclosing.to, insert: '' });
+            cursorTarget = enclosing.from;
+          }
+          didRewrite = true;
+          return;
+        }
         let effectiveFromA = fromA;
         let effectiveToA = toA;
         for (const m of existingMarkers) {
@@ -242,6 +317,20 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
           else if (fromA === m.textTo) effectiveFromA = m.to;
           if (toA === m.textFrom) effectiveToA = m.from;
           else if (toA === m.textTo) effectiveToA = m.to;
+        }
+        // Extend the range to cover any markers absorbed by the
+        // cross-marker check (partial or full overlap). Without this,
+        // a TC-off deletion that nicks a marker on either side would
+        // leave the marker's length-prefixed header pointing at
+        // truncated bytes, exposing the raw `del:...` / `ins:...`
+        // syntax in the visible document.
+        for (const m of absorbedDels) {
+          if (m.from < effectiveFromA) effectiveFromA = m.from;
+          if (m.to > effectiveToA) effectiveToA = m.to;
+        }
+        for (const m of absorbedIns) {
+          if (m.from < effectiveFromA) effectiveFromA = m.from;
+          if (m.to > effectiveToA) effectiveToA = m.to;
         }
         if (effectiveFromA !== fromA || effectiveToA !== toA) {
           rewrites.push({ from: effectiveFromA, to: effectiveToA, insert: insertText });
@@ -383,7 +472,21 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         }
       }
 
-      // No merge — emit fresh marker(s).
+      // No merge — emit fresh marker(s). When the deletion absorbed
+      // any markers, the actual rewrite range may need to extend
+      // beyond [fromA, toA) to fully cover them (the user's selection
+      // may have ended at the marker's visual edge — m.textTo — but
+      // the marker's bytes extend to m.to). The new del's text is the
+      // VISIBLE content in the extended range: plain chars + del
+      // markers' inner text; ins markers are dropped (the user's own
+      // insertion is undone by the deletion).
+      let effectiveFromA = fromA;
+      let effectiveToA = toA;
+      const absorbedAll = [...absorbedDels, ...absorbedIns];
+      for (const m of absorbedAll) {
+        if (m.from < effectiveFromA) effectiveFromA = m.from;
+        if (m.to > effectiveToA) effectiveToA = m.to;
+      }
       let wrapped = '';
       let insMarkerLen = 0;
       if (insertText) {
@@ -392,7 +495,28 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         insMarkerLen = ins.length;
       }
       if (deletedText) {
-        wrapped += serialize({ type: 'del', id: shortId(), author, text: deletedText });
+        let visibleText;
+        if (absorbedAll.length > 0) {
+          const inRange = absorbedAll
+            .slice()
+            .sort((a, b) => a.from - b.from);
+          let buf = '';
+          let i = effectiveFromA;
+          for (const m of inRange) {
+            if (i < m.from) buf += beforeDoc.slice(i, m.from);
+            // Del's text becomes part of the new del; ins's text is
+            // dropped (insertion undone).
+            if (m.type === 'del') buf += m.text;
+            i = m.to;
+          }
+          if (i < effectiveToA) buf += beforeDoc.slice(i, effectiveToA);
+          visibleText = buf;
+        } else {
+          visibleText = deletedText;
+        }
+        if (visibleText) {
+          wrapped += serialize({ type: 'del', id: shortId(), author, text: visibleText });
+        }
       }
       // ALSO: if the deletion range falls inside an existing 'ins'
       // marker by the same author, the user is undoing their own
@@ -428,15 +552,15 @@ export function buildTcMarkerInputFilter({ isOn, getAuthor, shouldSkip }) {
         }
       }
 
-      rewrites.push({ from: fromA, to: toA, insert: wrapped });
+      rewrites.push({ from: effectiveFromA, to: effectiveToA, insert: wrapped });
       // For a pure insertion, the caret has to land just past the new
       // ins marker so the next keystroke triggers the merge path. For a
       // pure deletion or a replacement, the caret lands at the start of
       // the new wrap — visually before the strikethrough.
       if (insertText && !deletedText) {
-        cursorTarget = fromA + insMarkerLen;
+        cursorTarget = effectiveFromA + insMarkerLen;
       } else {
-        cursorTarget = fromA;
+        cursorTarget = effectiveFromA;
       }
       didRewrite = true;
     });
