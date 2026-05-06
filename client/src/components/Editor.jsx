@@ -79,6 +79,7 @@ import {
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
 import { tcMarkerExtensions } from '../utils/tcMarkerDecorations.js';
 import { buildTcMarkerInputFilter, tcMarkerSkipAnnotation } from '../utils/tcMarkerInput.js';
+import { tcMarkerSanitizer } from '../utils/tcMarkerSanitizer.js';
 import { parseAll as parseTcMarkers } from '@shared/tcMarkers.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 import VisualModeToolbar from './VisualModeToolbar.jsx';
@@ -805,6 +806,11 @@ const Editor = forwardRef(function Editor(
           getAuthor: () => currentUserNameRef.current || '',
           shouldSkip: () => isResolvingTc.current || isRemoteUpdate.current,
         }),
+        // Defense-in-depth: strips orphan TC_START sentinels from any
+        // transaction's resulting doc. Catches corruption from any
+        // path the input filter doesn't see (OT broadcasts, accept/
+        // reject edits, legacy data).
+        tcMarkerSanitizer,
         tableGutterField,
         tableGutterExtension,
         // Track changes: Backspace/Delete fall through to default keybindings.

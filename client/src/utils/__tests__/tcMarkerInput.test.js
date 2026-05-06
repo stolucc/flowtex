@@ -250,35 +250,28 @@ describe('tcMarkerInput filter', () => {
     expect(ins.text).toBe('qX');
   });
 
-  it('typing in the gap between two adjacent ins markers extends the LEFT one', () => {
+  it('typing at any side of a same-author ins consolidates into a single marker', () => {
     on = true;
-    // Build doc with two distinct ins markers back-to-back: type 'a',
-    // move past, type 'b' as a separate marker. Easiest: directly seed
-    // the doc with two markers via raw applyChange + skip annotation.
+    // Two consecutive insertions at the SAME doc position naturally
+    // collapse into one ins marker via the merge step in
+    // normalizeChange (no atomic-shift gymnastics needed). This
+    // replaces the old "two adjacent markers + interior-boundary fix"
+    // case — interior-boundary typing of a same-author ins is now just
+    // one of many cases that fold into the merge path, by construction.
     let s = makeState('');
-    // Two separate transactions so they DON'T merge into one marker.
     s = applyChange(s, { changes: { from: 0, to: 0, insert: 'a' } });
-    // Move caret away then back so the next keystroke isn't at the
-    // merge point — we explicitly want two separate markers.
     const m1 = parseAll(s.doc.toString())[0];
-    s = applyChange(s, {
-      // Insert 'b' at m1.from (before m1) so it's a separate marker.
-      changes: { from: m1.from, to: m1.from, insert: 'b' },
-    });
+    s = applyChange(s, { changes: { from: m1.from, to: m1.from, insert: 'b' } });
     const markers = parseAll(s.doc.toString());
-    expect(markers).toHaveLength(2);
-    // The second marker now sits before the first. Their boundary is
-    // at markers[0].to === markers[1].from. Type 'X' at the interior
-    // boundary on the LEFT marker's side (markers[0].textTo): should
-    // grow markers[0], not corrupt either.
+    expect(markers).toHaveLength(1);
+    expect(markers[0].text).toBe('ba');
+    // Subsequent typing at the (now merged) marker's interior textTo
+    // remains corruption-free: it grows the same marker.
     const interior = markers[0].textTo;
     const next = applyChange(s, { changes: { from: interior, to: interior, insert: 'X' } });
     const after = parseAll(next.doc.toString());
-    expect(after).toHaveLength(2);
-    // The marker at the same start as markers[0] grew by one char.
-    const grown = after.find((mm) => mm.from === markers[0].from);
-    expect(grown.text.length).toBe(markers[0].text.length + 1);
-    expect(grown.text.endsWith('X')).toBe(true);
+    expect(after).toHaveLength(1);
+    expect(after[0].text).toBe('baX');
   });
 
   it('ignores transactions tagged with the skip annotation', () => {
