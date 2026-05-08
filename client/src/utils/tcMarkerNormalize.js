@@ -2,6 +2,26 @@
 // change spec. The transactionFilter in tcMarkerInput.js is a thin shell
 // around this — see normalizeChange's contract and invariants below.
 //
+// Behavior contract — the rules this algorithm implements are pinned as
+// tests in __tests__/tcMarkerRules.test.js. Each test there names a
+// specific user-visible rule (A1, A2, …, F1) so any "but X behaves
+// wrong" report can be traced to (or added as) a single rule. The
+// categories are:
+//
+//   A. Typing (TC ON) creates and grows pending insertions.
+//   B. Backspace (TC ON) shrinks pending insertions.
+//   C. Pending deletions: del markers absorb adjacent ones, selection
+//      that visually covers a marker folds its content into a bigger del.
+//   D. TC OFF preserves markers without re-tracking the user's edit.
+//   E. Caret placement after edits (typing → end of new ins so the
+//      next keystroke merges; deletion → start of the new del).
+//   F. Invariants: every rewrite leaves the doc with parseable markers.
+//
+// When you need to change behaviour, add or update the rule test FIRST,
+// then adjust the phases below until it passes. The property tests
+// (tcMarkerNormalize.test.js) catch corruption at scale; the rules
+// table catches behaviour drift.
+//
 // Why this lives in its own file: the prior version inside the filter
 // had ~5 named cross-marker exceptions and ~6 separate rewrite branches
 // that interacted in subtle ways. Each new edge-case bug surfaced a
@@ -86,13 +106,58 @@ function markerStartingAt(beforeDoc, pos, type, author) {
  * @returns {{changes: Array<{from:number, to:number, insert:string}>, cursor: number}}
  */
 export function normalizeChange({ beforeDoc, markers, fromA, toA, insertText, tcOn, author }) {
-  // ── Phase -1: refuse changes that would absorb a foreign marker. ────
-  // Crossing into another user's tracked change should be a deliberate
-  // accept/reject decision, not a side-effect of an unrelated edit.
-  // (`null` is the filter's signal to drop the transaction.)
+  // (No foreign-marker reject. Collaborative TC needs the editing user
+  // to be able to delete or modify text that a colleague inserted; the
+  // authorship of resulting markers collapses to the current user but
+  // at least the edit isn't blocked outright. Any time `author` shifts
+  // — name change, switch between users — past markers also count as
+  // "foreign," so a hard reject would freeze the user out of their own
+  // history.)
+
+  // ── Phase -0.5: clamp ranges that land on a marker boundary. ──────
+  // CM atomic ranges produce specific shapes that look like they
+  // overlap the marker but really shouldn't:
+  //   - Backspace at cursor=m.textFrom yields [m.from, m.textFrom)
+  //     (atomic-extends the deletion into the metadata only).
+  //   - A selection ending at the marker's left boundary lands toA
+  //     at m.textFrom or m.from.
+  //   - Symmetric on the right boundary (toA = m.to or m.textTo).
+  //   - A space typed before/after a marker can come in with the
+  //     selection's toA/fromA on the marker's boundary.
+  // Without clamping, Phase 1 would expand the range to fully cover
+  // the marker and Phase 2's oldVisible would drop its content —
+  // collapsing the marker into the user's edit. We clamp so the
+  // range stays OUTSIDE the marker; Phase 3's merge step will then
+  // absorb the marker as an adjacent same-author candidate when
+  // appropriate (typing) or leave it alone (deleting plain chars
+  // before/after).
+  //
+  // Special case: pure backspace at m.from (atomic-extended target
+  // [m.from, m.textFrom)). After clamping toA to m.from the range
+  // becomes empty; rewrite as "delete the char BEFORE the marker"
+  // or no-op if the marker is at position 0.
   for (const m of markers) {
-    if (m.author === author) continue;
-    if (m.from < toA && m.to > fromA) return null;
+    // INS markers only — the user's intent at an ins boundary is to
+    // edit AROUND the inserted run, leaving it intact. For del
+    // markers the opposite semantic applies: absorbing the marker
+    // (and dropping it on TC-off, or wrapping its text in a new del
+    // on TC-on) is correct, so we leave Phase 1 expansion to handle
+    // them.
+    if (m.type !== 'ins') continue;
+    if ((toA === m.from || toA === m.textFrom) && fromA <= m.from) {
+      if (fromA === m.from && insertText.length === 0) {
+        if (m.from === 0) return { changes: [], cursor: m.from };
+        fromA = m.from - 1;
+        toA = m.from;
+      } else {
+        toA = m.from;
+      }
+      break;
+    }
+    if ((fromA === m.to || fromA === m.textTo) && toA >= m.to) {
+      fromA = m.to;
+      break;
+    }
   }
 
   // ── Phase 0: edit fully inside user's own ins marker. ──────────────
@@ -157,6 +222,45 @@ export function normalizeChange({ beforeDoc, markers, fromA, toA, insertText, tc
       changes: [{ from: m.from, to: m.to, insert: replacement }],
       cursor: m.from + beforeMarkerLen + insertText.length,
     };
+  }
+
+  // ── Phase 0b: pure deletion at the right edge of an ins marker. ──
+  // CM's atomic-range handling extends a backspace-at-m.to to span
+  // [m.textTo, m.to) — just the closing sentinel. The user's intent
+  // is to remove ONE visible char from the end of the pending
+  // insertion, not to absorb the whole marker. Without this branch
+  // Phase 1 would expand the range to fully cover m and Phase 2's
+  // oldVisible would drop its text entirely (any ins → undone in
+  // visible content), so a single backspace at the right edge would
+  // erase the entire word in one press. Applies to ANY author's
+  // ins so a collaborator can also shrink an inserted run one char
+  // at a time. The marker's original id + author are preserved.
+  if (insertText.length === 0) {
+    for (const m of markers) {
+      if (m.type !== 'ins') continue;
+      if (toA !== m.to) continue;
+      if (fromA < m.from) continue;
+      let dropCount;
+      if (fromA >= m.textTo) {
+        dropCount = 1;
+      } else {
+        dropCount = m.textTo - Math.max(fromA, m.textFrom);
+      }
+      const newText = m.text.slice(0, m.text.length - dropCount);
+      if (!newText) {
+        return { changes: [{ from: m.from, to: m.to, insert: '' }], cursor: m.from };
+      }
+      const replacement = serialize({
+        type: 'ins',
+        id: m.id || shortId(),
+        author: m.author,
+        text: newText,
+      });
+      return {
+        changes: [{ from: m.from, to: m.to, insert: replacement }],
+        cursor: m.from + replacement.length,
+      };
+    }
   }
 
   // ── Phase 1: expand range to cover any overlapping markers. ────────
@@ -228,11 +332,15 @@ export function normalizeChange({ beforeDoc, markers, fromA, toA, insertText, tc
   }
 
   // ── Phase 5: caret target. ─────────────────────────────────────────
-  // Typing → caret lands just past the new ins so the next keystroke
-  // merges. Otherwise → caret lands at the start of the replacement.
-  // TC-OFF plain-text → caret lands past the inserted text.
+  // Whenever we emit an ins marker the caret has to land just past it
+  // — that's the merge point for subsequent typing (prev-marker merge
+  // on the LEFT). If we land before or inside the marker, follow-up
+  // chars merge via the right-side path and reverse the order. For
+  // pure deletions or TC-off plain edits, the caret lands past the
+  // inserted plain text (which is `insertText.length` for TC-off, 0
+  // for TC-on pure deletion since insertText is empty).
   let cursor;
-  if (tcOn && insertText.length > 0 && oldVisible.length === 0) {
+  if (insLen > 0) {
     cursor = efA + insLen;
   } else {
     cursor = efA + insertText.length;

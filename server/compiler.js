@@ -5,9 +5,38 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
 import db from './db.js';
+import logger from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
+
+// Detect prlimit (util-linux) so we can wrap LaTeX compilation in
+// hard resource caps on Linux. The container already enforces caps
+// via cgroups; this layer protects bare-metal Linux installs from a
+// pathological .tex eating all memory or producing a 50GB output.
+// Defaults: 2GB virtual memory, CPU = timeout + 10s, 100MB max output
+// file write, 64 subprocesses (latexmk + pdflatex passes + helpers).
+// Tunables via env. macOS / non-Linux skip prlimit (it doesn't exist
+// there); operators on those platforms must enforce limits another way
+// or use the Docker deployment path.
+const PRLIMIT_PATH = (() => {
+  if (process.platform !== 'linux') return null;
+  try {
+    const out = execFileSync('which', ['prlimit'], { encoding: 'utf-8' }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+})();
+const COMPILE_RLIMIT_AS = Number(process.env.COMPILE_RLIMIT_AS_BYTES || 2 * 1024 * 1024 * 1024);
+const COMPILE_RLIMIT_FSIZE = Number(process.env.COMPILE_RLIMIT_FSIZE_BYTES || 100 * 1024 * 1024);
+const COMPILE_RLIMIT_NPROC = Number(process.env.COMPILE_RLIMIT_NPROC || 64);
+if (process.platform === 'linux' && !PRLIMIT_PATH) {
+  logger.warn(
+    '[compiler] prlimit not found on PATH — LaTeX compiles will run without resource limits. ' +
+      'Install util-linux (apt install util-linux) or use the Docker deployment to enforce caps.',
+  );
+}
 
 // Compile timeout in ms — cached from DB, refreshed every 30s
 let _compileTimeoutMs = 120000;
@@ -309,19 +338,36 @@ async function _doCompile(
 
     let child;
     try {
+      const latexmkArgs = [
+        engineFlag,
+        '-synctex=1',
+        '-interaction=nonstopmode',
+        '-f',
+        '--no-shell-escape',
+        '-e', '$max_repeat=4',
+        `-jobname=${jobName}`,
+        `-output-directory=${projectDir}`,
+        mainFile,
+      ];
+      // On Linux with prlimit available, wrap the invocation in
+      // address-space, file-size, CPU-time, and process-count caps.
+      // CPU time is set slightly above the JS timeout so the kernel
+      // never beats us to the punch on a normal compile.
+      const cpuLimitSec = Math.ceil(timeoutMs / 1000) + 10;
+      const exe = PRLIMIT_PATH ? PRLIMIT_PATH : 'latexmk';
+      const args = PRLIMIT_PATH
+        ? [
+            `--as=${COMPILE_RLIMIT_AS}`,
+            `--fsize=${COMPILE_RLIMIT_FSIZE}`,
+            `--cpu=${cpuLimitSec}`,
+            `--nproc=${COMPILE_RLIMIT_NPROC}`,
+            'latexmk',
+            ...latexmkArgs,
+          ]
+        : latexmkArgs;
       child = execFile(
-        'latexmk',
-        [
-          engineFlag,
-          '-synctex=1',
-          '-interaction=nonstopmode',
-          '-f',
-          '--no-shell-escape',
-          '-e', '$max_repeat=4',
-          `-jobname=${jobName}`,
-          `-output-directory=${projectDir}`,
-          mainFile,
-        ],
+        exe,
+        args,
         { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (callbackFired) return; // safety timer already fired

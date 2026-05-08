@@ -15,9 +15,10 @@ import { parseAll, parseAt, serialize, TC_START } from '@shared/tcMarkers.js';
 const AUTHOR = 'Alice';
 
 /** Apply the normalized change to beforeDoc and return the new doc. A
- *  null result means the filter rejected the change — beforeDoc stays. */
+ *  null result OR an empty changes array means no doc change. */
 function apply(beforeDoc, result) {
   if (result === null) return beforeDoc;
+  if (!result.changes || result.changes.length === 0) return beforeDoc;
   const { from, to, insert } = result.changes[0];
   return beforeDoc.slice(0, from) + insert + beforeDoc.slice(to);
 }
@@ -97,7 +98,7 @@ describe('normalizeChange — property tests', () => {
   it('produces a well-formed doc for random inputs (TC ON)', () => {
     let failures = 0;
     let counterexample = null;
-    for (let trial = 0; trial < 1000; trial++) {
+    for (let trial = 0; trial < 10000; trial++) {
       const beforeDoc = randomDoc(trial);
       const markers = parseAll(beforeDoc);
       const { fromA, toA, insertText } = randomChange(beforeDoc);
@@ -112,7 +113,7 @@ describe('normalizeChange — property tests', () => {
     }
     if (failures > 0) {
       throw new Error(
-        `${failures}/1000 random TC-ON trials produced a malformed doc. ` +
+        `${failures}/10000 random TC-ON trials produced a malformed doc. ` +
         `Example: ${JSON.stringify(counterexample)}`,
       );
     }
@@ -121,7 +122,7 @@ describe('normalizeChange — property tests', () => {
   it('produces a well-formed doc for random inputs (TC OFF)', () => {
     let failures = 0;
     let counterexample = null;
-    for (let trial = 0; trial < 1000; trial++) {
+    for (let trial = 0; trial < 10000; trial++) {
       const beforeDoc = randomDoc(trial);
       const markers = parseAll(beforeDoc);
       const { fromA, toA, insertText } = randomChange(beforeDoc);
@@ -136,14 +137,14 @@ describe('normalizeChange — property tests', () => {
     }
     if (failures > 0) {
       throw new Error(
-        `${failures}/1000 random TC-OFF trials produced a malformed doc. ` +
+        `${failures}/10000 random TC-OFF trials produced a malformed doc. ` +
         `Example: ${JSON.stringify(counterexample)}`,
       );
     }
   });
 
   it('returned cursor is in [0, after.length] (when not rejected)', () => {
-    for (let trial = 0; trial < 500; trial++) {
+    for (let trial = 0; trial < 5000; trial++) {
       const beforeDoc = randomDoc(trial);
       const markers = parseAll(beforeDoc);
       const { fromA, toA, insertText } = randomChange(beforeDoc);
@@ -159,19 +160,35 @@ describe('normalizeChange — property tests', () => {
     }
   });
 
-  it('rejects changes that would absorb a foreign-author marker', () => {
-    let s = '';
-    // Insert a Bob-authored ins marker.
-    s = serialize({ type: 'ins', id: 'b1', author: 'Bob', text: 'foo' });
-    s = `pre${s}post`;
+  it('Phase 0b: a different user backspacing at end of a foreign ins shrinks it by one (preserves original author)', () => {
+    let s = `pre${serialize({ type: 'ins', id: 'b1', author: 'Bob', text: 'hello' })}post`;
     const m = parseAll(s)[0];
-    // Alice tries to delete a range that touches Bob's marker.
+    // Alice (current author) backspaces at m.to. CM atomic extends
+    // the deletion target to [m.textTo, m.to).
+    const r = normalizeChange({
+      beforeDoc: s, markers: parseAll(s),
+      fromA: m.textTo, toA: m.to, insertText: '',
+      tcOn: true, author: AUTHOR,
+    });
+    s = apply(s, r);
+    const ms = parseAll(s);
+    expect(ms).toHaveLength(1);
+    expect(ms[0].text).toBe('hell');
+    expect(ms[0].author).toBe('Bob'); // original author preserved
+    expect(isWellFormed(s)).toBe(true);
+  });
+
+  it('allows editing through a foreign marker (collapses authorship to current user)', () => {
+    // Bob's pending insertion of 'foo'.
+    let s = `pre${serialize({ type: 'ins', id: 'b1', author: 'Bob', text: 'foo' })}post`;
+    const m = parseAll(s)[0];
+    // Alice deletes a range that covers Bob's marker fully.
     const result = normalizeChange({
       beforeDoc: s, markers: parseAll(s),
       fromA: 0, toA: m.to + 1, insertText: '',
       tcOn: true, author: AUTHOR,
     });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -181,6 +198,71 @@ describe('normalizeChange — targeted edge cases', () => {
       beforeDoc, markers: parseAll(beforeDoc), fromA, toA, insertText, tcOn, author,
     });
   }
+
+  it('TC ON: replace selection then keep typing preserves character order', () => {
+    // Select 'abc', type 'q', type 'r'. The marker should end up as
+    // 'qr' — the previous bug landed the caret BEFORE the new ins,
+    // so the next keystroke prepended via the right-merge path and
+    // produced 'rq' instead.
+    let s = 'abc';
+    const r1 = call(s, 0, 3, 'q');
+    s = apply(s, r1);
+    const r2 = call(s, r1.cursor, r1.cursor, 'r');
+    s = apply(s, r2);
+    const ins = parseAll(s).find((mm) => mm.type === 'ins');
+    expect(ins.text).toBe('qr');
+  });
+
+  it('Phase -0.5: backspace at the LEFT edge of own ins (atomic-extended target = [m.from, m.textFrom))', () => {
+    // Build: "abc<ins:hello>". CM's atomic handling extends the
+    // backspace target to span the marker's metadata only.
+    let s = 'abc';
+    s = apply(s, call(s, 3, 3, 'hello'));
+    const m = parseAll(s)[0];
+    expect(m.text).toBe('hello');
+    // Backspace at start of marker — deletion is [m.from, m.textFrom).
+    const r = call(s, m.from, m.textFrom, '');
+    s = apply(s, r);
+    const ms = parseAll(s);
+    const ins = ms.find((mm) => mm.type === 'ins');
+    const del = ms.find((mm) => mm.type === 'del');
+    expect(ins.text).toBe('hello'); // marker preserved
+    expect(del.text).toBe('c'); // char before marker wrapped as del
+  });
+
+  it('typing space AT m.from of an ins marker prepends to the marker (does NOT erase it)', () => {
+    let s = 'abc';
+    s = apply(s, call(s, 3, 3, 'hello'));
+    const m = parseAll(s)[0];
+    expect(m.text).toBe('hello');
+    // CM places caret at m.from when the click is at the visual left
+    // boundary of the marker (left edge of atomic [m.from, m.textFrom)).
+    s = apply(s, call(s, m.from, m.from, ' '));
+    const ms = parseAll(s);
+    expect(ms).toHaveLength(1);
+    expect(ms[0].type).toBe('ins');
+    expect(ms[0].text).toBe(' hello');
+  });
+
+  it('typing space AT m.textFrom of an ins marker prepends to the marker (does NOT erase it)', () => {
+    let s = 'abc';
+    s = apply(s, call(s, 3, 3, 'hello'));
+    const m = parseAll(s)[0];
+    s = apply(s, call(s, m.textFrom, m.textFrom, ' '));
+    const ms = parseAll(s);
+    expect(ms).toHaveLength(1);
+    expect(ms[0].text).toBe(' hello');
+  });
+
+  it('Phase -0.5: backspace at LEFT edge with marker at position 0 is a no-op', () => {
+    let s = '';
+    s = apply(s, call(s, 0, 0, 'hello'));
+    const m = parseAll(s)[0];
+    const before = s;
+    s = apply(s, call(s, m.from, m.textFrom, ''));
+    expect(s).toBe(before); // no change
+    expect(parseAll(s)[0].text).toBe('hello');
+  });
 
   it('TC ON: typing in empty doc creates a fresh ins marker', () => {
     const r = call('', 0, 0, 'X');
