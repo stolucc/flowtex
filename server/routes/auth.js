@@ -136,8 +136,17 @@ router.post('/login', async (req, res) => {
 
   // MFA check
   if (user.totp_enabled) {
-    const deviceTrusted = await authService.checkTrustedDevice(user.id, req.cookies?.['trusted-device']);
-    if (!deviceTrusted) {
+    const rotated = await authService.checkTrustedDevice(user.id, req.cookies?.['trusted-device']);
+    if (rotated) {
+      // Cookie was valid; rotate it so a stolen replica only works once.
+      res.cookie('trusted-device', rotated.token, {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: rotated.maxAge,
+        path: '/',
+      });
+    } else {
       if (!totpCode) return res.status(200).json({ mfaRequired: true });
 
       const totpResult = await authService.verifyTotp(user.id, totpCode, user.totp_secret);
@@ -150,11 +159,12 @@ router.post('/login', async (req, res) => {
         const { token, maxAge } = await authService.createTrustedDevice(user.id, req.headers['user-agent']);
         res.cookie('trusted-device', token, {
           httpOnly: true,
-          sameSite: 'lax',
+          sameSite: 'strict',
           secure: process.env.NODE_ENV === 'production',
           maxAge,
           path: '/',
         });
+        await auditLog(user.id, 'mfa_trust_device_created', { ip: req.ip, detail: req.headers['user-agent']?.substring(0, 200) || null });
       }
     }
   }

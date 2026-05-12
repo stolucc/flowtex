@@ -2,8 +2,14 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  scrollbar-color: #3e4255 var(--bg-secondary);
+  scrollbar-color: var(--scrollbar-thumb) var(--bg-secondary);
 }
+
+/* Tell the browser the page's color scheme so native UI (default scroll-
+   bars, form controls, search-input cancel buttons) matches. Switched
+   per-theme below. */
+:root { color-scheme: dark; }
+:root[data-theme='light'] { color-scheme: light; }
 
 ::-webkit-scrollbar {
   width: 8px;
@@ -15,12 +21,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3e4255;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #525775;
+  background: var(--scrollbar-thumb-hover);
 }
 
 :root {
@@ -37,8 +43,49 @@
   --red: #f38ba8;
   --yellow: #f9e2af;
   --border: #313244;
+  /* Solid panel backgrounds for right-side sidebars (comments + TC). In
+     dark mode these are a fixed grey-blue; in light mode they shift to a
+     pale neutral. Pulled out of hardcoded #2a2d3d so the theme switch
+     can flip them. */
+  --bg-panel-solid: #2a2d3d;
+  /* Terminal-style compile-log panel. Distinct from the rest of the chrome
+     so it reads as "output stream"; in light mode it stays terminal-feeling
+     but with a light surface and dark text. */
+  --bg-console: #1a1a1a;
+  --text-console: #ccc;
+  /* Scrollbar colors. In dark mode these are the existing greyish-purple
+     thumb on the sidebar background. Overridden in light mode to grey
+     so light-themed scrollbars look right. */
+  --scrollbar-thumb: #3e4255;
+  --scrollbar-thumb-hover: #525775;
   --radius: 6px;
   --radius-pill: 6px;
+}
+
+/* ── Light theme overrides ─────────────────────────────────────────────
+   Toggled via `document.documentElement.dataset.theme = 'light'`. The
+   variable surface is intentionally small (13 vars + 1 solid) — the rest
+   of the CSS uses var() so it tracks automatically. If some specific
+   element looks wrong after a toggle, fix it by replacing its hardcoded
+   color with one of these vars rather than adding a new variable. */
+:root[data-theme='light'] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --bg-surface: #ffffff;
+  --bg-hover: #eef0f3;
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --red: #dc2626;
+  --yellow: #b45309;
+  --border: #e5e7eb;
+  --bg-panel-solid: #f3f4f6;
+  --bg-console: #f9fafb;
+  --text-console: #1f2937;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
 }
 
 body {
@@ -101,7 +148,11 @@ html {
   position: relative;
   display: flex;
   align-items: stretch;
-  margin: 12px 12px 0;
+  /* Match the 8px horizontal inset used by .sidebar-categories below, so
+     the New Project group aligns at the same left/right edges as the
+     "All Projects" / "Your Projects" / … buttons. Previously the group
+     had a 12px inset making it ~8px narrower than the category buttons. */
+  margin: 12px 8px 0;
 }
 
 .sidebar-new-project-btn {
@@ -778,8 +829,9 @@ html {
 /* Toolbar */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 6px 12px;
   padding: 8px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
@@ -787,34 +839,49 @@ html {
   user-select: none;
   flex-shrink: 0;
 }
-
+/* Each section is a flex container that wraps its own contents. We do
+   NOT set `min-width: 0` on the sections (which would let them shrink
+   below their min-content); instead, with flex-wrap on each section, the
+   min-content is "one button wide" — so each section can shrink down to
+   that, growing taller as its buttons wrap. The parent .toolbar then
+   only needs to wrap when even the one-button-wide minimum doesn't fit. */
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar-left { flex: 1 1 auto; }
+.toolbar-right { flex: 0 1 auto; justify-content: flex-end; gap: 8px; }
+.toolbar-center {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: center;
+}
 .toolbar-back {
   background: var(--accent);
   border: none;
   color: var(--bg-primary);
-  padding: 6px 14px;
+  /* Icon-only now; round-square pad to match adjacent buttons. */
+  padding: 6px 10px;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .toolbar-back:hover {
   background: var(--accent-hover);
 }
 
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-}
-
+/* .toolbar-left / .toolbar-right use `display: contents` (see top-of-toolbar
+   block above), so they have no layout box of their own. Their children
+   are direct flex items of .toolbar and wrap naturally. .toolbar-center
+   likewise gets `display: contents` below. */
 .toolbar-center {
-  flex: 1;
-  text-align: center;
-  min-width: 0;
+  display: contents;
 }
 
 .toolbar-title {
@@ -887,8 +954,12 @@ html {
 
 .toolbar-menu-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
+  /* The seven dropdowns inside this menu bar wrap when the bar gets
+     narrow; combined with the parent .toolbar-left also being wrap-
+     enabled, the menus reflow gracefully on resize. */
 }
 
 .toolbar-dropdown {
@@ -1030,6 +1101,19 @@ html {
 
 .file-tree-drag-over {
   outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+/* Internal move (drag a file/folder onto another folder, or onto the root
+   area to move to top level). Distinct from .file-tree-drag-over which
+   fires only for OS-file uploads. */
+.file-tree-drop-target {
+  background: rgba(99, 156, 255, 0.18);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.file-tree-drop-target-root {
+  outline: 2px dashed rgba(99, 156, 255, 0.55);
   outline-offset: -2px;
 }
 
@@ -1765,6 +1849,36 @@ html {
   padding: 1px 1px;
   outline: 1px solid rgba(248, 81, 73, 0.3);
 }
+
+/* ── Light-theme overrides for the GitHub-style history diff ─────────
+   The defaults above are GitHub's dark-theme palette (#161b22, #58a6ff,
+   etc.). In light mode they leave dark bars and unreadable text. These
+   overrides switch the "n unchanged lines" collapse rows, the hunk
+   headers, line numbers, and the add/remove text colors to GitHub's
+   light-theme equivalents. */
+[data-theme='light'] .gh-diff-hunk { border-bottom-color: var(--border); }
+[data-theme='light'] .gh-diff-hunk-header {
+  background: rgba(56, 139, 253, 0.08);
+  color: #57606a;
+  border-top-color: var(--border);
+  border-bottom-color: var(--border);
+}
+[data-theme='light'] .gh-diff-expand,
+[data-theme='light'] .gh-diff-large-toggle {
+  background: #f6f8fa;
+  color: #0969da;
+  border-top-color: var(--border);
+  border-bottom-color: var(--border);
+}
+[data-theme='light'] .gh-diff-large-toggle:hover { background: #eaeef2; }
+[data-theme='light'] .gh-diff-num { color: #6e7781; }
+[data-theme='light'] .gh-diff-row-same .gh-diff-code { color: var(--text-primary); }
+[data-theme='light'] .gh-diff-row-add .gh-diff-code,
+[data-theme='light'] .gh-diff-row-add .gh-diff-num,
+[data-theme='light'] .gh-diff-row-add .gh-diff-marker { color: #1a7f37; }
+[data-theme='light'] .gh-diff-row-remove .gh-diff-code,
+[data-theme='light'] .gh-diff-row-remove .gh-diff-num,
+[data-theme='light'] .gh-diff-row-remove .gh-diff-marker { color: #cf222e; }
 
 .history-list-pane {
   width: 280px;
@@ -2551,6 +2665,12 @@ html {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--bg-secondary);
   flex-shrink: 0;
+  /* Flat row of buttons (filename + undo/redo/zoom/find/table/figure/symbol);
+     same shape as the PDF header so the same wrap rule applies. When the
+     editor pane is narrowed, buttons drop to a second row instead of
+     getting hidden behind the PDF panel. */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 
 .editor-header-filename {
@@ -3593,7 +3713,7 @@ html {
 .pdf-viewer {
   flex: 1;
   min-width: 250px;
-  background: #2a2d3d;
+  background: var(--bg-panel-solid);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3606,7 +3726,16 @@ html {
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: var(--bg-primary);
+  /* Match the editor-header background so both toolbars read as one
+     visual band across the workspace. In dark mode this is a slightly
+     darker shade than the page bg; in light mode it's a light gray
+     instead of pure white. */
+  background: var(--bg-secondary);
+  /* The PDF pane is user-resizable; on a narrow drag the row of ~10 button
+     groups (compile, error/warn badges, console, TC, download, page-nav,
+     zoom controls) would overflow. Wrap to a second row instead of hiding. */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 
 .compile-btn-group {
@@ -3930,7 +4059,7 @@ html {
   max-height: 200px;
   overflow-y: auto;
   border-bottom: 1px solid var(--border);
-  background: #1a1a1a;
+  background: var(--bg-console);
   font-size: 11px;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   line-height: 1.5;
@@ -3939,7 +4068,7 @@ html {
 .pdf-console-output {
   margin: 0;
   padding: 8px 12px;
-  color: #ccc;
+  color: var(--text-console);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -4063,6 +4192,30 @@ html {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Copy-to-clipboard button on each log row. Plain icon button (no
+   round border) so a row with both buttons doesn't look like a pair
+   of identical chips. Both buttons get `margin-left: auto`; in a flex
+   row the first auto-margin consumes the available space, the second
+   collapses to zero — so they end up adjacent at the right edge. */
+.pdf-log-copy-btn {
+  background: none;
+  border: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.pdf-log-help-btn + .pdf-log-copy-btn { margin-left: 4px; }
+.pdf-log-copy-btn:hover { opacity: 1; color: var(--accent); }
 
 /* ── Help detail panel ───────────────────────────────────────── */
 
@@ -4270,7 +4423,7 @@ html {
 
 /* Comments Sidebar */
 .comments-sidebar {
-  background: #2a2d3d;
+  background: var(--bg-panel-solid);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -4287,8 +4440,18 @@ html {
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   background: var(--bg-primary);
+}
+.comments-title { flex: 1; }
+.comments-count {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: normal;
+  font-size: 11px;
+  letter-spacing: 0;
 }
 
 .comments-close-btn {
@@ -4411,11 +4574,15 @@ html {
 
 .comment-item {
   position: relative;
-  padding: 10px 12px;
+  /* Right padding leaves room for the absolutely-positioned
+   * .comment-top-actions block (resolve btn + menu btn ≈ 56px). Without
+   * this, the meta row (author + date) slides under the buttons when
+   * the panel is narrow. */
+  padding: 8px 64px 8px 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-left: none;
-  border-radius: 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
 }
 
 .comment-item.resolved {
@@ -4561,32 +4728,31 @@ html {
   border-color: var(--accent) !important;
 }
 
+/* Meta row (author + date) — single line, matches .tc-panel-card-meta */
 .comment-author {
   font-weight: 600;
-  font-size: 12px;
-  color: var(--text-primary);
-  display: flex;
+  font-size: 11px;
+  color: var(--accent);
+  display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.comment-author-swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .comment-date {
+  display: inline-block;
   font-size: 11px;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
+/* Body — flows inline with the card; no inset box. */
 .comment-text {
   font-size: 13px;
   line-height: 1.4;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .comment-replies {
@@ -4921,14 +5087,11 @@ html {
   text-decoration: underline;
 }
 
-/* Toolbar extras */
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  justify-content: flex-end;
-}
+/* Toolbar extras. .toolbar-right itself is display: contents (see top of
+   toolbar block) — its children flow as direct flex items. We use a
+   `gap` on the parent .toolbar for spacing between them, and an
+   `margin-left: auto` on the first child (.toolbar-users) to push the
+   right-side group to the right edge at wide widths. */
 
 .toolbar-btn {
   padding: 4px 12px;
@@ -6012,7 +6175,40 @@ kbd {
   background: var(--bg-surface);
   border: 1px solid var(--accent);
   border-radius: var(--radius);
+  transition: box-shadow 0.6s ease, transform 0.2s ease;
 }
+.invitation-card-highlight {
+  animation: invitation-card-pulse 1.6s ease-in-out 2;
+  box-shadow: 0 0 0 3px var(--accent);
+}
+@keyframes invitation-card-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 156, 255, 0); }
+  50%      { box-shadow: 0 0 0 6px rgba(99, 156, 255, 0.45); }
+}
+
+.invite-mismatch-banner {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 12px 36px 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid #b71c1c;
+  border-left: 4px solid #b71c1c;
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.invite-mismatch-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+.invite-mismatch-dismiss:hover { color: var(--text-primary); }
 
 .invitation-info {
   display: flex;
@@ -6337,7 +6533,7 @@ kbd {
   align-items: center;
   height: 100%;
   overflow: auto;
-  background: #1e1e1e;
+  background: var(--bg-primary);
   padding: 16px;
 }
 .binary-preview-label {
@@ -6352,7 +6548,7 @@ kbd {
   border-radius: 4px;
 }
 .binary-preview-pdf-container {
-  background: #2a2d3d;
+  background: var(--bg-panel-solid);
   align-items: stretch;
 }
 
@@ -7381,8 +7577,8 @@ kbd {
 
 /* Log console */
 .bib-enrich-log {
-  background: #1e1e2e;
-  color: #cdd6f4;
+  background: var(--bg-console);
+  color: var(--text-console);
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.5;
@@ -7573,7 +7769,8 @@ kbd {
 
 /* ── Track Changes ─────────────────────────────────────────────────────── */
 
-/* Insertion highlight in editor */
+/* Insertion highlight in editor — fixed blue. Author info lives in
+ * the title tooltip and data-tc-author attribute. */
 .cm-tc-insert {
   background: rgba(68, 138, 255, 0.15);
   border-bottom: 2px solid #448aff;
@@ -7598,11 +7795,13 @@ kbd {
   border-radius: 2px;
 }
 
-/* Deleted text (struck-through) in editor */
+/* Deleted text (struck-through) in editor — fixed red. Author info
+ * lives in the title tooltip and data-tc-author attribute. */
 .cm-tc-delete {
   background: rgba(183, 28, 28, 0.12);
   color: #b71c1c !important;
   text-decoration: line-through;
+  text-decoration-color: #b71c1c;
   cursor: pointer;
 }
 
@@ -8326,9 +8525,12 @@ kbd {
   min-height: 100vh;
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding: 24px 32px;
-  max-width: 1280px;
-  margin: 0 auto;
+  /* Use the full viewport width — no max cap. Wider monitors get more
+     cards per row and more breathing room in tables. Padding scales a bit
+     with viewport for nice margins. */
+  padding: 24px clamp(24px, 4vw, 64px);
+  width: 100%;
+  margin: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -8479,7 +8681,10 @@ kbd {
 
 .admin-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  /* minmax bumped from 180px → 210px so cards stay readable when the
+     dashboard is wider; auto-fill still collapses to fewer columns on
+     narrow viewports. */
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 12px;
   margin-bottom: 28px;
 }
@@ -9380,4 +9585,320 @@ kbd {
 .zotero-import-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── TC review bar (V1) ── */
+.tc-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.tc-bar-count {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.tc-bar-counter {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-width: 3em;
+  text-align: center;
+}
+.tc-bar-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tc-bar-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tc-bar-btn:disabled { opacity: 0.4; cursor: default; }
+.tc-bar-btn-accept:hover:not(:disabled) { background: #2ea043; border-color: #2ea043; }
+.tc-bar-btn-reject:hover:not(:disabled) { background: #cf222e; border-color: #cf222e; }
+.tc-bar-arrow { padding: 2px 8px; font-size: 16px; line-height: 1; }
+.tc-bar-info { display: inline-flex; gap: 6px; align-items: center; }
+.tc-bar-info-ins .tc-bar-type { color: #448aff; font-weight: bold; }
+.tc-bar-info-del .tc-bar-type { color: #b71c1c; font-weight: bold; }
+.tc-bar-author { color: var(--text-secondary); font-size: 11px; }
+.tc-bar-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+.tc-bar-close { margin-left: auto; padding: 2px 8px; font-size: 16px; line-height: 1; }
+
+/* TC right-click menu */
+.tc-context-menu {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  padding: 4px 0;
+  min-width: 160px;
+  font-size: 13px;
+}
+.tc-context-header {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.tc-context-header-ins .tc-context-type { color: #448aff; font-weight: 600; }
+.tc-context-header-del .tc-context-type { color: #b71c1c; font-weight: 600; }
+.tc-context-author { color: var(--text-secondary); margin-left: 6px; font-size: 11px; }
+.tc-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+}
+.tc-context-menu button:hover { background: var(--accent); color: #fff; }
+
+/* TC gutter line markers */
+.cm-tc-gutter {
+  width: 4px;
+  min-width: 4px;
+  padding: 0;
+}
+.cm-tc-gutter-bar {
+  width: 100%;
+  height: 100%;
+  min-height: 1.4em;
+}
+.cm-tc-gutter-bar-ins { background: #448aff; }
+.cm-tc-gutter-bar-del { background: #b71c1c; }
+.cm-tc-gutter-bar-both {
+  background: linear-gradient(90deg, #448aff 50%, #b71c1c 50%);
+}
+
+/* TC review side panel (V2 Word-style cards) */
+.tc-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Match the comments sidebar exactly — same body bg, same header bg —
+     so the two right-side panels read as a pair. */
+  background: var(--bg-panel-solid);
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+  overflow: hidden;
+}
+.tc-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--bg-primary);
+}
+.tc-panel-title { flex: 1; }
+.tc-panel-count {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: normal;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.tc-panel-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.tc-panel-close:hover { color: var(--text-primary); }
+.tc-panel-empty {
+  padding: 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.tc-panel-bulk {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tc-panel-bulk button {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tc-panel-bulk button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tc-panel-list {
+  list-style: none;
+  margin: 0;
+  /* Internal padding so cards have breathing room from the panel edges,
+     matching the comments sidebar's list padding. */
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.tc-panel-list.positioned {
+  position: relative;
+  min-height: 100%;
+}
+.tc-panel-card {
+  padding: 8px 12px;
+  cursor: pointer;
+  /* Match the comment-item style: full border, rounded corners, slightly
+     different background from the panel surface — `--bg-surface` reads
+     darker than `--bg-panel-solid` in dark mode and lights up white in
+     light mode (because in light mode bg-surface is white and bg-panel-
+     solid is the pale grey). The colored left border stays as the
+     ins/del visual cue. */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.tc-panel-card-ins { border-left-color: #448aff; }
+.tc-panel-card-del { border-left-color: #b71c1c; }
+.tc-panel-card-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.tc-panel-card-type {
+  font-weight: 600;
+}
+.tc-panel-card-ins .tc-panel-card-type { color: #448aff; }
+.tc-panel-card-del .tc-panel-card-type { color: #b71c1c; }
+.tc-panel-card-by { color: var(--text-secondary); }
+.tc-panel-card-author { color: var(--accent); font-weight: 600; }
+.tc-panel-card-time { margin-left: auto; }
+.tc-panel-card-text {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 6px;
+  max-height: 6em;
+  overflow-y: auto;
+}
+.tc-panel-card-del .tc-panel-card-text {
+  text-decoration: line-through;
+  text-decoration-color: #b71c1c;
+}
+.tc-panel-card-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.tc-panel-icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-panel-icon-btn:hover { color: var(--text-primary); }
+.tc-panel-icon-accept:hover {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: #2ea043;
+  color: #2ea043;
+}
+.tc-panel-icon-reject:hover {
+  background: rgba(207, 34, 46, 0.12);
+  border-color: #cf222e;
+  color: #cf222e;
+}
+
+/* TC toggle button (mirrors .comments-toggle-btn) — visible when the
+ * Tracked Changes Panel is closed. Click to expand. Badge shows the
+ * number of pending changes when non-zero. */
+.tc-toggle-btn {
+  position: relative;
+  background: var(--bg-surface);
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px 6px;
+  display: flex;
+  align-items: flex-start;
+  align-self: stretch;
+}
+.tc-toggle-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.tc-toggle-badge {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* Review bar icon buttons — circular ✓ / ✕, match panel cards. */
+.tc-bar-icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-bar-icon-btn:disabled { opacity: 0.4; cursor: default; }
+.tc-bar-icon-btn:hover:not(:disabled) { color: var(--text-primary); }
+.tc-bar-icon-accept:hover:not(:disabled) {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: #2ea043;
+  color: #2ea043;
+}
+.tc-bar-icon-reject:hover:not(:disabled) {
+  background: rgba(207, 34, 46, 0.12);
+  border-color: #cf222e;
+  color: #cf222e;
 }

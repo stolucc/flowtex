@@ -91,17 +91,22 @@ function escapeHtml(str) {
 }
 
 /** Send a project collaboration invitation email. */
-export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl }) {
+export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl, inviteUrl }) {
   const safeProject = escapeHtml(projectName);
   const safeInviter = escapeHtml(inviterName);
-  const safeUrl = escapeHtml(baseUrl);
+  // Prefer the deep link if provided; the recipient still has to log in
+  // with the invited email — the link only works for them. Fall back to
+  // the bare baseUrl for backwards-compatible callers.
+  const url = inviteUrl || baseUrl;
+  const safeUrl = escapeHtml(url);
   return sendEmail({
     to: email,
     subject: `${inviterName} invited you to "${projectName}" on FlowTex`,
-    text: `${inviterName} has invited you to collaborate on "${projectName}".\n\nLog in to FlowTex to accept the invitation:\n${baseUrl}\n\nIf you were not expecting this invitation, you can safely ignore this email.\n`,
+    text: `${inviterName} has invited you to collaborate on "${projectName}".\n\nOpen this link to accept (you'll be asked to log in with the invited email):\n${url}\n\nThe link only works if you sign in as the invited recipient.\n\nIf you were not expecting this invitation, you can safely ignore this email.\n`,
     html: `
       <p><strong>${safeInviter}</strong> has invited you to collaborate on <strong>${safeProject}</strong>.</p>
-      <p><a href="${safeUrl}">Log in to FlowTex</a> to accept the invitation.</p>
+      <p><a href="${safeUrl}">Accept invitation</a> — you'll be asked to log in with the invited email.</p>
+      <p>The link only works if you sign in as the invited recipient.</p>
       <p>If you were not expecting this invitation, you can safely ignore this email.</p>
     `,
   });

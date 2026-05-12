@@ -376,10 +376,10 @@ describe('verifyEmail', () => {
 // ─── createTrustedDevice / checkTrustedDevice ─────────────────────────
 
 describe('trusted device tokens', () => {
-  it('createTrustedDevice returns a hex token and 30-day max-age in ms', async () => {
+  it('createTrustedDevice returns a hex token and 7-day max-age in ms', async () => {
     const r = await createTrustedDevice('u', 'Mozilla/5.0');
     expect(r.token).toMatch(/^[0-9a-f]{64}$/);
-    expect(r.maxAge).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(r.maxAge).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it('createTrustedDevice falls back to "Unknown device" when userAgent is empty', async () => {
@@ -408,24 +408,33 @@ describe('trusted device tokens', () => {
     expect(params[3].length).toBe(200);
   });
 
-  it('checkTrustedDevice returns false when cookie is empty', async () => {
-    expect(await checkTrustedDevice('u', null)).toBe(false);
-    expect(await checkTrustedDevice('u', '')).toBe(false);
-    expect(await checkTrustedDevice('u', undefined)).toBe(false);
+  it('checkTrustedDevice returns null when cookie is empty', async () => {
+    expect(await checkTrustedDevice('u', null)).toBe(null);
+    expect(await checkTrustedDevice('u', '')).toBe(null);
+    expect(await checkTrustedDevice('u', undefined)).toBe(null);
   });
 
-  it('checkTrustedDevice hashes the cookie, returns true if a row exists', async () => {
+  it('checkTrustedDevice hashes the cookie, returns a rotated token if a row exists', async () => {
     db.get.mockResolvedValueOnce({ id: 'dev-1' });
-    expect(await checkTrustedDevice('u', 'rawcookie')).toBe(true);
+    const result = await checkTrustedDevice('u', 'rawcookie');
+    expect(result).not.toBeNull();
+    expect(result.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.token).not.toBe('rawcookie');
+    expect(result.maxAge).toBe(7 * 24 * 60 * 60 * 1000);
     const [, params] = db.get.mock.calls[0];
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
     expect(params[0]).not.toBe('rawcookie');
     expect(params[1]).toBe('u');
+    // Rotation: UPDATE was issued with a NEW hash (different from the lookup hash).
+    const updateCall = db.run.mock.calls.find((c) => c[0].includes('UPDATE trusted_devices'));
+    expect(updateCall).toBeTruthy();
+    expect(updateCall[1][0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(updateCall[1][0]).not.toBe(params[0]);
   });
 
-  it('checkTrustedDevice returns false if no row matches', async () => {
+  it('checkTrustedDevice returns null if no row matches', async () => {
     db.get.mockResolvedValueOnce(null);
-    expect(await checkTrustedDevice('u', 'rawcookie')).toBe(false);
+    expect(await checkTrustedDevice('u', 'rawcookie')).toBe(null);
   });
 });
 

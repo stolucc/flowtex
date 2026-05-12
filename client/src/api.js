@@ -55,9 +55,9 @@ export async function patch(path, body) {
   return request(path, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-/** @param {string} path @returns {Promise<Response>} */
-export async function del(path) {
-  return request(path, { method: 'DELETE' });
+/** @param {string} path @param {*} [body] @returns {Promise<Response>} */
+export async function del(path, body) {
+  return request(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
 /**

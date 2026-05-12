@@ -181,7 +181,7 @@ async function handleJoin(ws, msg, state) {
   broadcastPresence(state.projectId);
 }
 
-/** Broadcast editor changes to other clients in the room. */
+/** Broadcast editor changes (+ optional TC mark mutations) to other clients in the room. */
 async function handleChanges(msg, state, ws) {
   if (!Array.isArray(msg.changes) || msg.changes.length > 1000) return;
   const valid = msg.changes.every(
@@ -195,6 +195,23 @@ async function handleChanges(msg, state, ws) {
   if (!valid) return;
   if (!(await isFileInProject(state, msg.fileId))) return;
 
+  // tcMarks is { added: [TcEntry...], removed: [id...] } — V2 broadcast
+  // for real-time collaborative tracked changes. Validate shape but
+  // trust contents (server doesn't model TC entries beyond pass-through).
+  let tcMarks;
+  if (msg.tcMarks && typeof msg.tcMarks === 'object') {
+    const added = Array.isArray(msg.tcMarks.added) ? msg.tcMarks.added.slice(0, 1000) : [];
+    const removed = Array.isArray(msg.tcMarks.removed)
+      ? msg.tcMarks.removed.filter((x) => typeof x === 'string').slice(0, 1000)
+      : [];
+    if (added.length > 0 || removed.length > 0) {
+      // Cap each entry's serialized size defensively.
+      if (JSON.stringify({ added, removed }).length <= 200000) {
+        tcMarks = { added, removed };
+      }
+    }
+  }
+
   broadcastToRoom(
     state.projectId,
     {
@@ -204,6 +221,7 @@ async function handleChanges(msg, state, ws) {
       userId: state.clientEntry.userId,
       ...(msg.tracked ? { tracked: true } : {}),
       ...(Array.isArray(msg.deletions) ? { deletions: msg.deletions } : {}),
+      ...(tcMarks ? { tcMarks } : {}),
     },
     ws,
   );
@@ -323,6 +341,8 @@ const writeTypes = new Set([
   'tracked-change-resolve',
   'tracked-change-delete',
   'tc-delete-mark',
+  // chat persists to chat_messages; viewers should be read-only.
+  'chat',
 ]);
 
 /** Broadcast a typing indicator to other clients in the room. */

@@ -34,9 +34,17 @@ function parseBibEntries(content) {
     const key = match[2].trim();
     const start = match.index + match[0].length;
 
-    const closeIdx = findMatchingBrace(content, start - 1, false);
-    const i = closeIdx === -1 ? content.length : closeIdx + 1;
-    const body = content.slice(start, i - 1);
+    // findMatchingBrace requires the index of the opening `{`. That brace
+    // sits inside the matched header text (e.g. `@article{key,`), at offset
+    // indexOf('{'), NOT at `start - 1` which lands on the comma. Passing the
+    // comma made findMatchingBrace return -1 for every entry, so `body`
+    // became "the rest of the file" and the field regex below picked up
+    // every `word =` in every subsequent entry — surfacing as the "20+
+    // fields per entry" bug in the enrich modal.
+    const braceIdx = match.index + match[0].indexOf('{');
+    const closeIdx = findMatchingBrace(content, braceIdx, false);
+    const entryEnd = closeIdx === -1 ? content.length : closeIdx + 1;
+    const body = content.slice(start, closeIdx === -1 ? content.length : closeIdx);
 
     const fields = {};
     const fieldRe = /(\w+)\s*=\s*/g;
@@ -60,6 +68,7 @@ function parseBibEntries(content) {
           value += body[vi];
           vi++;
         }
+        if (body[vi] === '"') vi++;
       } else {
         while (vi < body.length && body[vi] !== ',' && body[vi] !== '}') {
           value += body[vi];
@@ -68,9 +77,13 @@ function parseBibEntries(content) {
         value = value.trim();
       }
       fields[fieldName] = value;
+      // Skip past the value we just consumed so the next regex iteration
+      // doesn't pick up `word = ` substrings nested inside it (e.g. a title
+      // like "Solving x = y in O(n)").
+      fieldRe.lastIndex = vi;
     }
 
-    entries.push({ key, type, fields, entryStart: match.index, entryEnd: i });
+    entries.push({ key, type, fields, entryStart: match.index, entryEnd });
   }
   return entries;
 }

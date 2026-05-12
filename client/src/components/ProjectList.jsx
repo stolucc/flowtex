@@ -22,9 +22,15 @@ import {
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
 /** Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations. */
-export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin }) {
+export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin, pendingInviteId }) {
   const [projects, setProjects] = useState([]);
   const [invitations, setInvitations] = useState([]);
+  // True after /invitations/mine has resolved AND the pendingInviteId is
+  // not among the returned ids — i.e. the link in the email was for a
+  // different account or the invitation is no longer pending.
+  const [pendingInviteUnknown, setPendingInviteUnknown] = useState(false);
+  const [highlightInviteId, setHighlightInviteId] = useState(null);
+  const invitationRefs = useRef({});
   const [tags, setTags] = useState([]);
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -77,7 +83,26 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       .then(setProjects);
     get('/api/projects/invitations/mine')
       .then((r) => r.json())
-      .then(setInvitations)
+      .then((rows) => {
+        setInvitations(rows);
+        if (pendingInviteId) {
+          const match = rows.find((r) => r.id === pendingInviteId);
+          if (match) {
+            setHighlightInviteId(pendingInviteId);
+            // Strip the param now so a refresh doesn't re-trigger / leak via referrer.
+            window.history.replaceState({}, '', '/');
+            // Scroll on next paint, after the cards have rendered.
+            requestAnimationFrame(() => {
+              invitationRefs.current[pendingInviteId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+            // Drop the highlight after a beat so the user doesn't have to manually clear it.
+            setTimeout(() => setHighlightInviteId(null), 4000);
+          } else {
+            setPendingInviteUnknown(true);
+            window.history.replaceState({}, '', '/');
+          }
+        }
+      })
       .catch((e) => console.warn('Failed to load invitations:', e));
     get('/api/tags')
       .then((r) => r.json())
@@ -951,12 +976,28 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           </div>
         )}
 
+        {pendingInviteUnknown && (
+          <div className="invite-mismatch-banner" role="alert">
+            This invitation link isn't for your account, or it's no longer pending. Ask the inviter to send a new one to the email you signed in with.
+            <button className="invite-mismatch-dismiss" onClick={() => setPendingInviteUnknown(false)} aria-label="Dismiss">
+              ×
+            </button>
+          </div>
+        )}
+
         {invitations.length > 0 && (
           <div className="invitations-section">
             <h3 className="invitations-title">Pending Invitations</h3>
             <div className="invitations-list">
               {invitations.map((inv) => (
-                <div key={inv.id} className="invitation-card">
+                <div
+                  key={inv.id}
+                  ref={(el) => {
+                    if (el) invitationRefs.current[inv.id] = el;
+                    else delete invitationRefs.current[inv.id];
+                  }}
+                  className={`invitation-card${highlightInviteId === inv.id ? ' invitation-card-highlight' : ''}`}
+                >
                   <div className="invitation-info">
                     <span className="invitation-project-name">{inv.project_name}</span>
                     <span className="invitation-meta">

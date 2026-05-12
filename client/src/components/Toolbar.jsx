@@ -69,6 +69,10 @@ export default function Toolbar({
   onSymbolPicker,
   onToggleComments,
   onToggleVisualMode,
+  onToggleTrackedChangesInline,
+  showTrackedChangesInline,
+  onToggleChangesPanel,
+  showChangesPanel,
   onHelp,
   showComments,
   visualMode,
@@ -92,6 +96,8 @@ export default function Toolbar({
   onZoomOut,
   showTrackedChangesInPdf,
   onToggleTrackedChangesInPdf,
+  theme,
+  onToggleTheme,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -187,9 +193,15 @@ export default function Toolbar({
     { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
     { label: `${showChat ? '✓ ' : ''}Chat`, action: onToggleChat },
     { label: `${showBoxWarnings ? '✓ ' : ''}Overfull/Underfull Warnings`, action: onToggleBoxWarnings },
+    { label: 'separator' },
+    { label: `${showTrackedChangesInline ? '✓ ' : ''}Show Tracked Changes Inline`, action: onToggleTrackedChangesInline },
+    { label: `${showChangesPanel ? '✓ ' : ''}Tracked Changes Panel`, action: onToggleChangesPanel },
     { label: `${showTrackedChangesInPdf ? '✓ ' : ''}Show Changes in PDF`, action: onToggleTrackedChangesInPdf },
     { label: 'separator' },
-    { label: `${visualMode ? '✓ ' : ''}Visual Mode`, action: onToggleVisualMode },
+    {
+      label: `${theme === 'light' ? '✓ ' : ''}Light Theme`,
+      action: onToggleTheme,
+    },
     { label: 'separator' },
     { label: 'Zoom In', action: onZoomIn },
     { label: 'Zoom Out', action: onZoomOut },
@@ -208,7 +220,7 @@ export default function Toolbar({
   ];
 
   const toolsMenuItems = [
-    { label: 'Git Sync', action: () => onGitHubSync?.() },
+    { label: 'GitHub…', action: () => onGitHubSync?.() },
     { label: 'Compare Files', action: onCompareFiles },
     { label: 'Format Document', action: onFormatDocument, disabled: !activeFile?.path?.endsWith('.tex') },
     { label: 'Format BibTeX', action: onPrettyPrint, disabled: !isBib },
@@ -217,7 +229,7 @@ export default function Toolbar({
     ...(onTapsCheck ? [{ label: 'ACM TAPS Check', action: onTapsCheck }] : []),
     { label: 'Word Count', action: () => onWordCount?.() },
     { label: 'separator' },
-    { label: `${githubLink?.autoPush ? '✓ ' : ''}GitHub Sync`, action: onToggleAutoSync, disabled: !githubLink?.linked },
+    { label: `${githubLink?.autoPush ? '✓ ' : ''}Auto-push to GitHub`, action: onToggleAutoSync, disabled: !githubLink?.linked },
     { label: 'separator' },
     ...(spellLanguages || []).map((l) => ({
       label: `${spellLang === l.code ? '✓ ' : '  '}${l.label}`,
@@ -233,9 +245,8 @@ export default function Toolbar({
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <button className="toolbar-back" onClick={onBack}>
-          <HomeIcon style={{ marginRight: 5, verticalAlign: -2 }} />
-          Home
+        <button className="toolbar-back" onClick={onBack} title="Home" aria-label="Home">
+          <HomeIcon style={{ verticalAlign: -2 }} />
         </button>
         <span ref={menuBarRef} className="toolbar-menu-bar">
           <DropdownMenu

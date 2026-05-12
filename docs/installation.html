@@ -112,7 +112,19 @@ sudo apt-get install -y texlive-full</code></pre>
 </table>
 <div class="warn"><strong>Security:</strong> These tools run on attacker-controlled bytes — any authenticated user can upload arbitrary SVG / GIF / TIFF / BMP / WMF / EMF via a DOCX import. FlowTex caps memory / disk / threads on every <code>convert</code> invocation, gates LibreOffice with <code>--safe-mode</code> and a per-invocation <code>UserInstallation</code> dir, and warns at startup if dangerous coders are still enabled — but you must also:
 <ul>
-  <li><strong>Install the hardened ImageMagick policy.</strong> Copy <code>docs/imagemagick-policy.xml</code> from the FlowTex source to <code>/etc/ImageMagick-7/policy.xml</code> (or <code>/etc/ImageMagick-6/policy.xml</code> on older systems). It disables the historically-RCE-prone coders (<code>PS</code>, <code>EPS</code>, <code>PDF</code>, <code>XPS</code>, <code>MVG</code>, <code>MSL</code>) and the network coders (<code>URL</code>, <code>HTTPS</code>, <code>HTTP</code>, <code>FTP</code>), and adds resource caps. Verify with <code>convert -list policy</code>.</li>
+  <li><strong>Install the hardened ImageMagick policy.</strong> The policy lives in the FlowTex source at <code>docs/imagemagick-policy.xml</code>. It disables the historically-RCE-prone coders (<code>PS</code>, <code>EPS</code>, <code>PDF</code>, <code>XPS</code>, <code>MVG</code>, <code>MSL</code>), the network coders (<code>URL</code>, <code>HTTPS</code>, <code>HTTP</code>, <code>FTP</code>), and the Ghostscript delegate, and adds resource caps mirroring our in-process limits.
+<pre><code># 1. Back up the existing policy
+sudo cp /etc/ImageMagick-7/policy.xml /etc/ImageMagick-7/policy.xml.bak
+
+# 2. Install ours (path to your flowtex checkout)
+sudo cp /path/to/flowtex/docs/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
+# 3. Verify — should list rights=none for PS/EPS/PDF/MVG/MSL/URL/HTTPS/...
+convert -list policy
+
+# 4. Smoke test — should fail with "not authorized" / "security policy"
+printf '%%!PS\n%%%%EOF\n' | convert ps:- /tmp/out.png ; echo exit=$?</code></pre>
+On older systems the path is <code>/etc/ImageMagick-6/policy.xml</code> (same XML works). On macOS Homebrew it's <code>/opt/homebrew/etc/ImageMagick-7/policy.xml</code>. With the policy loaded, the FlowTex boot-time warning (<code>ImageMagick policy.xml does not block …</code>) goes silent.</li>
   <li>Run the FlowTex process under <code>bwrap</code> or <code>firejail</code> with the project directory bind-mounted read-write and the rest of the filesystem read-only. See <a href="../SECURITY.md">SECURITY.md</a> for an example wrapper.</li>
   <li>Set <code>DISABLE_IMAGE_CONVERSION=1</code> in <code>.env</code> if you don't need DOCX image conversion. With this flag, FlowTex drops SVG / GIF / TIFF / BMP / WMF / EMF media instead of converting it — the rest of the DOCX import still works.</li>
   <li><strong>LibreOffice path:</strong> the converter looks for <code>soffice</code> at <code>/usr/bin/soffice</code>, <code>/usr/bin/libreoffice</code>, or <code>$PATH</code>. Override with the <code>SOFFICE_BIN</code> environment variable if your install lives elsewhere.</li>

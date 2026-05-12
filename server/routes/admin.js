@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import os from 'os';
-import db from '../db.js';
+import db, { getWriteStats } from '../db.js';
 import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
@@ -9,9 +9,11 @@ import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 /** GET /api/admin/stats/overview -- Aggregate counts for users, projects, files, etc. */
 router.get('/stats/overview', async (req, res) => {
-  const [users, projects, files, versions, comments, chatMessages, trackedChanges, githubLinks] = await Promise.all([
+  const [users, projects, files, versions, comments, chatMessages, githubLinks] = await Promise.all([
     db.get(`SELECT COUNT(*) AS total,
       COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS last_7d,
       COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS last_30d
@@ -31,7 +33,6 @@ router.get('/stats/overview', async (req, res) => {
     db.get(`SELECT COUNT(*) AS total,
       COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS last_7d
       FROM chat_messages`),
-    db.get('SELECT COUNT(*) AS total FROM tracked_changes'),
     db.get('SELECT COUNT(*) AS total FROM project_github_links'),
   ]);
 
@@ -47,9 +48,17 @@ router.get('/stats/overview', async (req, res) => {
     versions: { total: +versions.total, last7d: +versions.last_7d },
     comments: { total: +comments.total, last7d: +comments.last_7d },
     chatMessages: { total: +chatMessages.total, last7d: +chatMessages.last_7d },
-    trackedChanges: +trackedChanges.total,
     githubLinks: +githubLinks.total,
   });
+});
+
+/**
+ * GET /api/admin/stats/db-writes -- In-memory write counters since the
+ * server process started. Resets on restart. Categorizes by SQL op
+ * (INSERT/UPDATE/DELETE/DDL) and by table. SELECTs are not counted.
+ */
+router.get('/stats/db-writes', (req, res) => {
+  res.json(getWriteStats());
 });
 
 /** GET /api/admin/stats/timeseries -- Daily counts for a given metric over N days. */
@@ -198,6 +207,9 @@ router.get('/stats/top-users', async (req, res) => {
 router.get('/users/:id/activity', async (req, res) => {
   try {
   const userId = req.params.id;
+  if (!UUID_RE.test(userId)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
 
   const [user, projects, recentEdits, recentComments, recentChat, auditEntries, loginHistory] =
     await Promise.all([

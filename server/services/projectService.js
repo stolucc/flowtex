@@ -464,7 +464,11 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
   // Pass progress callback to converter — it reports 5-75%
   options.onProgress = onProgress;
   // Convert DOCX → LaTeX with exact tracked-change positions
-  let { latex: rawLatex, metadata, bibContent: converterBib, trackedChanges, comments: docxComments, mediaFiles } = await convertDocxToLatex(buffer, options);
+  // Tracked-change extraction from DOCX is intentionally ignored here —
+  // the editor's track-changes pipeline was removed and is being rebuilt.
+  // The converter still walks revision marks (we don't pay to disable it),
+  // we just don't carry them into the new project.
+  let { latex: rawLatex, metadata, bibContent: converterBib, comments: docxComments, mediaFiles } = await convertDocxToLatex(buffer, options);
 
   // Strip null bytes that some DOCX files produce — PostgreSQL rejects them
   const stripNulls = (s) => (typeof s === 'string' ? s.replace(/\0/g, '') : s);
@@ -472,10 +476,6 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
   converterBib = stripNulls(converterBib);
   if (metadata) {
     for (const k of Object.keys(metadata)) metadata[k] = stripNulls(metadata[k]);
-  }
-  for (const tc of trackedChanges) {
-    tc.text = stripNulls(tc.text);
-    tc.author = stripNulls(tc.author);
   }
   if (docxComments) {
     for (const c of docxComments) {
@@ -522,50 +522,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
   }
 
   onProgress('Mapping tracked changes…', 85);
-  // Re-locate tracked change positions in the final texContent.
-  // TC positions are relative to rawLatex. We need to map them through:
-  // 1. extractAndReplaceBibliography's replacements (citation subs + ref section removal)
-  // 2. preambleShift (biblatex preamble + warning insertions before \begin{document})
-  //
-  // The replacements list from extractAndReplaceBibliography tells us exactly which
-  // ranges were substituted and by what, so we can compute precise position offsets.
-  {
-    // Build cumulative shift table from the sorted replacements list.
-    // For a position P in the original text:
-    // - If P is before all replacements, shift = preambleShift only
-    // - If P falls inside a replacement, it maps to the start of the replacement
-    // - Otherwise, accumulate (replacement.length - original.length) for all prior replacements
-    const subs = (bibResult.replacements || []).slice().sort((a, b) => a.from - b.from);
-
-    function remapPosition(pos) {
-      let shift = preambleShift; // constant shift from preamble insertions
-      for (const s of subs) {
-        if (pos <= s.from) break; // before this substitution — done
-        if (pos >= s.to) {
-          // after this substitution — accumulate the length change
-          shift += s.replacement.length - (s.to - s.from);
-        } else {
-          // inside the substitution — map to start of replacement
-          return s.from + shift;
-        }
-      }
-      return pos + shift;
-    }
-
-    for (const tc of trackedChanges) {
-      tc.from = remapPosition(tc.from);
-      tc.to = remapPosition(tc.to);
-      // Update text from the new content at the mapped position
-      tc.text = texContent.slice(tc.from, tc.to);
-    }
-  }
-
-  // Only prettify when the document has no tracked changes.
-  // Prettification adds indentation which changes the text content that TCs reference,
-  // making it impossible to remap positions reliably.
-  if (trackedChanges.length === 0) {
-    texContent = prettifyLatex(texContent);
-  }
+  texContent = prettifyLatex(texContent);
 
   const projectName = (originalName || 'Imported Document').replace(/\.docx?$/i, '');
   const projectId = uuid();
@@ -595,33 +552,6 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
       await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
         uuid(), projectId, filePath, content, isBinary,
       ]);
-    }
-
-    onProgress('Importing tracked changes…', 95);
-    // Import tracked changes with exact positions from the converter
-    if (trackedChanges.length > 0) {
-      const mainFileRow = await tx.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, 'main.tex']);
-      if (mainFileRow) {
-        const fileId = mainFileRow.id;
-        let mapped = 0;
-        for (const tc of trackedChanges) {
-          await tx.run(
-            `INSERT INTO tracked_changes (id, file_id, project_id, from_pos, to_pos, inserted_text, deleted_text, author_name, status, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [
-              uuid(), fileId, projectId,
-              tc.from, tc.to,
-              tc.type === 'insert' ? tc.text : '',
-              tc.type === 'delete' ? tc.text : '',
-              tc.author || 'Unknown',
-              'pending',
-              tc.date ? new Date(tc.date).toISOString() : new Date().toISOString(),
-            ],
-          );
-          mapped++;
-        }
-        console.log(`[docx] Imported ${mapped} tracked changes into project ${projectId}`);
-      }
     }
 
     // Import DOCX comments
@@ -1349,11 +1279,34 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
-/** Save file content and create a snapshot if due. */
-export async function updateFileContent(fileId, content, userId) {
+/** Save file content (+ optional tcMarks sidecar) and create a snapshot if due. */
+export async function updateFileContent(fileId, content, userId, tcMarks, baseVersion) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
-  if (file.content === content) return { ok: true, newSnapshot: false };
+
+  // V2-3 conflict guard: caller may pass baseVersion = the file's
+  // updated_at when it was loaded. If that doesn't match the current
+  // updated_at, somebody else saved between our load and this PUT —
+  // surface a conflict instead of silently overwriting their work.
+  if (baseVersion) {
+    const current = file.updated_at instanceof Date
+      ? file.updated_at.toISOString()
+      : String(file.updated_at);
+    const supplied = baseVersion instanceof Date
+      ? baseVersion.toISOString()
+      : String(baseVersion);
+    if (current !== supplied) {
+      return { ok: false, conflict: true, currentVersion: current };
+    }
+  }
+
+  const marksJson = tcMarks === undefined ? null : JSON.stringify(tcMarks);
+  const sameContent = file.content === content;
+  const sameMarks = marksJson === null || marksJson === JSON.stringify(file.tc_marks ?? []);
+  if (sameContent && sameMarks) {
+    const v = file.updated_at instanceof Date ? file.updated_at.toISOString() : String(file.updated_at);
+    return { ok: true, newSnapshot: false, version: v };
+  }
 
   const user = userId ? await db.get('SELECT id, name FROM users WHERE id = $1', [userId]) : null;
   const authorId = user?.id || null;
@@ -1361,7 +1314,11 @@ export async function updateFileContent(fileId, content, userId) {
   let newSnapshot = false;
 
   await db.transaction(async (tx) => {
-    await tx.run('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2', [content, file.id]);
+    if (marksJson !== null) {
+      await tx.run('UPDATE files SET content = $1, tc_marks = $2::jsonb, updated_at = NOW() WHERE id = $3', [content, marksJson, file.id]);
+    } else {
+      await tx.run('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2', [content, file.id]);
+    }
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
 
     const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [file.project_id]);
@@ -1386,7 +1343,14 @@ export async function updateFileContent(fileId, content, userId) {
     }
   });
 
-  return { ok: true, newSnapshot, projectId: file.project_id, authorName };
+  // Read back the new updated_at so the client can use it as the next
+  // baseVersion.
+  const after = await db.get('SELECT updated_at FROM files WHERE id = $1', [file.id]);
+  const version = after?.updated_at instanceof Date
+    ? after.updated_at.toISOString()
+    : String(after?.updated_at);
+
+  return { ok: true, newSnapshot, projectId: file.project_id, authorName, version };
 }
 
 /** Rename/move a file within its project. */
@@ -1414,6 +1378,128 @@ export async function renameFile(fileId, newPath) {
 
 export async function deleteFile(fileId) {
   await db.run('DELETE FROM files WHERE id = $1', [fileId]);
+}
+
+// --- Folders ---
+// Folders are otherwise implicit in file paths. project_folders persists
+// the empty ones so a user can create a folder before adding files to it
+// and have the folder survive a refresh.
+
+/** Normalize a folder path: trim slashes, collapse repeats, reject .. */
+function normalizeFolderPath(rawPath) {
+  if (typeof rawPath !== 'string') return null;
+  const trimmed = rawPath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\/+/g, '/');
+  if (!trimmed) return null;
+  if (!isValidFilePath(trimmed)) return null;
+  return trimmed;
+}
+
+/** List all explicit empty-folder paths for a project. */
+export async function listFolders(projectId) {
+  const rows = await db.all(
+    'SELECT path FROM project_folders WHERE project_id = $1 ORDER BY path',
+    [projectId],
+  );
+  return rows.map((r) => r.path);
+}
+
+/** Create an empty folder. Idempotent: inserting the same path twice is a no-op. */
+export async function createFolder(projectId, path) {
+  const normalized = normalizeFolderPath(path);
+  if (!normalized) throw Object.assign(new Error('Invalid folder path'), { status: 400 });
+  await db.run(
+    `INSERT INTO project_folders (id, project_id, path) VALUES ($1, $2, $3)
+     ON CONFLICT (project_id, path) DO NOTHING`,
+    [uuid(), projectId, normalized],
+  );
+  await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+  return { path: normalized };
+}
+
+/**
+ * Delete a folder and everything under it: all files at-or-below `path/*`
+ * AND any explicit folder rows at-or-below `path`. Atomic. Idempotent on
+ * a missing folder (treated as "all the files at that prefix are gone").
+ */
+export async function deleteFolder(projectId, path) {
+  const normalized = normalizeFolderPath(path);
+  if (!normalized) throw Object.assign(new Error('Invalid folder path'), { status: 400 });
+  await db.transaction(async (tx) => {
+    await tx.run(
+      'DELETE FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3)',
+      [projectId, normalized, normalized + '/%'],
+    );
+    await tx.run('DELETE FROM files WHERE project_id = $1 AND path LIKE $2', [
+      projectId,
+      normalized + '/%',
+    ]);
+  });
+  await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+}
+
+/**
+ * Rename a folder, updating BOTH explicit folder rows and every file path
+ * under the prefix. Atomic. Use this instead of looping per-file renames
+ * from the client; collaborator UIs that re-fetch see one consistent state.
+ */
+export async function renameFolderTree(projectId, oldPath, newPath) {
+  const oldNorm = normalizeFolderPath(oldPath);
+  const newNorm = normalizeFolderPath(newPath);
+  if (!oldNorm || !newNorm) throw Object.assign(new Error('Invalid folder path'), { status: 400 });
+  if (oldNorm === newNorm) return { ok: true };
+  if (newNorm.startsWith(oldNorm + '/')) {
+    throw Object.assign(new Error('Cannot move a folder into itself'), { status: 400 });
+  }
+  await db.transaction(async (tx) => {
+    // Collision check: any file or folder already at the target prefix?
+    const fileConflict = await tx.get(
+      'SELECT 1 FROM files WHERE project_id = $1 AND (path = $2 OR path LIKE $3) LIMIT 1',
+      [projectId, newNorm, newNorm + '/%'],
+    );
+    const folderConflict = await tx.get(
+      'SELECT 1 FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3) LIMIT 1',
+      [projectId, newNorm, newNorm + '/%'],
+    );
+    if (fileConflict || folderConflict) {
+      throw Object.assign(new Error(`A file or folder already exists at ${newNorm}`), { status: 409 });
+    }
+    // Rewrite folder rows in two updates: the exact match, then descendants
+    // (separate so the LIKE pattern only matches descendants, not the root).
+    await tx.run(
+      'UPDATE project_folders SET path = $1 WHERE project_id = $2 AND path = $3',
+      [newNorm, projectId, oldNorm],
+    );
+    await tx.run(
+      `UPDATE project_folders
+         SET path = $1 || substring(path FROM ${oldNorm.length + 1})
+       WHERE project_id = $2 AND path LIKE $3`,
+      [newNorm, projectId, oldNorm + '/%'],
+    );
+    // Same shape for files. main_file follows if it lived under the prefix.
+    await tx.run(
+      `UPDATE files
+         SET path = $1 || substring(path FROM ${oldNorm.length + 1}), updated_at = NOW()
+       WHERE project_id = $2 AND path LIKE $3`,
+      [newNorm, projectId, oldNorm + '/%'],
+    );
+    await tx.run(
+      `UPDATE projects
+         SET main_file = $1 || substring(main_file FROM ${oldNorm.length + 1}), updated_at = NOW()
+       WHERE id = $2 AND main_file LIKE $3`,
+      [newNorm, projectId, oldNorm + '/%'],
+    );
+    await tx.run(
+      `UPDATE projects
+         SET main_file = $1, updated_at = NOW()
+       WHERE id = $2 AND main_file = $3`,
+      [newNorm, projectId, oldNorm],
+    );
+  });
+  return { ok: true };
 }
 
 /** Fetch a file's full row if the user has access to its project. */
@@ -1494,11 +1580,21 @@ export async function getMyInvitations(userId) {
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
-  const invite = await db.get(
-    "SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'",
-    [inviteId, user.email],
+  // Look up by id alone first so the caller can distinguish "doesn't exist
+  // / already resolved" from "exists but addressed to a different user".
+  // The latter is a probe attempt and worth auditing; the former is usually
+  // just a stale UI clicking on something that was already accepted/declined.
+  const inviteRaw = await db.get(
+    'SELECT * FROM project_invitations WHERE id = $1',
+    [inviteId],
   );
-  if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
+  if (!inviteRaw || inviteRaw.status !== 'pending') {
+    throw Object.assign(new Error('Invitation not found'), { status: 404 });
+  }
+  if ((inviteRaw.email || '').toLowerCase() !== user.email.toLowerCase()) {
+    throw Object.assign(new Error('Invitation not found'), { status: 404, emailMismatch: true });
+  }
+  const invite = inviteRaw;
 
   await db.transaction(async (tx) => {
     await tx.run("UPDATE project_invitations SET status = 'accepted' WHERE id = $1", [invite.id]);

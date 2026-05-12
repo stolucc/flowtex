@@ -53,8 +53,36 @@ function ConsolePanel({ output, compiling }) {
   );
 }
 
-/** Single error or warning row in the log panel, with optional help button. */
+/** Single error or warning row in the log panel, with optional help button
+ *  and a copy-to-clipboard button so users can paste the message into a
+ *  search engine without typing it out. */
 function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    const text = String(message ?? '');
+    // navigator.clipboard is async + requires a secure context; fall back
+    // to the legacy execCommand path on http/file:// or older browsers.
+    const writePromise =
+      navigator.clipboard && window.isSecureContext
+        ? navigator.clipboard.writeText(text)
+        : Promise.reject(new Error('clipboard unavailable'));
+    writePromise
+      .catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch { /* ignore */ }
+        document.body.removeChild(ta);
+      })
+      .finally(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      });
+  };
   return (
     <div className={className}>
       <div className="pdf-log-item-row" onClick={onClick}>
@@ -87,6 +115,23 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
             </svg>
           </button>
         )}
+        <button
+          className="pdf-log-copy-btn"
+          onClick={handleCopy}
+          title={copied ? 'Copied!' : 'Copy message'}
+          aria-label="Copy message"
+        >
+          {copied ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+        </button>
       </div>
     </div>
   );

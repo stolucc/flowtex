@@ -315,7 +315,7 @@ describe('createTrustedDevice queries', () => {
     expect(params).toHaveLength(5);
     expect(params[1]).toBe('u');
     expect(params[3]).toBe('Mozilla/5.0');
-    expect(params[4]).toBe(30); // TRUST_DAYS
+    expect(params[4]).toBe(7); // TRUST_DAYS
   });
 });
 

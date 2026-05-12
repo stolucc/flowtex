@@ -330,6 +330,7 @@ export default function AdminDashboard({ onBack }) {
   const [system, setSystem] = useState(null);
   const [cpuHistory, setCpuHistory] = useState([]);
   const [compileHistory, setCompileHistory] = useState([]);
+  const [dbWrites, setDbWrites] = useState(null);
   const liveRef = useRef(live);
   liveRef.current = live;
   const MAX_SYSTEM_POINTS = 60;
@@ -363,31 +364,59 @@ export default function AdminDashboard({ onBack }) {
       });
   }, []);
 
+  // Each tab fetches only what it needs to render. Previously we fired all
+  // ~13 endpoints on every poll tick, which pushed a Live-mode dashboard
+  // over the global 200/min API rate limit within a couple of minutes.
+  // Now a typical poll tick is 1–3 requests, well under the limit.
   const fetchAll = useCallback(() => {
+    // Overview is cheap and shows the header counts in every tab.
     get('/api/admin/stats/overview')
       .then((r) => r.json())
       .then(setOverview);
-    get('/api/admin/stats/top-projects?limit=20')
-      .then((r) => r.json())
-      .then(setTopProjects);
-    get('/api/admin/stats/top-users?limit=20')
-      .then((r) => r.json())
-      .then(setTopUsers);
-    const metrics = ['users', 'projects', 'file_versions', 'comments', 'logins', 'login_failures'];
-    metrics.forEach((m) => {
-      get(`/api/admin/stats/timeseries?metric=${m}&days=${days}`)
+
+    if (tab === 'overview') {
+      const metrics = ['users', 'projects', 'file_versions', 'comments', 'logins', 'login_failures'];
+      metrics.forEach((m) => {
+        get(`/api/admin/stats/timeseries?metric=${m}&days=${days}`)
+          .then((r) => r.json())
+          .then((data) => setTimeseries((prev) => ({ ...prev, [m]: data })));
+      });
+      get(`/api/admin/stats/active-users?days=${days}`)
         .then((r) => r.json())
-        .then((data) => setTimeseries((prev) => ({ ...prev, [m]: data })));
-    });
-    get(`/api/admin/stats/active-users?days=${days}`)
-      .then((r) => r.json())
-      .then(setActiveUsers);
-    get(`/api/admin/audit-log?page=${auditPage}&limit=50`)
-      .then((r) => r.json())
-      .then(setAuditLog);
-    fetchSystem();
+        .then(setActiveUsers);
+    }
+
+    if (tab === 'projects') {
+      get('/api/admin/stats/top-projects?limit=20')
+        .then((r) => r.json())
+        .then(setTopProjects);
+    }
+
+    if (tab === 'users') {
+      get('/api/admin/stats/top-users?limit=20')
+        .then((r) => r.json())
+        .then(setTopUsers);
+    }
+
+    if (tab === 'audit') {
+      get(`/api/admin/audit-log?page=${auditPage}&limit=50`)
+        .then((r) => r.json())
+        .then(setAuditLog);
+    }
+
+    if (tab === 'system') {
+      get('/api/admin/stats/db-writes')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data.total === 'number') setDbWrites(data);
+          else setDbWrites(null);
+        })
+        .catch(() => setDbWrites(null));
+      fetchSystem();
+    }
+
     setLastRefresh(new Date());
-  }, [days, auditPage, fetchSystem]);
+  }, [tab, days, auditPage, fetchSystem]);
 
   useEffect(() => {
     fetchAll();
@@ -402,11 +431,14 @@ export default function AdminDashboard({ onBack }) {
     }
   }, [tab]);
 
-  // Live auto-refresh: system stats every 1s, full data (all tabs) every 5s
+  // Live auto-refresh. fetchSystem at 1Hz only matters on the System tab
+  // (that's where the live charts and the CPU/memory cards live), so it
+  // doesn't run on other tabs. The slow 5s tick is tab-scoped inside
+  // fetchAll itself.
   useEffect(() => {
     if (!live) return;
     const fastId = setInterval(() => {
-      if (liveRef.current) fetchSystem();
+      if (liveRef.current && tab === 'system') fetchSystem();
     }, 1000);
     const slowId = setInterval(() => {
       if (liveRef.current) fetchAll();
@@ -415,7 +447,7 @@ export default function AdminDashboard({ onBack }) {
       clearInterval(fastId);
       clearInterval(slowId);
     };
-  }, [live, fetchAll, fetchSystem]);
+  }, [live, tab, fetchAll, fetchSystem]);
 
   const liveTag = live ? <span className="admin-live-indicator">Live</span> : null;
 
@@ -594,7 +626,44 @@ export default function AdminDashboard({ onBack }) {
                   sub={`${formatBytes(system.memory.systemFree)} free of ${formatBytes(system.memory.systemTotal)}`}
                 />
                 <StatCard label="Uptime" value={formatUptime(system.uptime)} />
+                {dbWrites && typeof dbWrites.total === 'number' && (
+                  <StatCard
+                    label="DB Writes"
+                    value={dbWrites.total.toLocaleString()}
+                    sub={
+                      Object.entries(dbWrites.byOp || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([op, n]) => `${op} ${n.toLocaleString()}`)
+                        .join(' · ') || 'since restart'
+                    }
+                  />
+                )}
               </div>
+              {dbWrites && dbWrites.byTable && Object.keys(dbWrites.byTable).length > 0 && (
+                <div className="admin-section" style={{ marginTop: 16 }}>
+                  <h3>DB Writes by table <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>since {new Date(dbWrites.startedAt).toLocaleTimeString()}</span></h3>
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead><tr><th>Table</th><th style={{ textAlign: 'right' }}>Writes</th><th style={{ textAlign: 'right' }}>% of total</th></tr></thead>
+                      <tbody>
+                        {Object.entries(dbWrites.byTable)
+                          .sort((a, b) => b[1] - a[1])
+                          .slice(0, 20)
+                          .map(([table, count]) => (
+                            <tr key={table}>
+                              <td><code>{table}</code></td>
+                              <td style={{ textAlign: 'right' }}>{count.toLocaleString()}</td>
+                              <td style={{ textAlign: 'right' }}>
+                                {dbWrites.total ? ((count / dbWrites.total) * 100).toFixed(1) : '0.0'}%
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               <div className="admin-system-charts">
                 <MiniLineChart data={cpuHistory} valueKey="value" label="CPU %" color="var(--accent)" maxVal={100} />
                 <MiniLineChart data={cpuHistory} valueKey="load" label="Load Avg" color="var(--yellow)" />

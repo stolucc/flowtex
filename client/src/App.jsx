@@ -11,7 +11,6 @@ import AuthPage from './components/AuthPage.jsx';
 import SetupWizard from './components/SetupWizard.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import BinaryPreview, { getMimeType } from './components/BinaryPreview.jsx';
-import { TrackChangesPopup, TrackChangesReviewBar } from './components/TrackChangesBar.jsx';
 import ModalContainer from './components/ModalContainer.jsx';
 import HistoryView from './components/HistoryView.jsx';
 import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
@@ -29,6 +28,8 @@ import useProject from './hooks/useProject.js';
 import useWebSocket from './hooks/useWebSocket.js';
 import useCompilation from './hooks/useCompilation.js';
 import useTrackedChanges from './hooks/useTrackedChanges.js';
+import TrackChangesBar from './components/TrackChangesBar.jsx';
+import TrackChangesPanel from './components/TrackChangesPanel.jsx';
 import useComments from './hooks/useComments.js';
 import useGitHubSync from './hooks/useGitHubSync.js';
 import useUIState from './hooks/useUIState.js';
@@ -91,6 +92,9 @@ function AppInner() {
     handleRenameFile,
     handleRenameFolder,
     handleDeleteFolder,
+    handleCreateFolder,
+    emptyFolders,
+    setEmptyFolders,
     handleSetMainFile,
   } = useProject(user);
 
@@ -120,18 +124,15 @@ function AppInner() {
   const {
     trackChangesMode,
     setTrackChangesMode,
-    trackedChanges,
+    pendingChanges,
+    tcPositions,
+    updateTcPositions,
     refreshFromDoc,
-    tcPopup,
-    setTcPopup,
-    handleAcceptChange,
-    handleRejectChange,
     handleAcceptAllChanges,
     handleRejectAllChanges,
     reviewing,
     reviewIndex,
     reviewCurrentChange,
-    pendingChanges,
     startReview,
     stopReview,
     reviewNext,
@@ -285,7 +286,13 @@ function AppInner() {
 
   useEffect(() => {
     const changesHandler = (e) => {
-      editorRef.current?.applyRemoteChanges(e.detail.fileId, e.detail.changes, e.detail.tracked, e.detail.deletions);
+      editorRef.current?.applyRemoteChanges(
+        e.detail.fileId,
+        e.detail.changes,
+        e.detail.tracked,
+        e.detail.deletions,
+        e.detail.tcMarks,
+      );
     };
     const removedHandler = () => {
       alert('You have been removed from this project.');
@@ -368,12 +375,18 @@ function AppInner() {
     );
   }
   if (!project) {
+    // ?invite=<inviteId> arrives via email links. We pass it straight to
+    // ProjectList, which highlights / locates the matching invitation
+    // after its /invitations/mine fetch resolves. Wrong-recipient links
+    // fall through to a "not for you" banner.
+    const pendingInviteId = new URLSearchParams(window.location.search).get('invite') || null;
     return (
       <ProjectList
         onSelect={selectProject}
         user={user}
         onLogout={handleLogoutFull}
         onUserUpdate={setUser}
+        pendingInviteId={pendingInviteId}
         onAdmin={() => {
           setShowAdmin(true);
           window.history.pushState(null, '', '/admin');
@@ -438,6 +451,10 @@ function AppInner() {
           onInsert={(before, after) => editorRef.current?.insertSnippet(before, after)}
           onSymbolPicker={() => editorRef.current?.openSymbolPicker()}
           onToggleComments={() => ui.setShowComments((v) => !v)}
+          showTrackedChangesInline={ui.showTrackedChangesInline}
+          onToggleTrackedChangesInline={() => ui.setShowTrackedChangesInline((v) => !v)}
+          showChangesPanel={ui.showChangesPanel}
+          onToggleChangesPanel={() => ui.setShowChangesPanel((v) => !v)}
           onToggleLineNumbers={() => ui.setShowLineNumbers((v) => !v)}
           onToggleWordWrap={() => ui.setWordWrap((v) => !v)}
           trackChangesMode={trackChangesMode}
@@ -447,6 +464,8 @@ function AppInner() {
           wordWrap={ui.wordWrap}
           visualMode={ui.visualMode}
           onToggleVisualMode={() => ui.setVisualMode((v) => !v)}
+          theme={ui.theme}
+          onToggleTheme={() => ui.setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
           onHelp={(topic) => {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);
@@ -590,6 +609,8 @@ function AppInner() {
                     onRename={handleRenameFile}
                     onRenameFolder={handleRenameFolder}
                     onDeleteFolder={handleDeleteFolder}
+                    emptyFolders={emptyFolders}
+                    onCreateFolder={handleCreateFolder}
                     onSetMainFile={(path) => {
                       handleSetMainFile(path);
                       setPdfUrl(null);
@@ -756,6 +777,10 @@ function AppInner() {
               </>
             ) : (
               <button className="comments-toggle-btn" onClick={() => ui.setShowComments(true)} title="Show comments">
+                {/* Speech bubble with inner text lines — reads as "annotation"
+                    (i.e., comments tied to specific text in the document), to
+                    distinguish from the chat icon which is a multi-bubble
+                    conversation glyph. */}
                 <svg
                   width="16"
                   height="16"
@@ -767,7 +792,62 @@ function AppInner() {
                   strokeLinejoin="round"
                 >
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  <line x1="7" y1="9" x2="17" y2="9" />
+                  <line x1="7" y1="13" x2="13" y2="13" />
                 </svg>
+              </button>
+            )}
+            {ui.showChangesPanel ? (
+              <>
+                <div style={{ width: ui.changesPanelWidth, flexShrink: 0 }}>
+                  <TrackChangesPanel
+                    // Read LIVE doc text from the editor (the saved
+                    // `activeFile.content` lags behind the debounced save).
+                    // pendingChanges is regenerated on every doc change
+                    // via refreshFromDoc, so the panel re-renders with
+                    // the latest snapshot.
+                    docText={editorRef.current?.getContent?.() ?? activeFile?.content ?? ''}
+                    pendingChanges={pendingChanges}
+                    tcPositions={tcPositions}
+                    currentUserId={user?.id}
+                    currentUserName={user?.name}
+                    onAccept={(id) => acceptAndNext(id)}
+                    onReject={(id) => rejectAndNext(id)}
+                    onAcceptAll={handleAcceptAllChanges}
+                    onRejectAll={handleRejectAllChanges}
+                    onGoToPosition={(pos) => editorRef.current?.goToPosition(pos)}
+                    onClose={() => ui.setShowChangesPanel(false)}
+                  />
+                </div>
+                <ResizeHandle
+                  onResize={(d) => ui.setChangesPanelWidth((w) => Math.max(180, Math.min(450, w + d)))}
+                />
+              </>
+            ) : (
+              <button
+                className="tc-toggle-btn"
+                onClick={() => ui.setShowChangesPanel(true)}
+                title={`Show tracked changes panel${pendingChanges.length > 0 ? ` (${pendingChanges.length})` : ''}`}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="8" y1="13" x2="16" y2="13" stroke="#e06c75" strokeWidth="2" />
+                  <line x1="8" y1="17" x2="13" y2="17" stroke="#61afef" strokeWidth="2" />
+                </svg>
+                {pendingChanges.length > 0 && (
+                  <span className="tc-toggle-badge">{pendingChanges.length}</span>
+                )}
               </button>
             )}
             <div className="editor-area">
@@ -797,28 +877,33 @@ function AppInner() {
                     file={activeFile}
                     comments={comments}
                     currentUserName={user?.name}
+                    currentUserId={user?.id}
                     projectId={project?.id}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
-                    onChanges={(changes, tracked, deletions) =>
+                    onChanges={(changes, tracked, deletions, tcMarks) =>
                       sendWsMessage({
                         type: 'changes',
                         fileId: activeFile?.id,
                         changes,
                         ...(tracked ? { tracked: true } : {}),
                         ...(deletions ? { deletions } : {}),
+                        ...(tcMarks ? { tcMarks } : {}),
                       })
                     }
-                    onDocChange={refreshFromDoc}
                     onCursorChange={(head, anchor) =>
                       sendWsMessage({ type: 'cursor', fileId: activeFile?.id, head, anchor })
                     }
+                    onDocChange={refreshFromDoc}
                     onCompile={handleCompile}
                     onRequestComment={(sel) => {
                       setSelection(sel);
                       ui.setShowComments(true);
                     }}
-                    onScroll={updateCommentPositions}
+                    onScroll={() => {
+                      updateCommentPositions();
+                      updateTcPositions();
+                    }}
                     onLintDiagnostics={setLintDiagnostics}
                     showLineNumbers={ui.showLineNumbers}
                     wordWrap={ui.wordWrap}
@@ -826,24 +911,8 @@ function AppInner() {
                     onToggleVisualMode={() => ui.setVisualMode((v) => !v)}
                     spellLang={spellLang}
                     trackChangesMode={trackChangesMode}
-                    trackedChanges={trackedChanges}
-                    reviewingChangeId={reviewCurrentChange?.id || null}
-                    onTrackedChangeClick={(changeId, pos) =>
-                      setTcPopup((prev) => (prev?.changeId === changeId ? null : { changeId, x: pos.x, y: pos.y }))
-                    }
                     onToggleTrackChanges={() => setTrackChangesMode((m) => !m)}
-                    pendingChangesCount={pendingChanges.length}
-                    reviewing={reviewing}
-                    reviewIndex={reviewIndex}
-                    reviewCurrentChange={reviewCurrentChange}
-                    onStartReview={startReview}
-                    onStopReview={stopReview}
-                    onAcceptAndNext={acceptAndNext}
-                    onRejectAndNext={rejectAndNext}
-                    onAcceptAll={handleAcceptAllChanges}
-                    onRejectAll={handleRejectAllChanges}
-                    onReviewNext={reviewNext}
-                    onReviewPrev={reviewPrev}
+                    showTrackedChangesInline={ui.showTrackedChangesInline}
                     citeKeys={citeKeys}
                     labelKeys={labelKeys}
                     autoSaveOn={autoSaveActive}
@@ -885,30 +954,21 @@ function AppInner() {
                       await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
                     }}
                   />
-                  <TrackChangesPopup
-                    tcPopup={tcPopup}
-                    trackedChanges={trackedChanges}
-                    onAccept={handleAcceptChange}
-                    onReject={handleRejectChange}
-                    onClose={() => setTcPopup(null)}
-                  />
-                  <TrackChangesReviewBar
-                    trackedChanges={trackedChanges}
-                    onAcceptAll={handleAcceptAllChanges}
-                    onRejectAll={handleRejectAllChanges}
-                    onAccept={handleAcceptChange}
-                    onReject={handleRejectChange}
-                    onGoToPosition={(pos) => editorRef.current?.goToPosition(pos)}
+                  <TrackChangesBar
+                    pendingChanges={pendingChanges}
                     reviewing={reviewing}
                     reviewIndex={reviewIndex}
                     reviewCurrentChange={reviewCurrentChange}
-                    pendingChanges={pendingChanges}
+                    currentUserId={user?.id}
+                    currentUserName={user?.name}
                     onStartReview={startReview}
                     onStopReview={stopReview}
                     onReviewNext={reviewNext}
                     onReviewPrev={reviewPrev}
                     onAcceptAndNext={acceptAndNext}
                     onRejectAndNext={rejectAndNext}
+                    onAcceptAll={handleAcceptAllChanges}
+                    onRejectAll={handleRejectAllChanges}
                   />
                 </>
               )}
@@ -1005,6 +1065,9 @@ function AppInner() {
                 }}
                 title="Open chat"
               >
+                {/* Two overlapping speech bubbles — reads as "conversation
+                    between people", distinct from the single-bubble-with-
+                    text-lines used for comments. */}
                 <svg
                   width="18"
                   height="18"
@@ -1015,7 +1078,8 @@ function AppInner() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z" />
+                  <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
                 </svg>
                 {unreadChat > 0 && <span className="chat-badge">{unreadChat}</span>}
               </button>

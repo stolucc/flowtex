@@ -262,7 +262,7 @@ describe('POST /login', () => {
     authService.authenticateUser.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
-    authService.checkTrustedDevice.mockResolvedValueOnce(false);
+    authService.checkTrustedDevice.mockResolvedValueOnce(null);
 
     const res = mockRes();
     await handler(mockReq({ body: { email: 'a@b.com', password: 'pass' } }), res);
@@ -276,7 +276,7 @@ describe('POST /login', () => {
     authService.authenticateUser.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
-    authService.checkTrustedDevice.mockResolvedValueOnce(false);
+    authService.checkTrustedDevice.mockResolvedValueOnce(null);
     authService.verifyTotp.mockResolvedValueOnce({ error: 'Invalid code', status: 401 });
 
     const res = mockRes();
@@ -291,7 +291,7 @@ describe('POST /login', () => {
     authService.authenticateUser.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
-    authService.checkTrustedDevice.mockResolvedValueOnce(false);
+    authService.checkTrustedDevice.mockResolvedValueOnce(null);
     authService.verifyTotp.mockResolvedValueOnce({});
     authService.createTrustedDevice.mockResolvedValueOnce({ token: 'trust-tok', maxAge: 2592000000 });
     authService.recordLoginAttempt.mockResolvedValueOnce(undefined);
@@ -318,7 +318,7 @@ describe('POST /login', () => {
     authService.authenticateUser.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true },
     });
-    authService.checkTrustedDevice.mockResolvedValueOnce(true);
+    authService.checkTrustedDevice.mockResolvedValueOnce({ token: 'rotated-tok', maxAge: 604800000 });
     authService.recordLoginAttempt.mockResolvedValueOnce(undefined);
 
     const req = mockReq({
@@ -328,9 +328,14 @@ describe('POST /login', () => {
     const res = mockRes();
     await handler(req, res);
 
-    // Should proceed to login without asking for MFA
+    // Should proceed to login without asking for MFA, and rotate the cookie.
     expect(res.body).not.toHaveProperty('mfaRequired');
     expect(res.body.id).toBe('user-1');
+    expect(res.cookie).toHaveBeenCalledWith(
+      'trusted-device',
+      'rotated-tok',
+      expect.objectContaining({ httpOnly: true, maxAge: 604800000 }),
+    );
   });
 
   it('sets session and returns user data on successful login (no MFA)', async () => {

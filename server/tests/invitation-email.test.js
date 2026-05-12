@@ -124,6 +124,7 @@ describe('POST /:id/members — project invitation email', () => {
       inviterName: 'Alice',
       projectName: 'My Paper',
       baseUrl: 'https://flowtex.example.com',
+      inviteUrl: 'https://flowtex.example.com/?invite=inv-1',
     });
   });
 
@@ -147,6 +148,7 @@ describe('POST /:id/members — project invitation email', () => {
       inviterName: 'SessionAlice',
       projectName: 'Research Project',
       baseUrl: 'https://flowtex.example.com',
+      inviteUrl: 'https://flowtex.example.com/?invite=inv-2',
     });
   });
 

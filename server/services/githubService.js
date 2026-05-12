@@ -234,7 +234,10 @@ export async function pushProject(projectId, userId, message) {
       token,
       link.github_repo,
       link.default_branch,
-      (message || 'Update from FlowTex').slice(0, 5000),
+      // Strip CR so a user-supplied message with embedded \r doesn't render
+      // weirdly in git tooling; embedded \n stays so multi-line commit
+      // bodies still work (Git's first-line-is-subject convention).
+      (message || 'Update from FlowTex').replace(/\r/g, '').slice(0, 5000),
     );
 
     await db.run('UPDATE project_github_links SET last_sync_at = NOW(), last_sync_commit = $1 WHERE project_id = $2', [

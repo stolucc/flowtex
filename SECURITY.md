@@ -33,12 +33,25 @@ chained-exploit risk.
 
 - **Install the hardened ImageMagick policy.** A ready-to-use template is
   shipped at [`docs/imagemagick-policy.xml`](docs/imagemagick-policy.xml).
-  Copy it to `/etc/ImageMagick-7/policy.xml` (or `/etc/ImageMagick-6/...`
-  on older systems), then verify with `convert -list policy`. The policy
-  disables `PS`, `EPS`, `PDF`, `XPS`, `MVG`, `MSL`, `URL`, `HTTPS`, `HTTP`,
-  `FTP`, `TEXT`, `SHOW`, `LABEL`, `CAPTION`, `EPHEMERAL`, `WIN`, `PLT`,
-  the Ghostscript delegate, `@`-prefixed file reads, and the PS/PDF/XPS
-  modules. Resource caps mirror our in-process limits.
+  The policy disables `PS`, `EPS`, `PDF`, `XPS`, `MVG`, `MSL`, `URL`,
+  `HTTPS`, `HTTP`, `FTP`, `TEXT`, `SHOW`, `LABEL`, `CAPTION`, `EPHEMERAL`,
+  `WIN`, `PLT`, the Ghostscript delegate, `@`-prefixed file reads, and the
+  PS/PDF/XPS modules. Resource caps mirror our in-process limits. Install:
+
+  ```bash
+  # Back up, install, verify
+  sudo cp /etc/ImageMagick-7/policy.xml /etc/ImageMagick-7/policy.xml.bak
+  sudo cp /path/to/flowtex/docs/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+  convert -list policy   # rights=none for PS/EPS/PDF/MVG/...
+
+  # Smoke test — should fail with "not authorized" / "security policy"
+  printf '%%!PS\n%%%%EOF\n' | convert ps:- /tmp/out.png ; echo exit=$?
+  ```
+
+  Paths differ by distro: IM6 uses `/etc/ImageMagick-6/policy.xml`;
+  macOS Homebrew uses `/opt/homebrew/etc/ImageMagick-7/policy.xml`. The
+  same XML works in all locations. Once installed, the boot-time warning
+  in [`server/index.js`](server/index.js) goes silent.
 - Run the FlowTex server under a sandbox (`bwrap`, `firejail`, or a Docker
   container with `--read-only`, `--cap-drop=ALL`, `--no-new-privileges`,
   `--memory`, `--pids-limit`, and a per-job tmpfs).

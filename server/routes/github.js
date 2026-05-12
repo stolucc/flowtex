@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireMember } from '../middleware/auth.js';
 import * as gh from '../services/githubService.js';
+import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
 import { stripPaths } from '../middleware/errorHandler.js';
 
@@ -72,6 +73,7 @@ router.get('/oauth/callback', async (req, res) => {
     }
 
     await gh.upsertToken(req.session.userId, accessToken);
+    await auditLog(req.session.userId, 'github_token_set', { ip: req.ip, detail: 'oauth' });
 
     const returnTo = req.session.githubOAuthReturnTo || '/';
     delete req.session.githubOAuthReturnTo;
@@ -90,6 +92,7 @@ router.put('/token', async (req, res) => {
   const { token } = req.body;
   if (!token || !token.trim()) return res.status(400).json({ error: 'Token is required' });
   await gh.upsertToken(req.session.userId, token.trim());
+  await auditLog(req.session.userId, 'github_token_set', { ip: req.ip, detail: 'pat' });
   res.json({ ok: true });
 });
 
@@ -105,6 +108,7 @@ router.get('/token', async (req, res) => {
 /** DELETE /api/github/token -- Remove the user's stored GitHub token. */
 router.delete('/token', async (req, res) => {
   await gh.deleteToken(req.session.userId);
+  await auditLog(req.session.userId, 'github_token_revoked', { ip: req.ip });
   res.json({ ok: true });
 });
 

@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowTex — User Manual</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --bg-card: #ffffff;
+    --bg-code: #f1f3f5;
+    --bg-code-dark: #1e293b;
+    --fg: #1a1a2e;
+    --fg-muted: #5b6478;
+    --fg-soft: #8a93a6;
+    --accent: #2563eb;
+    --accent-soft: #3b82f6;
+    --accent-bg: #eff6ff;
+    --border: #e3e6ec;
+    --border-soft: #f0f2f6;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --warn-bg: #fffbeb;
+    --err: #dc2626;
+    --err-bg: #fef2f2;
+    --tip: #0891b2;
+    --tip-bg: #ecfeff;
+    --pink: #db2777;
+    --violet: #7c3aed;
+    --radius: 8px;
+    --radius-sm: 4px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Hero ─────────────────────────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #7c3aed 100%);
+    color: #fff;
+    padding: 4rem 2rem 3rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08) 0, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(255,255,255,0.06) 0, transparent 50%);
+  }
+  .hero-content { position: relative; max-width: 800px; margin: 0 auto; }
+  .hero-eyebrow {
+    display: inline-block;
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.15);
+    padding: 0.35em 1em;
+    border-radius: 99px;
+    backdrop-filter: blur(8px);
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+  .hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.6rem;
+    line-height: 1.1;
+  }
+  .hero h1 span { background: linear-gradient(90deg, #fcd34d, #fb923c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { font-size: 1.15rem; opacity: 0.92; max-width: 600px; margin: 0 auto; }
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  .layout {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 3rem;
+  }
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: 1fr; padding: 1.5rem; }
+    .toc { position: static !important; max-height: none !important; }
+  }
+
+  /* ── Table of contents ────────────────────────────────────────────── */
+  .toc {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    font-size: 0.88rem;
+    padding-right: 0.5rem;
+  }
+  .toc h4 {
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--fg-soft);
+    margin-bottom: 0.75rem;
+    font-weight: 700;
+  }
+  .toc ol { list-style: none; padding: 0; }
+  .toc li { margin-bottom: 0.15rem; }
+  .toc a {
+    display: block;
+    padding: 0.3rem 0.6rem;
+    color: var(--fg-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: all 0.15s ease;
+  }
+  .toc a:hover { color: var(--accent); background: var(--accent-bg); border-left-color: var(--accent); }
+  .toc a.subitem { padding-left: 1.3rem; font-size: 0.82rem; color: var(--fg-soft); }
+
+  /* ── Sections ─────────────────────────────────────────────────────── */
+  main { min-width: 0; }
+  section { margin-bottom: 3rem; }
+  section h2 {
+    font-size: 1.65rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  section h2 .ch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  section h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 1.6rem;
+    margin-bottom: 0.6rem;
+    color: var(--fg);
+  }
+  section p { margin-bottom: 0.7rem; color: var(--fg); }
+  section p.lead { font-size: 1.05rem; color: var(--fg-muted); margin-bottom: 1.2rem; }
+
+  /* ── Code & kbd ───────────────────────────────────────────────────── */
+  code {
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--bg-code);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    border: 1px solid var(--border-soft);
+  }
+  pre {
+    background: var(--bg-code-dark);
+    color: #e2e8f0;
+    padding: 1rem 1.2rem;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    margin: 0.8rem 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    box-shadow: var(--shadow-sm);
+  }
+  pre code { background: none; color: inherit; padding: 0; border: none; font-size: 1em; }
+  kbd {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    font-family: -apple-system, sans-serif;
+    font-size: 0.82em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--fg);
+    background: linear-gradient(180deg, #ffffff, #f1f3f5);
+    border: 1px solid #cbd0d8;
+    border-radius: 4px;
+    box-shadow: 0 1px 0 #cbd0d8;
+    white-space: nowrap;
+  }
+
+  /* ── Callouts ─────────────────────────────────────────────────────── */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    padding: 0.9rem 1.1rem;
+    margin: 1.1rem 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 0.94rem;
+  }
+  .callout strong:first-child { color: var(--accent); }
+  .callout.tip { border-color: var(--tip); background: var(--tip-bg); }
+  .callout.tip strong:first-child { color: var(--tip); }
+  .callout.warn { border-color: var(--warn); background: var(--warn-bg); }
+  .callout.warn strong:first-child { color: var(--warn); }
+  .callout.err { border-color: var(--err); background: var(--err-bg); }
+  .callout.err strong:first-child { color: var(--err); }
+
+  /* ── Cards ────────────────────────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.5rem;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .card .ico {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    margin-bottom: 0.6rem;
+    font-weight: 700;
+  }
+  .card h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .card p { font-size: 0.85rem; color: var(--fg-muted); line-height: 1.5; margin: 0; }
+
+  /* Card icon palette variants */
+  .card.editor .ico { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+  .card.collab .ico { background: linear-gradient(135deg, #ec4899, #f59e0b); }
+  .card.compile .ico { background: linear-gradient(135deg, #16a34a, #06b6d4); }
+  .card.history .ico { background: linear-gradient(135deg, #7c3aed, #db2777); }
+
+  /* ── Tables ───────────────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.7rem 0 1.2rem;
+    font-size: 0.9rem;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  th, td { padding: 0.55rem 0.85rem; text-align: left; border-bottom: 1px solid var(--border-soft); }
+  th { background: var(--bg-code); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted); }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 0.85em; }
+
+  /* ── Lists ────────────────────────────────────────────────────────── */
+  ul, ol { padding-left: 1.4rem; margin: 0.4rem 0 1rem; }
+  li { margin-bottom: 0.3rem; }
+  li::marker { color: var(--accent); }
+
+  /* ── Badges ───────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.1em 0.55em;
+    border-radius: 99px;
+    font-weight: 700;
+    vertical-align: middle;
+    margin-left: 0.4em;
+  }
+  .badge-new { background: #dcfce7; color: var(--ok); border: 1px solid #bbf7d0; }
+  .badge-pro { background: #ede9fe; color: var(--violet); border: 1px solid #ddd6fe; }
+  .badge-beta { background: #fef3c7; color: var(--warn); border: 1px solid #fde68a; }
+  .badge-admin { background: #fce7f3; color: var(--pink); border: 1px solid #fbcfe8; }
+
+  /* ── Step list ────────────────────────────────────────────────────── */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps > li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 2.5rem;
+    margin-bottom: 0.8rem;
+    min-height: 1.8rem;
+  }
+  .steps > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.7rem;
+    height: 1.7rem;
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    color: #fff;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  /* ── Misc ─────────────────────────────────────────────────────────── */
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  strong { font-weight: 600; }
+  .muted { color: var(--fg-muted); font-size: 0.92em; }
+  .footer {
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--fg-soft);
+    font-size: 0.85rem;
+  }
+  .footer a { color: var(--accent); }
+
+  /* ── Figures ──────────────────────────────────────────────────────── */
+  figure {
+    margin: 1.4rem 0 1.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  figure svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #fafbfd;
+  }
+  figcaption {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.84rem;
+    color: var(--fg-muted);
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-card);
+  }
+  figcaption strong { color: var(--fg); font-weight: 600; }
+
+  /* SVG mock styles, reused across all figures so we tweak in one place */
+  .mock-window { fill: #fff; stroke: #d1d5db; stroke-width: 1; }
+  .mock-titlebar { fill: #f1f3f5; }
+  .mock-dot { stroke: none; }
+  .mock-panel { fill: #fafbfd; stroke: #e3e6ec; stroke-width: 1; }
+  .mock-panel-head { fill: #f1f3f5; }
+  .mock-row:hover { fill: #eff6ff; }
+  .mock-active { fill: #dbeafe; }
+  .mock-ins { fill: #dbeafe; stroke: #2563eb; stroke-width: 0.5; }
+  .mock-del { fill: #fee2e2; stroke: #b91c1c; stroke-width: 0.5; }
+  .mock-text { font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 11px; fill: #1f2937; }
+  .mock-text-mono { font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace; font-size: 10px; fill: #1f2937; }
+  .mock-label { font-family: -apple-system, sans-serif; font-size: 9px; fill: #6b7280; }
+  .mock-h { font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600; fill: #1f2937; }
+  .mock-muted { fill: #6b7280; }
+  .mock-accent { fill: #2563eb; }
+  .mock-warn { fill: #d97706; }
+  .mock-ok { fill: #16a34a; }
+  .mock-danger { fill: #dc2626; }
+  .mock-drop { fill: rgba(99, 156, 255, 0.22); stroke: #2563eb; stroke-width: 1.5; stroke-dasharray: 4 3; }
+
+  /* ── Print ────────────────────────────────────────────────────────── */
+  @media print {
+    .toc, .hero { display: none; }
+    body { background: #fff; }
+    .layout { display: block; padding: 1rem; }
+    section { page-break-inside: avoid; }
+    pre, .card, table { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-content">
+    <div class="hero-eyebrow">User Manual · v1</div>
+    <h1>Write <span>LaTeX</span> together.</h1>
+    <p>FlowTex is a self-hosted, real-time collaborative LaTeX editor with track changes, comments, snapshots, GitHub sync and a full visual editing mode.</p>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="toc">
+    <h4>Contents</h4>
+    <ol>
+      <li><a href="#start">1. Getting started</a></li>
+      <li><a href="#projects">2. Your projects</a></li>
+      <li><a href="#files">3. Files &amp; folders</a></li>
+      <li><a href="#editor">4. The editor</a></li>
+      <li><a href="#visual">5. Visual mode</a></li>
+      <li><a href="#compile">6. Compiling</a></li>
+      <li><a href="#search">7. Search &amp; replace</a></li>
+      <li><a href="#collab">8. Collaboration</a></li>
+      <li><a href="#comments">9. Comments</a></li>
+      <li><a href="#track">10. Track changes</a></li>
+      <li><a href="#history">11. History &amp; snapshots</a></li>
+      <li><a href="#bib">12. Bibliography</a></li>
+      <li><a href="#github">13. GitHub sync</a></li>
+      <li><a href="#zotero">14. Zotero</a></li>
+      <li><a href="#docx">15. DOCX import</a></li>
+      <li><a href="#spell">16. Spellchecker</a></li>
+      <li><a href="#account">17. Account &amp; security</a></li>
+      <li><a href="#admin">18. Admin tools</a></li>
+      <li><a href="#shortcuts">19. Keyboard shortcuts</a></li>
+      <li><a href="#tips">20. Tips &amp; gotchas</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="overview" style="margin-bottom: 2rem;">
+    <figure aria-label="FlowTex editor overview">
+      <svg viewBox="0 0 800 460" xmlns="http://www.w3.org/2000/svg">
+        <!-- Window chrome -->
+        <rect x="6" y="6" width="788" height="448" rx="8" class="mock-window"/>
+        <rect x="6" y="6" width="788" height="28" rx="8" class="mock-titlebar"/>
+        <rect x="6" y="22" width="788" height="12" class="mock-titlebar"/>
+        <circle cx="22" cy="20" r="5" class="mock-dot" fill="#ff6058"/>
+        <circle cx="38" cy="20" r="5" class="mock-dot" fill="#ffbd2e"/>
+        <circle cx="54" cy="20" r="5" class="mock-dot" fill="#27ca40"/>
+        <text x="400" y="24" text-anchor="middle" class="mock-label">project • thesis.tex</text>
+
+        <!-- Toolbar -->
+        <rect x="6" y="34" width="788" height="26" fill="#fff" stroke="#e3e6ec"/>
+        <text x="18" y="51" class="mock-text">File · Edit · Insert · View · Format · Tools · Help</text>
+        <rect x="640" y="40" width="50" height="16" rx="3" fill="#2563eb"/>
+        <text x="665" y="51" text-anchor="middle" class="mock-text" fill="#fff">PDF</text>
+        <text x="710" y="51" class="mock-text mock-muted">TC ●</text>
+        <text x="750" y="51" class="mock-text mock-muted">⚙</text>
+
+        <!-- File panel -->
+        <rect x="6" y="60" width="160" height="394" class="mock-panel"/>
+        <rect x="6" y="60" width="160" height="22" class="mock-panel-head"/>
+        <text x="16" y="76" class="mock-h" style="letter-spacing: 0.5px; text-transform: uppercase;">FILES</text>
+        <text x="150" y="76" text-anchor="end" class="mock-muted mock-text">+</text>
+        <text x="16" y="98" class="mock-text">▾ 📁 parts</text>
+        <text x="28" y="115" class="mock-text">📄 intro.tex</text>
+        <text x="28" y="131" class="mock-text">📄 chapter1.tex</text>
+        <text x="28" y="147" class="mock-text">📄 chapter2.tex</text>
+        <text x="16" y="166" class="mock-text">▸ 📁 figures</text>
+        <text x="16" y="183" class="mock-text">📄 main.tex ⭐</text>
+        <text x="16" y="200" class="mock-text">📄 references.bib</text>
+        <text x="16" y="217" class="mock-text">📄 acm-style.cls</text>
+
+        <!-- Editor -->
+        <rect x="166" y="60" width="468" height="394" fill="#fff" stroke="#e3e6ec"/>
+        <rect x="166" y="60" width="468" height="22" class="mock-panel-head"/>
+        <text x="174" y="76" class="mock-h">main.tex</text>
+        <text x="624" y="76" text-anchor="end" class="mock-label">↶ ↷  ⊕  🔍</text>
+        <!-- gutter -->
+        <rect x="166" y="82" width="22" height="372" fill="#f1f3f5"/>
+        <g class="mock-label" text-anchor="end">
+          <text x="184" y="100">1</text><text x="184" y="115">2</text><text x="184" y="130">3</text>
+          <text x="184" y="145">4</text><text x="184" y="160">5</text><text x="184" y="175">6</text>
+          <text x="184" y="190">7</text><text x="184" y="205">8</text><text x="184" y="220">9</text>
+        </g>
+        <!-- code lines -->
+        <text x="194" y="100" class="mock-text-mono"><tspan fill="#7c3aed">\documentclass</tspan>{article}</text>
+        <text x="194" y="115" class="mock-text-mono"><tspan fill="#7c3aed">\usepackage</tspan>{amsmath, graphicx}</text>
+        <text x="194" y="130" class="mock-text-mono"><tspan fill="#7c3aed">\title</tspan>{On the Stability of …}</text>
+        <text x="194" y="160" class="mock-text-mono"><tspan fill="#7c3aed">\begin</tspan>{document}</text>
+        <text x="194" y="175" class="mock-text-mono"><tspan fill="#7c3aed">\maketitle</tspan></text>
+        <text x="194" y="205" class="mock-text-mono"><tspan fill="#7c3aed">\section</tspan>{Introduction}</text>
+        <!-- TC ins -->
+        <rect x="194" y="212" width="265" height="14" class="mock-ins" rx="2"/>
+        <text x="198" y="222" class="mock-text-mono">Recent results by Smith and Lee (2024)</text>
+        <text x="194" y="240" class="mock-text-mono">give rise to a new family of bounds.</text>
+        <!-- TC del -->
+        <rect x="194" y="247" width="190" height="14" class="mock-del" rx="2"/>
+        <text x="198" y="257" class="mock-text-mono" style="text-decoration: line-through;">that supersede previous work.</text>
+        <text x="194" y="275" class="mock-text-mono"><tspan fill="#7c3aed">\cite</tspan>{smith2024,lee2024}</text>
+        <!-- cursor -->
+        <rect x="318" y="265" width="1.5" height="12" fill="#2563eb"/>
+        <!-- collaborator cursor -->
+        <rect x="280" y="225" width="1.5" height="12" fill="#ec4899"/>
+        <rect x="282" y="218" width="38" height="9" rx="3" fill="#ec4899"/>
+        <text x="285" y="225" class="mock-text" fill="#fff" font-size="7">Alice</text>
+
+        <!-- Comments / TC panel -->
+        <rect x="634" y="60" width="160" height="394" class="mock-panel"/>
+        <rect x="634" y="60" width="160" height="22" class="mock-panel-head"/>
+        <text x="644" y="76" class="mock-h" style="letter-spacing: 0.5px; text-transform: uppercase;">REVIEW CHANGES</text>
+        <text x="784" y="76" text-anchor="end" fill="#6b7280" class="mock-text">3</text>
+        <!-- TC card 1 -->
+        <rect x="640" y="92" width="148" height="74" fill="#fff" stroke="#e3e6ec" rx="4"/>
+        <rect x="640" y="92" width="3" height="74" fill="#2563eb"/>
+        <text x="650" y="106" class="mock-label"><tspan fill="#2563eb" font-weight="600">Inserted</tspan> by <tspan fill="#2563eb" font-weight="600">You</tspan></text>
+        <text x="786" y="106" text-anchor="end" class="mock-label">2:14 PM</text>
+        <text x="650" y="124" class="mock-text-mono" font-size="9">"Recent results by Smith…"</text>
+        <text x="744" y="156" class="mock-ok" font-size="12">✓</text>
+        <text x="770" y="156" class="mock-danger" font-size="12">✕</text>
+        <!-- TC card 2 -->
+        <rect x="640" y="174" width="148" height="74" fill="#fff" stroke="#e3e6ec" rx="4"/>
+        <rect x="640" y="174" width="3" height="74" fill="#b71c1c"/>
+        <text x="650" y="188" class="mock-label"><tspan fill="#b71c1c" font-weight="600">Deleted</tspan> by <tspan fill="#2563eb" font-weight="600">You</tspan></text>
+        <text x="786" y="188" text-anchor="end" class="mock-label">2:15 PM</text>
+        <text x="650" y="206" class="mock-text-mono" font-size="9">"that supersede previous…"</text>
+        <text x="744" y="238" class="mock-ok" font-size="12">✓</text>
+        <text x="770" y="238" class="mock-danger" font-size="12">✕</text>
+        <!-- TC card 3 -->
+        <rect x="640" y="256" width="148" height="56" fill="#fff" stroke="#e3e6ec" rx="4"/>
+        <rect x="640" y="256" width="3" height="56" fill="#2563eb"/>
+        <text x="650" y="270" class="mock-label"><tspan fill="#2563eb" font-weight="600">Inserted</tspan> by <tspan fill="#2563eb" font-weight="600">Alice</tspan></text>
+        <text x="786" y="270" text-anchor="end" class="mock-label">2:18 PM</text>
+        <text x="650" y="288" class="mock-text-mono" font-size="9">"… new family of bounds."</text>
+
+        <!-- Status bar -->
+        <rect x="6" y="426" width="788" height="28" fill="#f1f3f5" stroke="#e3e6ec"/>
+        <circle cx="22" cy="440" r="4" fill="#16a34a"/>
+        <text x="32" y="444" class="mock-label">Compiled · 2 errors, 5 warnings</text>
+        <text x="200" y="444" class="mock-label">Words: 4,238  ·  Pages: 12  ·  Engine: pdflatex</text>
+        <text x="680" y="444" class="mock-label">2 collaborators online</text>
+      </svg>
+      <figcaption><strong>The FlowTex editor.</strong> File tree on the left, source editor in the middle with track-changes marks and a collaborator's cursor (pink), the Review Changes panel on the right, and a status bar with compile health and presence.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="start">
+    <h2><span class="ch">1</span> Getting started</h2>
+    <p class="lead">FlowTex runs entirely in your browser. There's nothing to install on your machine; your administrator runs the server.</p>
+
+    <h3>Signing up</h3>
+    <ol class="steps">
+      <li>Open the FlowTex URL your administrator gave you. Click <strong>Create account</strong>.</li>
+      <li>Enter your email, name, and a password (≥ 8 chars, with upper, lower, and a number). Passwords that have appeared in known breaches are rejected.</li>
+      <li>Check your inbox for a verification link. The link expires in 24 hours; you can request a new one if needed.</li>
+      <li>Sign in with your verified email and password.</li>
+    </ol>
+
+    <h3>Two-factor authentication <span class="badge badge-pro">Recommended</span></h3>
+    <p>Open <strong>Account → Security</strong> and choose <strong>Set up 2FA</strong>. Scan the QR code with Google Authenticator, 1Password, Authy, or any TOTP app. Save the secret somewhere safe — you'll need it if you lose the device. Trusted-device cookies let you skip the code on familiar browsers for 7 days; the cookie rotates on every login so a stolen replica only works once.</p>
+
+    <div class="callout tip"><strong>Tip:</strong> Once 2FA is on, password resets keep working but invalidate every existing session — useful if you suspect your account was used elsewhere.</div>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="projects">
+    <h2><span class="ch">2</span> Your projects</h2>
+    <p class="lead">The dashboard lists every project you own or have been invited to. Each project is independent — its own files, members, comments, and compile cache.</p>
+
+    <figure aria-label="Dashboard with pending invitation and project cards">
+      <svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="6" width="788" height="268" rx="6" class="mock-window"/>
+        <rect x="6" y="6" width="788" height="22" class="mock-titlebar"/>
+        <text x="400" y="22" text-anchor="middle" class="mock-label">FlowTex · Dashboard</text>
+
+        <!-- Header -->
+        <rect x="6" y="28" width="788" height="34" fill="#fff" stroke="#e3e6ec"/>
+        <text x="20" y="50" class="mock-h" font-size="14">Projects</text>
+        <rect x="540" y="35" width="160" height="20" rx="3" fill="#fafbfd" stroke="#e3e6ec"/>
+        <text x="548" y="48" class="mock-text mock-muted">🔍 Search projects…</text>
+        <rect x="710" y="35" width="74" height="20" rx="3" fill="#2563eb"/>
+        <text x="747" y="48" text-anchor="middle" class="mock-text" fill="#fff">+ New</text>
+
+        <!-- Invitation banner -->
+        <rect x="20" y="74" width="760" height="42" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+        <circle cx="42" cy="95" r="10" fill="#2563eb"/>
+        <text x="42" y="100" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">!</text>
+        <text x="62" y="92" class="mock-h">Alice Chen invited you to "Climate Models Review"</text>
+        <text x="62" y="107" class="mock-label">as editor · 2 hours ago</text>
+        <rect x="630" y="83" width="62" height="22" rx="3" fill="#2563eb"/>
+        <text x="661" y="98" text-anchor="middle" class="mock-text" fill="#fff">Accept</text>
+        <rect x="700" y="83" width="62" height="22" rx="3" fill="#fff" stroke="#e3e6ec"/>
+        <text x="731" y="98" text-anchor="middle" class="mock-text mock-muted">Decline</text>
+
+        <!-- Filter chips -->
+        <text x="20" y="138" class="mock-h" font-size="10">FILTER</text>
+        <g>
+          <rect x="64" y="128" width="48" height="20" rx="10" fill="#2563eb"/>
+          <text x="88" y="142" text-anchor="middle" class="mock-text" fill="#fff" font-size="10">All · 12</text>
+          <rect x="118" y="128" width="58" height="20" rx="10" fill="#fff" stroke="#e3e6ec"/>
+          <text x="147" y="142" text-anchor="middle" class="mock-text mock-muted" font-size="10">Owned · 7</text>
+          <rect x="182" y="128" width="58" height="20" rx="10" fill="#fff" stroke="#e3e6ec"/>
+          <text x="211" y="142" text-anchor="middle" class="mock-text mock-muted" font-size="10">Shared · 5</text>
+          <!-- Tag chips -->
+          <rect x="260" y="128" width="50" height="20" rx="10" fill="#fef3c7" stroke="#fde68a"/>
+          <circle cx="270" cy="138" r="3" fill="#d97706"/>
+          <text x="290" y="142" text-anchor="middle" class="mock-text" font-size="10" fill="#92400e">thesis</text>
+          <rect x="316" y="128" width="56" height="20" rx="10" fill="#dcfce7" stroke="#bbf7d0"/>
+          <circle cx="326" cy="138" r="3" fill="#16a34a"/>
+          <text x="350" y="142" text-anchor="middle" class="mock-text" font-size="10" fill="#166534">papers</text>
+        </g>
+
+        <!-- Project cards -->
+        <g>
+          <rect x="20" y="162" width="240" height="100" rx="6" fill="#fff" stroke="#e3e6ec"/>
+          <text x="32" y="184" class="mock-h">PhD Thesis</text>
+          <text x="32" y="201" class="mock-label">42 files · 18,402 words</text>
+          <text x="32" y="217" class="mock-label">Modified 12 minutes ago</text>
+          <rect x="32" y="232" width="48" height="18" rx="9" fill="#fef3c7" stroke="#fde68a"/>
+          <text x="56" y="245" text-anchor="middle" class="mock-text" font-size="10" fill="#92400e">thesis</text>
+          <text x="234" y="184" text-anchor="end" font-size="14" fill="#fbbf24">⭐</text>
+
+          <rect x="280" y="162" width="240" height="100" rx="6" fill="#fff" stroke="#e3e6ec"/>
+          <text x="292" y="184" class="mock-h">ICML 2026 Submission</text>
+          <text x="292" y="201" class="mock-label">7 files · 4,180 words</text>
+          <text x="292" y="217" class="mock-label">Modified 3 hours ago</text>
+          <rect x="292" y="232" width="48" height="18" rx="9" fill="#dcfce7" stroke="#bbf7d0"/>
+          <text x="316" y="245" text-anchor="middle" class="mock-text" font-size="10" fill="#166534">papers</text>
+          <!-- collaborator avatars -->
+          <circle cx="490" cy="240" r="9" fill="#ec4899"/>
+          <text x="490" y="244" text-anchor="middle" font-size="9" fill="#fff" font-weight="600">A</text>
+          <circle cx="475" cy="240" r="9" fill="#7c3aed"/>
+          <text x="475" y="244" text-anchor="middle" font-size="9" fill="#fff" font-weight="600">B</text>
+
+          <rect x="540" y="162" width="240" height="100" rx="6" fill="#fff" stroke="#e3e6ec"/>
+          <text x="552" y="184" class="mock-h">Lecture Notes – Linear Algebra</text>
+          <text x="552" y="201" class="mock-label">15 files · 8,920 words</text>
+          <text x="552" y="217" class="mock-label">Modified yesterday</text>
+          <rect x="552" y="232" width="62" height="18" rx="9" fill="#ede9fe" stroke="#ddd6fe"/>
+          <text x="583" y="245" text-anchor="middle" class="mock-text" font-size="10" fill="#5b21b6">teaching</text>
+        </g>
+      </svg>
+      <figcaption><strong>The dashboard.</strong> Pending invitations sit at the top; tag and ownership filters narrow the list; cards show recent activity, tags, and collaborator avatars.</figcaption>
+    </figure>
+
+    <div class="grid">
+      <div class="card"><div class="ico">＋</div><h4>Create</h4><p>Blank project or pick from the template gallery.</p></div>
+      <div class="card"><div class="ico">⤓</div><h4>Import</h4><p>From <code>.zip</code>, <code>.docx</code>, or a GitHub repo.</p></div>
+      <div class="card"><div class="ico">⎘</div><h4>Copy</h4><p>Duplicate a project including files and settings.</p></div>
+      <div class="card"><div class="ico">★</div><h4>Tag</h4><p>Color-coded labels; filter the list by tag.</p></div>
+      <div class="card"><div class="ico">⌧</div><h4>Archive</h4><p>Hide finished projects; restore anytime.</p></div>
+      <div class="card"><div class="ico">🗑</div><h4>Trash</h4><p>30-day soft-delete; owner-only restore.</p></div>
+    </div>
+
+    <h3>Filtering &amp; sorting</h3>
+    <p>The dashboard filter buttons cover <em>All</em>, <em>Owned</em>, <em>Shared</em>, <em>Archived</em>, and <em>Trash</em>. Click a tag to filter to it; click again to clear. Column headers sort the list. The search box matches project names instantly.</p>
+
+    <h3>Bulk actions</h3>
+    <p>Tick the checkboxes on the left to select multiple projects. The action bar appears at the top: archive, trash, tag, or untag them all at once.</p>
+
+    <h3>Pending invitations</h3>
+    <p>Invitations sent to your email appear at the top of the dashboard. Email links open you straight to the matching invitation — the link only works for the invited recipient. <a href="#collab">Read more about invitations</a>.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="files">
+    <h2><span class="ch">3</span> Files &amp; folders</h2>
+    <p class="lead">The left-hand panel is your project's file tree. Files, folders, and binary assets live here.</p>
+
+    <h3>Creating files and folders</h3>
+    <ul>
+      <li>Hit the <strong>+</strong> button in the file panel header and pick <em>New File</em> or <em>New Folder</em>.</li>
+      <li>Inside a folder, hover its row and click the small <strong>+</strong> to add a file directly into it.</li>
+      <li>Empty folders persist server-side — they survive refreshes and are visible to collaborators.</li>
+    </ul>
+
+    <h3>Drag &amp; drop <span class="badge badge-new">New</span></h3>
+    <p>Drag any file or folder onto another folder to move it there. Drag onto the empty area outside any folder to move to top level. The target folder highlights blue while you're hovering. Name collisions are blocked before they happen — you'll get a warning, no overwrite.</p>
+
+    <figure aria-label="Drag a file into a folder">
+      <svg viewBox="0 0 800 230" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="6" width="788" height="218" rx="6" class="mock-window"/>
+        <rect x="6" y="6" width="788" height="22" class="mock-titlebar"/>
+        <text x="400" y="22" text-anchor="middle" class="mock-label">Files panel · drag-and-drop</text>
+
+        <!-- "Before" -->
+        <text x="86" y="48" class="mock-h">Before</text>
+        <rect x="20" y="56" width="140" height="160" class="mock-panel"/>
+        <text x="32" y="78" class="mock-text">▾ 📁 parts</text>
+        <text x="44" y="95" class="mock-text">📄 intro.tex</text>
+        <text x="44" y="112" class="mock-text">📄 chapter1.tex</text>
+        <text x="32" y="135" class="mock-text">📄 chapter2.tex</text>
+        <text x="32" y="152" class="mock-text">📄 main.tex ⭐</text>
+        <text x="32" y="169" class="mock-text">📄 references.bib</text>
+        <!-- Floating file ghost mid-drag -->
+        <g opacity="0.85">
+          <rect x="225" y="100" width="130" height="20" rx="3" fill="#fff" stroke="#2563eb" stroke-width="1.5"/>
+          <text x="237" y="115" class="mock-text">📄 chapter2.tex</text>
+        </g>
+        <!-- arrow -->
+        <text x="380" y="116" font-size="24" fill="#2563eb">➜</text>
+
+        <!-- "After" -->
+        <text x="500" y="48" class="mock-h">After</text>
+        <rect x="430" y="56" width="160" height="160" class="mock-panel"/>
+        <text x="442" y="78" class="mock-text">▾ 📁 parts</text>
+        <text x="454" y="95" class="mock-text">📄 intro.tex</text>
+        <text x="454" y="112" class="mock-text">📄 chapter1.tex</text>
+        <!-- highlighted drop target -->
+        <rect x="430" y="120" width="160" height="18" class="mock-drop"/>
+        <text x="454" y="133" class="mock-text"><tspan font-weight="600" fill="#2563eb">📄 chapter2.tex</tspan></text>
+        <text x="442" y="156" class="mock-text">📄 main.tex ⭐</text>
+        <text x="442" y="173" class="mock-text">📄 references.bib</text>
+
+        <!-- Legend strip -->
+        <rect x="620" y="56" width="170" height="160" rx="6" fill="#fff" stroke="#e3e6ec"/>
+        <text x="635" y="76" class="mock-h">Rules</text>
+        <text x="635" y="98" class="mock-label">• Folder onto self → blocked</text>
+        <text x="635" y="116" class="mock-label">• Folder onto descendant → blocked</text>
+        <text x="635" y="134" class="mock-label">• Name already taken → warning,</text>
+        <text x="643" y="148" class="mock-label">  no overwrite</text>
+        <text x="635" y="170" class="mock-label">• Drop outside any folder →</text>
+        <text x="643" y="184" class="mock-label">  move to top level</text>
+        <text x="635" y="206" class="mock-label muted">No data loss either way.</text>
+      </svg>
+      <figcaption><strong>Drag-and-drop move.</strong> Files and folders can be moved between folders or to the project root. The target folder pulses blue with a dashed outline while you're hovering it.</figcaption>
+    </figure>
+
+    <div class="callout"><strong>Behind the scenes:</strong> A "move" is just a rename to a new path. Folder moves use a single atomic transaction so collaborators see the new tree consistently after one round-trip.</div>
+
+    <h3>Uploading</h3>
+    <p>Drag files from your desktop into the file panel to upload. Plain text files (<code>.tex</code>, <code>.bib</code>, <code>.cls</code>) are read into the editor; binary files (<code>.pdf</code>, <code>.png</code>, <code>.jpg</code>, <code>.svg</code>, fonts) are stored verbatim and rendered in a preview panel when opened.</p>
+
+    <h3>Grouping &amp; view modes</h3>
+    <p>The toolbar at the top of the file panel switches between <em>Tree view</em> (folder structure) and <em>Group by type</em> (Source / Bibliography / Figures / Class &amp; Style / Other). The list view shows the underlying paths regardless of how they're grouped.</p>
+
+    <h3>Renaming, deleting, main file</h3>
+    <p>Right-click any file or folder for its context menu: rename, delete, set as main file (compilation entry point), download, or format. Renames can include new directory prefixes — typing <code>parts/intro.tex</code> when renaming <code>intro.tex</code> moves it into <code>parts/</code>.</p>
+
+    <h3>Downloading</h3>
+    <p><strong>File → Download as ZIP</strong> exports the entire project. <strong>Download for Submission</strong> resolves the dependency tree from your main file and only includes used files — handy for journals that reject unused assets.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="editor">
+    <h2><span class="ch">4</span> The editor</h2>
+    <p class="lead">FlowTex uses CodeMirror 6 with LaTeX syntax highlighting, autocompletion, bracket matching, and code folding.</p>
+
+    <h3>Insert &amp; Format menus</h3>
+    <div class="grid">
+      <div class="card editor"><div class="ico">𝐁</div><h4>Format</h4><p>Bold, italic, underline, monospace, emphasis, highlight, inline/display math.</p></div>
+      <div class="card editor"><div class="ico">§</div><h4>Sections</h4><p>Section, subsection, subsubsection inserted at the cursor.</p></div>
+      <div class="card editor"><div class="ico">≡</div><h4>Lists</h4><p>Itemize, enumerate; pre-filled with one <code>\item</code> to start.</p></div>
+      <div class="card editor"><div class="ico">▦</div><h4>Table builder</h4><p>Interactive grid → properly formatted tabular code.</p></div>
+      <div class="card editor"><div class="ico">∑</div><h4>Symbol picker</h4><p>Greek letters, operators, arrows, and 500+ math symbols.</p></div>
+      <div class="card editor"><div class="ico">⊕</div><h4>Refs &amp; cites</h4><p>Autocomplete from labels and BibTeX keys in your project.</p></div>
+    </div>
+
+    <h3>Auto-save</h3>
+    <p>Your edits save automatically one second after you stop typing. Hit <kbd>⌘</kbd>+<kbd>S</kbd> (or <kbd>Ctrl</kbd>+<kbd>S</kbd>) to flush immediately — this also triggers compile if you have that wired to save. There's no "unsaved changes" state: if you typed it, it's persisted.</p>
+
+    <h3>Undo &amp; redo</h3>
+    <p><kbd>⌘</kbd>+<kbd>Z</kbd> undoes; <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>Z</kbd> redoes. History survives even after collaborators apply remote changes — your undo stack is yours alone.</p>
+
+    <h3>Folding &amp; navigation</h3>
+    <p>Click the small triangle in the gutter next to environments (<code>\begin{...}</code>, <code>\section</code>) to fold their contents. <kbd>⌘</kbd>+<kbd>P</kbd> (when wired in your build) opens a fuzzy file finder.</p>
+
+    <h3>Multi-cursor</h3>
+    <p>Hold <kbd>⌥</kbd> (Alt on Linux) and click to place additional cursors. <kbd>⌘</kbd>+<kbd>D</kbd> selects the next match of the current word.</p>
+
+    <h3>Theme &amp; zoom</h3>
+    <p><strong>View → Zoom In/Out</strong> scales the editor font. The editor and PDF can be independently inverted (dark mode); your choice is remembered per browser.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="visual">
+    <h2><span class="ch">5</span> Visual mode</h2>
+    <p class="lead">Toggle <strong>View → Visual Mode</strong> (or <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>V</kbd>) for a near-WYSIWYG view that hides markup and renders formatting visually. Your source is never modified — visual mode is pure styling.</p>
+
+    <h3>What it renders</h3>
+    <table>
+      <tr><th>LaTeX</th><th>Visual Mode</th></tr>
+      <tr><td><code>\textbf{bold}</code></td><td><strong>bold</strong></td></tr>
+      <tr><td><code>\emph{emphasis}</code>, <code>\textit{}</code></td><td><em>italic</em></td></tr>
+      <tr><td><code>\underline{text}</code></td><td><u>underline</u></td></tr>
+      <tr><td><code>\texttt{code}</code></td><td><code>monospace</code></td></tr>
+      <tr><td><code>\section{Title}</code> / <code>\subsection</code> / …</td><td>Styled heading</td></tr>
+      <tr><td><code>\label{…}</code></td><td>Hidden entirely</td></tr>
+      <tr><td><code>\ref{fig:1}</code></td><td>Inline colored badge</td></tr>
+      <tr><td><code>% comment</code></td><td>Hidden</td></tr>
+      <tr><td>Preamble + <code>\end{document}</code></td><td>Hidden block</td></tr>
+      <tr><td><code>\begin{itemize}</code></td><td>Real bullets</td></tr>
+      <tr><td><code>\begin{enumerate}</code></td><td>Numbered list</td></tr>
+      <tr><td><code>\begin{quote}</code></td><td>Indented block with left border</td></tr>
+    </table>
+
+    <div class="callout tip"><strong>Tip:</strong> Toggle visual mode off at any time and you're back to raw source — there's no migration, no data loss, no commit needed.</div>
+
+    <figure aria-label="Visual mode before and after">
+      <svg viewBox="0 0 800 260" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="6" width="788" height="248" rx="6" class="mock-window"/>
+        <rect x="6" y="6" width="788" height="22" class="mock-titlebar"/>
+        <text x="400" y="22" text-anchor="middle" class="mock-label">main.tex · same source, two views</text>
+
+        <!-- Source view -->
+        <text x="100" y="50" class="mock-h">Source mode</text>
+        <rect x="20" y="58" width="370" height="186" fill="#fff" stroke="#e3e6ec"/>
+        <rect x="20" y="58" width="22" height="186" fill="#f1f3f5"/>
+        <g class="mock-label" text-anchor="end">
+          <text x="38" y="76">1</text><text x="38" y="92">2</text><text x="38" y="108">3</text>
+          <text x="38" y="124">4</text><text x="38" y="140">5</text><text x="38" y="156">6</text>
+          <text x="38" y="172">7</text><text x="38" y="188">8</text><text x="38" y="204">9</text>
+          <text x="38" y="220">10</text>
+        </g>
+        <text x="48" y="76" class="mock-text-mono"><tspan fill="#7c3aed">\section</tspan>{Introduction}</text>
+        <text x="48" y="108" class="mock-text-mono">Modern climate models</text>
+        <text x="48" y="124" class="mock-text-mono">rely on <tspan fill="#7c3aed">\textbf</tspan>{coupled} systems</text>
+        <text x="48" y="140" class="mock-text-mono">of <tspan fill="#7c3aed">\emph</tspan>{partial} differential</text>
+        <text x="48" y="156" class="mock-text-mono">equations~<tspan fill="#7c3aed">\cite</tspan>{ipcc2023}.</text>
+        <text x="48" y="188" class="mock-text-mono"><tspan fill="#7c3aed">\begin</tspan>{itemize}</text>
+        <text x="48" y="204" class="mock-text-mono">  <tspan fill="#7c3aed">\item</tspan> Ocean</text>
+        <text x="48" y="220" class="mock-text-mono">  <tspan fill="#7c3aed">\item</tspan> Atmosphere</text>
+
+        <!-- Visual view -->
+        <text x="510" y="50" class="mock-h">Visual mode <tspan class="mock-accent">(⌘⇧V)</tspan></text>
+        <rect x="410" y="58" width="370" height="186" fill="#fff" stroke="#e3e6ec"/>
+        <text x="430" y="86" font-family="Georgia, serif" font-size="16" font-weight="700">Introduction</text>
+        <text x="430" y="115" font-family="Georgia, serif" font-size="11">Modern climate models rely on</text>
+        <text x="430" y="115" font-family="Georgia, serif" font-size="11">
+          <tspan x="430" dy="0">Modern climate models rely on <tspan font-weight="700">coupled</tspan></tspan>
+        </text>
+        <text x="430" y="131" font-family="Georgia, serif" font-size="11">
+          systems of <tspan font-style="italic">partial</tspan> differential
+        </text>
+        <text x="430" y="147" font-family="Georgia, serif" font-size="11">equations <tspan font-family="-apple-system" font-size="9" font-weight="600" fill="#fff"><tspan dx="0">ipcc2023</tspan></tspan>.</text>
+        <!-- ref badge -->
+        <rect x="555" y="138" width="60" height="13" rx="3" fill="#2563eb"/>
+        <text x="585" y="148" text-anchor="middle" font-family="-apple-system" font-size="9" font-weight="600" fill="#fff">ipcc2023</text>
+        <!-- bullets -->
+        <circle cx="445" cy="184" r="2" fill="#1f2937"/>
+        <text x="455" y="188" font-family="Georgia, serif" font-size="11">Ocean</text>
+        <circle cx="445" cy="204" r="2" fill="#1f2937"/>
+        <text x="455" y="208" font-family="Georgia, serif" font-size="11">Atmosphere</text>
+      </svg>
+      <figcaption><strong>Visual mode is rendering, not rewriting.</strong> Same source on both sides; visual mode hides markup, applies styles, and renders <code>\ref</code> as a colored badge. Toggle off and you're back to the source view exactly as it was.</figcaption>
+    </figure>
+
+    <h3>The Visual Mode toolbar</h3>
+    <p>While visual mode is on, a small floating toolbar lets you apply bold / italic / underline by selection. <kbd>⌘</kbd>+<kbd>B</kbd>, <kbd>⌘</kbd>+<kbd>I</kbd>, and <kbd>⌘</kbd>+<kbd>U</kbd> wrap the selection with <code>\textbf{}</code>, <code>\textit{}</code>, and <code>\underline{}</code> respectively.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="compile">
+    <h2><span class="ch">6</span> Compiling</h2>
+    <p class="lead">The PDF button in the toolbar (or <kbd>⌘</kbd>+<kbd>S</kbd> wired to compile) sends your project to the server's TeX Live installation and streams the log back as it runs.</p>
+
+    <h3>What happens on compile</h3>
+    <ol class="steps">
+      <li>Your editor flushes the latest content (and tracked-change marks) to the database.</li>
+      <li>The server reads every file, optionally injects the <code>\TCadd</code> / <code>\TCdel</code> macros, and writes them to a per-user scratch directory.</li>
+      <li><code>latexmk</code> runs with the project's chosen engine (<code>pdflatex</code>, <code>xelatex</code>, or <code>lualatex</code>) plus bibliography passes (<code>biber</code>/<code>bibtex</code>) as needed.</li>
+      <li>The log is streamed live; when the run finishes the PDF panel refreshes.</li>
+    </ol>
+
+    <h3>Compile log</h3>
+    <p>The bottom panel shows the live stream of LaTeX output. Errors are highlighted; clicking an error with a file/line jumps the editor there. Overfull/underfull box warnings can be hidden via <strong>View → Overfull/Underfull Warnings</strong>.</p>
+
+    <h3>SyncTeX</h3>
+    <p>Double-click anywhere in the PDF preview to jump to that line in the source, and vice-versa. Available whenever your engine emits <code>.synctex.gz</code> (which all modern TeX Live engines do).</p>
+
+    <h3>Linting</h3>
+    <p>After every compile, FlowTex runs <code>chktex</code> (or <code>lacheck</code> for <code>.bib</code>) and inlines the warnings in the editor gutter. Switch between linters in <strong>Project Settings → Compiler</strong>.</p>
+
+    <h3>Word count</h3>
+    <p><strong>Tools → Word Count</strong> runs <code>texcount</code> against the main file and reports words, equations, figures, and tables.</p>
+
+    <h3>Stop &amp; clean</h3>
+    <p>The <strong>Stop</strong> button kills a running compile. <strong>Clean</strong> wipes the cached aux files when you want a fresh from-scratch run (useful after restructuring bibliographies or labels).</p>
+
+    <div class="callout warn"><strong>Rate limit:</strong> 15 compiles/minute per project, 30/minute per user across all projects. If you hit it you'll see a brief "too many compilations" message — wait a few seconds.</div>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="search">
+    <h2><span class="ch">7</span> Search &amp; replace</h2>
+    <p class="lead">FlowTex has two search scopes: <em>within file</em> and <em>across the whole project</em>.</p>
+
+    <h3>Find &amp; replace in the current file</h3>
+    <p><kbd>⌘</kbd>+<kbd>F</kbd> opens the search panel. Supports plain text, case-sensitive, whole-word, and regex modes. Navigate matches with <kbd>Enter</kbd> / <kbd>⇧</kbd>+<kbd>Enter</kbd>. Replace and replace-all are right next to the find input.</p>
+
+    <h3>Global search</h3>
+    <p>The magnifying glass at the top of the file panel searches every file in the project simultaneously. Matches are grouped by file; click any line to jump straight to it. All searching runs client-side over the in-memory file list — instantaneous, no server round-trip.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="collab">
+    <h2><span class="ch">8</span> Collaboration</h2>
+    <p class="lead">FlowTex is built for real-time collaboration. Every keystroke in a shared project propagates to other open editors over WebSocket within ~50 ms.</p>
+
+    <h3>Inviting collaborators</h3>
+    <ol class="steps">
+      <li>Open <strong>Share</strong> from the project menu.</li>
+      <li>Enter the collaborator's email. They must already have a FlowTex account.</li>
+      <li>Pick a role: <strong>editor</strong> (full write) or <strong>viewer</strong> (read-only). Owners can change roles later.</li>
+      <li>They receive an email with a link that opens straight to the matching invitation. The link only works for the invited address; failed accept attempts by other accounts are audit-logged.</li>
+    </ol>
+
+    <h3>Roles</h3>
+    <table>
+      <tr><th>Action</th><th>Owner</th><th>Editor</th><th>Viewer</th></tr>
+      <tr><td>Edit files</td><td>✓</td><td>✓</td><td>—</td></tr>
+      <tr><td>Upload / delete / rename</td><td>✓</td><td>✓</td><td>—</td></tr>
+      <tr><td>Comment / track changes</td><td>✓</td><td>✓</td><td>—</td></tr>
+      <tr><td>Compile / view PDF</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Use chat</td><td>✓</td><td>✓</td><td>—</td></tr>
+      <tr><td>Invite / remove members</td><td>✓</td><td>—</td><td>—</td></tr>
+      <tr><td>Delete / archive project</td><td>✓</td><td>—</td><td>—</td></tr>
+      <tr><td>GitHub sync settings</td><td>✓</td><td>✓</td><td>—</td></tr>
+    </table>
+
+    <h3>Live presence</h3>
+    <p>The top-right corner shows avatars of every collaborator currently in the project. Each has a unique cursor color in the editor; their cursors and selections move in real time. A small "is typing…" indicator appears below their name when they're editing.</p>
+
+    <h3>Chat</h3>
+    <p><strong>View → Chat</strong> opens a per-project chat panel. Messages persist server-side; new collaborators see the full history. Viewers can read but not post (per role table above).</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="comments">
+    <h2><span class="ch">9</span> Comments</h2>
+    <p class="lead">Double-click any text in the editor to attach a comment to that range. Threaded replies, @mentions, resolve, edit, delete — Word-style review in your LaTeX source.</p>
+
+    <h3>Adding a comment</h3>
+    <ol class="steps">
+      <li>Double-click the text you want to comment on. A bubble appears in the right-hand panel aligned with the editor line.</li>
+      <li>Type your comment. Use <code>@</code> to start a member mention; pick from the autocomplete.</li>
+      <li>Press <kbd>Enter</kbd> to post, or <kbd>⇧</kbd>+<kbd>Enter</kbd> for a newline. Mentioned users receive an email and a notification.</li>
+    </ol>
+
+    <h3>Replies, mentions, assignments</h3>
+    <p>Click <strong>Reply</strong> in any bubble to thread under it. @-mentioning a member with the optional "assign" UI puts the comment on their action list. Resolve a thread (✓ button) to collapse it; resolved comments are kept for the record and viewable in the bottom-of-panel "Resolved" section.</p>
+
+    <h3>Live alignment</h3>
+    <p>Comment bubbles slide in lockstep with editor scroll — each card pins to its line. If two comments target nearby lines, an elastic packer gracefully spaces them so they don't overlap.</p>
+
+    <div class="callout tip"><strong>Tip:</strong> Comments survive remote edits. If a collaborator inserts text before a comment's anchor, the comment moves with the line — no orphaned bubbles.</div>
+
+    <figure aria-label="Comments panel with threaded reply">
+      <svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="6" width="788" height="268" rx="6" class="mock-window"/>
+        <rect x="6" y="6" width="788" height="22" class="mock-titlebar"/>
+        <text x="400" y="22" text-anchor="middle" class="mock-label">Editor (left) and Comments sidebar (right)</text>
+
+        <!-- Editor strip -->
+        <rect x="20" y="40" width="450" height="230" fill="#fff" stroke="#e3e6ec"/>
+        <rect x="20" y="40" width="22" height="230" fill="#f1f3f5"/>
+        <g class="mock-label" text-anchor="end">
+          <text x="38" y="58">42</text><text x="38" y="74">43</text><text x="38" y="90">44</text>
+          <text x="38" y="106">45</text><text x="38" y="122">46</text><text x="38" y="138">47</text>
+          <text x="38" y="154">48</text><text x="38" y="170">49</text><text x="38" y="186">50</text>
+        </g>
+        <text x="48" y="58" class="mock-text-mono"><tspan fill="#7c3aed">\section</tspan>{Results}</text>
+        <text x="48" y="90" class="mock-text-mono">The proposed estimator achieves</text>
+        <!-- highlighted text -->
+        <rect x="46" y="98" width="190" height="14" fill="#fef9c3" rx="2"/>
+        <text x="48" y="108" class="mock-text-mono">a 12.4% reduction in MSE compared</text>
+        <text x="48" y="122" class="mock-text-mono">to the baseline on the test split</text>
+        <text x="48" y="138" class="mock-text-mono">(Table~<tspan fill="#7c3aed">\ref</tspan>{tab:main}).</text>
+        <text x="48" y="170" class="mock-text-mono">Figure~<tspan fill="#7c3aed">\ref</tspan>{fig:1} shows the</text>
+        <text x="48" y="186" class="mock-text-mono">qualitative comparison across runs.</text>
+
+        <!-- Comments sidebar -->
+        <rect x="480" y="40" width="304" height="230" class="mock-panel"/>
+        <rect x="480" y="40" width="304" height="22" class="mock-panel-head"/>
+        <text x="492" y="56" class="mock-h" style="letter-spacing: 0.5px; text-transform: uppercase;">COMMENTS</text>
+        <text x="776" y="56" text-anchor="end" class="mock-muted mock-text">2</text>
+
+        <!-- Comment card 1 with reply -->
+        <rect x="486" y="74" width="292" height="92" fill="#fff" stroke="#e3e6ec" rx="6"/>
+        <text x="496" y="92" class="mock-text" font-weight="600" fill="#2563eb">Alice Chen</text>
+        <text x="772" y="92" text-anchor="end" class="mock-label">10:24</text>
+        <text x="496" y="108" class="mock-text">Can we report the std-dev too?</text>
+        <text x="496" y="124" class="mock-text"><tspan fill="#2563eb" font-weight="600">@bob</tspan> what do you think?</text>
+        <!-- Reply -->
+        <rect x="500" y="132" width="278" height="30" fill="#fafbfd" stroke="#e3e6ec" rx="4"/>
+        <text x="510" y="146" class="mock-text" font-weight="600" fill="#2563eb">Bob</text>
+        <text x="772" y="146" text-anchor="end" class="mock-label">10:31</text>
+        <text x="510" y="160" class="mock-text">Good catch — adding in the next pass.</text>
+
+        <!-- Comment card 2 -->
+        <rect x="486" y="176" width="292" height="80" fill="#fff" stroke="#e3e6ec" rx="6"/>
+        <text x="496" y="194" class="mock-text" font-weight="600" fill="#2563eb">You</text>
+        <text x="772" y="194" text-anchor="end" class="mock-label">10:48</text>
+        <text x="496" y="210" class="mock-text">Should we cite the recent</text>
+        <text x="496" y="226" class="mock-text">CVPR'24 paper here?</text>
+        <!-- Reply input -->
+        <rect x="500" y="232" width="220" height="18" fill="#fafbfd" stroke="#e3e6ec" rx="3"/>
+        <text x="510" y="245" class="mock-text mock-muted">Reply…</text>
+        <circle cx="740" cy="241" r="9" fill="#dcfce7"/>
+        <text x="740" y="245" text-anchor="middle" class="mock-ok" font-size="11">✓</text>
+      </svg>
+      <figcaption><strong>Threaded comments with @mentions.</strong> Bubbles align with the line in the editor and slide with scroll. The ✓ button resolves a thread; resolved comments collapse to the "Resolved" section at the bottom of the panel.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="track">
+    <h2><span class="ch">10</span> Track changes</h2>
+    <p class="lead">Word-style change tracking with per-author colors, accept/reject review, and an option to compile the PDF with insertions and deletions visible.</p>
+
+    <h3>Turning it on</h3>
+    <p>Click the <strong>TC</strong> toggle in the top toolbar to start tracking. With TC on, every insertion you make is highlighted blue (and underlined) and every deletion shows as strikethrough red. Other authors get their own colors; deletions are kept in the document (not removed from disk) so they can be reverted with a click.</p>
+
+    <h3>The Review Changes panel</h3>
+    <p>Toggle the side panel via <strong>View → Tracked Changes Panel</strong>. Each pending change becomes a card showing author, time, and a snippet of the inserted / deleted text. Cards align with the editor line they target and scroll with the document. Click a card to jump to it.</p>
+
+    <h3>Accepting and rejecting</h3>
+    <ul>
+      <li><strong>Per change:</strong> ✓ accept or ✕ reject inside each card.</li>
+      <li><strong>Bulk:</strong> Accept all / Reject all buttons at the top of the panel.</li>
+      <li><strong>Bottom review bar:</strong> When you're walking through changes one at a time, use prev/next arrows + accept/reject icons; the bar shows the current author and timestamp.</li>
+    </ul>
+
+    <h3>Show changes in the PDF</h3>
+    <p>Enable <strong>View → Show Changes in PDF</strong> to compile a Word-style "All Markup" version. Insertions appear blue and underlined; deletions appear red and struck through. Toggle off to compile the final clean version.</p>
+
+    <h3>Inline vs. data-only</h3>
+    <p>If the inline color and strikethrough are too noisy while writing, switch off <strong>View → Show Tracked Changes Inline</strong>. The marks are still recorded — the panel and PDF still show them — they just stop coloring the editor.</p>
+
+    <div class="callout"><strong>Cross-author undo:</strong> If a collaborator deletes your tracked insertion (even with TC off) and then undoes it, your insertion is restored as an insertion — not as plain text.</div>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="history">
+    <h2><span class="ch">11</span> History &amp; snapshots</h2>
+    <p class="lead">FlowTex captures a snapshot of every file on save and lets you browse, compare, and restore.</p>
+
+    <h3>Browsing history</h3>
+    <p>Open the History panel from the project menu. Snapshots are listed newest-first with author and timestamp. Click any to preview the file at that point.</p>
+
+    <h3>Per-file diffs</h3>
+    <p>Compare any two snapshots — or a snapshot against the current state — to see a side-by-side diff with inserted lines in green and deletions in red.</p>
+
+    <h3>Compare-files PDF</h3>
+    <p><strong>Tools → Compare Files</strong> runs <code>latexdiff</code> between two states of the document and compiles a visually-marked-up PDF showing every change. Useful for reviewer responses.</p>
+
+    <h3>Restoring a snapshot</h3>
+    <p>From a snapshot's preview, click <strong>Restore</strong>. FlowTex first takes a "Before restore" snapshot of the current state (so the restore can itself be undone), then rewrites every file to match the target. A "Restored snapshot" entry is added to the history with your name and the original snapshot's id. The action is audit-logged.</p>
+
+    <div class="callout warn"><strong>Editors only:</strong> Viewers can browse history but cannot restore.</div>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="bib">
+    <h2><span class="ch">12</span> Bibliography</h2>
+    <p class="lead">FlowTex supports both classic BibTeX and modern BibLaTeX / biber workflows.</p>
+
+    <h3>Editing <code>.bib</code> files</h3>
+    <p>Open any <code>.bib</code> file and the editor switches to BibTeX syntax highlighting. <strong>Tools → Format BibTeX</strong> rewrites the file with consistent indentation and alphabetical key order.</p>
+
+    <h3>Citations &amp; references</h3>
+    <p><strong>Insert → Citation</strong> inserts <code>\cite{}</code>. While inside the braces, your project's BibTeX keys autocomplete. Hovering a <code>\cite{}</code> or <code>\ref{}</code> in the editor opens a tooltip with the cited work's title, authors, and venue.</p>
+
+    <h3>Complete Bibliography</h3>
+    <p><strong>Tools → Complete Bibliography</strong> scans your <code>.tex</code> files for cited keys and fetches matching records from CrossRef. Run it before submission to fill in missing entries.</p>
+
+    <h3>CrossRef lookup</h3>
+    <p>For ad-hoc lookups, paste a title or DOI into the bib enrich modal. FlowTex queries CrossRef and offers a properly-formatted BibTeX entry to insert.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="github">
+    <h2><span class="ch">13</span> GitHub sync</h2>
+    <p class="lead">Link a project to a GitHub repository to push and pull your LaTeX source as commits.</p>
+
+    <h3>Connect your account</h3>
+    <p>Open <strong>Account → GitHub</strong>. You can either authorize via OAuth (recommended, one click) or paste a Personal Access Token with <code>repo</code> scope. The token is stored encrypted at rest with AES-256-GCM.</p>
+
+    <h3>Linking a project</h3>
+    <p>From a project, open <strong>Project Settings → GitHub</strong> and choose an existing repo or create a new one. Pick a default branch.</p>
+
+    <h3>Pushing &amp; pulling</h3>
+    <ul>
+      <li><strong>Push:</strong> writes every file in the project to the repo as a commit. Supply a commit message in the prompt (CR characters are stripped to keep things tidy).</li>
+      <li><strong>Pull:</strong> fetches the latest commit and overwrites local files. Local-only changes are lost — use it after you've pushed.</li>
+      <li><strong>Auto-push:</strong> when enabled (Tools menu), FlowTex pushes every N seconds if anything changed.</li>
+    </ul>
+
+    <h3>Importing</h3>
+    <p>From the dashboard, <strong>New → Import from GitHub</strong>. Pick a repo and branch; FlowTex clones the LaTeX files into a new project.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="zotero">
+    <h2><span class="ch">14</span> Zotero</h2>
+    <p class="lead">Import your Zotero library directly as a <code>.bib</code> file.</p>
+    <ol class="steps">
+      <li>Open <strong>Account → Zotero</strong> and paste an API key from <a href="https://www.zotero.org/settings/keys">zotero.org/settings/keys</a>. Keys must be alphanumeric.</li>
+      <li>From any project, <strong>Tools → Zotero Import</strong> lists your collections.</li>
+      <li>Pick a collection and FlowTex fetches it as a <code>.bib</code> file you can name and save into the project.</li>
+    </ol>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="docx">
+    <h2><span class="ch">15</span> DOCX import</h2>
+    <p class="lead">Convert a Microsoft Word document directly into a LaTeX project.</p>
+    <p>From the dashboard, <strong>New → Import DOCX</strong>. The converter handles paragraphs, headings, lists, tables, equations, figures, captions, footnotes, bibliography references, and embedded images. Pick a document class (article, book, report) and FlowTex emits a complete <code>.tex</code> project including media files.</p>
+    <p>Embedded images are converted server-side: SVG → PDF, GIF/TIFF/BMP → PNG, WMF/EMF → PDF via LibreOffice. Conversions you don't need can be disabled by your administrator.</p>
+    <div class="callout warn"><strong>Best-effort:</strong> Complex DOCX layouts (text boxes, columns, custom Word styles) may import imperfectly. Treat the output as a starting point and adjust.</div>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="spell">
+    <h2><span class="ch">16</span> Spellchecker</h2>
+    <p class="lead">A Hunspell-powered spellchecker runs entirely in your browser. Pick a language from <strong>Tools → Language</strong>; the editor underlines unknown words.</p>
+    <p>Right-click a flagged word for the suggestion menu. <em>Add to dictionary</em> stores the word in your browser's custom dictionary so it won't be flagged again. The custom dictionary is per-browser, not per-account.</p>
+    <p>Toggle the entire spellchecker on or off with the toolbar button to the right of the language menu — useful for code-heavy documents.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="account">
+    <h2><span class="ch">17</span> Account &amp; security</h2>
+
+    <h3>Profile</h3>
+    <p>Open the user menu (top-right) and choose <strong>Account</strong>. From here you can change your display name, email (re-verification required), and password.</p>
+
+    <h3>Password rules</h3>
+    <ul>
+      <li>≥ 8 characters, including uppercase, lowercase, and a digit.</li>
+      <li>Checked against the Have-I-Been-Pwned breach database; passwords appearing in known breaches are rejected.</li>
+      <li>Resetting your password invalidates every existing session for the account.</li>
+    </ul>
+
+    <h3>2FA / TOTP</h3>
+    <p>Set up a TOTP app (Authenticator, 1Password, Authy …). FlowTex enforces per-code replay protection — used codes can't be reused even within the same valid window. After enabling, a 7-day "trusted device" cookie lets you skip the second factor on familiar browsers; the cookie rotates on every login.</p>
+
+    <h3>Trusted devices</h3>
+    <p>You can revoke all trusted devices by disabling and re-enabling 2FA, or changing your password. Trusted-device creations are audit-logged with the device's user-agent.</p>
+
+    <h3>Connected services</h3>
+    <p><strong>Account → GitHub</strong> and <strong>Account → Zotero</strong> manage external tokens. Revoking either deletes the encrypted token from the database.</p>
+
+    <h3>Delete account</h3>
+    <p>Permanent and irreversible. Owned projects without other members are deleted; shared projects survive but your authorship rows are anonymized.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="admin">
+    <h2><span class="ch">18</span> Admin tools <span class="badge badge-admin">Admins only</span></h2>
+    <p class="lead">If you have an admin account, the user menu shows an <strong>Admin Dashboard</strong> entry.</p>
+    <ul>
+      <li><strong>Overview:</strong> user, project, file, compile, and storage counts.</li>
+      <li><strong>Users:</strong> list, search, view per-user activity (projects, edits, comments, recent logins).</li>
+      <li><strong>Audit log:</strong> every security-relevant event — logins, password changes, MFA changes, invitation accepts (and failed-by-mismatch attempts), snapshot restores, GitHub token issuance, and admin actions.</li>
+      <li><strong>SMTP / Email:</strong> test mail sending and rotate the admin SMTP password.</li>
+      <li><strong>Compile metrics:</strong> live look at running compiles, queue depth, average duration.</li>
+    </ul>
+    <p>Admin operations are themselves audit-logged.</p>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="shortcuts">
+    <h2><span class="ch">19</span> Keyboard shortcuts</h2>
+    <p class="lead">On macOS use <kbd>⌘</kbd>; on Linux/Windows use <kbd>Ctrl</kbd>. <kbd>⇧</kbd> is <kbd>Shift</kbd>; <kbd>⌥</kbd> is <kbd>Alt</kbd>.</p>
+    <table>
+      <tr><th>Action</th><th>Shortcut</th></tr>
+      <tr><td>Save (and compile if wired)</td><td><kbd>⌘</kbd>+<kbd>S</kbd></td></tr>
+      <tr><td>Find &amp; replace in file</td><td><kbd>⌘</kbd>+<kbd>F</kbd></td></tr>
+      <tr><td>Undo</td><td><kbd>⌘</kbd>+<kbd>Z</kbd></td></tr>
+      <tr><td>Redo</td><td><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>Z</kbd></td></tr>
+      <tr><td>Toggle Visual Mode</td><td><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>V</kbd></td></tr>
+      <tr><td>Bold (in Visual Mode)</td><td><kbd>⌘</kbd>+<kbd>B</kbd></td></tr>
+      <tr><td>Italic (in Visual Mode)</td><td><kbd>⌘</kbd>+<kbd>I</kbd></td></tr>
+      <tr><td>Underline (in Visual Mode)</td><td><kbd>⌘</kbd>+<kbd>U</kbd></td></tr>
+      <tr><td>Multi-cursor (click)</td><td><kbd>⌥</kbd>+click</td></tr>
+      <tr><td>Select next match of word</td><td><kbd>⌘</kbd>+<kbd>D</kbd></td></tr>
+      <tr><td>Insert newline in comment</td><td><kbd>⇧</kbd>+<kbd>Enter</kbd></td></tr>
+      <tr><td>Submit comment / reply</td><td><kbd>Enter</kbd></td></tr>
+      <tr><td>Indent / dedent</td><td><kbd>Tab</kbd> / <kbd>⇧</kbd>+<kbd>Tab</kbd></td></tr>
+    </table>
+  </section>
+
+  <!-- ═════════════════════════════════════════════════════════════════ -->
+  <section id="tips">
+    <h2><span class="ch">20</span> Tips &amp; gotchas</h2>
+
+    <div class="callout tip"><strong>Compile button vs autosave:</strong> Clicking Compile flushes the editor's content <em>and</em> track-changes marks to the server first, so you don't have to wait for the 1-second autosave debounce. Hitting Compile mid-keystroke is always safe.</div>
+
+    <div class="callout tip"><strong>Stale bundle?</strong> If a feature seems missing after an update, your browser may be loading a cached JS bundle. Hard-refresh: <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>R</kbd> (or <kbd>Ctrl</kbd>+<kbd>⇧</kbd>+<kbd>R</kbd>).</div>
+
+    <div class="callout"><strong>URL-typing into a project:</strong> Only your own projects are reachable via URL — typing someone else's project ID bounces you back to the dashboard. Every endpoint also checks server-side membership.</div>
+
+    <div class="callout warn"><strong>Long compiles:</strong> If a compile is stuck (looping <code>\write18</code> or a slow package), use the <strong>Stop</strong> button. Compiles also auto-time-out at the server's configured limit.</div>
+
+    <div class="callout"><strong>Invitations:</strong> Invitation links are tied to the invited email address. Forwarding the email doesn't grant access to the new recipient — they'll see "this invitation isn't for your account" if they try.</div>
+
+    <div class="callout warn"><strong>Track changes &amp; compiling with marks visible:</strong> The PDF wraps tracked text in <code>\TCadd{…}</code> / <code>\TCdel{…}</code> macros (with <code>ulem</code> underlining for inserts and strikethrough for deletes). Sectioning commands inside <code>\TCadd</code> can occasionally trip <code>ulem</code>'s fragile-command rules; if you get a strange "scanning use of <code>\@xdblarg</code>" error, accept the change first or turn off "Show Changes in PDF" temporarily.</div>
+
+    <div class="callout tip"><strong>Empty folders:</strong> Folders you create are persisted server-side even before you put any file in them. They show up for collaborators in real time and survive refreshes.</div>
+  </section>
+
+  <div class="footer">
+    FlowTex User Manual · See also <a href="installation.html">Installation</a>, <a href="architecture.html">Architecture</a>.
+  </div>
+
+  </main>
+</div>
+
+</body>
+</html>

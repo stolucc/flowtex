@@ -129,6 +129,8 @@ export default function FileTree({
   onPrettyPrint,
   onCollapse,
   onUploadBinary,
+  emptyFolders: emptyFoldersProp,
+  onCreateFolder,
 }) {
   const [groupByType, setGroupByType] = useState(() => {
     if (groupByTypeProp !== undefined) return groupByTypeProp;
@@ -140,7 +142,12 @@ export default function FileTree({
   const [addType, setAddType] = useState('file');
   const [collapsedFolders, setCollapsedFolders] = useState({});
   const [collapsedCategories, setCollapsedCategories] = useState({});
-  const [emptyFolders, setEmptyFolders] = useState([]);
+  // Server-backed list of explicit empty folders. Source of truth lives in
+  // useProject; this component just reads it and calls onCreateFolder /
+  // onDeleteFolder / onRenameFolder to mutate. Folders that *do* contain
+  // files are added to the tree by buildTree from each file's path; this
+  // list is only for the empty ones.
+  const emptyFolders = emptyFoldersProp || [];
   const [addingIn, setAddingIn] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
@@ -149,6 +156,103 @@ export default function FileTree({
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { fileName, existing, content }
   const [duplicateWarning, setDuplicateWarning] = useState(null); // string message
   const dragCounter = useRef(0);
+
+  // ── Internal drag-and-drop (move file / move folder) ─────────────────
+  // Distinguished from OS-file drops by a custom MIME type; the existing
+  // upload-on-drop handler only fires when `dataTransfer.types` includes
+  // 'Files'. dropTargetPath: null = no hover, '' = root, 'parts' = folder.
+  const [dropTargetPath, setDropTargetPath] = useState(null);
+  const dragSourceRef = useRef(null);
+  const INTERNAL_DRAG_TYPE = 'application/x-flowtex-move';
+  const isInternalDrag = (e) => e.dataTransfer?.types?.includes(INTERNAL_DRAG_TYPE);
+  const internalSourcePayload = (e) => {
+    if (dragSourceRef.current) return dragSourceRef.current;
+    try {
+      return JSON.parse(e.dataTransfer.getData(INTERNAL_DRAG_TYPE));
+    } catch {
+      return null;
+    }
+  };
+  const canDropOn = (src, targetPath /* '' = root */) => {
+    if (!src) return false;
+    if (src.kind === 'folder') {
+      if (targetPath === src.path) return false; // onto itself
+      if (targetPath === '' && !src.path.includes('/')) return false; // already at root
+      if (targetPath.startsWith(src.path + '/')) return false; // into descendant
+      return true;
+    }
+    if (src.kind === 'file') {
+      const currentDir = src.path.includes('/') ? src.path.slice(0, src.path.lastIndexOf('/')) : '';
+      if (targetPath === currentDir) return false; // already there
+      return true;
+    }
+    return false;
+  };
+  const performInternalDrop = (src, targetPath) => {
+    if (src.kind === 'file') {
+      const fileName = src.path.split('/').pop();
+      const newPath = targetPath ? `${targetPath}/${fileName}` : fileName;
+      if (newPath === src.path) return;
+      if (files.some((f) => f.path === newPath && f.id !== src.id)) {
+        window.alert(`A file already exists at ${newPath}.`);
+        return;
+      }
+      onRename?.(src.id, newPath);
+    } else if (src.kind === 'folder') {
+      const folderName = src.path.split('/').pop();
+      const newPrefix = targetPath ? `${targetPath}/${folderName}` : folderName;
+      if (newPrefix === src.path) return;
+      // No descendant move (also guarded in canDropOn).
+      if (newPrefix.startsWith(src.path + '/')) return;
+      // Collision check across all files: any file path at-or-under newPrefix
+      // that isn't itself part of the moving folder.
+      const movingPrefix = src.path + '/';
+      const conflict = files.some(
+        (f) =>
+          (f.path === newPrefix || f.path.startsWith(newPrefix + '/')) &&
+          !(f.path === src.path || f.path.startsWith(movingPrefix)),
+      );
+      if (conflict) {
+        window.alert(`A file or folder already exists at ${newPrefix}.`);
+        return;
+      }
+      onRenameFolder?.(src.path, newPrefix);
+    }
+  };
+  const onItemDragStart = (payload) => (e) => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(INTERNAL_DRAG_TYPE, JSON.stringify(payload));
+    dragSourceRef.current = payload;
+  };
+  const onItemDragEnd = () => {
+    dragSourceRef.current = null;
+    setDropTargetPath(null);
+  };
+  const onFolderDragOver = (folderPath) => (e) => {
+    if (!isInternalDrag(e)) return; // let OS-file overlay logic handle it
+    const src = dragSourceRef.current;
+    if (!canDropOn(src, folderPath)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTargetPath(folderPath);
+  };
+  const onFolderDragLeave = (e) => {
+    if (!isInternalDrag(e)) return;
+    e.stopPropagation();
+    // Don't unconditionally null — children of the folder fire leave too. We
+    // clear on dragend / drop / root-dragover.
+  };
+  const onFolderDrop = (folderPath) => (e) => {
+    if (!isInternalDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const src = internalSourcePayload(e);
+    setDropTargetPath(null);
+    dragSourceRef.current = null;
+    if (canDropOn(src, folderPath)) performInternalDrop(src, folderPath);
+  };
 
   useEffect(() => {
     if (startAdding) {
@@ -166,20 +270,15 @@ export default function FileTree({
     }
   }, [startAddingFolder]);
 
-  useEffect(() => {
-    setEmptyFolders((prev) =>
-      prev.filter((folder) => {
-        return !files.some((f) => f.path.startsWith(folder + '/'));
-      }),
-    );
-  }, [files]);
-
   const handleAdd = (e) => {
     e.preventDefault();
     if (!newFileName.trim()) return;
     if (addType === 'folder') {
       const folderPath = newFileName.trim();
-      setEmptyFolders((prev) => (prev.includes(folderPath) ? prev : [...prev, folderPath]));
+      // Persist server-side; useProject's onCreateFolder updates the
+      // emptyFolders prop, which triggers the re-render with the new
+      // folder visible.
+      onCreateFolder?.(folderPath);
       setCollapsedFolders((s) => ({ ...s, [folderPath]: false }));
       setAddingIn(folderPath);
       setNewFileName('');
@@ -284,7 +383,6 @@ export default function FileTree({
               message: `Are you sure you want to delete the folder "${folderName}" and all its contents?`,
               onConfirm: () => {
                 onDeleteFolder(folderPath);
-                setEmptyFolders((prev) => prev.filter((f) => f !== folderPath && !f.startsWith(folderPath + '/')));
                 setConfirmDelete(null);
               },
             }),
@@ -307,14 +405,6 @@ export default function FileTree({
       } else {
         const newPath = renaming.parentFolder ? renaming.parentFolder + '/' + trimmed : trimmed;
         onRenameFolder(renaming.path, newPath);
-        // Update empty folders
-        setEmptyFolders((prev) =>
-          prev.map((f) => {
-            if (f === renaming.path) return newPath;
-            if (f.startsWith(renaming.path + '/')) return newPath + f.slice(renaming.path.length);
-            return f;
-          }),
-        );
       }
       setRenaming(null);
     },
@@ -338,6 +428,15 @@ export default function FileTree({
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    // Internal move: if no folder under the cursor claimed it, the root
+    // container is the implicit drop zone (= move to top level).
+    if (isInternalDrag(e)) {
+      const src = dragSourceRef.current;
+      if (canDropOn(src, '')) {
+        e.dataTransfer.dropEffect = 'move';
+        setDropTargetPath((cur) => (cur == null ? '' : cur));
+      }
+    }
   }, []);
 
   const processDroppedFile = useCallback(
@@ -397,6 +496,17 @@ export default function FileTree({
       setDragging(false);
       dragCounter.current = 0;
 
+      // Internal move-to-root drop. A folder row's onDrop calls
+      // stopPropagation, so this branch only runs when the user released
+      // outside any folder row.
+      if (isInternalDrag(e)) {
+        const src = internalSourcePayload(e);
+        setDropTargetPath(null);
+        dragSourceRef.current = null;
+        if (canDropOn(src, '')) performInternalDrop(src, '');
+        return;
+      }
+
       const droppedFiles = Array.from(e.dataTransfer.files);
       pendingDrops.current = droppedFiles.map((file) => ({
         file,
@@ -404,7 +514,8 @@ export default function FileTree({
       }));
       processNextDrop();
     },
-    [files, processNextDrop],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [files, processNextDrop, onRename, onRenameFolder],
   );
 
   const fileGroups = groupByType ? categorizeFiles(files) : null;
@@ -453,8 +564,16 @@ export default function FileTree({
             </div>
           ) : (
             <div
-              className="file-tree-item file-tree-folder"
+              className={`file-tree-item file-tree-folder${
+                dropTargetPath === fullPath ? ' file-tree-drop-target' : ''
+              }`}
               style={{ paddingLeft: 8 + depth * 14 }}
+              draggable
+              onDragStart={onItemDragStart({ kind: 'folder', path: fullPath })}
+              onDragEnd={onItemDragEnd}
+              onDragOver={onFolderDragOver(fullPath)}
+              onDragLeave={onFolderDragLeave}
+              onDrop={onFolderDrop(fullPath)}
               onClick={() => toggleFolder(fullPath)}
               onContextMenu={(e) => handleFolderContextMenu(e, fullPath, node.name)}
             >
@@ -514,6 +633,9 @@ export default function FileTree({
                   key={f.id}
                   className={`file-tree-item ${activeFile?.id === f.id ? 'active' : ''}`}
                   style={{ paddingLeft: 8 + childDepth * 14 }}
+                  draggable={!isRenamingThis}
+                  onDragStart={onItemDragStart({ kind: 'file', id: f.id, path: f.path })}
+                  onDragEnd={onItemDragEnd}
                   onClick={() => !isRenamingThis && onSelect(f)}
                   onContextMenu={(e) => handleFileContextMenu(e, f)}
                 >
@@ -570,7 +692,9 @@ export default function FileTree({
 
   return (
     <div
-      className={`file-tree ${dragging ? 'file-tree-drag-over' : ''}`}
+      className={`file-tree${dragging ? ' file-tree-drag-over' : ''}${
+        dropTargetPath === '' ? ' file-tree-drop-target-root' : ''
+      }`}
       style={style}
       // axe a11y: scrollable regions need keyboard focus so users on
       // screen readers / keyboard-only navigation can scroll the file list.

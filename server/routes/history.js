@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
+import { auditLog } from '../utils/audit.js';
 
 const router = Router();
 
@@ -200,6 +201,13 @@ router.post('/restore/:snapshotId', async (req, res) => {
     'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
     [uuid(), projectId, postRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Restored snapshot'],
   );
+
+  await auditLog(req.session.userId, 'snapshot_restored', {
+    targetType: 'project',
+    targetId: projectId,
+    detail: req.params.snapshotId,
+    ip: req.ip,
+  });
 
   // Return the full restored file list
   const restoredFiles = await db.all('SELECT * FROM files WHERE project_id = $1', [projectId]);

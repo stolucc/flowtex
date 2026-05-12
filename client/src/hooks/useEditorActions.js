@@ -30,10 +30,6 @@ export default function useEditorActions({
 
   const handleOverwriteFile = useCallback(
     async (fileId, content) => {
-      // Overwriting the file replaces its content wholesale; any inline
-      // tcMarkers it carried go with the old content. The trackedChanges
-      // list — which is now derived from parsing markers in the editor's
-      // doc — refreshes automatically once the new content lands.
       await put(`/api/projects/files/${fileId}`, { content });
       setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, content } : f)));
       const file = files.find((f) => f.id === fileId);

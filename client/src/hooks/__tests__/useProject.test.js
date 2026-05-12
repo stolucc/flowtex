@@ -291,8 +291,10 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
       await result.current.handleDeleteFolder('chapters');
     });
 
-    expect(del).toHaveBeenCalledWith('/api/projects/files/f2');
-    expect(del).toHaveBeenCalledWith('/api/projects/files/f3');
+    // Folder delete is now a single atomic call to the folders endpoint
+    // (it deletes both the folder row and every file under the prefix on
+    // the server side), replacing the previous per-file DELETE loop.
+    expect(del).toHaveBeenCalledWith('/api/projects/p1/folders', { path: 'chapters' });
     expect(result.current.files).toHaveLength(1);
     expect(result.current.files[0].id).toBe('f1');
     // Should have switched away from deleted file

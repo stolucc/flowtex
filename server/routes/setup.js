@@ -7,21 +7,24 @@ import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
-/** GET /api/setup/status -- Check whether first-run setup is needed (no admin exists yet). */
+/** GET /api/setup/status -- Check whether first-run setup is needed (no users exist yet). */
 router.get('/status', async (req, res) => {
   try {
-    const admin = await db.get('SELECT id FROM users WHERE is_admin = TRUE LIMIT 1');
-    res.json({ needsSetup: !admin });
+    const anyUser = await db.get('SELECT id FROM users LIMIT 1');
+    res.json({ needsSetup: !anyUser });
   } catch (err) {
     sendError(res, err);
   }
 });
 
-/** POST /api/setup/init -- Create the first admin account and save initial settings. Only works when no admin exists. */
+/** POST /api/setup/init -- Create the first admin account and save initial settings. Only works when no users exist. */
 router.post('/init', async (req, res) => {
   try {
-    // Guard: only works if no admin exists yet
-    const existing = await db.get('SELECT id FROM users WHERE is_admin = TRUE LIMIT 1');
+    // Guard: only works on a truly fresh install. Checking "no admin exists"
+    // would let any authenticated non-admin re-init themselves as admin if
+    // an operator ever cleared is_admin from every account (e.g. demoting
+    // the sole admin via SQL).
+    const existing = await db.get('SELECT id FROM users LIMIT 1');
     if (existing) {
       return res.status(403).json({ error: 'Setup already completed' });
     }

@@ -20,6 +20,7 @@ function getFileIdFromUrl() {
 export default function useProject(user) {
   const [project, setProject] = useState(null);
   const [files, setFiles] = useState([]);
+  const [emptyFolders, setEmptyFolders] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [members, setMembers] = useState([]);
   const [newFileCounter, setNewFileCounter] = useState(0);
@@ -108,6 +109,20 @@ export default function useProject(user) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
+  // Load explicit empty folders for the project. Folders that contain files
+  // already show up via the file tree's path-derived nodes; this list only
+  // adds the empty ones the user created but hasn't put anything into yet.
+  useEffect(() => {
+    if (!project) {
+      setEmptyFolders([]);
+      return;
+    }
+    get(`/api/projects/${project.id}/folders`)
+      .then((r) => r.json())
+      .then((rows) => setEmptyFolders(Array.isArray(rows) ? rows : []))
+      .catch(() => setEmptyFolders([]));
+  }, [project]);
+
   // Load members when project changes
   useEffect(() => {
     if (!project) {
@@ -120,18 +135,97 @@ export default function useProject(user) {
       .catch(() => setMembers([]));
   }, [project]);
 
+  // Mirror other users' folder ops into our local emptyFolders / files
+  // state so the tree reflects them without a page reload. Files state
+  // is also rewritten for delete/rename because those endpoints affect
+  // file paths server-side.
+  useEffect(() => {
+    const handler = (e) => {
+      const msg = e.detail || {};
+      if (msg.type === 'folder-create') {
+        if (typeof msg.path !== 'string' || !msg.path) return;
+        setEmptyFolders((prev) => (prev.includes(msg.path) ? prev : [...prev, msg.path]));
+      } else if (msg.type === 'folder-delete') {
+        const path = msg.path;
+        if (typeof path !== 'string' || !path) return;
+        setEmptyFolders((prev) => prev.filter((p) => p !== path && !p.startsWith(path + '/')));
+        setFiles((fs) => fs.filter((f) => f.path !== path && !f.path.startsWith(path + '/')));
+      } else if (msg.type === 'folder-rename') {
+        const oldP = msg.oldPath;
+        const newP = msg.newPath;
+        if (typeof oldP !== 'string' || typeof newP !== 'string') return;
+        setEmptyFolders((prev) =>
+          prev.map((p) => (p === oldP || p.startsWith(oldP + '/') ? newP + p.slice(oldP.length) : p)),
+        );
+        setFiles((fs) =>
+          fs.map((f) =>
+            f.path === oldP || f.path.startsWith(oldP + '/')
+              ? { ...f, path: newP + f.path.slice(oldP.length) }
+              : f,
+          ),
+        );
+      }
+    };
+    window.addEventListener('ws:folder', handler);
+    return () => window.removeEventListener('ws:folder', handler);
+  }, []);
+
   // File operations
   const handleSave = useCallback(
-    async (content, fileId) => {
+    async (content, fileId, tcMarks) => {
       // Caller may pass an explicit fileId. The editor *must* do this for
       // debounced saves and file-switch flushes — otherwise this falls back
       // to whichever file is *currently* active, which can race the user's
       // file switch and save the old file's text to the new file's id.
       const targetId = fileId ?? activeFile?.id;
       if (!targetId) return;
-      await put(`/api/projects/files/${targetId}`, { content });
-      setActiveFile((f) => (f?.id === targetId ? { ...f, content } : f));
-      setFiles((fs) => fs.map((f) => (f.id === targetId ? { ...f, content } : f)));
+      // V2-3: include baseVersion so the server can detect stale saves.
+      // Look up the file's current updated_at from the in-memory list.
+      const target =
+        (activeFile?.id === targetId ? activeFile : null) ||
+        (typeof window !== 'undefined' ? null : null);
+      const baseVersion = target?.updated_at ?? undefined;
+      const body = { content };
+      if (Array.isArray(tcMarks)) body.tcMarks = tcMarks;
+      if (baseVersion) body.baseVersion = baseVersion;
+      const res = await put(`/api/projects/files/${targetId}`, body);
+      if (res.status === 409) {
+        // Stale save — somebody else (or a different tab) wrote to this
+        // file between our load and this PUT. Don't try to merge; surface
+        // the conflict so the caller can refetch / warn the user.
+        // eslint-disable-next-line no-console
+        console.warn('[useProject] save conflict on', targetId, '— file changed remotely');
+        return;
+      }
+      let nextVersion = baseVersion;
+      try {
+        const data = await res.json();
+        if (data?.version) nextVersion = data.version;
+      } catch {
+        // Body wasn't JSON; keep baseVersion as-is.
+      }
+      setActiveFile((f) =>
+        f?.id === targetId
+          ? {
+              ...f,
+              content,
+              ...(tcMarks ? { tc_marks: tcMarks } : {}),
+              ...(nextVersion ? { updated_at: nextVersion } : {}),
+            }
+          : f,
+      );
+      setFiles((fs) =>
+        fs.map((f) =>
+          f.id === targetId
+            ? {
+                ...f,
+                content,
+                ...(tcMarks ? { tc_marks: tcMarks } : {}),
+                ...(nextVersion ? { updated_at: nextVersion } : {}),
+              }
+            : f,
+        ),
+      );
     },
     [activeFile],
   );
@@ -181,10 +275,18 @@ export default function useProject(user) {
 
   const handleRenameFolder = useCallback(
     async (oldPrefix, newPrefix) => {
-      const toRename = files.filter((f) => f.path === oldPrefix || f.path.startsWith(oldPrefix + '/'));
-      for (const f of toRename) {
-        const newPath = newPrefix + f.path.slice(oldPrefix.length);
-        await patch(`/api/projects/files/${f.id}`, { path: newPath });
+      if (!project) return;
+      // Single atomic server call: rewrites every file path under the
+      // prefix AND every explicit folder row, plus main_file if it's
+      // affected. Replaces the previous per-file PATCH loop.
+      const res = await patch(`/api/projects/${project.id}/folders`, {
+        oldPath: oldPrefix,
+        newPath: newPrefix,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        window.alert(data.error || 'Rename failed');
+        return;
       }
       setFiles((fs) =>
         fs.map((f) => {
@@ -192,6 +294,14 @@ export default function useProject(user) {
             return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
           }
           return f;
+        }),
+      );
+      setEmptyFolders((prev) =>
+        prev.map((p) => {
+          if (p === oldPrefix || p.startsWith(oldPrefix + '/')) {
+            return newPrefix + p.slice(oldPrefix.length);
+          }
+          return p;
         }),
       );
       setActiveFile((f) => {
@@ -202,29 +312,51 @@ export default function useProject(user) {
         return f;
       });
       // Folder rename can move the main file along with everything else.
-      if (project?.main_file && (project.main_file === oldPrefix || project.main_file.startsWith(oldPrefix + '/'))) {
+      if (project.main_file && (project.main_file === oldPrefix || project.main_file.startsWith(oldPrefix + '/'))) {
         const newMain = newPrefix + project.main_file.slice(oldPrefix.length);
         setProject((p) => (p ? { ...p, main_file: newMain } : p));
       }
     },
-    [files, project],
+    [project],
   );
 
   const handleDeleteFolder = useCallback(
     async (folderPath) => {
-      const toDelete = files.filter((f) => f.path.startsWith(folderPath + '/'));
-      for (const f of toDelete) {
-        await del(`/api/projects/files/${f.id}`);
-      }
+      if (!project) return;
+      // Single server call: deletes all files under the prefix AND any
+      // explicit folder rows for the same prefix, atomically.
+      await del(`/api/projects/${project.id}/folders`, { path: folderPath });
       setFiles((fs) => {
-        const remaining = fs.filter((f) => !f.path.startsWith(folderPath + '/'));
-        if (activeFile && activeFile.path.startsWith(folderPath + '/')) {
+        const remaining = fs.filter(
+          (f) => f.path !== folderPath && !f.path.startsWith(folderPath + '/'),
+        );
+        if (
+          activeFile &&
+          (activeFile.path === folderPath || activeFile.path.startsWith(folderPath + '/'))
+        ) {
           switchFile(remaining[0] || null);
         }
         return remaining;
       });
+      setEmptyFolders((prev) =>
+        prev.filter((p) => p !== folderPath && !p.startsWith(folderPath + '/')),
+      );
     },
-    [files, activeFile, switchFile],
+    [project, activeFile, switchFile],
+  );
+
+  const handleCreateFolder = useCallback(
+    async (folderPath) => {
+      if (!project) return;
+      const trimmed = (folderPath || '').trim();
+      if (!trimmed) return;
+      const res = await post(`/api/projects/${project.id}/folders`, { path: trimmed });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({ path: trimmed }));
+      const stored = data.path || trimmed;
+      setEmptyFolders((prev) => (prev.includes(stored) ? prev : [...prev, stored]));
+    },
+    [project],
   );
 
   const handleSetMainFile = useCallback(
@@ -259,6 +391,9 @@ export default function useProject(user) {
     handleRenameFile,
     handleRenameFolder,
     handleDeleteFolder,
+    handleCreateFolder,
     handleSetMainFile,
+    emptyFolders,
+    setEmptyFolders,
   };
 }

@@ -55,7 +55,13 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     if (fileAtStart) {
       const currentContent = editorRef.current?.getContent();
       if (currentContent != null) {
-        await handleSave(currentContent, fileAtStart.id);
+        // Marks must ride along with content. Without them the server
+        // compiles fresh content against stale tc_marks from the DB —
+        // stripPendingDeletions then cuts ranges based on stale positions
+        // and can lop the closing `}` off a just-typed `\section{...}`,
+        // surfacing as "File ended while scanning use of \@xdblarg".
+        const currentMarks = editorRef.current?.getTcMarks?.() ?? [];
+        await handleSave(currentContent, fileAtStart.id, currentMarks);
       }
     }
     setCompiling(true);

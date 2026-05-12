@@ -43,7 +43,12 @@ describe('useCompilation', () => {
     vi.clearAllMocks();
     MockEventSource.instances = [];
     handleSave = vi.fn().mockResolvedValue(undefined);
-    editorRef = { current: { getContent: vi.fn(() => 'editor content') } };
+    editorRef = {
+      current: {
+        getContent: vi.fn(() => 'editor content'),
+        getTcMarks: vi.fn(() => []),
+      },
+    };
     get.mockResolvedValue({ json: () => Promise.resolve({ files: [] }) });
     post.mockResolvedValue({});
     // Clear localStorage to avoid lint side effects
@@ -69,9 +74,10 @@ describe('useCompilation', () => {
     });
 
     // Should have saved first, pinned to the active file's id so the save can't drift
-    // to a different file if the user switches mid-compile.
+    // to a different file if the user switches mid-compile. Marks ride along to keep
+    // the server's tc_marks in sync with the just-saved content.
     await waitFor(() => {
-      expect(handleSave).toHaveBeenCalledWith('editor content', 'f1');
+      expect(handleSave).toHaveBeenCalledWith('editor content', 'f1', []);
     });
 
     // EventSource should be created

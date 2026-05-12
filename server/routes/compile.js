@@ -18,7 +18,7 @@ import {
   GENERATED_EXTS,
 } from '../compiler.js';
 import latexDiff from '../utils/latexDiff.js';
-import { injectTrackedChangeMarkup } from '../utils/trackedChangeMarkup.js';
+import { stripPendingDeletions, wrapPendingChangesAsMacros, injectTcMacros } from '../utils/tcMarks.js';
 import { stripPaths, safeMsg } from '../middleware/errorHandler.js';
 import path from 'path';
 import logger from '../logger.js';
@@ -165,26 +165,36 @@ router.post('/:projectId', async (req, res) => {
       return res.status(429).json({ success: false, log: 'Too many compilations. Please wait a moment.' });
     }
 
-    const showTC = req.query.showTrackedChanges === '1' || req.body?.showTrackedChanges;
-    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
-
+    // V2-4: showTrackedChanges=true → render pending TC entries with
+    // \TCadd / \TCdel macros in the PDF ("All Markup" view). Otherwise
+    // strip them so the compiler sees the "Final" view.
+    const showTC = req.query.showTrackedChanges === '1' || req.body?.showTrackedChanges === true;
+    const rawFiles = await db.all(
+      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      [projectId],
+    );
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
-    const projectDir = path.join(PROJECTS_DIR, projectId);
+    const files = rawFiles.map((f) => {
+      if (f.is_binary) return f;
+      let content = f.content;
+      if (showTC) {
+        content = wrapPendingChangesAsMacros(content, f.tc_marks);
+        // Inject the macro definitions in the main file's preamble only.
+        if (f.path === mainFile) content = injectTcMacros(content);
+      } else {
+        content = stripPendingDeletions(content, f.tc_marks);
+      }
+      return { ...f, content };
+    });
 
     const { log } = await compileProject(projectId, mainFile, null, {
       files,
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
-      // Always run TC processing: when showTC is on, render markers as
-      // \TCadd / \TCdel; when off, accept-all so the markers are
-      // stripped (otherwise raw ins:... bytes leak into the PDF).
-      onBeforeCompile: async () => {
-        await injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup: showTC });
-      },
     });
 
     res.json({ success: true, log });
@@ -231,12 +241,25 @@ router.get('/:projectId/compile-stream', async (req, res) => {
 
   try {
     const showTC = req.query.showTrackedChanges === '1';
-    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+    const rawFiles = await db.all(
+      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      [projectId],
+    );
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
-    const projectDir = path.join(PROJECTS_DIR, projectId);
+    const files = rawFiles.map((f) => {
+      if (f.is_binary) return f;
+      let content = f.content;
+      if (showTC) {
+        content = wrapPendingChangesAsMacros(content, f.tc_marks);
+        if (f.path === mainFile) content = injectTcMacros(content);
+      } else {
+        content = stripPendingDeletions(content, f.tc_marks);
+      }
+      return { ...f, content };
+    });
     const { log } = await compileProject(
       projectId,
       mainFile,
@@ -251,12 +274,6 @@ router.get('/:projectId/compile-stream', async (req, res) => {
         onBeforeCompile: async () => {
           const compilerName = project?.compiler || 'pdflatex';
           send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile} with ${compilerName}...\n` });
-          // Always process tracked changes: when showTC is off, still accept
-          // structural table changes (e.g. deleted &) that would break compilation.
-          const count = await injectTrackedChangeMarkup(projectId, projectDir, { visualMarkup: showTC });
-          if (showTC && count > 0) {
-            send('output', { text: `Injected ${count} tracked change(s) into PDF markup.\n` });
-          }
         },
       },
     );
@@ -531,7 +548,17 @@ router.get('/:projectId/diff-stream', async (req, res) => {
       return;
     }
 
-    const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+    const rawFiles = await db.all(
+      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      [projectId],
+    );
+    // Strip pending del ranges before sending to LaTeX (M2 model — the
+    // doc keeps strikethrough chars; the compiler must see "Final" view).
+    const files = rawFiles.map((f) =>
+      f.is_binary
+        ? f
+        : { ...f, content: stripPendingDeletions(f.content, f.tc_marks) },
+    );
     const projectDir = path.join(PROJECTS_DIR, projectId);
 
     // Run latexdiff (doesn't touch the project dir, works on content strings)

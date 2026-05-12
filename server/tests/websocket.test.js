@@ -766,8 +766,8 @@ describe('writeTypes', () => {
     expect(writeTypes.has('cursor')).toBe(false);
   });
 
-  it('does NOT contain chat', async () => {
-    expect(writeTypes.has('chat')).toBe(false);
+  it('contains chat (viewers must be read-only)', async () => {
+    expect(writeTypes.has('chat')).toBe(true);
   });
 
   it('does NOT contain typing', async () => {

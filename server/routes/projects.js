@@ -242,6 +242,16 @@ router.post('/invitations/:inviteId/accept', async (req, res) => {
   try {
     res.json(await projectService.acceptInvitation(req.params.inviteId, req.session.userId));
   } catch (err) {
+    if (err.emailMismatch) {
+      // Someone authenticated tried to accept an invitation addressed to a
+      // different email. Inviteids are unguessable UUIDs, so reaching one
+      // implies the link leaked (or was forwarded). Record it.
+      await auditLog(req.session.userId, 'invitation_accept_email_mismatch', {
+        targetType: 'invitation',
+        targetId: req.params.inviteId,
+        ip: req.ip,
+      });
+    }
     sendError(res, err);
   }
 });
@@ -323,10 +333,12 @@ router.post('/:id/members', async (req, res) => {
     const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
     const projectName = project?.name || 'a project';
     try {
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
       await sendProjectInvitationEmail(email, {
         inviterName,
         projectName,
-        baseUrl: `${req.protocol}://${req.get('host')}`,
+        baseUrl,
+        inviteUrl: `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
       });
     } catch (err) {
       logger.warn({ err, email }, 'Failed to send invitation email');
@@ -501,17 +513,22 @@ router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
   }
 });
 
-/** PUT /api/projects/files/:fileId -- Update a file's content. */
+/** PUT /api/projects/files/:fileId -- Update a file's content (and optionally tcMarks sidecar). */
 router.put('/files/:fileId', async (req, res) => {
-  const { content } = req.body;
+  const { content, tcMarks, baseVersion } = req.body;
   if (content && content.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 10MB)' });
   const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
   if (access.error) return res.status(access.status).json({ error: access.error });
-  const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId);
+  const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId, tcMarks, baseVersion);
+  if (result.conflict) {
+    // V2-3 stale-save conflict — caller's baseVersion is older than the
+    // current file row. Client should refetch and merge.
+    return res.status(409).json({ error: 'Conflict', currentVersion: result.currentVersion });
+  }
   if (result.newSnapshot) {
     req.app.locals.broadcastToRoom?.(result.projectId, { type: 'history_update', authorName: result.authorName });
   }
-  res.json({ ok: true });
+  res.json({ ok: true, version: result.version });
 });
 
 /** PATCH /api/projects/files/:fileId -- Rename a file. */
@@ -532,6 +549,74 @@ router.delete('/files/:fileId', async (req, res) => {
   if (access.error) return res.status(access.status).json({ error: access.error });
   await projectService.deleteFile(req.params.fileId);
   res.json({ ok: true });
+});
+
+// --- Folders (explicit empty-folder persistence) ---
+
+/** GET /api/projects/:id/folders -- List all explicit empty folders. */
+router.get('/:id/folders', async (req, res) => {
+  if (!(await requireMembership(req, res))) return;
+  try {
+    res.json(await projectService.listFolders(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** POST /api/projects/:id/folders body {path} -- Create an empty folder. */
+router.post('/:id/folders', async (req, res) => {
+  const access = await requireEditor(req, res);
+  if (!access) return;
+  try {
+    const result = await projectService.createFolder(req.params.id, req.body?.path);
+    // Push to other members so their tree refreshes immediately.
+    if (req.app.locals.broadcastToRoom) {
+      req.app.locals.broadcastToRoom(req.params.id, {
+        type: 'folder-create',
+        path: result.path,
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** DELETE /api/projects/:id/folders body {path} -- Delete folder and everything under. */
+router.delete('/:id/folders', async (req, res) => {
+  const access = await requireEditor(req, res);
+  if (!access) return;
+  try {
+    await projectService.deleteFolder(req.params.id, req.body?.path);
+    if (req.app.locals.broadcastToRoom) {
+      req.app.locals.broadcastToRoom(req.params.id, {
+        type: 'folder-delete',
+        path: req.body?.path,
+      });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** PATCH /api/projects/:id/folders body {oldPath, newPath} -- Rename a folder tree atomically. */
+router.patch('/:id/folders', async (req, res) => {
+  const access = await requireEditor(req, res);
+  if (!access) return;
+  try {
+    await projectService.renameFolderTree(req.params.id, req.body?.oldPath, req.body?.newPath);
+    if (req.app.locals.broadcastToRoom) {
+      req.app.locals.broadcastToRoom(req.params.id, {
+        type: 'folder-rename',
+        oldPath: req.body?.oldPath,
+        newPath: req.body?.newPath,
+      });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 /** POST /api/projects/:id/archive -- Archive a project (owner) or leave it (non-owner). */

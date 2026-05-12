@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "DISABLE_HIBP_CHECK=1 vitest run",
+    "test:watch": "DISABLE_HIBP_CHECK=1 vitest",
+    "test:integration": "vitest run --config tests/integration/vitest.config.js",
     "test:mutation": "stryker run"
   },
   "dependencies": {

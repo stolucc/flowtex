@@ -20,7 +20,9 @@ router.get('/status', async (req, res) => {
 /** POST /api/zotero/connect -- Connect a Zotero account by verifying and storing an API key. */
 router.post('/connect', async (req, res) => {
   const { apiKey } = req.body;
-  if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 10) {
+  // Zotero API keys are alphanumeric. Reject anything else outright so the
+  // key can't inject path segments into the verification URL below.
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 10 || !/^[A-Za-z0-9]+$/.test(apiKey)) {
     return res.status(400).json({ error: 'Invalid API key' });
   }
 

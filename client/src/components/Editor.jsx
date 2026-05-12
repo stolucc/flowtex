@@ -17,6 +17,7 @@ import {
   history,
   defaultKeymap,
   historyKeymap,
+  insertNewline,
   undo as cmUndo,
   redo as cmRedo,
 } from '@codemirror/commands';
@@ -25,7 +26,6 @@ import {
   StreamLanguage,
   syntaxHighlighting,
   defaultHighlightStyle,
-  indentOnInput,
   bracketMatching,
   foldGutter,
   foldKeymap,
@@ -77,10 +77,18 @@ import {
   latexFoldService,
 } from '../utils/editorExtensions.js';
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
-import { tcMarkerExtensions } from '../utils/tcMarkerDecorations.js';
-import { buildTcMarkerInputFilter, tcMarkerSkipAnnotation } from '../utils/tcMarkerInput.js';
-import { tcMarkerSanitizer } from '../utils/tcMarkerSanitizer.js';
-import { parseAll as parseTcMarkers } from '@shared/tcMarkers.js';
+import {
+  tcMarksExtensions,
+  tcMarksInlineDecorations,
+  setTcMarks,
+  addTcMarks,
+  removeTcMark,
+  deserializeMarks,
+  serializeMarks,
+  listMarks,
+  tcMarkSkipAnnotation,
+} from '../utils/tcMarks.js';
+import { buildTcMarksInputFilter } from '../utils/tcMarksInput.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 import VisualModeToolbar from './VisualModeToolbar.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
@@ -106,6 +114,7 @@ const Editor = forwardRef(function Editor(
     file,
     comments,
     currentUserName,
+    currentUserId,
     onSave,
     onLineChange,
     onChanges,
@@ -118,22 +127,8 @@ const Editor = forwardRef(function Editor(
     showLineNumbers = true,
     wordWrap = true,
     trackChangesMode = false,
-    trackedChanges = [],
-    reviewingChangeId = null,
-    onTrackedChangeClick,
     onToggleTrackChanges,
-    pendingChangesCount = 0,
-    reviewing = false,
-    reviewIndex = 0,
-    reviewCurrentChange = null,
-    onStartReview,
-    onStopReview,
-    onAcceptAndNext,
-    onRejectAndNext,
-    onAcceptAll,
-    onRejectAll,
-    onReviewNext,
-    onReviewPrev,
+    showTrackedChangesInline = true,
     citeKeys,
     labelKeys,
     autoSaveOn,
@@ -154,15 +149,17 @@ const Editor = forwardRef(function Editor(
   const wrapCompartment = useRef(new Compartment());
   const fontSizeCompartment = useRef(new Compartment());
   const visualModeCompartment = useRef(new Compartment());
+  const tcInlineCompartment = useRef(new Compartment());
   const [fontSize, setFontSize] = useState(() => parseInt(getSetting('font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
-  const isResolvingTc = useRef(false);
   const errorHighlightTimer = useRef(null);
   const lintTimeout = useRef(null);
   const spellTimeout = useRef(null);
   const dictRef = useRef(null);
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
   // Track current file id so any deferred operations pin to the file the user is
   // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
@@ -172,10 +169,15 @@ const Editor = forwardRef(function Editor(
   const [showSearch, setShowSearch] = useState(false);
   const [lintDiags, setLintDiags] = useState([]);
   const [spellMenu, setSpellMenu] = useState(null); // { x, y, word, from, to }
+  const [tcMenu, setTcMenu] = useState(null); // { x, y, id, type, author }
+  const tcMenuRef = useRef(null);
   const spellMenuRef = useRef(null);
   const [citeMenu, setCiteMenu] = useState(null); // { x, y, from, to, name, opt, key }
   const citeMenuRef = useRef(null);
   const [inverted, setInverted] = useState(() => getSetting('editor-inverted') === 'true');
+  const [spellcheckEnabled, setSpellcheckEnabled] = useState(
+    () => getSetting('spellcheck-enabled') !== 'false', // default ON
+  );
 
   // VisualModeToolbar owns its own state; we hold a ref to refresh it on cursor move.
   const vmToolbarRef = useRef(null);
@@ -410,9 +412,7 @@ const Editor = forwardRef(function Editor(
   const onRequestCommentRef = useRef(onRequestComment);
   const onScrollRef = useRef(onScroll);
   const onLintDiagnosticsRef = useRef(onLintDiagnostics);
-  const onTrackedChangeClickRef = useRef(onTrackedChangeClick);
   const trackChangesModeRef = useRef(trackChangesMode);
-  const trackedChangesRef = useRef(trackedChanges);
   const setSpellMenuRef = useRef(setSpellMenu);
   const setCiteMenuRef = useRef(setCiteMenu);
   const onToggleVisualModeRef = useRef(onToggleVisualMode);
@@ -428,9 +428,7 @@ const Editor = forwardRef(function Editor(
   onRequestCommentRef.current = onRequestComment;
   onScrollRef.current = onScroll;
   onLintDiagnosticsRef.current = onLintDiagnostics;
-  onTrackedChangeClickRef.current = onTrackedChangeClick;
   trackChangesModeRef.current = trackChangesMode;
-  trackedChangesRef.current = trackedChanges;
   onToggleVisualModeRef.current = onToggleVisualMode;
   visualModeRef.current = visualMode;
   const citeKeysRef = useRef(citeKeys || []);
@@ -609,55 +607,86 @@ const Editor = forwardRef(function Editor(
         isRemoteUpdate.current = false;
       }
     },
+
     /**
-     * Resolve a single inline-marker tracked change by id. Replaces the
-     * marker's range in the doc with either its inner text (kept) or
-     * empty (dropped), depending on the marker type and decision:
-     *   accept(ins) | reject(del)  →  keep inner text
-     *   accept(del) | reject(ins)  →  drop the whole marker
-     * Tagged with tcMarkerSkipAnnotation so the input filter doesn't
-     * re-wrap the dispatched change as a new tracked change.
+     * Snapshot of all current TC entries (M2 — both ins and del are
+     * real ranges over chars in the doc). Sorted by `from`.
      */
-    applyMarkerResolution(markerId, decision) {
+    listTcMarks() {
+      const view = viewRef.current;
+      if (!view) return [];
+      return listMarks(view.state);
+    },
+
+    /**
+     * Persistence-shape snapshot of TC entries — matches what the
+     * debounced autosave sends. Compile callers use this so the
+     * pre-compile flush includes marks alongside content; without it
+     * the server compiles fresh content against stale `tc_marks` from
+     * the DB, which can chop closing braces out of newly-typed
+     * sectioning commands (see §6 of TRACK-CHANGES-RULES.md).
+     */
+    getTcMarks() {
+      const view = viewRef.current;
+      return view ? serializeMarks(view.state) : [];
+    },
+
+    /**
+     * Resolve a single TC entry by id. M2 semantics (§4):
+     *   accept(ins): drop the mark; doc unchanged.
+     *   reject(ins): delete [from, to) AND drop the mark.
+     *   accept(del): delete [from, to) AND drop the mark.
+     *   reject(del): drop the mark; doc unchanged.
+     * Skip annotation prevents the input filter from re-tracking the
+     * accept/reject doc surgery as a new edit.
+     */
+    applyMarkResolution(markerId, decision) {
       const view = viewRef.current;
       if (!view) return false;
-      const docText = view.state.doc.toString();
-      const markers = parseTcMarkers(docText);
-      const m = markers.find((mk) => mk.id === markerId);
+      const m = listMarks(view.state).find((x) => x.id === markerId);
       if (!m) return false;
-      const keep =
-        (m.type === 'ins' && decision === 'accept') ||
-        (m.type === 'del' && decision === 'reject');
-      const replacement = keep ? m.text : '';
-      view.dispatch({
-        changes: { from: m.from, to: m.to, insert: replacement },
-        annotations: tcMarkerSkipAnnotation.of(true),
-      });
+      const spec = {
+        effects: removeTcMark.of(markerId),
+        annotations: tcMarkSkipAnnotation.of(true),
+      };
+      const removeRange =
+        (m.type === 'ins' && decision === 'reject') ||
+        (m.type === 'del' && decision === 'accept');
+      if (removeRange) {
+        spec.changes = { from: m.from, to: m.to, insert: '' };
+      }
+      view.dispatch(spec);
       return true;
     },
-    /** Apply the same decision to every pending marker in the doc. */
-    applyMarkerResolutionAll(decision) {
+
+    /** Resolve every pending TC entry with the same decision. */
+    applyMarkResolutionAll(decision) {
       const view = viewRef.current;
       if (!view) return 0;
-      const docText = view.state.doc.toString();
-      const markers = parseTcMarkers(docText);
-      if (markers.length === 0) return 0;
-      // Walk in REVERSE document order so each replacement doesn't shift
-      // the positions of yet-to-process markers.
-      const sorted = [...markers].sort((a, b) => b.from - a.from);
-      const changes = sorted.map((m) => {
-        const keep =
-          (m.type === 'ins' && decision === 'accept') ||
-          (m.type === 'del' && decision === 'reject');
-        return { from: m.from, to: m.to, insert: keep ? m.text : '' };
-      });
+      const marks = listMarks(view.state);
+      if (marks.length === 0) return 0;
+      // Sort by `from` descending so deletions don't invalidate later
+      // positions when CM applies them in sequence.
+      const sorted = [...marks].sort((a, b) => b.from - a.from);
+      const changes = [];
+      const effects = [];
+      for (const m of sorted) {
+        effects.push(removeTcMark.of(m.id));
+        const removeRange =
+          (m.type === 'ins' && decision === 'reject') ||
+          (m.type === 'del' && decision === 'accept');
+        if (removeRange) {
+          changes.push({ from: m.from, to: m.to, insert: '' });
+        }
+      }
       view.dispatch({
         changes,
-        annotations: tcMarkerSkipAnnotation.of(true),
-        sequential: false,
+        effects,
+        annotations: tcMarkSkipAnnotation.of(true),
       });
-      return markers.length;
+      return marks.length;
     },
+
     getTopForPos(pos) {
       const view = viewRef.current;
       if (!view) return 0;
@@ -669,7 +698,7 @@ const Editor = forwardRef(function Editor(
       if (!view) return { scrollTop: 0, clientHeight: 0 };
       return { scrollTop: view.scrollDOM.scrollTop, clientHeight: view.scrollDOM.clientHeight };
     },
-    applyRemoteChanges(fileId, changes) {
+    applyRemoteChanges(fileId, changes, _tracked, _deletions, tcMarks) {
       const view = viewRef.current;
       // Drop OT changes that target a file the user has since switched away
       // from — applying them to the wrong file's CodeMirror state would
@@ -677,13 +706,27 @@ const Editor = forwardRef(function Editor(
       if (!view || fileId !== file?.id) return;
       isRemoteUpdate.current = true;
       try {
-        view.dispatch({ changes });
+        // Build effects for any TC mark mutations the sender broadcast.
+        // These get applied with the skip annotation so the input filter
+        // doesn't re-track them.
+        const effects = [];
+        if (tcMarks && Array.isArray(tcMarks.added) && tcMarks.added.length > 0) {
+          effects.push(addTcMarks.of(tcMarks.added));
+        }
+        if (tcMarks && Array.isArray(tcMarks.removed)) {
+          for (const id of tcMarks.removed) effects.push(removeTcMark.of(id));
+        }
+        const spec = {
+          annotations: tcMarkSkipAnnotation.of(true),
+        };
+        if (changes && (Array.isArray(changes) ? changes.length > 0 : true)) {
+          spec.changes = changes;
+        }
+        if (effects.length > 0) spec.effects = effects;
+        if (spec.changes || spec.effects) view.dispatch(spec);
       } finally {
         isRemoteUpdate.current = false;
       }
-      // No separate decoration-building step: tracked changes ride inside
-      // the doc as inline tcMarkers, and tcMarkerDecorationsField rebuilds
-      // automatically when the doc changes.
     },
     setRemoteCursors(cursors) {
       const view = viewRef.current;
@@ -730,11 +773,6 @@ const Editor = forwardRef(function Editor(
   }));
 
 
-  // (Legacy tcMarkAsDeleted / tcInterceptDeletion / flushDelBuffer /
-  //  flushInsBuffer / their buffer refs deleted in phase 5c.1.
-  //  All input now flows through tcMarkerInput.js.)
-
-
   // Create editor when file changes
   useEffect(() => {
     if (!containerRef.current || !file) return;
@@ -747,6 +785,7 @@ const Editor = forwardRef(function Editor(
     commentCompartment.current = new Compartment();
     wrapCompartment.current = new Compartment();
     visualModeCompartment.current = new Compartment();
+    tcInlineCompartment.current = new Compartment();
 
     const state = EditorState.create({
       doc: file.content || '',
@@ -763,13 +802,19 @@ const Editor = forwardRef(function Editor(
         drawSelection(),
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
-        indentOnInput(),
+        // (indentOnInput() removed — LaTeX users manage their own
+        // indentation, and with TC on its auto-inserted whitespace was
+        // showing up as tracked-inserted text.)
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         bracketMatching(),
         rectangularSelection(),
         crosshairCursor(),
         highlightActiveLine(),
         highlightSelectionMatches(),
+        // Override Enter to insert a plain newline (the default
+        // `insertNewlineAndIndent` adds language-aware indentation
+        // which, with TC on, gets tracked as inserted whitespace).
+        keymap.of([{ key: 'Enter', run: insertNewline }]),
         keymap.of([
           ...defaultKeymap,
           ...searchKeymap,
@@ -793,36 +838,22 @@ const Editor = forwardRef(function Editor(
         ),
         EditorView.contentAttributes.of({ spellcheck: 'false' }),
         remoteCursorsField,
-        // Marker-based TC extension: scans the doc for inline tcMarkers
-        // and renders insertion / deletion decorations driven by the doc
-        // text itself. Position drift is impossible because the markers
-        // ARE the position.
-        ...tcMarkerExtensions(),
-        // Input filter that wraps user keystrokes in inline markers when
-        // track-changes mode is on. Bypassed for transactions tagged with
-        // the skip annotation (accept/reject doc edits, OT applies).
-        buildTcMarkerInputFilter({
+        // Track-changes V1 (insertion-only as of Step 4). Doc text is
+        // plain; sidecar marks live in tcMarksField. Input filter emits
+        // ins entries on user typing when TC is on. Deletions land in
+        // Step 5; accept/reject + undo in Steps 6/7.
+        ...tcMarksExtensions(),
+        // Inline ins/del decorations are wrapped in a Compartment so the
+        // user can toggle "Show tracked changes inline" without remounting.
+        // (Marks are still tracked / saved / undoable when off.)
+        tcInlineCompartment.current.of(showTrackedChangesInline ? tcMarksInlineDecorations : []),
+        buildTcMarksInputFilter({
           isOn: () => trackChangesModeRef.current,
-          getAuthor: () => currentUserNameRef.current || '',
-          shouldSkip: () => isResolvingTc.current || isRemoteUpdate.current,
+          getAuthorId: () => currentUserIdRef.current || '',
+          getAuthorName: () => currentUserNameRef.current || '',
         }),
-        // Defense-in-depth: strips orphan TC_START sentinels from any
-        // transaction's resulting doc. Catches corruption from any
-        // path the input filter doesn't see (OT broadcasts, accept/
-        // reject edits, legacy data).
-        tcMarkerSanitizer,
         tableGutterField,
         tableGutterExtension,
-        // Track changes: Backspace/Delete fall through to default keybindings.
-        // The buildTcMarkerInputFilter transaction filter wraps the resulting
-        // delete change in an inline tcMarker so the chars are visually
-        // marked deleted rather than removed. Previous code intercepted
-        // these keys to call tcMarkAsDeleted; that path is bypassed now.
-        // (Removed: legacy transaction filter that converted deletions in
-        // track-changes mode into insertions + scheduled tcMarkAsDeleted.
-        // The new buildTcMarkerInputFilter further down replaces every
-        // user change with an inline tcMarker and is the sole path for
-        // recording tracked changes.)
         EditorView.domEventHandlers({
           contextmenu(event, view) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -856,16 +887,20 @@ const Editor = forwardRef(function Editor(
                 }
               }
             }
-            // Tracked change at this position? Walk markers parsed from
-            // the live doc. The marker's RANGE [from, to) is authoritative
-            // — no DB positions, no fuzzy text-search heuristics.
+            // Tracked-change mark at this position? If so, show an
+            // Accept/Reject menu instead of the spellcheck menu.
             {
-              const docText = view.state.doc.toString();
-              const markers = parseTcMarkers(docText);
-              const m = markers.find((mm) => pos >= mm.from && pos < mm.to);
-              if (m) {
+              const marks = listMarks(view.state);
+              const hit = marks.find((m) => pos >= m.from && pos < m.to);
+              if (hit) {
                 event.preventDefault();
-                onTrackedChangeClickRef.current?.(m.id, { x: event.clientX, y: event.clientY });
+                setTcMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  id: hit.id,
+                  type: hit.type,
+                  author: hit.authorName || '',
+                });
                 return true;
               }
             }
@@ -915,36 +950,74 @@ const Editor = forwardRef(function Editor(
         spellGutterExtension,
         citeKeyHighlighter,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            // Notify the marker-aware tracked-changes hook that the doc
-            // moved. Fires for ALL doc-changed transactions (local typing,
-            // remote OT, accept/reject) so the review-panel marker list
-            // stays in sync. Cheap — the receiver re-parses markers in O(n).
-            onDocChangeRef.current?.();
+          // Detect mark-only mutations from accept/reject so the save
+          // scheduler runs even when the doc didn't change (§6.1/§6.2).
+          // Hydration is intentionally excluded: setTcMarks is hydration
+          // only and must NOT trigger a re-save of what we just loaded.
+          let userMarkChange = false;
+          for (const tr of update.transactions) {
+            for (const e of tr.effects) {
+              if (e.is(addTcMarks) || e.is(removeTcMark)) {
+                userMarkChange = true;
+                break;
+              }
+            }
+            if (userMarkChange) break;
+          }
 
-            if (!isRemoteUpdate.current) {
-              const changes = [];
+          // Fire onDocChange on either a doc change OR a mark mutation
+          // (M2 deletions of original text are mark-only — `docChanged`
+          // stays false but the review panel still needs to re-read the
+          // pending list). Hydration is excluded by `userMarkChange`'s
+          // definition (setTcMarks isn't counted).
+          if (update.docChanged || userMarkChange) {
+            onDocChangeRef.current?.();
+          }
+
+          // Broadcast doc changes + TC mark mutations together so other
+          // clients in the project apply them as one atomic remote-OT
+          // step. Skip if this update was itself a remote OT (echo
+          // suppression).
+          if (!isRemoteUpdate.current && (update.docChanged || userMarkChange)) {
+            const changes = [];
+            if (update.docChanged) {
               update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
                 changes.push({ from: fromA, to: toA, insert: inserted.toString() });
               });
-              // Track changes are now produced inline as content markers by
-              // the buildTcMarkerInputFilter transaction filter. The doc
-              // changes that reach this listener already CONTAIN the
-              // marker syntax, so OT broadcast just sends the text
-              // verbatim — collaborators receive marker syntax and apply
-              // it like any other character.
-              onChangesRef.current?.(changes, /* isTracked= */ false);
             }
+            // Collect TC mark effects (excluding setTcMarks — that's
+            // hydration-only and shouldn't broadcast).
+            const added = [];
+            const removed = [];
+            for (const tr of update.transactions) {
+              for (const e of tr.effects) {
+                if (e.is(addTcMarks)) {
+                  for (const spec of e.value) added.push(spec);
+                } else if (e.is(removeTcMark)) {
+                  removed.push(e.value);
+                }
+              }
+            }
+            const tcMarks = added.length > 0 || removed.length > 0
+              ? { added, removed }
+              : undefined;
+            if (changes.length > 0 || tcMarks) {
+              onChangesRef.current?.(changes, /* isTracked= */ false, /* deletions= */ undefined, tcMarks);
+            }
+          }
 
+          if (update.docChanged || userMarkChange) {
             const content = update.state.doc.toString();
             clearTimeout(saveTimeout.current);
-            // Capture the file id this content belongs to. The save MUST be
-            // pinned to this id — even if the user has since switched files,
-            // the debounced save will still target the original file.
             const fileIdAtEdit = file?.id;
             saveTimeout.current = setTimeout(() => {
-              onSaveRef.current(content, fileIdAtEdit);
+              const v = viewRef.current;
+              const marks = v ? serializeMarks(v.state) : [];
+              onSaveRef.current(content, fileIdAtEdit, marks);
             }, 1000);
+          }
+
+          if (update.docChanged) {
 
             // Hide comment button if doc changed
             setCommentBtn(null);
@@ -968,8 +1041,8 @@ const Editor = forwardRef(function Editor(
               }, 1000);
             }
 
-            // Debounced spellcheck (skip .bib files)
-            if (!file?.path?.endsWith('.bib')) {
+            // Debounced spellcheck (skip .bib files; skip when disabled).
+            if (!file?.path?.endsWith('.bib') && spellcheckEnabledRef.current) {
               clearTimeout(spellTimeout.current);
               spellTimeout.current = setTimeout(async () => {
                 const v = viewRef.current;
@@ -1044,7 +1117,7 @@ const Editor = forwardRef(function Editor(
               run: (view) => {
                 clearTimeout(saveTimeout.current);
                 const content = view.state.doc.toString();
-                onSaveRef.current(content, file?.id);
+                onSaveRef.current(content, file?.id, serializeMarks(view.state));
                 onCompileRef.current?.();
                 return true;
               },
@@ -1413,9 +1486,17 @@ const Editor = forwardRef(function Editor(
 
     viewRef.current = view;
 
-    // (Tracked-change decorations are built by tcMarkerDecorationsField
-    // automatically as soon as the doc text is set on the EditorState —
-    // no separate dispatch needed.)
+    // Hydrate the TC sidecar from the file row, if present. The
+    // StateField validates entries against the loaded doc length and
+    // drops invalid ones (§6.5). The skip annotation prevents the
+    // input filter from re-tracking the seeding (§6.2).
+    const initialMarks = Array.isArray(file?.tc_marks) ? file.tc_marks : [];
+    if (initialMarks.length > 0) {
+      view.dispatch({
+        effects: setTcMarks.of(deserializeMarks(initialMarks)),
+        annotations: tcMarkSkipAnnotation.of(true),
+      });
+    }
 
     // Initial table and figure gutter markers
     updateTableGutterMarkers(view);
@@ -1457,8 +1538,8 @@ const Editor = forwardRef(function Editor(
         if (!isBib) onLintDiagnosticsRef.current?.(diagnostics);
       }, 300);
     }
-    // Initial spellcheck (skip .bib files)
-    if (!file?.path?.endsWith('.bib')) {
+    // Initial spellcheck (skip .bib files; skip when disabled).
+    if (!file?.path?.endsWith('.bib') && spellcheckEnabledRef.current) {
       setTimeout(async () => {
         const v = viewRef.current;
         if (!v) return;
@@ -1481,7 +1562,7 @@ const Editor = forwardRef(function Editor(
         const v = viewRef.current;
         if (v) {
           const content = v.state.doc.toString();
-          onSaveRef.current?.(content, file?.id);
+          onSaveRef.current?.(content, file?.id, serializeMarks(v.state));
         }
       }
     };
@@ -1535,9 +1616,10 @@ const Editor = forwardRef(function Editor(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id]);
 
-  // Re-run spellcheck when language changes (skip .bib files)
+  // Re-run spellcheck when language changes (skip .bib files; skip if disabled).
   useEffect(() => {
     if (file?.path?.endsWith('.bib')) return;
+    if (!spellcheckEnabled) return;
     const run = async () => {
       const v = viewRef.current;
       if (!v) return;
@@ -1548,12 +1630,41 @@ const Editor = forwardRef(function Editor(
     };
     run();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spellLang]);
+  }, [spellLang, spellcheckEnabled]);
+
+  // Toggle effect: when the user flips spellcheck on/off, persist + apply.
+  // Disabled → clear all spellcheck decorations immediately. Enabled → run
+  // a fresh pass.
+  const spellcheckEnabledRef = useRef(spellcheckEnabled);
+  spellcheckEnabledRef.current = spellcheckEnabled;
+  useEffect(() => {
+    setSetting('spellcheck-enabled', spellcheckEnabled);
+    const v = viewRef.current;
+    if (!v) return;
+    if (!spellcheckEnabled) {
+      applySpellcheck(v, []); // clear underlines + gutter dots
+      return;
+    }
+    if (file?.path?.endsWith('.bib')) return;
+    (async () => {
+      if (!dictRef.current) dictRef.current = await getDictionary();
+      if (!dictRef.current) return;
+      const misspelled = spellcheckText(v.state.doc.toString(), dictRef.current);
+      applySpellcheck(v, misspelled);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spellcheckEnabled]);
 
   useClickOutside(
     spellMenuRef,
     useCallback(() => setSpellMenu(null), []),
     !!spellMenu,
+  );
+
+  useClickOutside(
+    tcMenuRef,
+    useCallback(() => setTcMenu(null), []),
+    !!tcMenu,
   );
 
   useClickOutside(
@@ -1583,15 +1694,6 @@ const Editor = forwardRef(function Editor(
     });
   }, [comments]);
 
-  // (No legacy decoration management useEffect — tcMarkerDecorationsField
-  // rebuilds from doc text on every transaction and is the single source
-  // of truth for tracked-change visual styling.)
-
-  // (Review walkthrough highlight disabled — the legacy implementation
-  // depended on stale from_pos/to_pos. A marker-aware version can be
-  // added later if needed; the standard TC underline already shows the
-  // active change clearly enough for now.)
-
   // Toggle word wrap
   useEffect(() => {
     const view = viewRef.current;
@@ -1610,6 +1712,15 @@ const Editor = forwardRef(function Editor(
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visualMode]);
+
+  // Toggle inline TC decorations (Word-style "Display for Review").
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: tcInlineCompartment.current.reconfigure(showTrackedChangesInline ? tcMarksInlineDecorations : []),
+    });
+  }, [showTrackedChangesInline]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -1814,19 +1925,29 @@ const Editor = forwardRef(function Editor(
             </svg>
           </button>
         )}
-        {pendingChangesCount > 0 && onStartReview && (
-          <button
-            className={`editor-header-btn ${reviewing ? 'editor-header-btn-active' : ''}`}
-            onClick={reviewing ? onStopReview : onStartReview}
-            title={
-              reviewing
-                ? 'Close review'
-                : `Review ${pendingChangesCount} pending change${pendingChangesCount !== 1 ? 's' : ''}`
-            }
+        <button
+          className={`editor-header-btn ${spellcheckEnabled ? 'editor-header-btn-active' : ''}`}
+          onClick={() => setSpellcheckEnabled((v) => !v)}
+          title={spellcheckEnabled ? 'Spellcheck ON — click to disable' : 'Spellcheck OFF — click to enable'}
+          aria-pressed={spellcheckEnabled}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <ReviewEyeIcon />
-          </button>
-        )}
+            {/* Page with check mark — universal "spellcheck" icon */}
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <polyline points="9 14 11 16 15 12" stroke={spellcheckEnabled ? '#2ea043' : 'currentColor'} strokeWidth="2.5" />
+          </svg>
+        </button>
         <button
           className={`editor-header-btn ${inverted ? 'editor-header-btn-active' : ''}`}
           onClick={() =>
@@ -1841,85 +1962,6 @@ const Editor = forwardRef(function Editor(
           <ContrastIcon />
         </button>
       </div>
-      {reviewing && pendingChangesCount > 0 && (
-        <div className="tc-review-toolbar">
-          <div className="tc-review-toolbar-nav">
-            <button
-              className="tc-review-toolbar-arrow"
-              onClick={onReviewPrev}
-              disabled={reviewIndex <= 0}
-              title="Previous change"
-            >
-              <ChevronLeftIcon />
-            </button>
-            <span className="tc-review-toolbar-counter">
-              {reviewIndex + 1} / {pendingChangesCount}
-            </span>
-            <button
-              className="tc-review-toolbar-arrow"
-              onClick={onReviewNext}
-              disabled={reviewIndex >= pendingChangesCount - 1}
-              title="Next change"
-            >
-              <ChevronRightIcon />
-            </button>
-          </div>
-          {reviewCurrentChange && (
-            <span className="tc-review-toolbar-info">
-              <span className="tc-review-toolbar-author">{reviewCurrentChange.author_name}</span>
-              {reviewCurrentChange.inserted_text && (
-                <span className="tc-review-insert">
-                  +
-                  {reviewCurrentChange.inserted_text.length > 30
-                    ? reviewCurrentChange.inserted_text.slice(0, 30) + '…'
-                    : reviewCurrentChange.inserted_text}
-                </span>
-              )}
-              {reviewCurrentChange.deleted_text && (
-                <span className="tc-review-delete">
-                  −
-                  {reviewCurrentChange.deleted_text.length > 30
-                    ? reviewCurrentChange.deleted_text.slice(0, 30) + '…'
-                    : reviewCurrentChange.deleted_text}
-                </span>
-              )}
-            </span>
-          )}
-          <div className="tc-review-toolbar-actions">
-            <button
-              className="tc-review-toolbar-btn tc-review-toolbar-accept"
-              onClick={() => onAcceptAndNext(reviewCurrentChange?.id)}
-              disabled={!reviewCurrentChange}
-              title="Accept and move to next"
-            >
-              Accept
-            </button>
-            <button
-              className="tc-review-toolbar-btn tc-review-toolbar-reject"
-              onClick={() => onRejectAndNext(reviewCurrentChange?.id)}
-              disabled={!reviewCurrentChange}
-              title="Reject and move to next"
-            >
-              Reject
-            </button>
-            <span className="tc-review-toolbar-sep" />
-            <button
-              className="tc-review-toolbar-btn tc-review-toolbar-accept-all"
-              onClick={onAcceptAll}
-              title="Accept all changes"
-            >
-              Accept All
-            </button>
-            <button
-              className="tc-review-toolbar-btn tc-review-toolbar-reject-all"
-              onClick={onRejectAll}
-              title="Reject all changes"
-            >
-              Reject All
-            </button>
-          </div>
-        </div>
-      )}
       {showSymbolPicker && (
         <SymbolPicker
           declaredPackages={declaredPackages}
@@ -2076,6 +2118,64 @@ const Editor = forwardRef(function Editor(
             }}
           >
             Ignore
+          </button>
+        </div>
+      )}
+      {tcMenu && (
+        <div
+          ref={tcMenuRef}
+          className="tc-context-menu"
+          style={{ position: 'fixed', left: tcMenu.x, top: tcMenu.y, zIndex: 1000 }}
+        >
+          <div className={`tc-context-header tc-context-header-${tcMenu.type}`}>
+            <span className="tc-context-type">
+              {tcMenu.type === 'ins' ? 'Inserted' : 'Deleted'}
+            </span>
+            {tcMenu.author && <span className="tc-context-author">by {tcMenu.author}</span>}
+          </div>
+          <button
+            onClick={() => {
+              const view = viewRef.current;
+              if (!view) return;
+              const m = listMarks(view.state).find((x) => x.id === tcMenu.id);
+              if (!m) {
+                setTcMenu(null);
+                return;
+              }
+              const removeRange =
+                (m.type === 'ins' && false) || (m.type === 'del' && true);
+              const spec = {
+                effects: removeTcMark.of(tcMenu.id),
+                annotations: tcMarkSkipAnnotation.of(true),
+              };
+              if (removeRange) spec.changes = { from: m.from, to: m.to, insert: '' };
+              view.dispatch(spec);
+              setTcMenu(null);
+            }}
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => {
+              const view = viewRef.current;
+              if (!view) return;
+              const m = listMarks(view.state).find((x) => x.id === tcMenu.id);
+              if (!m) {
+                setTcMenu(null);
+                return;
+              }
+              const removeRange =
+                (m.type === 'ins' && true) || (m.type === 'del' && false);
+              const spec = {
+                effects: removeTcMark.of(tcMenu.id),
+                annotations: tcMarkSkipAnnotation.of(true),
+              };
+              if (removeRange) spec.changes = { from: m.from, to: m.to, insert: '' };
+              view.dispatch(spec);
+              setTcMenu(null);
+            }}
+          >
+            Reject
           </button>
         </div>
       )}

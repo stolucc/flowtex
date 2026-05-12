@@ -20,34 +20,162 @@ pool.on('error', (err) => {
   console.error('Unexpected database pool error:', err.message);
 });
 
+// ─── Write counter ──────────────────────────────────────────────────────
+// In-memory only; resets on process restart. Surfaced via
+// /api/admin/stats/db-writes. Reads (SELECT, BEGIN, COMMIT, ROLLBACK) are
+// intentionally not counted.
+const writeStats = {
+  total: 0,
+  byOp: Object.create(null),
+  byTable: Object.create(null),
+  startedAt: new Date().toISOString(),
+};
+
+/**
+ * Inspect a SQL statement and return { op, table } if it's a write, else
+ * null. Recognized ops: INSERT / UPDATE / DELETE / CREATE / ALTER / DROP /
+ * TRUNCATE. Table extraction is best-effort: it handles the IF [NOT] EXISTS
+ * clause, optional ONLY, double-quoted identifiers, and `INSERT INTO`,
+ * `DELETE FROM`, `TRUNCATE TABLE` variants. Unparseable writes still bump
+ * the total counter but land in the `unknown` table bucket.
+ */
+function detectWrite(sql) {
+  if (typeof sql !== 'string') return null;
+  const trimmed = sql.replace(/^\s*\/\*[\s\S]*?\*\//, '').trimStart();
+  const opMatch = /^(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i.exec(trimmed);
+  if (!opMatch) return null;
+  const op = opMatch[1].toUpperCase();
+  const patterns = {
+    INSERT: /^INSERT\s+INTO\s+(?:ONLY\s+)?"?(\w+)"?/i,
+    UPDATE: /^UPDATE\s+(?:ONLY\s+)?"?(\w+)"?/i,
+    DELETE: /^DELETE\s+FROM\s+(?:ONLY\s+)?"?(\w+)"?/i,
+    CREATE: /^CREATE\s+(?:UNIQUE\s+)?(?:TABLE|INDEX|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i,
+    ALTER:  /^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?"?(\w+)"?/i,
+    DROP:   /^DROP\s+(?:TABLE|INDEX|VIEW)\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?/i,
+    TRUNCATE: /^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?"?(\w+)"?/i,
+  };
+  const m = patterns[op].exec(trimmed);
+  return { op, table: (m && m[1]) || 'unknown' };
+}
+
+/** Bump the write-stats counters for one SQL statement, if it's a write. */
+function recordWrite(sql) {
+  const w = detectWrite(sql);
+  if (!w) return;
+  writeStats.total++;
+  writeStats.byOp[w.op] = (writeStats.byOp[w.op] || 0) + 1;
+  writeStats.byTable[w.table] = (writeStats.byTable[w.table] || 0) + 1;
+}
+
+/** Read-only snapshot of write counters since process start. */
+export function getWriteStats() {
+  return {
+    total: writeStats.total,
+    byOp: { ...writeStats.byOp },
+    byTable: { ...writeStats.byTable },
+    startedAt: writeStats.startedAt,
+  };
+}
+
+/** Test-only: reset the counters. Gated to NODE_ENV=test. */
+export function _resetWriteStatsForTesting() {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_resetWriteStatsForTesting may only be called in tests');
+  }
+  writeStats.total = 0;
+  writeStats.byOp = Object.create(null);
+  writeStats.byTable = Object.create(null);
+  writeStats.startedAt = new Date().toISOString();
+}
+
+// ─── Integration-test shared client ─────────────────────────────────────
+// When set (test-only), every db.{get,all,run} and db.transaction routes
+// through this single pg client instead of the pool. The integration test
+// harness wraps each test in `BEGIN … ROLLBACK` on this client so all
+// changes from the test (and any nested db.transaction calls, which now
+// use SAVEPOINTs) are reverted at the end of the test — no test data
+// leaks into the real database.
+let _sharedClient = null;
+
+/**
+ * Test-only: install a single pg client that all queries will use until
+ * cleared with `_setSharedClient(null)`. Production code must never call
+ * this; it would serialize every API request through one connection.
+ */
+export function _setSharedClient(client) {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_setSharedClient may only be called in tests (set NODE_ENV=test)');
+  }
+  _sharedClient = client;
+}
+
+/** The active query runner — shared client in test mode, pool in prod. */
+function runner() {
+  return _sharedClient || pool;
+}
+
+let _savepointCounter = 0;
+
 /** Convenience wrappers around the pg Pool matching a simple get/all/run API. */
 const db = {
   pool,
 
   /** Run a query and return the first row, or undefined. */
   async get(sql, params = []) {
-    const { rows } = await pool.query(sql, params);
+    const { rows } = await runner().query(sql, params);
     return rows[0] || undefined;
   },
 
   /** Run a query and return all matching rows. */
   async all(sql, params = []) {
-    const { rows } = await pool.query(sql, params);
+    const { rows } = await runner().query(sql, params);
     return rows;
   },
 
   /** Run a query and return the full pg Result (rowCount, rows, etc.). */
   async run(sql, params = []) {
-    const result = await pool.query(sql, params);
+    recordWrite(sql);
+    const result = await runner().query(sql, params);
     return result;
   },
 
   /**
    * Run multiple statements in a serialized transaction.
+   * In test mode (shared client active) we use SAVEPOINTs so the outer
+   * test-level BEGIN/ROLLBACK keeps working — PostgreSQL doesn't allow
+   * truly nested BEGIN, and a naive nested COMMIT here would leak the
+   * inner changes past the outer rollback.
    * @param {(txDb: {get, all, run}) => Promise} fn - Receives a transaction-scoped db object.
    * @returns {Promise} The return value of fn.
    */
   async transaction(fn) {
+    if (_sharedClient) {
+      const sp = `sp_${++_savepointCounter}`;
+      const c = _sharedClient;
+      await c.query(`SAVEPOINT ${sp}`);
+      try {
+        const txDb = {
+          async get(sql, params = []) {
+            const { rows } = await c.query(sql, params);
+            return rows[0] || undefined;
+          },
+          async all(sql, params = []) {
+            const { rows } = await c.query(sql, params);
+            return rows;
+          },
+          async run(sql, params = []) {
+            recordWrite(sql);
+            return c.query(sql, params);
+          },
+        };
+        const result = await fn(txDb);
+        await c.query(`RELEASE SAVEPOINT ${sp}`);
+        return result;
+      } catch (err) {
+        await c.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+        throw err;
+      }
+    }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -61,6 +189,7 @@ const db = {
           return rows;
         },
         async run(sql, params = []) {
+          recordWrite(sql);
           return client.query(sql, params);
         },
       };
@@ -127,6 +256,24 @@ async function initSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(project_id, path)
     );
+
+    -- Explicit empty-folder bookkeeping. Folders are still implicit in file
+    -- paths (e.g. a file at "parts/foo.tex" creates a virtual "parts" folder
+    -- in the UI), but to let users create a folder *before* dropping a file
+    -- into it, we persist those empty-folder paths here. The tree-build code
+    -- unions file-derived folders with these rows.
+    CREATE TABLE IF NOT EXISTS project_folders (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(project_id, path)
+    );
+    CREATE INDEX IF NOT EXISTS project_folders_project_id_idx ON project_folders(project_id);
+    -- tc_marks column kept dormant (track-changes pipeline was removed; will
+    -- be repurposed when the feature is rebuilt). Default '[]' so existing
+    -- inserts and the future rebuild can both rely on a non-null array.
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS tc_marks JSONB NOT NULL DEFAULT '[]'::jsonb;
 
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
@@ -253,9 +400,7 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project ON project_snapshots(project_id, created_at DESC);
 
-    -- Tracked changes are stored inline in file content as marker
-    -- syntax (see shared/tcMarkers.js) — the legacy tracked_changes
-    -- table was removed during the redesign.
+    -- (Tracked-changes pipeline was removed — to be rebuilt from scratch.)
 
     CREATE TABLE IF NOT EXISTS session (
       sid VARCHAR NOT NULL PRIMARY KEY,

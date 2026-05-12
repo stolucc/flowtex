@@ -269,6 +269,22 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Admin routes have their own (more permissive) bucket below — exempt
+  // them here so the dashboard's live-monitoring polls don't burn through
+  // the public-API budget meant for catching scraper/bot abuse.
+  skip: (req) => skipRateLimit || req.path.startsWith('/admin/'),
+});
+
+// Admins are authenticated, authorized, and may legitimately poll the
+// monitoring dashboard. Give them headroom — 600/min is ~10/sec, enough
+// for a live dashboard plus regular admin operations without throttling
+// normal usage. Still bounded so a runaway script can't DoS via abuse.
+const adminApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  message: { error: 'Too many requests' },
+  standardHeaders: true,
+  legacyHeaders: false,
   skip: () => skipRateLimit,
 });
 
@@ -317,7 +333,7 @@ app.use('/api/tags', requireAuth, tagsRouter);
 app.use('/api/chat', requireAuth, chatRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
-app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
+app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
 app.get('/api/health', (req, res) => {
@@ -341,15 +357,22 @@ const clientDist = fs.existsSync(clientDistPrimary) ? clientDistPrimary : client
 // the SPA fallback below handles it so the CSP nonce can be injected.
 app.use(express.static(clientDist, { index: false }));
 
-// Cache the SPA shell at boot. Re-read on each request would work but adds
-// a syscall per pageload for no gain — the file doesn't change at runtime.
-let _indexHtmlTemplate = null;
+// Cache the SPA shell, invalidated on file mtime change. Caching avoids a
+// syscall per request in steady state; mtime-checking means rebuilds are
+// picked up without a server restart (the cached template otherwise pins
+// the old hashed asset filenames after `vite build` rotates them).
+let _indexHtmlTemplate = '';
+let _indexHtmlMtimeMs = 0;
 function loadIndexTemplate() {
-  if (_indexHtmlTemplate !== null) return _indexHtmlTemplate;
+  const indexPath = path.join(clientDist, 'index.html');
   try {
-    _indexHtmlTemplate = fs.readFileSync(path.join(clientDist, 'index.html'), 'utf8');
+    const { mtimeMs } = fs.statSync(indexPath);
+    if (mtimeMs !== _indexHtmlMtimeMs) {
+      _indexHtmlTemplate = fs.readFileSync(indexPath, 'utf8');
+      _indexHtmlMtimeMs = mtimeMs;
+    }
   } catch {
-    _indexHtmlTemplate = '';
+    // Leave whatever we had cached; first call returns ''.
   }
   return _indexHtmlTemplate;
 }

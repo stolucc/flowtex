@@ -43,6 +43,41 @@ export function validatePassword(password) {
   return null;
 }
 
+/**
+ * Check the password against the HIBP "Pwned Passwords" range API using
+ * k-anonymity (first 5 hex chars of SHA-1 sent over the wire; the API
+ * returns all matching suffixes). Throws a 400 if the password appears in
+ * any known breach. Fail-open on network/HTTP errors so a transient API
+ * outage doesn't lock users out of password changes; set
+ * `DISABLE_HIBP_CHECK=1` to skip entirely (e.g. offline deploys).
+ */
+export async function checkPasswordNotBreached(password) {
+  if (process.env.DISABLE_HIBP_CHECK === '1') return;
+  const sha1 = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
+  const prefix = sha1.slice(0, 5);
+  const suffix = sha1.slice(5);
+  try {
+    const resp = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+      headers: { 'Add-Padding': 'true' },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) return; // fail-open on non-2xx
+    const body = await resp.text();
+    for (const line of body.split('\n')) {
+      const [hashSuffix, countStr] = line.trim().split(':');
+      if (hashSuffix === suffix && parseInt(countStr, 10) > 0) {
+        throw Object.assign(
+          new Error('This password has appeared in known data breaches. Please choose a different one.'),
+          { status: 400 },
+        );
+      }
+    }
+  } catch (err) {
+    if (err.status === 400) throw err; // re-throw our own breach error
+    // Otherwise fail-open: network/timeout/parse issues shouldn't block password changes.
+  }
+}
+
 /** Check if an account is locked due to too many failed login attempts. */
 export async function isAccountLocked(email, ip) {
   const result = await db.get(
@@ -96,6 +131,7 @@ async function markTotpUsed(userId, code) {
 export async function registerUser(email, name, password) {
   const pwError = validatePassword(password);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
+  await checkPasswordNotBreached(password);
 
   const normalizedEmail = email.toLowerCase().trim();
   const existing = await db.get('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
@@ -234,28 +270,48 @@ export async function verifyTotp(userId, code, totpSecret) {
   return { ok: true };
 }
 
-/** Create a trusted-device token for MFA bypass (30-day expiry). */
+// MFA-bypass cookie lifetime. Was 30 days; shortened to 7 because the
+// cookie is rotated on every use and stolen-cookie MFA bypass shouldn't
+// last a month.
+const TRUST_DAYS = 7;
+const TRUST_MS = TRUST_DAYS * 24 * 60 * 60 * 1000;
+
+/** Create a trusted-device token for MFA bypass. */
 export async function createTrustedDevice(userId, userAgent) {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const deviceName = userAgent?.substring(0, 200) || 'Unknown device';
-  const TRUST_DAYS = 30;
   await db.run(
     `INSERT INTO trusted_devices (id, user_id, token_hash, device_name, expires_at) VALUES ($1, $2, $3, $4, NOW() + make_interval(days => $5))`,
     [uuid(), userId, tokenHash, deviceName, TRUST_DAYS],
   );
-  return { token, maxAge: TRUST_DAYS * 24 * 60 * 60 * 1000 };
+  return { token, maxAge: TRUST_MS };
 }
 
-/** Check whether a trusted-device cookie is still valid for this user. */
+/**
+ * Check whether a trusted-device cookie is still valid for this user, and
+ * rotate the underlying token on success. Rotation limits the blast radius
+ * of cookie theft: an attacker who replays a stolen cookie races the real
+ * user, and only one of them keeps the bypass.
+ *
+ * @returns {null|{token, maxAge}} null if invalid/expired; otherwise the
+ *   new cookie value the caller should set in the response.
+ */
 export async function checkTrustedDevice(userId, trustCookie) {
-  if (!trustCookie) return false;
-  const tokenHash = crypto.createHash('sha256').update(trustCookie).digest('hex');
+  if (!trustCookie) return null;
+  const oldHash = crypto.createHash('sha256').update(trustCookie).digest('hex');
   const device = await db.get(
     'SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW()',
-    [tokenHash, userId],
+    [oldHash, userId],
   );
-  return !!device;
+  if (!device) return null;
+  const newToken = crypto.randomBytes(32).toString('hex');
+  const newHash = crypto.createHash('sha256').update(newToken).digest('hex');
+  await db.run(
+    `UPDATE trusted_devices SET token_hash = $1, expires_at = NOW() + make_interval(days => $2) WHERE id = $3`,
+    [newHash, TRUST_DAYS, device.id],
+  );
+  return { token: newToken, maxAge: TRUST_MS };
 }
 
 /** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin). */
@@ -365,6 +421,7 @@ export async function createPasswordResetToken(email) {
 export async function resetPassword(token, newPassword) {
   const pwError = validatePassword(newPassword);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
+  await checkPasswordNotBreached(newPassword);
 
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
@@ -429,6 +486,7 @@ export async function changePassword(userId, currentPassword, newPassword) {
 
   const pwError = validatePassword(newPassword);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
+  await checkPasswordNotBreached(newPassword);
 
   const newHash = await bcrypt.hash(newPassword, 12);
   await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);

@@ -185,7 +185,10 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
 
   return (
-    <div ref={innerRef} className={`comment-item ${comment.resolved ? 'resolved' : ''}`}>
+    <div
+      ref={innerRef}
+      className={`comment-item ${comment.resolved ? 'resolved' : ''}`}
+    >
       {comment.assigned_to && (
         <div className="comment-assignment">
           Assigned to {comment.assigned_to === currentUserId ? 'you' : (members?.find((m) => m.id === comment.assigned_to)?.name || 'someone')}
@@ -228,7 +231,6 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
         </div>
       </div>
       <div className="comment-author">
-        <span className="comment-author-swatch" style={{ backgroundColor: getColor(members?.find((m) => m.id === comment.author_id)?.name || comment.author) }} />
         {comment.author === currentUserName ? 'You' : comment.author}
       </div>
       <div className="comment-date">{formatDate(comment.created_at)}</div>
@@ -262,7 +264,6 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
           {comment.replies.map((r) => (
             <div key={r.id} className="comment-reply">
               <div className="comment-reply-author">
-                <span className="comment-author-swatch" style={{ backgroundColor: getColor(members?.find((m) => m.id === r.author_id)?.name || r.author) }} />
                 {r.author === currentUserName ? 'You' : r.author}
               </div>
               <div className="comment-reply-date">{formatDate(r.created_at)}</div>
@@ -274,7 +275,7 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
       {!comment.resolved && (
         <div className="comment-reply-area">
           <MentionTextarea
-            placeholder="Reply... (type @ to mention)"
+            placeholder="Reply..."
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={(e) => {
@@ -439,7 +440,8 @@ export default function CommentsSidebar({
   return (
     <div className="comments-sidebar" style={style} onWheel={onWheel}>
       <div className="comments-header">
-        <span>Comments</span>
+        <span className="comments-title">Comments</span>
+        <span className="comments-count">{unresolvedComments.length}</span>
         {onClose && (
           <button className="comments-close-btn" onClick={onClose} title="Close comments">
             &times;
@@ -458,7 +460,7 @@ export default function CommentsSidebar({
               <MentionTextarea
                 innerRef={textareaRef}
                 autoFocus
-                placeholder="Write a comment... (type @ to mention)"
+                placeholder="Write a comment..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {

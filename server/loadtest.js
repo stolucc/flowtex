@@ -30,6 +30,11 @@ const NUM_USERS = getArg('users', 500);
 const NUM_DOCS = getArg('docs', 100);
 const DURATION_S = getArg('duration', 120);
 const COMPILE_INTERVAL_S = getArg('compile', 0); // 0 = disabled
+// --chat-rate N: each user sends a chat message every N ms (per user).
+// Chat is the only WS handler that persists (1 INSERT chat_messages per
+// message via db.run), and WS messages aren't HTTP-rate-limited — so this
+// is the easiest way to drive the in-process db-write counter visibly.
+const CHAT_RATE_MS = getArg('chat-rate', 0); // 0 = disabled
 const PORT = process.env.PORT || 3001;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const BASE_URL = `https://localhost:${PORT}`;
@@ -487,9 +492,6 @@ async function cleanupTestData() {
       `DELETE FROM session WHERE sid IN (SELECT sid FROM session WHERE (sess::jsonb->>'userId') IN (SELECT id FROM users WHERE email LIKE 'loadtest_user_%@test.local'))`,
     );
     await client.query(
-      `DELETE FROM tracked_changes WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`,
-    );
-    await client.query(
       `DELETE FROM files WHERE project_id IN (SELECT id FROM projects WHERE name LIKE 'LoadTest Project %')`,
     );
     await client.query(
@@ -580,6 +582,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
           // Start typing after a random initial delay (stagger users)
           const startDelay = Math.random() * 3000;
           setTimeout(() => typeNextChar(), startDelay);
+          startChat();
         }
       } catch {}
     });
@@ -625,6 +628,30 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
       typingTimer = setTimeout(typeNextChar, nextKeystrokeDelay());
     }
 
+    // ── Chat sender ─────────────────────────────────────────────────────
+    // Each chat message → handleChat in websocket.js → 1 INSERT into
+    // chat_messages via db.run → bumps the in-memory write counter.
+    let chatTimer = null;
+    let chatSent = 0;
+    function sendChat() {
+      if (!alive || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: 'chat',
+          text: `loadtest msg ${userIndex}/${++chatSent}`,
+        }),
+      );
+      metrics.messagesSent++;
+      // jitter the next send by ±25% so we don't sync 500 users on the same tick
+      const jitter = 0.75 + Math.random() * 0.5;
+      chatTimer = setTimeout(sendChat, CHAT_RATE_MS * jitter);
+    }
+    function startChat() {
+      if (CHAT_RATE_MS > 0 && alive && ws.readyState === WebSocket.OPEN) {
+        chatTimer = setTimeout(sendChat, Math.random() * CHAT_RATE_MS);
+      }
+    }
+
     ws.on('error', (err) => {
       metrics.errors++;
       if (!metrics.wsConnected && metrics.wsConnectFailed < 3) {
@@ -636,6 +663,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
     ws.on('close', () => {
       alive = false;
       if (typingTimer) clearTimeout(typingTimer);
+      if (chatTimer) clearTimeout(chatTimer);
     });
 
     // Return control object
@@ -643,6 +671,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
       stop() {
         alive = false;
         if (typingTimer) clearTimeout(typingTimer);
+        if (chatTimer) clearTimeout(chatTimer);
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
           ws.close();
         }
