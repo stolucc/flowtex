@@ -333,7 +333,11 @@ router.post('/:id/members', async (req, res) => {
     const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
     const projectName = project?.name || 'a project';
     try {
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      // Prefer APP_URL (set in .env) over the request's host header. A
+      // forged or misconfigured Host: would otherwise let invitations
+      // point to attacker domains. Mirrors what every other email sender
+      // in the codebase already does.
+      const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
       await sendProjectInvitationEmail(email, {
         inviterName,
         projectName,

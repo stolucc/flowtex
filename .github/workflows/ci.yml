@@ -153,6 +153,12 @@ jobs:
       # 20-per-15-min cap. Server gates this flag on `NODE_ENV !== production`
       # so it can never accidentally weaken a real deployment.
       DISABLE_RATE_LIMIT: '1'
+      # Skip the HIBP breached-password check in CI. The e2e fixtures use
+      # passwords like "StrongPass1" which ARE in the HIBP corpus and would
+      # otherwise be rejected at registration, breaking the auth-flow suite.
+      # The check is gated to skip when this env var is set; production
+      # never sets it.
+      DISABLE_HIBP_CHECK: '1'
 
     steps:
       - uses: actions/checkout@v4

@@ -59,12 +59,22 @@ function detectWrite(sql) {
 }
 
 /** Bump the write-stats counters for one SQL statement, if it's a write. */
+// Defensive cap so the in-memory map can't grow unbounded if untrusted
+// SQL ever reaches db.run (today it can't; this is belt-and-braces).
+// FlowTex has well under 64 real tables; 256 leaves comfortable headroom.
+const MAX_TABLE_BUCKETS = 256;
+
 function recordWrite(sql) {
   const w = detectWrite(sql);
   if (!w) return;
   writeStats.total++;
   writeStats.byOp[w.op] = (writeStats.byOp[w.op] || 0) + 1;
-  writeStats.byTable[w.table] = (writeStats.byTable[w.table] || 0) + 1;
+  const key =
+    Object.prototype.hasOwnProperty.call(writeStats.byTable, w.table) ||
+    Object.keys(writeStats.byTable).length < MAX_TABLE_BUCKETS
+      ? w.table
+      : '_other';
+  writeStats.byTable[key] = (writeStats.byTable[key] || 0) + 1;
 }
 
 /** Read-only snapshot of write counters since process start. */

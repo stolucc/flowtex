@@ -1398,6 +1398,18 @@ function normalizeFolderPath(rawPath) {
   return trimmed;
 }
 
+/**
+ * Escape SQL LIKE wildcards in a literal path so a name like "a_b" or
+ * "a%b" matches only itself rather than "any single char" / "any number
+ * of chars". Used together with `ESCAPE '\'` in every folder-scoped LIKE
+ * clause to plug a wildcard-injection vector: an editor could otherwise
+ * create a folder named `a%` and have a subsequent delete/rename hit
+ * unrelated files in the same project.
+ */
+function escapeLikePattern(s) {
+  return s.replace(/[\\%_]/g, '\\$&');
+}
+
 /** List all explicit empty-folder paths for a project. */
 export async function listFolders(projectId) {
   const rows = await db.all(
@@ -1428,15 +1440,16 @@ export async function createFolder(projectId, path) {
 export async function deleteFolder(projectId, path) {
   const normalized = normalizeFolderPath(path);
   if (!normalized) throw Object.assign(new Error('Invalid folder path'), { status: 400 });
+  const prefix = escapeLikePattern(normalized) + '/%';
   await db.transaction(async (tx) => {
     await tx.run(
-      'DELETE FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3)',
-      [projectId, normalized, normalized + '/%'],
+      `DELETE FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3 ESCAPE '\\')`,
+      [projectId, normalized, prefix],
     );
-    await tx.run('DELETE FROM files WHERE project_id = $1 AND path LIKE $2', [
-      projectId,
-      normalized + '/%',
-    ]);
+    await tx.run(
+      `DELETE FROM files WHERE project_id = $1 AND path LIKE $2 ESCAPE '\\'`,
+      [projectId, prefix],
+    );
   });
   await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
 }
@@ -1454,15 +1467,17 @@ export async function renameFolderTree(projectId, oldPath, newPath) {
   if (newNorm.startsWith(oldNorm + '/')) {
     throw Object.assign(new Error('Cannot move a folder into itself'), { status: 400 });
   }
+  const oldPrefix = escapeLikePattern(oldNorm) + '/%';
+  const newPrefix = escapeLikePattern(newNorm) + '/%';
   await db.transaction(async (tx) => {
     // Collision check: any file or folder already at the target prefix?
     const fileConflict = await tx.get(
-      'SELECT 1 FROM files WHERE project_id = $1 AND (path = $2 OR path LIKE $3) LIMIT 1',
-      [projectId, newNorm, newNorm + '/%'],
+      `SELECT 1 FROM files WHERE project_id = $1 AND (path = $2 OR path LIKE $3 ESCAPE '\\') LIMIT 1`,
+      [projectId, newNorm, newPrefix],
     );
     const folderConflict = await tx.get(
-      'SELECT 1 FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3) LIMIT 1',
-      [projectId, newNorm, newNorm + '/%'],
+      `SELECT 1 FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3 ESCAPE '\\') LIMIT 1`,
+      [projectId, newNorm, newPrefix],
     );
     if (fileConflict || folderConflict) {
       throw Object.assign(new Error(`A file or folder already exists at ${newNorm}`), { status: 409 });
@@ -1476,21 +1491,21 @@ export async function renameFolderTree(projectId, oldPath, newPath) {
     await tx.run(
       `UPDATE project_folders
          SET path = $1 || substring(path FROM ${oldNorm.length + 1})
-       WHERE project_id = $2 AND path LIKE $3`,
-      [newNorm, projectId, oldNorm + '/%'],
+       WHERE project_id = $2 AND path LIKE $3 ESCAPE '\\'`,
+      [newNorm, projectId, oldPrefix],
     );
     // Same shape for files. main_file follows if it lived under the prefix.
     await tx.run(
       `UPDATE files
          SET path = $1 || substring(path FROM ${oldNorm.length + 1}), updated_at = NOW()
-       WHERE project_id = $2 AND path LIKE $3`,
-      [newNorm, projectId, oldNorm + '/%'],
+       WHERE project_id = $2 AND path LIKE $3 ESCAPE '\\'`,
+      [newNorm, projectId, oldPrefix],
     );
     await tx.run(
       `UPDATE projects
          SET main_file = $1 || substring(main_file FROM ${oldNorm.length + 1}), updated_at = NOW()
-       WHERE id = $2 AND main_file LIKE $3`,
-      [newNorm, projectId, oldNorm + '/%'],
+       WHERE id = $2 AND main_file LIKE $3 ESCAPE '\\'`,
+      [newNorm, projectId, oldPrefix],
     );
     await tx.run(
       `UPDATE projects
