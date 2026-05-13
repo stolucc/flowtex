@@ -395,7 +395,7 @@ app.use((err, req, res, _next) => {
 // Block common scanner probes — return 404 instead of SPA fallback
 const blockedPathPattern =
   /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
-app.get('*', (req, res) => {
+app.get('/*splat', (req, res) => {
   if (req.path.startsWith('/api')) return;
   if (blockedPathPattern.test(req.path)) return res.status(404).end();
   const html = renderIndexWithNonce(res.locals.cspNonce);
