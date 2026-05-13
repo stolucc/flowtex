@@ -60,7 +60,9 @@ describe('Toolbar', () => {
 
   it('renders the Home button', () => {
     renderToolbar();
-    expect(screen.getByText('Home')).toBeTruthy();
+    // Home button is icon-only now; find it by its accessible label
+    // (the visual `Home` text was dropped — the icon is enough).
+    expect(screen.getByRole('button', { name: /home/i })).toBeTruthy();
   });
 
   it('renders all menu labels', () => {
@@ -72,7 +74,7 @@ describe('Toolbar', () => {
 
   it('calls onBack when Home button is clicked', () => {
     const { props } = renderToolbar();
-    const homeBtn = screen.getByText('Home').closest('button');
+    const homeBtn = screen.getByRole('button', { name: /home/i });
     fireEvent.click(homeBtn);
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
