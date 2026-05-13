@@ -1194,9 +1194,9 @@ html {
 }
 
 .file-tree-category-arrow {
-  font-size: 9px;
+  font-size: 14px;
   color: var(--text-muted);
-  width: 10px;
+  width: 16px;
 }
 
 .file-tree-category-label {
@@ -1419,8 +1419,8 @@ html {
 }
 
 .file-tree-folder-arrow {
-  font-size: 10px;
-  width: 12px;
+  font-size: 15px;
+  width: 18px;
   text-align: center;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -4216,6 +4216,27 @@ html {
 }
 .pdf-log-help-btn + .pdf-log-copy-btn { margin-left: 4px; }
 .pdf-log-copy-btn:hover { opacity: 1; color: var(--accent); }
+
+/* Google search button — same shape as the copy button, immediately
+   after it on each row. Identical styling so the trio (help, copy,
+   search) reads as a coherent action group. */
+.pdf-log-search-btn {
+  background: none;
+  border: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.pdf-log-search-btn:hover { opacity: 1; color: var(--accent); }
 
 /* ── Help detail panel ───────────────────────────────────────── */
 

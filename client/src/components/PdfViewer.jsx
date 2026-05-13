@@ -132,6 +132,26 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
             </svg>
           )}
         </button>
+        <button
+          className="pdf-log-search-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            // Prefix with "LaTeX" so generic words like "missing" or
+            // "undefined" land on the right kind of result; the AI
+            // overview at the top of Google's results is the user's
+            // intended hit. noreferrer so we don't leak the project
+            // URL via Referer when the new tab loads.
+            const q = encodeURIComponent(`LaTeX ${String(message ?? '')}`);
+            window.open(`https://www.google.com/search?q=${q}`, '_blank', 'noopener,noreferrer');
+          }}
+          title="Search this on Google"
+          aria-label="Search this on Google"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
       </div>
     </div>
   );
