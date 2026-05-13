@@ -396,7 +396,9 @@ app.use((err, req, res, _next) => {
 const blockedPathPattern =
   /(?:^|\/)(?:\.env|\.git|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|wp-admin|wp-login|wp-includes|phpinfo|phpmyadmin|cgi-bin|config\.env|credentials|\.DS_Store|Thumbs\.db|\.svn|\.hg|web\.config|\.well-known\/(?!acme-challenge))/i;
 app.get('/{*splat}', (req, res) => {
-  if (req.path.startsWith('/api')) return;
+  // Unknown /api/* path: return JSON 404 instead of leaving the request
+  // hanging or serving the SPA shell as if it were a real route.
+  if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not found' });
   if (blockedPathPattern.test(req.path)) return res.status(404).end();
   const html = renderIndexWithNonce(res.locals.cspNonce);
   res.set('Content-Type', 'text/html; charset=utf-8').send(html);
