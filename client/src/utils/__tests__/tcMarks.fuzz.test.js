@@ -54,7 +54,7 @@ function makeHarness(doc, { tcOn = true } = {}) {
   };
 }
 
-function randomEdit(r, docLen, tcOnProb = 0.7) {
+function randomEdit(r, docLen, _tcOnProb = 0.7) {
   const op = r();
   if (op < 0.4) {
     // pure insertion
@@ -75,7 +75,6 @@ function randomEdit(r, docLen, tcOnProb = 0.7) {
     const insertLen = 1 + Math.floor(r() * 3);
     return { changes: { from, to, insert: 'Z'.repeat(insertLen) }, selection: { anchor: from + insertLen } };
   }
-  void tcOnProb;
 }
 
 function checkInvariants(state, label) {

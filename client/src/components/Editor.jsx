@@ -2142,8 +2142,9 @@ const Editor = forwardRef(function Editor(
                 setTcMenu(null);
                 return;
               }
-              const removeRange =
-                (m.type === 'ins' && false) || (m.type === 'del' && true);
+              // Accept-ins: keep the text, drop the mark (no doc change).
+              // Accept-del: remove the marked range AND drop the mark.
+              const removeRange = m.type === 'del';
               const spec = {
                 effects: removeTcMark.of(tcMenu.id),
                 annotations: tcMarkSkipAnnotation.of(true),

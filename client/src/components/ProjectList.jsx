@@ -978,7 +978,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
         {pendingInviteUnknown && (
           <div className="invite-mismatch-banner" role="alert">
-            This invitation link isn't for your account, or it's no longer pending. Ask the inviter to send a new one to the email you signed in with.
+            This invitation link isn&apos;t for your account, or it&apos;s no longer pending. Ask the inviter to send a new one to the email you signed in with.
             <button className="invite-mismatch-dismiss" onClick={() => setPendingInviteUnknown(false)} aria-label="Dismiss">
               ×
             </button>
