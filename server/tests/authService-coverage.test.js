@@ -3,8 +3,9 @@
 // (verify/reset/setup/disable/etc.) plus mutation-killing boundary tests
 // for the partially-covered ones, so the original file stays focused on
 // the core auth flow.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 // db mock. The transaction mock routes tx.get/tx.run to the same top-level
 // mocks, so a test that does `db.get.mockResolvedValueOnce(...)` works the
@@ -43,6 +44,7 @@ import {
   createPasswordResetToken,
   resetPassword,
   deleteAccount,
+  checkPasswordNotBreached,
 } from '../services/authService.js';
 
 const TEST_PW = 'Password1';
@@ -635,5 +637,83 @@ describe('deleteAccount', () => {
     db.get.mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH });
     await deleteAccount('u', TEST_PW);
     expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── checkPasswordNotBreached (HIBP k-anonymity) ──────────────────────
+// The default test env exports DISABLE_HIBP_CHECK=1, which short-circuits
+// this function — so its body is otherwise never exercised. These tests
+// clear that flag and stub global fetch to drive the real range-API logic.
+describe('checkPasswordNotBreached', () => {
+  let oldFlag;
+  beforeEach(() => {
+    oldFlag = process.env.DISABLE_HIBP_CHECK;
+    delete process.env.DISABLE_HIBP_CHECK;
+  });
+  afterEach(() => {
+    if (oldFlag === undefined) delete process.env.DISABLE_HIBP_CHECK;
+    else process.env.DISABLE_HIBP_CHECK = oldFlag;
+    vi.unstubAllGlobals();
+  });
+
+  // A fake range-API body: the password's real SHA-1 suffix at `count`,
+  // wrapped in non-matching decoy lines, CRLF-separated like the real API.
+  function rangeBodyFor(password, count) {
+    const sha1 = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
+    const suffix = sha1.slice(5);
+    const decoyA = 'A'.repeat(35);
+    const decoyB = 'B'.repeat(35);
+    return `${decoyA}:3\r\n${suffix}:${count}\r\n${decoyB}:9`;
+  }
+
+  it('returns immediately without fetching when DISABLE_HIBP_CHECK=1', async () => {
+    process.env.DISABLE_HIBP_CHECK = '1';
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    await expect(checkPasswordNotBreached('whatever')).resolves.toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('queries the range API with the uppercase 5-char SHA-1 prefix', async () => {
+    const pw = 'Sup3rSecret!';
+    const expectedPrefix = crypto.createHash('sha1').update(pw).digest('hex').toUpperCase().slice(0, 5);
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => '' });
+    vi.stubGlobal('fetch', fetchSpy);
+    await checkPasswordNotBreached(pw);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe(`https://api.pwnedpasswords.com/range/${expectedPrefix}`);
+  });
+
+  it('throws a 400 when the suffix appears in the range with a non-zero count', async () => {
+    const pw = 'BreachedPass1';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => rangeBodyFor(pw, 42) }));
+    await expect(checkPasswordNotBreached(pw)).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/known data breaches/),
+    });
+  });
+
+  it('resolves when the suffix is present but the count is 0 (not actually breached)', async () => {
+    const pw = 'EdgeCasePass1';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => rangeBodyFor(pw, 0) }));
+    await expect(checkPasswordNotBreached(pw)).resolves.toBeUndefined();
+  });
+
+  it('resolves when the suffix is not present in the range response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `${'C'.repeat(35)}:5\r\n${'D'.repeat(35)}:7`,
+    }));
+    await expect(checkPasswordNotBreached('TotallyFinePass1')).resolves.toBeUndefined();
+  });
+
+  it('fails open on a non-2xx response from the range API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, text: async () => 'ignored' }));
+    await expect(checkPasswordNotBreached('SomePass1')).resolves.toBeUndefined();
+  });
+
+  it('fails open when fetch itself rejects (network error / timeout)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    await expect(checkPasswordNotBreached('SomePass1')).resolves.toBeUndefined();
   });
 });

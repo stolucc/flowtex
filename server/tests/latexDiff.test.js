@@ -167,6 +167,37 @@ describe('postProcess', () => {
     expect(out).toContain('\\DIFaddbegin');
     expect(out).toContain('plain prose follows');
   });
+
+  it('strips a \\DIFaddFL{...} marker with NO surrounding whitespace down to empty', () => {
+    // The (\s)? groups in the DIFaddFL regex are optional; with non-whitespace
+    // on both sides the replacement must be '' (not a space), or adjacent
+    // tokens gain a phantom separator.
+    expect(postProcess('\\caption{x}a\\DIFaddFL{added}b')).toBe('\\caption{x}ab');
+  });
+
+  it('treats a whitespace-only line as blank when scanning for the noalign successor', () => {
+    // nextNonBlank uses lines[j].trim() !== '' — a spaces-only line must be
+    // skipped so the \toprule beyond it is still found (and the marker dropped).
+    expect(postProcess('\\DIFaddbegin\n   \n\\toprule')).toBe('   \n\\toprule');
+  });
+
+  it('does not drop a plain blank line that merely precedes a noalign command', () => {
+    // The hasDif(line) guard: a blank, non-DIF line before \toprule must be
+    // left intact, not run through the strip-and-maybe-drop path.
+    expect(postProcess('\n\\toprule')).toBe('\n\\toprule');
+  });
+
+  it('keeps a DIF line that still has real content after stripping, even with a noalign successor', () => {
+    // stripped.trim() === '' decides drop-vs-keep. Stripping "text \DIFaddbegin
+    // more" leaves "text more" — non-empty — so the line is kept, not dropped.
+    expect(postProcess('text \\DIFaddbegin more\n\\toprule')).toBe('text more\n\\toprule');
+  });
+
+  it('drops a DIF line that strips down to a lone space when a noalign line follows', () => {
+    // The marker has trailing whitespace, so stripDif yields ' '. .trim() makes
+    // that '' → the line is dropped. Without .trim() it would linger as ' '.
+    expect(postProcess('\\DIFaddbegin \n\\toprule')).toBe('\\toprule');
+  });
 });
 
 describe('latexDiff (main entry)', () => {
@@ -249,5 +280,49 @@ describe('latexDiff (main entry)', () => {
     const result = await latexDiff('a', 'b');
     expect(result).not.toContain('DIFaddbegin');
     expect(result).toContain('\\toprule');
+  });
+
+  it('prepends every TeX Live bin dir to PATH, ahead of the inherited PATH', async () => {
+    execFileMock.mockImplementation((cmd, args, opts, cb) => cb(null, { stdout: 'ok', stderr: '' }));
+    await latexDiff('a', 'b');
+    const opts = execFileMock.mock.calls[0][2];
+    for (const p of [
+      '/Library/TeX/texbin',
+      '/usr/local/texlive/2025/bin/universal-darwin',
+      '/usr/local/bin',
+      '/opt/local/bin',
+    ]) {
+      expect(opts.env.PATH).toContain(p);
+    }
+    // TeX dirs must come first (so the bundled latexdiff wins over any other),
+    // joined by ':' and followed by the inherited PATH.
+    expect(opts.env.PATH.startsWith('/Library/TeX/texbin:')).toBe(true);
+    expect(opts.env.PATH).toContain(':' + (process.env.PATH || ''));
+  });
+
+  it('passes a 30s timeout, 50MB maxBuffer, and cwd=workDir to execFile', async () => {
+    execFileMock.mockImplementation((cmd, args, opts, cb) => cb(null, { stdout: 'ok', stderr: '' }));
+    await latexDiff('a', 'b', { workDir: '/tmp/custom-wd' });
+    const opts = execFileMock.mock.calls[0][2];
+    expect(opts.timeout).toBe(30000);
+    expect(opts.maxBuffer).toBe(50 * 1024 * 1024);
+    expect(opts.cwd).toBe('/tmp/custom-wd');
+  });
+
+  it('writes the temp files under the documented __diff_old__/__diff_new__ names with the right content', async () => {
+    execFileMock.mockImplementation((cmd, args, opts, cb) => cb(null, { stdout: 'ok', stderr: '' }));
+    await latexDiff('OLD-CONTENT', 'NEW-CONTENT', { workDir: '/tmp/custom-wd' });
+    const byName = Object.fromEntries(
+      writeFileSyncMock.mock.calls.map(([p, content]) => [p.split('/').pop(), content]),
+    );
+    expect(byName['__diff_old__.tex']).toBe('OLD-CONTENT');
+    expect(byName['__diff_new__.tex']).toBe('NEW-CONTENT');
+  });
+
+  it('separates the no-output message from stderr with ": "', async () => {
+    execFileMock.mockImplementation((cmd, args, opts, cb) => cb(null, { stdout: '', stderr: 'detail here' }));
+    // Pins the exact ": " joiner — a mutation dropping it would still match
+    // a loose /no output/ check, so assert the whole string.
+    await expect(latexDiff('a', 'b')).rejects.toThrow('latexdiff produced no output: detail here');
   });
 });

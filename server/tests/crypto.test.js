@@ -144,6 +144,21 @@ describe('deriveKey paths', () => {
     expect(calls).toMatch(/\[SECURITY\] ENCRYPTION_KEY not set/);
   });
 
+  it('caches the derived key — the dev-fallback warning fires once, not per encrypt()', () => {
+    // key() guards deriveKey() behind `if (!_key)`. If that guard were always
+    // true, deriveKey would run on every encrypt and (in the fallback path)
+    // re-emit the [SECURITY] warning every time.
+    delete process.env.ENCRYPTION_KEY;
+    _setSaltForTesting(TEST_SALT); // clears the cached _key
+    encrypt('a');
+    encrypt('b');
+    encrypt('c');
+    const securityWarns = warnSpy.mock.calls
+      .flat()
+      .filter((s) => /\[SECURITY\] ENCRYPTION_KEY not set/.test(String(s)));
+    expect(securityWarns).toHaveLength(1);
+  });
+
   it('throws in production when ENCRYPTION_KEY is missing', () => {
     // _setSaltForTesting must run while NODE_ENV is still 'test' (its own
     // guard); switch to 'production' after to trigger deriveKey's path.
@@ -227,6 +242,39 @@ describe('initCrypto', () => {
     expect(db.get).toHaveBeenCalledTimes(2);
     expect(db.get.mock.calls[1][0]).toBe('SELECT value FROM settings WHERE key = $1');
     expect(db.get.mock.calls[1][1]).toEqual(['encryption_salt']);
+    _setSaltForTesting(TEST_SALT);
+  });
+
+  it('actually adopts the stored salt — distinct stored salts yield non-interchangeable keys', async () => {
+    // It's not enough that initCrypto ran without error; the loaded salt must
+    // actually feed key derivation. Encrypt under stored salt A, re-init under
+    // stored salt B: B's key must differ, so A's ciphertext no longer decrypts.
+    db.get.mockResolvedValueOnce({ value: 'stored-salt-AAAAAAAA' });
+    await initCrypto();
+    const ctUnderA = encrypt('secret-payload');
+    db.get.mockResolvedValueOnce({ value: 'stored-salt-BBBBBBBB' });
+    await initCrypto();
+    expect(() => decrypt(ctUnderA)).toThrow();
+    _setSaltForTesting(TEST_SALT);
+  });
+
+  it('adopts the race-winner salt from the post-insert re-read, not the salt it tried to insert', async () => {
+    // First SELECT null → we generate + INSERT a random salt. Second SELECT
+    // returns a *different* salt (another process won the race). The re-read
+    // value must be the one that drives key derivation.
+    db.get.mockResolvedValueOnce(null).mockResolvedValueOnce({ value: 'race-winner-salt-XYZ' });
+    await initCrypto();
+    const ct = encrypt('x');
+    _setSaltForTesting('race-winner-salt-XYZ');
+    expect(decrypt(ct)).toBe('x'); // key was derived from the race winner
+    _setSaltForTesting(TEST_SALT);
+  });
+
+  it('does not crash when the post-insert re-read also returns null', async () => {
+    // The `if (check)` guard on the re-read must hold: if it were always taken,
+    // `check.value` on a null row would throw.
+    db.get.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    await expect(initCrypto()).resolves.toBeUndefined();
     _setSaltForTesting(TEST_SALT);
   });
 });
