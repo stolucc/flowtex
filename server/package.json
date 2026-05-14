@@ -10,11 +10,11 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "connect-pg-simple": "^10.0.0",
-    "cookie": "^0.7.2",
+    "cookie": "^1.1.1",
     "cookie-parser": "^1.4.7",
     "cookie-signature": "^1.2.2",
     "cors": "^2.8.5",

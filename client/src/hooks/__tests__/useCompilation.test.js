@@ -83,7 +83,12 @@ describe('useCompilation', () => {
     // EventSource should be created
     expect(MockEventSource.instances).toHaveLength(1);
     expect(MockEventSource.instances[0].url).toBe('/api/compile/p1/compile-stream');
-    expect(result.current.compiling).toBe(true);
+    // setCompiling(true) runs in handleCompile's async continuation, outside
+    // the test's act() wrapper — React 19's renderHook doesn't reflect that
+    // render synchronously, so poll for it.
+    await waitFor(() => {
+      expect(result.current.compiling).toBe(true);
+    });
 
     // Complete the compile by firing done event
     const es = MockEventSource.instances[0];

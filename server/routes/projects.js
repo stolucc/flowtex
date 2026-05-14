@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import multer from 'multer';
 import db from '../db.js';
 import logger from '../logger.js';
@@ -416,7 +416,7 @@ router.get('/:id/zip', async (req, res) => {
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.pipe(res);
   for (const f of files) archive.append(f.is_binary ? Buffer.from(f.content, 'base64') : f.content, { name: f.path });
   archive.finalize();
@@ -434,7 +434,7 @@ router.get('/:id/zip-used', async (req, res) => {
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.pipe(res);
   for (const f of usedFiles)
     archive.append(f.is_binary ? Buffer.from(f.content, 'base64') : f.content, { name: f.path });

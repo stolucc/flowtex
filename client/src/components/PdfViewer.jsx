@@ -436,9 +436,8 @@ const PdfViewer = forwardRef(function PdfViewer(
         proxy.textLayerDiv = textLayerDiv;
 
         // Render canvas
-        const ctx = canvas.getContext('2d');
         const renderViewport = pdfPage.getViewport({ scale: pageScale * dpr });
-        await pdfPage.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+        await pdfPage.render({ canvas, viewport: renderViewport }).promise;
         if (cancelled) return;
 
         // Render text layer

@@ -481,7 +481,7 @@ class ImageWidget extends WidgetType {
           canvas.style.height = viewport.height + 'px';
           const ctx = canvas.getContext('2d');
           ctx.scale(dpr, dpr);
-          await page.render({ canvasContext: ctx, viewport }).promise;
+          await page.render({ canvas, viewport }).promise;
         } catch { showBadgeFallback(); }
       }).catch(() => showBadgeFallback());
     } else {

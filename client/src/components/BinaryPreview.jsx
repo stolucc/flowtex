@@ -71,7 +71,7 @@ export default function BinaryPreview({ file }) {
           ctx.scale(dpr, dpr);
           wrapper.appendChild(canvas);
           containerRef.current.appendChild(wrapper);
-          await page.render({ canvasContext: ctx, viewport }).promise;
+          await page.render({ canvas, viewport }).promise;
         }
       } catch {
         if (!cancelled && containerRef.current) {
