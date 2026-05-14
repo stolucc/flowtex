@@ -84,6 +84,8 @@ Key environment variables:
 | `ENCRYPTION_KEY` | dev default | **Must change in production** — AES-256 key for GitHub token encryption |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3001` | Comma-separated allowed origins |
 | `REDIS_URL` | (none) | Redis URL for multi-instance WebSocket scaling |
+| `INSTANCE_ID` | (none) | Per-instance log label; set when running multiple instances behind a load balancer |
+| `DISABLE_TLS_REDIRECT` | (none) | Set to `1` when a reverse proxy terminates TLS upstream (required for load-balanced deploys) |
 | `LOG_LEVEL` | `debug`/`info` | Pino log level (trace/debug/info/warn/error/fatal) |
 | `NODE_ENV` | `development` | Set to `production` for TLS enforcement + security checks |
 

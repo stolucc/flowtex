@@ -192,6 +192,8 @@ sudo apt-get install -y nginx certbot python3-certbot-nginx</code></pre>
 
 <div class="note"><strong>WebSocket support:</strong> The <code>Upgrade</code> and <code>Connection</code> headers are essential &mdash; FlowTex uses WebSockets for real-time collaboration.</div>
 
+<div class="note"><strong>Multiple instances:</strong> the single-upstream examples above are for one app instance. To run several behind this proxy, see §4.8 &mdash; the <code>reverse_proxy</code> block takes a space-separated list of upstreams plus a load-balancing policy and health checks.</div>
+
 <h3>3.3 tex-fmt <span class="tag tag-opt">Optional</span></h3>
 <p>An alternative LaTeX formatter (faster than latexindent). Not available via apt; install from <a href="https://github.com/WGUNDERWOOD/tex-fmt/releases">GitHub releases</a>.</p>
 
@@ -266,9 +268,17 @@ LOG_LEVEL=info
 <span class="comment"># SOFFICE_BIN=/usr/bin/soffice</span>
 
 <span class="comment"># TLS redirect — when NODE_ENV=production, FlowTex redirects HTTP &rarr; HTTPS</span>
-<span class="comment"># based on X-Forwarded-Proto. If your reverse proxy already terminates</span>
-<span class="comment"># TLS upstream and sets a different header, set this to 1 to skip.</span>
-<span class="comment"># DISABLE_TLS_REDIRECT=1</span></code></pre>
+<span class="comment"># based on X-Forwarded-Proto. Set to 1 when a reverse proxy terminates TLS</span>
+<span class="comment"># upstream — otherwise the proxy's loopback health probe (which carries no</span>
+<span class="comment"># X-Forwarded-Proto) gets 301'd and the instance is marked unhealthy.</span>
+<span class="comment"># Required for any load-balanced deployment (see §4.8).</span>
+<span class="comment"># DISABLE_TLS_REDIRECT=1</span>
+
+<span class="comment"># Instance label — when running multiple instances behind a load balancer,</span>
+<span class="comment"># set a unique value per process. It's added to every log line as</span>
+<span class="comment"># "instance", so aggregated logs stay attributable. Optional; unset on a</span>
+<span class="comment"># single-instance deploy. See §4.8.</span>
+<span class="comment"># INSTANCE_ID=flowtex-1</span></code></pre>
 
 <div class="warn"><strong>Security:</strong> Generate unique values for <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code>. Never reuse these across environments. Set file permissions: <code>chmod 600 .env</code>. Ownership: the user that runs the FlowTex process should own <code>.env</code>; nothing else should be able to read it.</div>
 
@@ -369,6 +379,93 @@ docker compose logs -f app</code></pre>
 <div class="note"><strong>DOCX image conversion in containers:</strong> the default base image does not include <code>rsvg-convert</code> / <code>imagemagick</code> / <code>libreoffice</code>. The compose file therefore sets <code>DISABLE_IMAGE_CONVERSION=1</code> and DOCX images appear as placeholders. To enable, build a custom base that installs those packages plus <code>docs/imagemagick-policy.xml</code> and unset the env var.</div>
 
 <div class="note"><strong>Scaling out with Redis (compose):</strong> the bundled <code>docker-compose.yml</code> has a commented-out <code>redis</code> service. To run multiple <code>app</code> replicas, uncomment the redis block, set <code>REDIS_URL: redis://redis:6379</code> on the <code>app</code> service, and bring up multiple replicas with <code>docker compose up -d --scale app=3</code>. Caddy will round-robin across them; cross-instance broadcasts cross via Redis. See §3.1 for the same details on bare metal.</div>
+
+<h2>4.8 Horizontal Scaling (multiple instances)</h2>
+<p>A single instance handles ~1500 concurrent connections (§3.1), so most deployments never need this. When you do outgrow one box's worth of CPU, FlowTex scales horizontally with no application changes: sessions live in PostgreSQL (any instance can serve any request) and real-time WebSocket broadcasts fan out through Redis. This section is the bare-metal equivalent of the Docker <code>--scale</code> note in §4.7.</p>
+
+<p><strong>Prerequisites:</strong> Redis running and reachable (§3.1), and <code>REDIS_URL</code> set in <code>.env</code> — without it each instance is an island and users on different instances won't see each other's edits.</p>
+
+<h3>4.8.1 Templated systemd unit</h3>
+<p>Replace the single <code>flowtex.service</code> from §4.3 with a template unit, <code>/etc/systemd/system/flowtex@.service</code>. The <code>%i</code> instance specifier becomes the listen port:</p>
+<pre><code>[Unit]
+Description=FlowTex instance on port %i
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=flowtex
+Group=flowtex
+WorkingDirectory=/opt/flowtex
+EnvironmentFile=/opt/flowtex/.env
+<span class="comment"># These three override whatever is in .env, per-instance.</span>
+<span class="comment"># systemd applies Environment= after EnvironmentFile=, so the</span>
+<span class="comment"># per-instance values win — remove PORT from .env to avoid confusion.</span>
+Environment=PORT=%i
+Environment=INSTANCE_ID=flowtex-%i
+<span class="comment"># Required: Caddy health-probes each instance over loopback with no</span>
+<span class="comment"># X-Forwarded-Proto. With the redirect on, the probe is 301'd and the</span>
+<span class="comment"># instance is dropped from the pool. Caddy enforces TLS at the edge.</span>
+Environment=DISABLE_TLS_REDIRECT=1
+ExecStart=/usr/bin/node --env-file=/opt/flowtex/.env /opt/flowtex/server/index.js
+Restart=on-failure
+RestartSec=5
+
+<span class="comment"># Hardening — same as the single-instance unit</span>
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flowtex/projects /opt/flowtex/git-repos /opt/flowtex/server/logs
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<pre><code><span class="comment"># Bring up two instances on ports 3001 and 3002</span>
+sudo systemctl daemon-reload
+sudo systemctl enable --now flowtex@3001 flowtex@3002
+
+<span class="comment"># Status / logs for all instances at once</span>
+systemctl status 'flowtex@*'
+journalctl -u 'flowtex@*' -f</code></pre>
+
+<div class="note"><strong>Plain HTTP upstreams:</strong> in a load-balanced setup the app instances should <em>not</em> have <code>server/certs/cert.pem</code> &mdash; with no certs present each instance serves plain HTTP, and Caddy is the single TLS terminator. If you keep certs in place the instances serve HTTPS and the <code>reverse_proxy</code> block below must use <code>https://</code> upstreams plus <code>transport http { tls_insecure_skip_verify }</code>.</div>
+
+<h3>4.8.2 Load-balancer block</h3>
+<p>Point Caddy (§3.2) at every instance. Sessions are in Postgres and broadcasts cross via Redis, so <strong>sticky sessions are not required</strong> &mdash; any client can land on any instance:</p>
+<pre><code>flowtex.example.com {
+    reverse_proxy localhost:3001 localhost:3002 {
+        <span class="comment"># least_conn suits long-lived WebSocket connections better</span>
+        <span class="comment"># than the default round-robin.</span>
+        lb_policy least_conn
+
+        <span class="comment"># Active health checks: pull a dead instance out of rotation,</span>
+        <span class="comment"># bring it back automatically when it recovers.</span>
+        health_uri /api/health
+        health_interval 10s
+        health_timeout 3s
+        fail_duration 10s
+    }
+}</code></pre>
+<p>Reload with <code>sudo systemctl reload caddy</code>. Adding or removing an instance is then: <code>systemctl enable --now flowtex@3003</code>, add <code>localhost:3003</code> to the <code>reverse_proxy</code> line, reload Caddy.</p>
+
+<h3>4.8.3 Verify</h3>
+<pre><code><span class="comment"># Both instances subscribed to the broadcast channel (expect: 2)</span>
+redis-cli pubsub numsub flowtex:ws
+
+<span class="comment"># Caddy sees both upstreams healthy</span>
+journalctl -u caddy | grep "health_checker"   <span class="comment"># expect "host is up" for each</span>
+
+<span class="comment"># Logs are attributable — every line carries its instance label</span>
+journalctl -u 'flowtex@*' -o cat | grep -o '"instance":"[^"]*"' | sort | uniq -c</code></pre>
+<p>For an end-to-end check of cross-instance broadcast, run the bundled e2e test described in §3.1.</p>
+<p>To confirm the balancer actually spreads traffic, drive load through it with the bundled harness &mdash; <code>--target</code> points it at the proxy instead of one instance, <code>--origin</code> sets the <code>Origin</code> header to match <code>APP_URL</code>:</p>
+<pre><code>node --env-file=.env server/loadtest.js --users 150 --duration 40 \
+  --target https://flowtex.example.com --origin https://flowtex.example.com
+
+<span class="comment"># While it runs, connections should split roughly evenly:</span>
+ss -tnp | grep -c ':3001'   <span class="comment"># instance 1's share</span>
+ss -tnp | grep -c ':3002'   <span class="comment"># instance 2's share</span></code></pre>
 
 <h2>5. Quick Install Script</h2>
 <p>Copy and run on a fresh Ubuntu 22.04+ server:</p>

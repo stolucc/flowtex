@@ -3,12 +3,18 @@
  *
  * Usage:
  *   node --env-file=.env loadtest.js [--users N] [--docs N] [--duration S] [--compile S]
+ *                                    [--target URL] [--origin URL]
  *
  * Defaults: 500 users, 100 documents, 120 seconds.
  * --compile S: each project triggers a compile every S seconds (default: off).
  *              The interval is jittered ±25% per project to avoid thundering herd.
  *              Note: server rate limit is 5 compiles/project/60s, so use ≥15s.
- * Requires the FlowTex server to be running on PORT (default 3001).
+ * --target URL: origin to dial (default https://localhost:PORT). Point at a
+ *              load balancer to exercise the whole front; use an IP if the LB
+ *              hostname isn't in DNS.
+ * --origin URL: Origin header to send (default = target's origin). Must match
+ *              the server's APP_URL or the WS handshake is rejected.
+ * Requires a FlowTex server (or LB) reachable at --target.
  */
 
 // Allow self-signed certs for fetch() in dev
@@ -25,6 +31,10 @@ function getArg(name, fallback) {
   const idx = args.indexOf(`--${name}`);
   return idx !== -1 && args[idx + 1] ? Number(args[idx + 1]) : fallback;
 }
+function getStrArg(name, fallback) {
+  const idx = args.indexOf(`--${name}`);
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
+}
 
 const NUM_USERS = getArg('users', 500);
 const NUM_DOCS = getArg('docs', 100);
@@ -37,8 +47,22 @@ const COMPILE_INTERVAL_S = getArg('compile', 0); // 0 = disabled
 const CHAT_RATE_MS = getArg('chat-rate', 0); // 0 = disabled
 const PORT = process.env.PORT || 3001;
 const SESSION_SECRET = process.env.SESSION_SECRET;
-const BASE_URL = `https://localhost:${PORT}`;
-const WS_URL = `wss://localhost:${PORT}/ws`;
+// --target: the origin to actually dial. Point it at a reverse proxy / load
+//   balancer to exercise the whole front. Use an IP (e.g. https://127.0.0.1:8443)
+//   if the LB hostname isn't in DNS — node's resolver, unlike browsers, does
+//   not special-case *.localhost.
+// --origin: the Origin header to claim; must match the server's APP_URL
+//   (the WS handshake rejects mismatched origins). Defaults to the target's
+//   own origin, which is correct for a direct single-instance hit.
+const TARGET = getStrArg('target', process.env.TARGET_URL || `https://localhost:${PORT}`);
+const ORIGIN = getStrArg('origin', new URL(TARGET).origin);
+const BASE_URL = TARGET.replace(/\/$/, '');
+const WS_URL = BASE_URL.replace(/^http/, 'ws') + '/ws';
+// When --target dials an IP but the load balancer routes by hostname (its
+// site block is keyed on a name, not the IP), the Host header has to carry
+// that name or the request misses the site and never gets proxied. Derive
+// it from --origin, which already encodes the intended hostname.
+const HOST_HEADER = new URL(ORIGIN).host;
 
 if (!SESSION_SECRET) {
   console.error('SESSION_SECRET must be set (load .env)');
@@ -557,7 +581,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
     const connectStart = Date.now();
 
     const ws = new WebSocket(WS_URL, {
-      headers: { Cookie: cookieHeader, Origin: `https://localhost:${PORT}` },
+      headers: { Cookie: cookieHeader, Origin: ORIGIN, Host: HOST_HEADER },
       rejectUnauthorized: false, // self-signed cert in dev
     });
 
@@ -744,7 +768,7 @@ function startCompileSchedulers(projectIds, sessionIds, csrfTokens) {
       try {
         const resp = await fetch(`${BASE_URL}/api/compile/${projectId}`, {
           method: 'POST',
-          headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken },
+          headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken, Host: HOST_HEADER },
         });
         const latency = Date.now() - start;
         metrics.compileLatencies.push(latency);
@@ -797,7 +821,7 @@ async function main() {
   console.log(`\n=== FlowTex Load Test ===`);
   console.log(`Users: ${NUM_USERS} | Documents: ${NUM_DOCS} | Duration: ${DURATION_S}s`);
   if (COMPILE_INTERVAL_S > 0) console.log(`Compile: every ~${COMPILE_INTERVAL_S}s per project`);
-  console.log(`Target: ${WS_URL}\n`);
+  console.log(`Target: ${WS_URL}  (Origin: ${ORIGIN})\n`);
 
   let testData;
   try {

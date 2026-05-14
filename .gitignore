@@ -28,6 +28,10 @@ projects/
 # R session history (created by RStudio when opened in this dir)
 .Rhistory
 
+# Local user-space deploy scaffolding (machine-specific paths + runtime logs).
+# Portable deployment guidance lives in docs/installation.html.
+deploy/
+
 # Playwright artefacts
 test-results/
 playwright-report/
