@@ -467,41 +467,31 @@ journalctl -u 'flowtex@*' -o cat | grep -o '"instance":"[^"]*"' | sort | uniq -c
 ss -tnp | grep -c ':3001'   <span class="comment"># instance 1's share</span>
 ss -tnp | grep -c ':3002'   <span class="comment"># instance 2's share</span></code></pre>
 
-<h2>5. Quick Install Script</h2>
-<p>Copy and run on a fresh Ubuntu 22.04+ server:</p>
-<pre><code>#!/bin/bash
-set -e
+<h2>5. One-Shot Provisioner</h2>
+<p>For a fresh Ubuntu 22.04/24.04 VPS (e.g. a Contabo Cloud VPS), the repo
+ships <code>scripts/provision-vps.sh</code> — it does everything in sections
+2&ndash;4 in one run: installs all packages, creates the database, clones and
+builds the app, generates secrets and a production <code>.env</code>, installs
+a hardened systemd service behind Caddy with automatic HTTPS, opens the
+firewall, and starts it.</p>
 
-<span class="comment"># System packages (texlive-full is ~7GB; pre-stage on slow links)</span>
-sudo apt-get update
-sudo apt-get install -y build-essential python3 git postgresql-16 texlive-full \
-                        librsvg2-bin imagemagick libreoffice
+<div class="note"><strong>Prerequisite:</strong> a DNS A/AAAA record for your
+domain must already point at the VPS — Caddy fetches the TLS certificate on
+first start.</div>
 
-<span class="comment"># Node.js 22</span>
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
-sudo apt-get install -y nodejs
+<pre><code><span class="comment"># On the fresh VPS, as root:</span>
+curl -fsSL https://raw.githubusercontent.com/stolucc/flowtex/main/scripts/provision-vps.sh -o provision-vps.sh
+DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com bash provision-vps.sh</code></pre>
 
-<span class="comment"># Caddy (reverse proxy)</span>
-sudo apt-get install -y caddy
+<p>Optional env vars: <code>REPO_URL</code>, <code>BRANCH</code>,
+<code>APP_DIR</code> (default <code>/opt/flowtex</code>), <code>APP_USER</code>
+(default <code>flowtex</code>), <code>WITH_REDIS</code> (default <code>0</code>
+&mdash; only needed for multi-instance, see &sect;4.8), <code>WITH_DOCX</code>
+(default <code>1</code> &mdash; the DOCX-import image toolchain).</p>
 
-<span class="comment"># Create database</span>
-sudo -u postgres createuser --pwprompt flowtex
-sudo -u postgres createdb -O flowtex flowtex
-
-<span class="comment"># Application setup</span>
-cd /opt/flowtex
-npm install --prefix server --production
-npm install --prefix client
-cd client && npx vite build && cd ..
-cp -r client/dist/* server/public/
-
-<span class="comment"># Generate secrets</span>
-echo "SESSION_SECRET=$(openssl rand -hex 64)" >> .env
-echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
-chmod 600 .env
-
-echo "Done. Edit .env with your database password, domain, and SMTP settings, then start with:"
-echo "  node --env-file=.env server/index.js"</code></pre>
+<p>Re-running the script pulls the latest <code>BRANCH</code>, rebuilds, and
+restarts &mdash; so it doubles as the upgrade path. An existing
+<code>.env</code> is left untouched, so secrets are never rotated by accident.</p>
 
 <h2>6. Summary of All Packages</h2>
 
