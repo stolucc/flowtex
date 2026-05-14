@@ -9769,14 +9769,22 @@ kbd {
   font-size: 12px;
 }
 .tc-panel-bulk button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.tc-panel-list {
-  list-style: none;
-  margin: 0;
+/* Wrapper owns the scroll: when positioned mode computes a min-height
+   on the <ul> that exceeds the visible area, this scrolls. Without
+   this split, the <ul> grew past the panel and was clipped by the
+   panel's overflow:hidden — no scrollbar appeared. */
+.tc-panel-list-scroll {
+  flex: 1;
+  overflow-y: auto;
   /* Internal padding so cards have breathing room from the panel edges,
      matching the comments sidebar's list padding. */
   padding: 8px;
-  overflow-y: auto;
-  flex: 1;
+  min-height: 0;
+}
+.tc-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .tc-panel-list.positioned {
   position: relative;

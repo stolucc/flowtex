@@ -112,6 +112,7 @@ export default function TrackChangesPanel({
             <button onClick={onAcceptAll}>Accept all</button>
             <button onClick={onRejectAll}>Reject all</button>
           </div>
+          <div className="tc-panel-list-scroll">
           <ul ref={listRef} className={`tc-panel-list ${isPositioned ? 'positioned' : ''}`}>
             {cards.map((c) => (
               <li
@@ -175,6 +176,7 @@ export default function TrackChangesPanel({
               </li>
             ))}
           </ul>
+          </div>
         </>
       )}
     </div>
