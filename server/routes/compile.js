@@ -129,8 +129,9 @@ router.post('/format', async (req, res) => {
   const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));
   if (!fmt) return res.status(400).json({ error: 'No formatter available' });
 
+  let tmpDir;
   try {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-fmt-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-fmt-'));
     const tmpFile = path.join(tmpDir, 'input.tex');
     fs.writeFileSync(tmpFile, content);
 
@@ -145,14 +146,18 @@ router.post('/format', async (req, res) => {
       return res.status(400).json({ error: 'Unknown formatter' });
     }
 
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
-
     res.json({ formatted });
   } catch (err) {
     logger.error({ err }, 'Format error');
     res.status(500).json({ error: safeMsg(err, 'Formatting failed') });
+  } finally {
+    // Always clean up — covers the formatter timeout/error path and the
+    // early return for an unknown formatter id, not just the success case.
+    if (tmpDir) {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
 });
 

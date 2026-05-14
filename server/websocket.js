@@ -600,19 +600,29 @@ export function initWebSocket(server, app, sessionSecret) {
       // Basic message schema validation
       if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
 
-      if (msg.type === 'join') {
-        await handleJoin(ws, msg, state);
-        return;
-      }
+      // A handler throwing (e.g. a transient DB error inside isFileInProject)
+      // must not escape as an unhandled rejection — contain it per-message so
+      // one bad message can't disrupt the connection's message pump.
+      try {
+        if (msg.type === 'join') {
+          await handleJoin(ws, msg, state);
+          return;
+        }
 
-      if (!state.projectId || !state.clientEntry) return;
+        if (!state.projectId || !state.clientEntry) return;
 
-      // Viewers can only send cursor updates
-      if (state.memberRole === 'viewer' && writeTypes.has(msg.type)) return;
+        // Viewers can only send cursor updates
+        if (state.memberRole === 'viewer' && writeTypes.has(msg.type)) return;
 
-      const handler = messageHandlers[msg.type];
-      if (handler) {
-        await handler(msg, state, ws);
+        const handler = messageHandlers[msg.type];
+        if (handler) {
+          await handler(msg, state, ws);
+        }
+      } catch (err) {
+        logger.error(
+          { err, msgType: msg.type, userId: state.authenticatedUserId },
+          'WS message handler error',
+        );
       }
     }
 
