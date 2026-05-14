@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { get, post } from '../api.js';
+import { get, post, del } from '../api.js';
 import { getColor } from './Avatar.jsx';
 import lineDiff from '../utils/lineDiff.js';
 import { formatRelativeTime as formatDate } from '../utils/dateFormat.js';
@@ -298,6 +298,14 @@ export default function HistoryPanel({
   const [restoring, setRestoring] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [viewingFile, setViewingFile] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null); // { snap, x, y, targets: string[] }
+  const [confirmDelete, setConfirmDelete] = useState(null); // { targets: string[], primary: snap } | null
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+  // Multi-select state for the history list. Plain click collapses to one,
+  // shift-click extends a range from the anchor, cmd/ctrl-click toggles.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [anchorId, setAnchorId] = useState(null);
 
   const pendingAutoSelect = useRef(true);
   // Per-mount memo of computed diffs, keyed by `${snapshotId}:${fileId}`.
@@ -323,7 +331,10 @@ export default function HistoryPanel({
   useEffect(() => {
     if (pendingAutoSelect.current && snapshots.length > 0 && !selected) {
       pendingAutoSelect.current = false;
-      selectSnapshot(snapshots[0]);
+      const first = snapshots[0];
+      setSelectedIds(new Set([first.id]));
+      setAnchorId(first.id);
+      selectSnapshot(first);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshots]);
@@ -370,6 +381,90 @@ export default function HistoryPanel({
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, historyFileId]);
+
+  /** Click on a history entry — handles plain / shift / cmd-or-ctrl. */
+  const handleEntryClick = useCallback(
+    (e, snap) => {
+      const idx = snapshots.findIndex((s) => s.id === snap.id);
+      if (idx < 0) return;
+      if (e.shiftKey && anchorId) {
+        const aIdx = snapshots.findIndex((s) => s.id === anchorId);
+        if (aIdx >= 0) {
+          const [lo, hi] = aIdx < idx ? [aIdx, idx] : [idx, aIdx];
+          setSelectedIds(new Set(snapshots.slice(lo, hi + 1).map((s) => s.id)));
+          // Still show the diff for the just-clicked one — anchor stays put.
+          selectSnapshot(snap);
+          return;
+        }
+      }
+      if (e.metaKey || e.ctrlKey) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(snap.id)) next.delete(snap.id);
+          else next.add(snap.id);
+          return next;
+        });
+        setAnchorId(snap.id);
+        return;
+      }
+      setSelectedIds(new Set([snap.id]));
+      setAnchorId(snap.id);
+      selectSnapshot(snap);
+    },
+    [snapshots, anchorId, selectSnapshot],
+  );
+
+  // Close the context menu on any click/escape outside it.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e) => { if (e.key === 'Escape') setContextMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  /** Delete one or many snapshots and remove them from the local list. */
+  const handleDelete = async () => {
+    const targets = confirmDelete?.targets || [];
+    if (targets.length === 0 || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = targets.length === 1
+        ? await del(`/api/history/snapshot/${targets[0]}`)
+        : await del('/api/history/snapshots', { ids: targets });
+      if (!res.ok) {
+        // 409 = last-snapshot guard. Show the server's message rather than
+        // a generic failure so the user understands why.
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data?.error || `HTTP ${res.status}`);
+        setDeleting(false);
+        return;
+      }
+      const targetSet = new Set(targets);
+      setSnapshots((prev) => prev.filter((s) => !targetSet.has(s.id)));
+      setSelectedIds(new Set());
+      setAnchorId(null);
+      if (selected && targetSet.has(selected.id)) {
+        setSelected(null);
+        setDiff(null);
+        setViewingFile(null);
+        onSelectVersion?.(null);
+      }
+      diffCache.current.forEach((_, k) => {
+        const sid = k.split(':')[0];
+        if (targetSet.has(sid)) diffCache.current.delete(k);
+      });
+    } catch (e) {
+      console.error('Delete snapshot(s) failed', e);
+    }
+    setDeleting(false);
+    setConfirmDelete(null);
+  };
 
   /** Restore all project files to the selected snapshot's state. */
   const handleRestore = async () => {
@@ -454,8 +549,20 @@ export default function HistoryPanel({
               {items.map((v) => (
                 <div
                   key={v.id}
-                  className={`history-entry ${selected?.id === v.id ? 'active' : ''}`}
-                  onClick={() => selectSnapshot(v)}
+                  className={`history-entry${selected?.id === v.id ? ' active' : ''}${selectedIds.has(v.id) ? ' multi-selected' : ''}`}
+                  onClick={(e) => handleEntryClick(e, v)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    // Right-clicking outside the multi-selection collapses
+                    // it to just this one; right-clicking inside keeps it.
+                    const inSelection = selectedIds.has(v.id) && selectedIds.size > 1;
+                    const targets = inSelection ? Array.from(selectedIds) : [v.id];
+                    if (!inSelection) {
+                      setSelectedIds(new Set([v.id]));
+                      setAnchorId(v.id);
+                    }
+                    setContextMenu({ snap: v, x: e.clientX, y: e.clientY, targets });
+                  }}
                 >
                   <div className="history-entry-top">
                     <span className="history-entry-file">{v.label || 'Snapshot'}</span>
@@ -473,6 +580,71 @@ export default function HistoryPanel({
           ))}
         </div>
       </div>
+      {contextMenu && (
+        <div
+          className="history-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          role="menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="history-context-menu-item history-context-menu-danger"
+            onClick={() => {
+              setConfirmDelete({ targets: contextMenu.targets, primary: contextMenu.snap });
+              setContextMenu(null);
+            }}
+          >
+            {contextMenu.targets.length > 1
+              ? `Delete ${contextMenu.targets.length} snapshots…`
+              : 'Delete snapshot…'}
+          </button>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => { if (!deleting) { setConfirmDelete(null); setDeleteError(null); } }}>
+          <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>
+              {confirmDelete.targets.length > 1
+                ? `Delete ${confirmDelete.targets.length} snapshots?`
+                : 'Delete this snapshot?'}
+            </h2>
+            <p className="history-restore-modal-desc">
+              {confirmDelete.targets.length > 1 ? (
+                <>The selected snapshots will be permanently removed.</>
+              ) : (
+                <>
+                  <strong>{confirmDelete.primary.label || 'Snapshot'}</strong> from{' '}
+                  <strong>{formatDate(confirmDelete.primary.created_at)}</strong> will be permanently removed.
+                </>
+              )}
+            </p>
+            <p className="history-restore-modal-note">
+              Other snapshots are unaffected — each one is a full, independent copy.
+            </p>
+            {deleteError && (
+              <p className="history-restore-modal-error" role="alert">{deleteError}</p>
+            )}
+            <div className="history-restore-modal-actions">
+              <button
+                className="history-restore-modal-cancel"
+                onClick={() => { setConfirmDelete(null); setDeleteError(null); }}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="history-restore-modal-confirm"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirmRestore && selected && (
         <div className="modal-overlay" onClick={() => setConfirmRestore(false)}>
           <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>

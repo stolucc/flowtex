@@ -214,4 +214,73 @@ router.post('/restore/:snapshotId', async (req, res) => {
   res.json({ ok: true, files: restoredFiles });
 });
 
+/** DELETE /api/history/snapshots -- Bulk delete snapshots by id list. */
+router.delete('/snapshots', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => typeof x === 'string') : null;
+  if (!ids || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+  if (ids.length > 500) return res.status(400).json({ error: 'too many ids (max 500)' });
+
+  const rows = await db.all('SELECT id, project_id FROM project_snapshots WHERE id = ANY($1)', [ids]);
+  if (rows.length === 0) return res.status(404).json({ error: 'No snapshots found' });
+
+  // UI invariant: bulk-delete is scoped to one project. If a future caller
+  // mixes projects we want a 400 rather than a silent partial check.
+  const projectIds = new Set(rows.map((r) => r.project_id));
+  if (projectIds.size > 1) return res.status(400).json({ error: 'snapshots span multiple projects' });
+  const projectId = [...projectIds][0];
+
+  const member = await isProjectMember(projectId, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access to this project' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Only editors can delete snapshots' });
+
+  // Guard against wiping out every restore point in one call. Use COUNT(*)
+  // rather than comparing array lengths so it's correct even if duplicate
+  // ids were submitted.
+  const totalRow = await db.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [projectId]);
+  const foundIds = rows.map((r) => r.id);
+  if (Number(totalRow.count) <= foundIds.length) {
+    return res.status(409).json({ error: 'Cannot delete every snapshot of a project' });
+  }
+
+  await db.run('DELETE FROM project_snapshots WHERE id = ANY($1)', [foundIds]);
+  for (const id of foundIds) snapshotCache.delete(id);
+
+  await auditLog(req.session.userId, 'snapshots_bulk_deleted', {
+    targetType: 'project',
+    targetId: projectId,
+    detail: foundIds.join(','),
+    ip: req.ip,
+  });
+
+  res.json({ ok: true, deleted: foundIds.length });
+});
+
+/** DELETE /api/history/snapshot/:snapshotId -- Delete a single snapshot. */
+router.delete('/snapshot/:snapshotId', async (req, res) => {
+  const snap = await db.get('SELECT id, project_id FROM project_snapshots WHERE id = $1', [req.params.snapshotId]);
+  if (!snap) return res.status(404).json({ error: 'Snapshot not found' });
+
+  const member = await isProjectMember(snap.project_id, req.session.userId);
+  if (!member) return res.status(403).json({ error: 'No access to this project' });
+  if (member.role === 'viewer') return res.status(403).json({ error: 'Only editors can delete snapshots' });
+
+  // Refuse to delete the project's only restore point.
+  const totalRow = await db.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [snap.project_id]);
+  if (Number(totalRow.count) <= 1) {
+    return res.status(409).json({ error: 'Cannot delete the only remaining snapshot' });
+  }
+
+  await db.run('DELETE FROM project_snapshots WHERE id = $1', [snap.id]);
+  snapshotCache.delete(snap.id);
+
+  await auditLog(req.session.userId, 'snapshot_deleted', {
+    targetType: 'project',
+    targetId: snap.project_id,
+    detail: snap.id,
+    ip: req.ip,
+  });
+
+  res.json({ ok: true });
+});
+
 export default router;

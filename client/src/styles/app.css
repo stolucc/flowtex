@@ -1637,6 +1637,44 @@ html {
   background: var(--accent-hover);
 }
 
+.history-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.history-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.history-context-menu-item:hover {
+  background: var(--bg-hover);
+}
+.history-context-menu-danger {
+  color: var(--danger, #d11);
+}
+
+.history-restore-modal-error {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger, #d11) 12%, transparent);
+  color: var(--danger, #d11);
+  font-size: 13px;
+}
+
 .history-header-controls {
   display: flex;
   align-items: center;
@@ -1940,6 +1978,15 @@ html {
 .history-entry.active {
   background: var(--bg-surface);
   border-left: 2px solid var(--accent);
+}
+
+/* Multi-select: dimmer tint than .active so the one driving the diff
+   view still stands out when several are selected at once. */
+.history-entry.multi-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.history-entry.multi-selected.active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .history-entry-top {
