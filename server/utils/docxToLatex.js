@@ -3725,6 +3725,42 @@ function generateBibContent(bibEntries) {
 
 // ── Preamble ─────────────────────────────────────────────────────────────────
 
+/** Map DOCX font names that are not reliably available on Linux LaTeX
+ *  hosts to widely-shipped substitutes. The TeX Gyre family (always
+ *  present with TeX Live) is metric-compatible with the original PostScript
+ *  35 — Heros mirrors Helvetica, Termes mirrors Times, Pagella mirrors
+ *  Palatino, etc. — so substituted output stays close to the source.
+ *  Microsoft Core Fonts (installed by the provisioner under WITH_DOCX=1)
+ *  cover Arial / Times New Roman / Courier New / etc. natively.
+ *
+ *  Without this map xelatex bails with "Package fontspec Error: The font
+ *  '<NAME>' cannot be found" and falls through to METAFONT, which then
+ *  fails on missing .tfm files (the user-reported error).
+ *
+ *  Match is case-insensitive on the canonicalised name (whitespace and
+ *  punctuation stripped). Unknown fonts pass through unchanged. */
+const FONT_ALIAS_MAP = {
+  // Apple/Linotype proprietary — no Linux equivalent ships free.
+  helvetica: 'TeX Gyre Heros',
+  helveticaneue: 'TeX Gyre Heros',
+  // Adobe PostScript-35 — substitute with the metric-compatible Gyre fonts.
+  times: 'TeX Gyre Termes',
+  timesroman: 'TeX Gyre Termes',
+  palatino: 'TeX Gyre Pagella',
+  bookman: 'TeX Gyre Bonum',
+  avantgarde: 'TeX Gyre Adventor',
+  newcenturyschoolbook: 'TeX Gyre Schola',
+  zapfchancery: 'TeX Gyre Chorus',
+  // Courier — prefer mscorefonts' "Courier New" if available, else Gyre.
+  courier: 'TeX Gyre Cursor',
+};
+
+function aliasFont(name) {
+  if (typeof name !== 'string' || !name.trim()) return name;
+  const key = name.toLowerCase().replace(/[\s\-_]+/g, '');
+  return FONT_ALIAS_MAP[key] || name;
+}
+
 function buildPreamble(metadata, usedPackages, docClass = 'article') {
   const lines = [];
   let fontOpt = '12pt';
@@ -3740,7 +3776,7 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
     lines.push(`\\usepackage[top=${m.top}in,bottom=${m.bottom}in,left=${m.left}in,right=${m.right}in]{geometry}`);
   }
   lines.push('\\usepackage{fontspec}');
-  if (metadata.mainFont) lines.push(`\\setmainfont{${metadata.mainFont}}`);
+  if (metadata.mainFont) lines.push(`\\setmainfont{${aliasFont(metadata.mainFont)}}`);
   lines.push('\\usepackage{setspace}');
   if (metadata.lineSpacing) {
     lines.push(metadata.lineSpacing === '2' ? '\\doublespacing' : '\\onehalfspacing');
@@ -3777,7 +3813,7 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
       const secCmd = sectionMap[level];
       if (!secCmd) continue;
       const fontCmds = [];
-      if (info.font && info.font !== metadata.mainFont) fontCmds.push(`\\fontspec{${info.font}}`);
+      if (info.font && info.font !== metadata.mainFont) fontCmds.push(`\\fontspec{${aliasFont(info.font)}}`);
       if (info.bold !== false) fontCmds.push('\\bfseries');
       if (info.italic) fontCmds.push('\\itshape');
       // Don't use \scshape — many fonts (e.g. Helvetica) lack smallcaps glyphs,
@@ -3829,7 +3865,7 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
   if (metadata.titleStyle?.bold) titleFmt.push('\\bfseries');
   if (metadata.titleStyle?.italic) titleFmt.push('\\itshape');
   if (metadata.titleStyle?.font && metadata.titleStyle.font !== metadata.mainFont) {
-    titleFmt.push(`\\fontspec{${metadata.titleStyle.font}}`);
+    titleFmt.push(`\\fontspec{${aliasFont(metadata.titleStyle.font)}}`);
   }
   const titleFmtStr = titleFmt.join('');
   lines.push('\\makeatletter');
