@@ -352,10 +352,13 @@ router.delete('/users/:userId', async (req, res) => {
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
     const deleted = await adminDeleteUser(req.session.userId, req.body?.password, userId);
+    // Encode id/name/email in detail so the forensic trail survives the
+    // admin themselves being deleted (their audit_log rows have user_id
+    // nulled out in that case — see purgeUserInTx).
     await auditLog(req.session.userId, 'account_deleted_by_admin', {
       targetType: 'user',
       targetId: userId,
-      detail: deleted.email,
+      detail: JSON.stringify({ id: userId, email: deleted.email, name: deleted.name }),
       ip: req.ip,
     }).catch((e) => logger.warn({ err: e }, 'Audit log failed for admin user delete'));
     if (deleted.email) {

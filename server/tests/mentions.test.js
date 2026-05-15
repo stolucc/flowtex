@@ -166,6 +166,40 @@ describe('recordMentions', () => {
     expect(params).toEqual(['proj-42']);
   });
 
+  it('does not match @-tokens embedded mid-word (e.g. emails)', async () => {
+    // Function returns early with no @mention candidates — do NOT queue a
+    // db.all mock; an unconsumed mock would leak into the next test.
+    const result = await recordMentions({
+      text: 'send a mail to alice@example.com if needed',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+    });
+    expect(result).toEqual([]);
+    expect(db.all).not.toHaveBeenCalled();
+  });
+
+  it('rejects quoted mentions that try to span a newline', async () => {
+    // The quoted-branch regex excludes \n / \r, so '@"Two\nWords"' does not
+    // produce a 'two words' candidate — the falls-through unquoted branch
+    // captures '"Two' instead, which won't match a real member name.
+    db.all.mockResolvedValueOnce([{ id: 'q-id', name_lower: 'two words' }]);
+    const result = await recordMentions({
+      text: '@"Two\nWords" hello',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+    });
+    expect(result).toEqual([]);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates identical mentions in the same comment (only one row written)', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
+    const result = await recordMentions({
+      text: '@Alice please look here, @Alice really',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+    });
+    expect(result).toHaveLength(1);
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
   it('a quoted mention can contain spaces; an unquoted mention stops at whitespace', async () => {
     db.all.mockResolvedValueOnce([
       { id: 'q-id', name_lower: 'two words' },

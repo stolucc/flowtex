@@ -87,17 +87,27 @@ describe('GET /api/notifications/mentions', () => {
 });
 
 describe('POST /api/notifications/mentions/:id/seen', () => {
+  const VALID_UUID = '00000000-0000-4000-8000-000000000001';
+  const OTHER_UUID = '00000000-0000-4000-8000-000000000002';
   beforeEach(() => vi.clearAllMocks());
 
-  it('marks an existing mention as seen', async () => {
-    db.get.mockResolvedValueOnce({ id: 'm1' });
+  it('rejects a non-UUID id with 400 before any DB call', async () => {
     const handler = getHandler('post', '/mentions/:id/seen');
     const res = mockRes();
-    await handler(mockReq({ id: 'm1' }), res);
+    await handler(mockReq({ id: 'not-a-uuid' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(db.get).not.toHaveBeenCalled();
+  });
+
+  it('marks an existing mention as seen', async () => {
+    db.get.mockResolvedValueOnce({ id: VALID_UUID });
+    const handler = getHandler('post', '/mentions/:id/seen');
+    const res = mockRes();
+    await handler(mockReq({ id: VALID_UUID }), res);
 
     expect(db.run).toHaveBeenCalledWith(
       expect.stringMatching(/UPDATE comment_mentions SET seen_at = NOW\(\)/),
-      ['m1'],
+      [VALID_UUID],
     );
     expect(res.body).toEqual({ ok: true });
   });
@@ -106,7 +116,7 @@ describe('POST /api/notifications/mentions/:id/seen', () => {
     db.get.mockResolvedValueOnce(null);
     const handler = getHandler('post', '/mentions/:id/seen');
     const res = mockRes();
-    await handler(mockReq({ id: 'nope' }), res);
+    await handler(mockReq({ id: OTHER_UUID }), res);
 
     expect(res.statusCode).toBe(404);
     expect(db.run).not.toHaveBeenCalled();

@@ -315,7 +315,10 @@ async function initSchema() {
       comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
       reply_id TEXT REFERENCES comment_replies(id) ON DELETE CASCADE,
       mentioned_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      mentioner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      -- mentioner_user_id is SET NULL on user delete: when the mentioner is
+      -- gone, the recipient still wants to see "(deleted user) mentioned you
+      -- in <project>" rather than have the whole row disappear.
+      mentioner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       snippet TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -324,6 +327,18 @@ async function initSchema() {
     -- In-app "seen" state for the notification bell — separate from
     -- notified_at (email-sent state) so the two systems are independent.
     ALTER TABLE comment_mentions ADD COLUMN IF NOT EXISTS seen_at TIMESTAMPTZ;
+
+    -- Migration (2026-05-15): preserve a recipient's notification history when
+    -- the mentioner is deleted. Default Postgres FK names follow
+    -- "<table>_<column>_fkey"; we drop it and re-add as ON DELETE SET NULL.
+    -- DROP IF EXISTS + ADD is idempotent across re-runs and on fresh installs
+    -- (where the CREATE TABLE already created the constraint with the new
+    -- behavior, so the ALTERs just round-trip it).
+    ALTER TABLE comment_mentions ALTER COLUMN mentioner_user_id DROP NOT NULL;
+    ALTER TABLE comment_mentions DROP CONSTRAINT IF EXISTS comment_mentions_mentioner_user_id_fkey;
+    ALTER TABLE comment_mentions
+      ADD CONSTRAINT comment_mentions_mentioner_user_id_fkey
+      FOREIGN KEY (mentioner_user_id) REFERENCES users(id) ON DELETE SET NULL;
     CREATE INDEX IF NOT EXISTS idx_comment_mentions_inbox
       ON comment_mentions(mentioned_user_id, created_at DESC);
 
@@ -530,16 +545,26 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(user_id);
     CREATE INDEX IF NOT EXISTS idx_trusted_devices_token ON trusted_devices(token_hash);
 
-    -- Chat messages
+    -- Chat messages. user_id is SET NULL on user delete so co-members keep
+    -- the conversation history; user_name acts as the frozen tombstone.
     CREATE TABLE IF NOT EXISTS chat_messages (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       user_name TEXT NOT NULL,
       text TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_chat_messages_project ON chat_messages(project_id, created_at);
+
+    -- Migration (2026-05-15): chat_messages.user_id was originally NOT NULL
+    -- with ON DELETE CASCADE. We relax both so deleting a user preserves
+    -- their chat history across every project they participated in.
+    ALTER TABLE chat_messages ALTER COLUMN user_id DROP NOT NULL;
+    ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS chat_messages_user_id_fkey;
+    ALTER TABLE chat_messages
+      ADD CONSTRAINT chat_messages_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
     -- Emoji reactions on chat messages. The UNIQUE constraint is what enforces
     -- the toggle: each user can hold at most one of each emoji on each message,

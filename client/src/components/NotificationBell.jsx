@@ -69,7 +69,7 @@ export default function NotificationBell({ mentions, unreadCount, currentProject
                   onClick={() => handleClickMention(m)}
                 >
                   <div className="notif-line1">
-                    <strong>{m.mentioner_name || 'Someone'}</strong>
+                    <strong>{m.mentioner_name || '(deleted user)'}</strong>
                     <span className="notif-time">{relativeTime(m.created_at)}</span>
                   </div>
                   <div className="notif-line2">

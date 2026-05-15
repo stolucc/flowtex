@@ -505,6 +505,8 @@ async function purgeUserInTx(tx, user) {
   await tx.run('DELETE FROM project_github_links WHERE linked_by = $1', [user.id]);
   await tx.run('UPDATE audit_log SET user_id = NULL WHERE user_id = $1', [user.id]);
   await tx.run('DELETE FROM login_attempts WHERE email = $1', [user.email]);
+
+  // Drop projects where the user is the only member.
   await tx.run(
     `DELETE FROM projects WHERE id IN (
       SELECT p.id FROM projects p JOIN project_members pm ON p.id = pm.project_id
@@ -513,6 +515,27 @@ async function purgeUserInTx(tx, user) {
     )`,
     [user.id],
   );
+
+  // For projects the user owned where co-members exist, promote the
+  // longest-tenured remaining member to owner so the project doesn't end
+  // up un-administrable when the FK cascade wipes the owner row below.
+  await tx.run(
+    `UPDATE project_members AS new_owner SET role = 'owner'
+       FROM (
+         SELECT DISTINCT ON (pm.project_id) pm.project_id, pm.user_id
+           FROM project_members pm
+           JOIN project_members owner_row
+             ON owner_row.project_id = pm.project_id
+            AND owner_row.user_id = $1
+            AND owner_row.role = 'owner'
+          WHERE pm.user_id <> $1
+          ORDER BY pm.project_id, pm.created_at ASC, pm.user_id ASC
+       ) AS promotions
+       WHERE new_owner.project_id = promotions.project_id
+         AND new_owner.user_id    = promotions.user_id`,
+    [user.id],
+  );
+
   await tx.run('DELETE FROM users WHERE id = $1', [user.id]);
 }
 

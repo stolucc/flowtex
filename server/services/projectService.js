@@ -1206,9 +1206,18 @@ export async function deleteProject(projectId) {
 
 /** Duplicate a project and all its files, making the user the owner of the
  *  copy. Comments (incl. replies and emoji reactions) are also copied so the
- *  discussion thread carries over. The `comment_mentions` notification log
- *  is intentionally NOT copied — copying it would re-fire digest emails for
- *  past mentions, which isn't what anyone expects when cloning a project. */
+ *  discussion thread carries over.
+ *
+ *  Intentional omissions (mirrors what GitHub-fork / Docs-make-a-copy do):
+ *   - `comment_mentions`: copying would re-fire digest emails for past
+ *     mentions on the original project.
+ *   - `file_versions` and `project_snapshots`: the copy starts fresh; the
+ *     edit history of the source is bound to the source's collaborators
+ *     and timeline. Copying it would inflate storage (a snapshot can be
+ *     megabytes) and present misleading authorship for users who never
+ *     had access to the original. New history accrues from the moment of
+ *     copy; the *current* state of every file is preserved verbatim via
+ *     the files INSERTs below. */
 export async function copyProject(projectId, userId, newName) {
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');

@@ -10314,7 +10314,24 @@ kbd {
   font-style: italic;
 }
 .admin-delete-user-modal {
-  max-width: 460px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 460px;
+  max-width: 90vw;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.admin-delete-user-modal .modal-header {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-delete-user-modal .modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 .admin-delete-user-body {
   padding: 16px;

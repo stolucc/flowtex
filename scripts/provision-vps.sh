@@ -243,11 +243,19 @@ fi
 log "Installing dependencies and building the client (as $APP_USER)"
 sudo -u "$APP_USER" bash -euo pipefail <<BUILD
 cd "$APP_DIR"
+# Mark this repo as safe for git operations under the service user. Git
+# >= 2.35.2 refuses to operate on repos whose working dir is owned by a
+# different uid (the "dubious ownership" check) — on a fresh provision the
+# chown happens before this step so it would normally be fine, but a re-run
+# after a manual root-pull could leave \`.git/\` with mismatched ownership.
+# Without this guard, \`git rev-parse --short HEAD\` in the build script
+# would silently fail and the About modal would fall back to "dev".
+git config --global --add safe.directory "$APP_DIR"
 npm install --prefix server --omit=dev
 npm install --prefix client
-# `npm run build` (not `npx vite build`) so the package.json `build` script
-# runs — it bakes in VITE_BUILD_SHA (short git SHA) + VITE_BUILD_TIME, which
-# the About modal surfaces so operators can confirm what is deployed.
+# \`npm run build\` (not \`npx vite build\`) so the package.json build script
+# runs — it bakes in VITE_BUILD_SHA (short git SHA) + VITE_BUILD_TIME so the
+# About modal can show operators which commit is currently deployed.
 ( cd client && npm run build )
 cp -r client/dist/* server/public/
 BUILD
@@ -314,19 +322,26 @@ systemctl daemon-reload
 systemctl enable flowtex
 
 # ── Caddy ───────────────────────────────────────────────────────────────
-# Serve the apex domain and redirect the www subdomain to it (so the canonical
-# URL stays clean). Caddy will fetch certs for both automatically — this only
-# works if DNS for `www.$DOMAIN` resolves to this VPS (A/AAAA or CNAME to apex).
-log "Configuring Caddy for $DOMAIN + www.$DOMAIN (automatic HTTPS)"
+# Serve the apex domain and (when DNS allows) redirect the www subdomain
+# to it. If DNS for `www.$DOMAIN` doesn't resolve, we omit the www block
+# entirely — including a host Caddy can't reach makes ACME burn its
+# rate-limit (5 failures/hour) and floods the logs.
+if getent hosts "www.$DOMAIN" >/dev/null 2>&1; then
+  WWW_BLOCK="
+
+www.$DOMAIN {
+	redir https://$DOMAIN{uri} permanent
+}"
+  log "Configuring Caddy for $DOMAIN + www.$DOMAIN (automatic HTTPS)"
+else
+  WWW_BLOCK=""
+  log "Configuring Caddy for $DOMAIN only (www.$DOMAIN has no DNS record — add a CNAME/A and re-run to enable the redirect)"
+fi
 cat > /etc/caddy/Caddyfile <<CADDY
 $DOMAIN {
 	reverse_proxy localhost:3001
 	encode zstd gzip
-}
-
-www.$DOMAIN {
-	redir https://$DOMAIN{uri} permanent
-}
+}$WWW_BLOCK
 CADDY
 systemctl enable caddy
 

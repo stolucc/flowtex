@@ -6,14 +6,19 @@ import db from '../db.js';
  * Mention format: @Name or @"Full Name" (matches project member names, case-insensitive).
  */
 export async function recordMentions({ text, commentId, replyId, mentionerUserId, projectId }) {
-  // Extract raw mention strings: @Word or @"Multiple Words"
-  const mentionRe = /@"([^"]+)"|@(\S+)/g;
-  const rawMentions = [];
+  // Extract raw mention strings: @Word or @"Multiple Words".
+  // The leading lookbehind requires the @ to start the string or follow
+  // whitespace / a small set of punctuation — so emails (alice@example.com),
+  // citations, and other @-containing tokens are not treated as mentions.
+  // Quoted mentions reject embedded newlines so a `@"...\n..."` can't span
+  // an entire paragraph and balloon the candidate list.
+  const mentionRe = /(?:^|(?<=[\s([{<,;:!?]))@(?:"([^"\n\r]+)"|(\S+))/g;
+  const rawMentions = new Set();
   let m;
   while ((m = mentionRe.exec(text))) {
-    rawMentions.push((m[1] || m[2]).toLowerCase());
+    rawMentions.add((m[1] || m[2]).toLowerCase());
   }
-  if (rawMentions.length === 0) return [];
+  if (rawMentions.size === 0) return [];
 
   // Fetch project members to resolve names → user IDs
   const members = await db.all(

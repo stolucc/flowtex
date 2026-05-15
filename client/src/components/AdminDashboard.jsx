@@ -1047,7 +1047,6 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
       <div className="modal admin-delete-user-modal">
         <div className="modal-header">
           <h2>Delete user</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="admin-delete-user-body">
           <p className="admin-delete-user-warning">

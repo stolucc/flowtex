@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import logger from '../logger.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { recordMentions } from '../utils/mentions.js';
 
@@ -26,8 +27,8 @@ function pushMentionNotifications(app, mentions, { mentionerName }) {
           createdAt: new Date().toISOString(),
         },
       });
-    } catch (e) {
-      console.warn('mention WS push failed:', e?.message || e);
+    } catch (err) {
+      logger.warn({ err, mentionedUserId: m.mentionedUserId }, 'mention WS push failed');
     }
   }
 }
