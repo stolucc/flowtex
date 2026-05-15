@@ -79,10 +79,18 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
 
   // Reactions are server-authoritative: send the toggle over WS, the server
   // broadcasts the new reaction set back to every client (including us) via
-  // 'comment-reaction-update', so no optimistic local mutation here.
+  // 'comment-reaction-update' / 'reply-reaction-update', so no optimistic
+  // local mutation here.
   const handleReactComment = useCallback(
     (commentId, emoji) => {
       sendWsRef.current?.({ type: 'comment-react', commentId, emoji });
+    },
+    [sendWsRef],
+  );
+
+  const handleReactReply = useCallback(
+    (replyId, emoji) => {
+      sendWsRef.current?.({ type: 'reply-react', replyId, emoji });
     },
     [sendWsRef],
   );
@@ -137,6 +145,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
     handleReplyComment,
     handleEditComment,
     handleReactComment,
+    handleReactReply,
     updateCommentPositions,
   };
 }

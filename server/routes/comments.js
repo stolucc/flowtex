@@ -105,6 +105,33 @@ router.get('/:fileId', async (req, res) => {
         ? Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }))
         : [];
     }
+
+    // Hydrate reply reactions in one query.
+    const replyIds = allReplies.map((r) => r.id);
+    if (replyIds.length > 0) {
+      const replyReactionRows = await db.all(
+        `SELECT reply_id AS "replyId", emoji, user_id AS "userId", user_name AS "userName"
+           FROM reply_reactions WHERE reply_id = ANY($1) ORDER BY created_at ASC`,
+        [replyIds],
+      );
+      const replyGrouped = new Map();
+      for (const r of replyReactionRows) {
+        if (!replyGrouped.has(r.replyId)) replyGrouped.set(r.replyId, new Map());
+        const byEmoji = replyGrouped.get(r.replyId);
+        if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+        byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+      }
+      for (const c of comments) {
+        for (const r of c.replies) {
+          const byEmoji = replyGrouped.get(r.id);
+          r.reactions = byEmoji
+            ? Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }))
+            : [];
+        }
+      }
+    } else {
+      for (const c of comments) for (const r of c.replies) r.reactions = [];
+    }
   }
 
   res.json(comments);

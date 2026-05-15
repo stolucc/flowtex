@@ -96,6 +96,19 @@ export default function useWebSocket(
         setComments((cs) =>
           cs.map((c) => (c.id === msg.commentId ? { ...c, reactions: msg.reactions } : c)),
         );
+      } else if (msg.type === 'reply-reaction-update') {
+        setComments((cs) =>
+          cs.map((c) =>
+            c.id === msg.commentId
+              ? {
+                  ...c,
+                  replies: (c.replies || []).map((r) =>
+                    r.id === msg.replyId ? { ...r, reactions: msg.reactions } : r,
+                  ),
+                }
+              : c,
+          ),
+        );
       } else if (msg.type === 'history_update') {
         setHistoryVersion((v) => (v || 0) + 1);
       } else if (msg.type === 'chat') {

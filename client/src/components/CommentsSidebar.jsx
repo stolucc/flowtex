@@ -147,15 +147,78 @@ function MentionTextarea({ value, onChange, onKeyDown, members, currentUserId, p
 // Same fixed palette as chat reactions — keeps the picker tight.
 const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅', '❌'];
 
+/** Reaction pill row + ☺ trigger + popover picker. Used on both top-level
+ *  comments and on replies — `targetId` is whichever entity the parent wants
+ *  to react on, passed straight through to `onReact`. */
+function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const ref = useRef(null);
+  useClickOutside(ref, () => setPickerOpen(false), pickerOpen);
+
+  useEffect(() => {
+    onChange?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reactions?.length, pickerOpen]);
+
+  return (
+    <div className="comment-reactions-row" ref={ref}>
+      {Array.isArray(reactions) && reactions.length > 0 && (
+        <div className="comment-reactions">
+          {reactions.map((r) => {
+            const mine = r.users.some((u) => u.id === currentUserId);
+            const tip = r.users.map((u) => u.name).join(', ');
+            return (
+              <button
+                key={r.emoji}
+                type="button"
+                className={`comment-reaction-pill${mine ? ' mine' : ''}`}
+                title={tip}
+                onClick={() => onReact(targetId, r.emoji)}
+              >
+                <span className="comment-reaction-emoji">{r.emoji}</span>
+                <span className="comment-reaction-count">{r.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <button
+        type="button"
+        className="comment-react-trigger"
+        aria-label="Add reaction"
+        title="Add reaction"
+        onClick={() => setPickerOpen((v) => !v)}
+      >
+        ☺
+      </button>
+      {pickerOpen && (
+        <div className="comment-react-picker" role="menu">
+          {REACTION_PALETTE.map((e) => (
+            <button
+              key={e}
+              type="button"
+              className="comment-react-picker-btn"
+              onClick={() => {
+                onReact(targetId, e);
+                setPickerOpen(false);
+              }}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Single comment thread with inline replies, edit/delete actions, and resolve toggle. */
-function CommentBubble({ comment, currentUserName, members, currentUserId, onResolve, onDelete, onEdit, onReply, onReact, innerRef, onLayoutChange }) {
+function CommentBubble({ comment, currentUserName, members, currentUserId, onResolve, onDelete, onEdit, onReply, onReact, onReactReply, innerRef, onLayoutChange }) {
   const [replyText, setReplyText] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const menuRef = useRef(null);
-  const pickerRef = useRef(null);
 
   const hadText = useRef(false);
 
@@ -188,12 +251,6 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
   }, [editing]);
 
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
-  useClickOutside(pickerRef, () => setPickerOpen(false), pickerOpen);
-
-  useEffect(() => {
-    onLayoutChange?.();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comment.reactions?.length, pickerOpen]);
 
   return (
     <div
@@ -271,54 +328,13 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
         <div className="comment-text">{renderMentionText(comment.text)}</div>
       )}
       {onReact && (
-        <div className="comment-reactions-row" ref={pickerRef}>
-          {Array.isArray(comment.reactions) && comment.reactions.length > 0 && (
-            <div className="comment-reactions">
-              {comment.reactions.map((r) => {
-                const mine = r.users.some((u) => u.id === currentUserId);
-                const tip = r.users.map((u) => u.name).join(', ');
-                return (
-                  <button
-                    key={r.emoji}
-                    type="button"
-                    className={`comment-reaction-pill${mine ? ' mine' : ''}`}
-                    title={tip}
-                    onClick={() => onReact(comment.id, r.emoji)}
-                  >
-                    <span className="comment-reaction-emoji">{r.emoji}</span>
-                    <span className="comment-reaction-count">{r.count}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <button
-            type="button"
-            className="comment-react-trigger"
-            aria-label="Add reaction"
-            title="Add reaction"
-            onClick={() => setPickerOpen((v) => !v)}
-          >
-            ☺
-          </button>
-          {pickerOpen && (
-            <div className="comment-react-picker" role="menu">
-              {REACTION_PALETTE.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  className="comment-react-picker-btn"
-                  onClick={() => {
-                    onReact(comment.id, e);
-                    setPickerOpen(false);
-                  }}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ReactionRow
+          reactions={comment.reactions}
+          currentUserId={currentUserId}
+          targetId={comment.id}
+          onReact={onReact}
+          onChange={onLayoutChange}
+        />
       )}
       {(comment.replies || []).length > 0 && (
         <div className="comment-replies">
@@ -329,6 +345,15 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
               </div>
               <div className="comment-reply-date">{formatDate(r.created_at)}</div>
               <div className="comment-reply-text">{renderMentionText(r.text)}</div>
+              {onReactReply && (
+                <ReactionRow
+                  reactions={r.reactions}
+                  currentUserId={currentUserId}
+                  targetId={r.id}
+                  onReact={onReactReply}
+                  onChange={onLayoutChange}
+                />
+              )}
             </div>
           ))}
         </div>
@@ -377,6 +402,7 @@ export default function CommentsSidebar({
   onDelete,
   onEdit,
   onReact,
+  onReactReply,
   onCancelComment,
   onReply,
   onWheel,
@@ -571,6 +597,7 @@ export default function CommentsSidebar({
               onEdit={onEdit}
               onReply={onReply}
               onReact={onReact}
+              onReactReply={onReactReply}
               innerRef={(el) => {
                 if (el) commentRefs.current[c.id] = el;
               }}

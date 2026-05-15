@@ -568,6 +568,20 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment ON comment_reactions(comment_id);
 
+    -- Emoji reactions on comment replies. Same shape and toggle semantics as
+    -- comment_reactions — kept in its own table because replies live in a
+    -- separate table and the FK target differs.
+    CREATE TABLE IF NOT EXISTS reply_reactions (
+      id TEXT PRIMARY KEY,
+      reply_id TEXT NOT NULL REFERENCES comment_replies(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (reply_id, user_id, emoji)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reply_reactions_reply ON reply_reactions(reply_id);
+
     -- Used TOTP codes for cross-instance replay prevention
     CREATE TABLE IF NOT EXISTS used_totp_codes (
       user_id TEXT NOT NULL,

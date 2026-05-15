@@ -43,6 +43,7 @@ const {
   handleChat,
   handleChatReact,
   handleCommentReact,
+  handleReplyReact,
   handleTyping,
   handleJoin,
   writeTypes,
@@ -768,6 +769,66 @@ describe('handleCommentReact', () => {
     expect(db.run.mock.calls[1][0]).toContain('DELETE FROM comment_reactions');
     const sent = JSON.parse(peer.ws.send.mock.calls[0][0]);
     expect(sent.type).toBe('comment-reaction-update');
+    expect(sent.reactions).toEqual([]);
+  });
+});
+
+// ── handleReplyReact ─────────────────────────────────────────────────────
+
+describe('handleReplyReact', () => {
+  it('drops if replyId is missing', async () => {
+    const state = makeState();
+    await handleReplyReact({ type: 'reply-react', emoji: '👍' }, state);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('drops if the target reply is not in a file in the room', async () => {
+    db.get.mockResolvedValueOnce(null);
+    const state = makeState();
+    await handleReplyReact({ type: 'reply-react', replyId: 'r1', emoji: '👍' }, state);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('adds a reaction and broadcasts {commentId, replyId, reactions}', async () => {
+    db.get.mockResolvedValueOnce({ commentId: 'c1' }); // ownership ok, returns parent comment
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
+    db.all.mockResolvedValueOnce([
+      { emoji: '👍', userId: 'user-1', userName: 'Alice' },
+    ]);
+    const state = makeState();
+    const peer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, peer]);
+
+    await handleReplyReact({ type: 'reply-react', replyId: 'r1', emoji: '👍' }, state);
+
+    const [insertSql, insertParams] = db.run.mock.calls[0];
+    expect(insertSql).toContain('INSERT INTO reply_reactions');
+    expect(insertParams[1]).toBe('r1');
+    expect(insertParams[4]).toBe('👍');
+
+    const sent = JSON.parse(peer.ws.send.mock.calls[0][0]);
+    expect(sent.type).toBe('reply-reaction-update');
+    expect(sent.commentId).toBe('c1');
+    expect(sent.replyId).toBe('r1');
+    expect(sent.reactions).toEqual([
+      { emoji: '👍', count: 1, users: [{ id: 'user-1', name: 'Alice' }] },
+    ]);
+  });
+
+  it('toggles off when the same emoji is re-sent (DELETE after no-op INSERT)', async () => {
+    db.get.mockResolvedValueOnce({ commentId: 'c1' });
+    db.run.mockResolvedValueOnce({ rowCount: 0 });
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
+    db.all.mockResolvedValueOnce([]);
+
+    const state = makeState();
+    const peer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, peer]);
+
+    await handleReplyReact({ type: 'reply-react', replyId: 'r1', emoji: '👍' }, state);
+
+    expect(db.run.mock.calls[1][0]).toContain('DELETE FROM reply_reactions');
+    const sent = JSON.parse(peer.ws.send.mock.calls[0][0]);
     expect(sent.reactions).toEqual([]);
   });
 });

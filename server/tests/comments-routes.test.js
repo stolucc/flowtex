@@ -105,7 +105,10 @@ describe('GET /:fileId', () => {
       { commentId: 'c1', emoji: '👍', userId: 'u1', userName: 'Alice' },
       { commentId: 'c1', emoji: '👍', userId: 'u2', userName: 'Bob' },
       { commentId: 'c1', emoji: '🎉', userId: 'u2', userName: 'Bob' },
-    ]); // reactions query
+    ]); // comment reactions query
+    db.all.mockResolvedValueOnce([
+      { replyId: 'r1', emoji: '🎉', userId: 'u1', userName: 'Alice' },
+    ]); // reply reactions query
 
     const res = mockRes();
     await handler(mockReq({ fileId: 'file-1' }), res);
@@ -118,6 +121,9 @@ describe('GET /:fileId', () => {
       { emoji: '🎉', count: 1, users: [{ id: 'u2', name: 'Bob' }] },
     ]);
     expect(res.body[1].reactions).toEqual([]);
+    expect(res.body[0].replies[0].reactions).toEqual([
+      { emoji: '🎉', count: 1, users: [{ id: 'u1', name: 'Alice' }] },
+    ]);
   });
 
   it('returns empty array when no comments exist', async () => {

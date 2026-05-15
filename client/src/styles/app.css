@@ -10280,3 +10280,17 @@ kbd {
   justify-content: center;
 }
 .comment-react-picker-btn:hover { background: var(--bg-hover); }
+
+/* Tighter trigger and smaller pills inside a reply so the row doesn't
+   visually dominate the smaller reply block. */
+.comment-reply .comment-reactions-row { margin-top: 4px; }
+.comment-reply .comment-react-trigger {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+}
+.comment-reply .comment-reaction-pill {
+  font-size: 10px;
+  padding: 0 6px;
+}
+.comment-reply .comment-reaction-emoji { font-size: 11px; }
