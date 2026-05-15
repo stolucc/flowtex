@@ -12,16 +12,22 @@ A self-hosted, open-source real-time collaborative LaTeX editor. Edit LaTeX docu
 - **Tracked changes** — Word-style insert / delete marks with per-user attribution, accept / reject review walkthrough, and `latexdiff`-rendered PDF preview
 - **PDF viewer** — built-in viewer with zoom, page navigation, click-to-source sync, and an icon-based error / warning chip surfacing compile + lint diagnostics
 - **File management** — hierarchical file tree with drag-and-drop ZIP upload, BibTeX pretty-print, and DOCX → LaTeX import
-- **Comments & annotations** — inline comments with threads, replies, @mentions, and resolve/unresolve
+- **Comments & annotations** — inline comments with threads, replies, @mentions, emoji reactions (on both comments and replies), and resolve/unresolve
+- **In-app notifications** — a bell in the toolbar shows real-time @-mention notifications; offline users still receive a 5-minute email digest
+- **Per-project chat** — sidecar chat panel with typing indicators, date separators, and emoji reactions on messages
 - **Version history** — automatic file versioning with hunk-based diff viewer (cap with show-all toggle for large diffs) and one-click restore
 - **GitHub integration** — link projects to GitHub repos, push/pull with encrypted token storage
 - **Citations & bibliography** — Zotero import, BibTeX field enrichment, citation-key autocomplete, and hover tooltips with full author list and venue
-- **Project sharing** — invite collaborators by email with role-based access (owner/editor/viewer)
+- **Project sharing** — invite collaborators by email with role-based access (owner/editor/viewer); the member list refreshes live when anyone joins or is removed
+- **Project copy** — duplicate a project including all files *and* the discussion thread (comments, replies, reactions)
 - **Two-factor authentication** — TOTP-based MFA with QR code setup
 - **Tagging & organization** — color-coded tags for project organization
+- **Admin dashboard** — overview stats, most-active projects (with owner column), active-users panel, audit log, SMTP settings, and per-user delete (triple-check confirmation)
 - **LaTeX linting** — real-time syntax diagnostics via LaCheck (and ChkTeX server-side)
 - **Spellcheck** — integrated spellcheck in the editor with custom dictionary
+- **Build identifier** — the About modal surfaces the deployed git short SHA + build time so operators can confirm which version is live
 - **Dark theme** — Catppuccin Mocha color scheme throughout
+- **One-shot VPS provisioner** — `scripts/provision-vps.sh` deploys to a fresh Ubuntu host (Caddy + Let's Encrypt for `flowtex.example.com` *and* `www.flowtex.example.com`, hardened ImageMagick policy, systemd unit, Postgres role/db, optional SMTP); re-running it doubles as the upgrade path
 
 ---
 
@@ -114,6 +120,22 @@ NODE_ENV=production node server/index.js
 
 The server serves the built client from `client/dist/` and listens on port 3001.
 
+### 7. One-shot VPS deploy (Ubuntu/Debian)
+
+For a fresh Ubuntu host with a domain pointed at it:
+
+```bash
+ssh root@your.host
+curl -fsSL https://raw.githubusercontent.com/stolucc/flowtex/main/scripts/provision-vps.sh -o provision-vps.sh
+DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com bash provision-vps.sh
+```
+
+The provisioner installs Node, PostgreSQL, TeX Live, Caddy, Redis, and Microsoft core fonts (for `xelatex` of DOCX imports); creates a service user; generates `.env` with random secrets; runs `npm install` + `npm run build` (so the About modal shows the deployed git short SHA); writes a hardened ImageMagick `policy.xml`; configures Caddy for both `$DOMAIN` and `www.$DOMAIN` (the latter 301-redirects to apex); installs a systemd unit; and opens the firewall.
+
+Re-running the same command pulls the latest commit, rebuilds, and restarts — so it doubles as the upgrade path. The existing `.env` is left untouched.
+
+See [docs/installation.html](docs/installation.html) for full operator documentation including Docker Compose, multi-instance load balancing, backups, and email setup.
+
 ---
 
 ## Project Structure
@@ -175,16 +197,17 @@ flowtex/
       auth.js                 # requireAuth, requireProjectAccess
       errorHandler.js         # Centralized error → JSON formatter
     routes/
-      auth.js                 # Registration, login, logout, TOTP
-      projects.js             # CRUD, files, members, invitations, ZIP upload
+      auth.js                 # Registration, login, logout, TOTP, self-delete
+      projects.js             # CRUD, files, members, invitations, copy, ZIP upload
       compile.js              # Compile, PDF, SyncTeX, lint, diff
-      comments.js             # Comments & replies
+      comments.js             # Comments, replies, @mentions
+      notifications.js        # In-app mention inbox (list + mark-seen)
       history.js              # File versions & restore
       github.js               # Token, linking, push/pull
       bib.js / zotero.js      # Bibliography import
       chat.js                 # Per-project chat
       tags.js                 # User tags for projects
-      admin.js                # Admin activity panel
+      admin.js                # Admin dashboard + per-user delete
       setup.js                # First-run setup
     services/
       authService.js          # Account creation, password & MFA
@@ -236,7 +259,9 @@ npm run test:watch    # Watch mode
 - **SSRF protection** — GitHub repo names validated against strict regex
 - **Audit logging** — sensitive actions (login, delete, member removal) logged to `audit_log` table
 - **TLS enforcement** — automatic HTTPS redirect in production
+- **Hardened ImageMagick policy** — the VPS provisioner drops a restrictive `policy.xml` (Ghostscript/PS/EPS/PDF/MVG/MSL/URL coders disabled, resource caps) so user-uploaded media can't trigger coder vulnerabilities
 - **Graceful shutdown** — SIGTERM/SIGINT drain HTTP, WebSocket, Redis, and DB connections
+- **HIBP password check** — registration / reset / change paths consult the Have-I-Been-Pwned range API (k-anonymity); set `DISABLE_HIBP_CHECK=1` for offline or test environments
 
 ---
 

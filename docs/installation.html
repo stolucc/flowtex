@@ -165,9 +165,14 @@ sudo apt-get install -y caddy
 <span class="comment"># Option B: Nginx</span>
 sudo apt-get install -y nginx certbot python3-certbot-nginx</code></pre>
 
-<p>Example Caddy configuration (<code>/etc/caddy/Caddyfile</code>):</p>
+<p>Example Caddy configuration (<code>/etc/caddy/Caddyfile</code>). The second block 301-redirects <code>www.</code> to the apex so both hostnames stay in sync &mdash; this requires a DNS record for <code>www</code> (A or CNAME pointing to the same VPS); otherwise Caddy will fail to fetch a cert for the www host.</p>
 <pre><code>flowtex.example.com {
     reverse_proxy localhost:3001
+    encode zstd gzip
+}
+
+www.flowtex.example.com {
+    redir https://flowtex.example.com{uri} permanent
 }</code></pre>
 
 <p>Example Nginx configuration:</p>
@@ -487,11 +492,31 @@ DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com bash provision-vps.sh</co
 <code>APP_DIR</code> (default <code>/opt/flowtex</code>), <code>APP_USER</code>
 (default <code>flowtex</code>), <code>WITH_REDIS</code> (default <code>0</code>
 &mdash; only needed for multi-instance, see &sect;4.8), <code>WITH_DOCX</code>
-(default <code>1</code> &mdash; the DOCX-import image toolchain).</p>
+(default <code>1</code> &mdash; the DOCX-import image toolchain), and the
+<code>SMTP_*</code> family (<code>SMTP_HOST</code>, <code>SMTP_PORT</code>,
+<code>SMTP_SECURE</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>,
+<code>SMTP_FROM</code>) which are baked into the generated <code>.env</code>
+on the first run only.</p>
+
+<p>What the provisioner does on top of &sect;2&ndash;4:</p>
+<ul>
+  <li>Builds the client with <code>npm run build</code> so the <strong>About modal shows the deployed git short SHA</strong> (via <code>VITE_BUILD_SHA</code> baked in at build time).</li>
+  <li>Installs the hardened <strong>ImageMagick <code>policy.xml</code></strong> from <a href="imagemagick-policy.xml"><code>docs/imagemagick-policy.xml</code></a> to <code>/etc/ImageMagick-*/policy.xml</code> &mdash; idempotent (skipped when already matching), backs up the distro policy on first install, verifies the PDF-deny rule landed.</li>
+  <li>Generates a Caddyfile with <strong>both <code>$DOMAIN</code> and <code>www.$DOMAIN</code></strong>; the <code>www.</code> block 301-redirects to the apex. Requires a DNS record for <code>www</code> (A or CNAME) before re-running.</li>
+  <li>Installs <code>ttf-mscorefonts-installer</code> when <code>WITH_DOCX=1</code> so <code>xelatex</code> can typeset documents that reference Microsoft core fonts (Arial / Times New Roman / Calibri).</li>
+  <li>Detects an existing PostgreSQL <code>flowtex</code> role and leaves the password untouched (so re-runs don't break previously-generated <code>.env</code> files).</li>
+</ul>
 
 <p>Re-running the script pulls the latest <code>BRANCH</code>, rebuilds, and
 restarts &mdash; so it doubles as the upgrade path. An existing
-<code>.env</code> is left untouched, so secrets are never rotated by accident.</p>
+<code>.env</code> is left untouched, so secrets are never rotated by accident.
+Disruption on a single-instance deploy is ~5&ndash;15 seconds of WebSocket
+blip; clients auto-reconnect with editor state intact.</p>
+
+<p><strong>Verify after running:</strong></p>
+<pre><code>sudo systemctl status flowtex --no-pager
+curl -fsS https://flowtex.example.com/api/health
+curl -I  https://www.flowtex.example.com   <span class="comment"># expect 301 → https://flowtex.example.com</span></code></pre>
 
 <h2>6. Summary of All Packages</h2>
 
@@ -505,7 +530,8 @@ restarts &mdash; so it doubles as the upgrade path. An existing
   <tr><td><code>python3</code></td><td><span class="tag tag-req">Required</span></td><td>node-gyp build dependency</td></tr>
   <tr><td><code>caddy</code> or <code>nginx</code></td><td><span class="tag tag-rec">Recommended</span></td><td>Reverse proxy, TLS termination, HTTPS</td></tr>
   <tr><td><code>librsvg2-bin</code></td><td><span class="tag tag-rec">Recommended</span></td><td>SVG &rarr; PDF conversion for DOCX import (provides <code>rsvg-convert</code>)</td></tr>
-  <tr><td><code>imagemagick</code></td><td><span class="tag tag-rec">Recommended</span></td><td>GIF / TIFF / BMP &rarr; PNG conversion for DOCX import (provides <code>convert</code>; tighten <code>policy.xml</code>!)</td></tr>
+  <tr><td><code>imagemagick</code></td><td><span class="tag tag-rec">Recommended</span></td><td>GIF / TIFF / BMP &rarr; PNG conversion for DOCX import (provides <code>convert</code>). The provisioner drops a hardened <code>policy.xml</code> automatically; for manual installs see <a href="../SECURITY.md">SECURITY.md</a>.</td></tr>
+  <tr><td><code>ttf-mscorefonts-installer</code></td><td><span class="tag tag-rec">Recommended</span></td><td>Microsoft core fonts (Arial / Times New Roman / Calibri / &hellip;) for <code>xelatex</code> compilation of DOCX imports. Pulled automatically by the provisioner under <code>WITH_DOCX=1</code>.</td></tr>
   <tr><td><code>libreoffice</code></td><td><span class="tag tag-rec">Recommended</span></td><td>WMF / EMF metafile conversion for DOCX import (provides <code>soffice</code>)</td></tr>
   <tr><td><code>redis-server</code></td><td><span class="tag tag-opt">Optional</span></td><td>WebSocket pub/sub for multi-instance scaling</td></tr>
 </table>

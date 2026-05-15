@@ -425,7 +425,23 @@
     <li><strong>Reply</strong>: Click a comment to expand it, then type a reply</li>
     <li><strong>Resolve</strong>: Click the checkmark to resolve a comment thread</li>
     <li><strong>Edit/Delete</strong>: Use the menu on your own comments to edit or delete them</li>
+    <li><strong>@-mention</strong> a collaborator: type <code>@</code> while composing a comment or reply &mdash; an autocomplete popover lists project members. Pick one and the mention is inserted as <code>@Name</code> (or <code>@&quot;Full Name&quot;</code> for multi-word names). Mentioned users get an <strong>in-app notification</strong> immediately (see the bell in the toolbar) and an emailed digest if they aren&rsquo;t online.</li>
+    <li><strong>Assign a comment</strong>: when you @-mention someone, an &ldquo;Assign to&rdquo; checkbox appears &mdash; tick it to mark the comment as assigned; the assignee&rsquo;s name shows in a banner above the comment.</li>
+    <li><strong>React with emoji</strong>: hover any comment or reply and click the &#9786; trigger; pick from 👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌. Reactions appear as pills under the comment; click a pill you&rsquo;ve placed to remove it. Reactions sync in real time.</li>
     <li>Comments are positioned alongside the relevant lines in the editor</li>
+  </ul>
+
+  <h3 id="notifications">Notifications (Bell)</h3>
+  <p>The bell icon in the toolbar shows the count of unread @-mentions. Click it to see recent mentions (up to 50, kept 7 days after being seen), each linking back to its project. Clicking a mention from a <em>different</em> project switches you into that project; clicking one in the current project opens the comments panel. &ldquo;Mark all read&rdquo; clears the badge in a single click.</p>
+  <p>If you&rsquo;re offline (or close the tab) when somebody mentions you, a digest email is sent within ~5 minutes covering everyone who mentioned you across all your projects &mdash; assuming the server has SMTP configured.</p>
+
+  <h3 id="chat">Per-project chat</h3>
+  <p>Open the chat panel from View &rsaquo; Chat. Messages are scoped to the current project and visible to all members:</p>
+  <ul>
+    <li>Date separators and per-author bubbles</li>
+    <li>Live typing indicator while others are composing</li>
+    <li>Emoji reactions on messages (same palette as comments &mdash; click the &#9786; trigger on hover)</li>
+    <li>An unread badge in the toolbar when new messages arrive while the panel is closed</li>
   </ul>
 
   <hr>
@@ -456,6 +472,16 @@
     <li>Click <strong>Invite</strong> &mdash; they'll see the invitation on their dashboard</li>
     <li>You can change roles or remove members at any time (owner only)</li>
   </ol>
+
+  <p>The member list, the avatar bar in the toolbar, and the @-mention autocomplete refresh <strong>live</strong> when someone accepts an invitation or is removed &mdash; no page reload needed.</p>
+
+  <h3 id="copy-project">Copying a project</h3>
+  <p>From the project list, the project menu has a <strong>Copy</strong> option. The copy includes:</p>
+  <ul>
+    <li>All files (text and binary), same paths and content</li>
+    <li>All inline comments, replies, and emoji reactions</li>
+  </ul>
+  <p>The copy does <strong>not</strong> include the membership list (only you become the owner) or the @-mention notification log (so old mentions don&rsquo;t re-fire emails). Assignment metadata is preserved as-is &mdash; if the assignee is later invited to the copy, the assignment lights up again.</p>
 
   <hr>
 
@@ -588,14 +614,19 @@
   <!-- ════════════ Admin Dashboard ════════════ -->
   <h2 id="admin-dashboard">Admin Dashboard</h2>
 
-  <p>Administrators have access to a management dashboard.</p>
+  <p>If your account has the admin flag, the user menu shows an <strong>Admin Dashboard</strong> entry. It surfaces:</p>
 
   <ul>
-    <li>View all registered users and their activity</li>
-    <li>Manage user accounts (roles, status)</li>
-    <li>System overview and health monitoring</li>
-    <li>Access via the admin menu (visible only to admin users)</li>
+    <li><strong>Overview</strong> &mdash; total users, projects, files, versions, comments, with 7-day and 30-day deltas.</li>
+    <li><strong>Most Active Projects</strong> &mdash; top 20 by recent edits, with an <em>Owner</em> column so you can see who runs each project.</li>
+    <li><strong>Active Users</strong> &mdash; top 20 by edit count; click any row to drill into their projects, recent edits, comments, chat, audit entries, and login history.</li>
+    <li><strong>Audit log</strong> &mdash; every security-relevant event (logins, password / MFA changes, snapshot restores, GitHub-token issuance, admin actions). Exportable as CSV.</li>
+    <li><strong>SMTP settings</strong> &mdash; test mail sending and rotate the admin SMTP password.</li>
+    <li><strong>Delete user</strong> &mdash; each user row has a Delete button that opens a <em>triple-check</em> modal: acknowledge the warning, type the target&rsquo;s exact email, enter <em>your</em> admin password. Only when all three are satisfied is the destructive button enabled. The flow cleans the user&rsquo;s authorship from comments / replies / versions, drops any project they alone own, audits the action as <code>account_deleted_by_admin</code>, and sends a goodbye email. Admins cannot delete <em>themselves</em> through this flow &mdash; use the regular self-delete instead.</li>
   </ul>
+
+  <h3 id="about-build">About modal &mdash; which version is live?</h3>
+  <p>Help &rsaquo; About shows a <strong>Build</strong> line with the short git SHA and build timestamp. When FlowTex is deployed via <code>scripts/provision-vps.sh</code> this is set automatically from <code>git rev-parse --short HEAD</code> at build time, so operators can confirm which commit is currently serving traffic. In a dev build (no git, or built without the env vars) it shows <code>dev</code>.</p>
 
   <hr>
 

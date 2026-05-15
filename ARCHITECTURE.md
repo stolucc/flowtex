@@ -56,12 +56,18 @@ FlowTex is a full-stack web application with a React single-page application fro
 │  │  ┌────────── REST API Routes ──────────┐  ┌──── WebSocket Server ───┐  │   │
 │  │  │                                     │  │                         │  │   │
 │  │  │  /api/auth/*     Auth & MFA         │  │  Session-based auth     │  │   │
-│  │  │  /api/projects/* CRUD, files, ZIP   │  │  Project rooms          │  │   │
-│  │  │  /api/compile/*  Compile, PDF, sync │  │  Presence broadcast     │  │   │
-│  │  │  /api/comments/* Threads & replies  │  │  Change propagation     │  │   │
-│  │  │  /api/history/*  Versions & restore │  │  Cursor sync            │  │   │
-│  │  │  /api/github/*   Push/pull/link     │  │  Comment events         │  │   │
-│  │  │  /api/tags/*     Tag management     │  │  Heartbeat (ping/pong)  │  │   │
+│  │  │  /api/projects/* CRUD, copy, files, │  │  Project rooms          │  │   │
+│  │  │                  members, invites   │  │  Presence broadcast     │  │   │
+│  │  │  /api/compile/*  Compile, PDF, sync │  │  Change + cursor sync   │  │   │
+│  │  │  /api/comments/* Threads, replies,  │  │  Comment + reaction     │  │   │
+│  │  │                  @mentions          │  │   events                │  │   │
+│  │  │  /api/notifications/* @mention inbox│  │  Chat + reactions       │  │   │
+│  │  │  /api/chat/*     Per-project chat   │  │  In-app mention push    │  │   │
+│  │  │  /api/history/*  Versions & restore │  │  members-update         │  │   │
+│  │  │  /api/github/*   Push/pull/link     │  │  Heartbeat (ping/pong)  │  │   │
+│  │  │  /api/tags/*     Tag management     │  │                         │  │   │
+│  │  │  /api/admin/*    Admin dashboard +  │  │                         │  │   │
+│  │  │                  user delete        │  │                         │  │   │
 │  │  │  /api/health     Liveness probe     │  │                         │  │   │
 │  │  │  /api/ready      Readiness probe    │  │                         │  │   │
 │  │  │                                     │  │                         │  │   │
@@ -164,6 +170,27 @@ User A (Editor)         Server (WebSocket)        User B (Editor)
   │                          │    userId, userName }    │
   │                          │ ─────────────────────►   │
 ```
+
+**WebSocket frame catalogue.** Every frame is JSON `{type, ...}`. Inbound frames from clients are handled by `server/websocket.js` dispatch table; outbound frames are sent via `broadcastToRoom(projectId, msg, [exceptWs])` or `sendToUser(userId, msg)`. Both helpers are exposed at `app.locals.broadcastToRoom` / `app.locals.sendToUser` so HTTP routes (e.g. invite-accept, comment POST) can fan out updates without going through a WS round-trip.
+
+| Direction | Type | Purpose |
+| --- | --- | --- |
+| in / out | `presence`, `join` | Room membership + user list |
+| in / out | `changes` | OT edits, stamped with per-tab `originId` to filter own echoes on reconnect |
+| in / out | `cursor` | Remote cursor positions (same `originId` filter) |
+| in / out | `comment`, `comment-reply`, `comment-resolve`, `comment-delete`, `comment-edit` | Comment thread events |
+| in | `comment-react`, `reply-react` | Toggle emoji reaction on a comment / reply |
+| out | `comment-reaction-update`, `reply-reaction-update` | Authoritative full reaction set after a toggle (server replays this to everyone, including the sender, so all clients converge) |
+| out | `mention` | Real-time fan-out of a new @-mention to the mentioned user only (via `sendToUser`); offline users get a digest email instead |
+| in / out | `chat` | Chat message |
+| in | `chat-react` | Toggle emoji reaction on a chat message |
+| out | `chat-reaction-update` | Authoritative reaction set after chat react |
+| in / out | `typing` | Typing indicator (chat + comment compose) |
+| in / out | `tracked-change`, `tracked-change-resolve`, `tracked-change-delete`, `tc-delete-mark` | Tracked-changes pipeline |
+| out | `members-update` | Server signals that membership changed (invite accept / member remove); client refetches `/members` to keep avatars + @-autocomplete fresh |
+| out | `folder-create`, `folder-delete`, `folder-rename` | File-tree updates fan-out from HTTP write routes |
+| out | `history_update` | A new snapshot was created — refresh the history panel |
+| out | `invitation` | A new project invitation for this user |
 
 With Redis enabled, the server publishes WebSocket messages to a Redis channel, allowing multiple server instances to relay messages to their local clients.
 
@@ -304,6 +331,22 @@ Client              Server              Git (simple-git)         GitHub
                    └───┤ (contains userId)│       │ success          │
                        └──────────────────┘       │ created_at       │
                                                   └──────────────────┘
+
+Collaboration tables (FKs back to comments / comment_replies / chat_messages):
+
+  comment_mentions       — log of every @-mention; powers in-app bell + 5-min digest
+    (id, comment_id?, reply_id?, mentioned_user_id, mentioner_user_id,
+     project_id, snippet, created_at, notified_at, seen_at)
+
+  comment_reactions      — emoji reactions on comments
+    (id, comment_id, user_id, user_name, emoji, created_at)
+    UNIQUE(comment_id, user_id, emoji) → re-applying toggles off
+
+  reply_reactions        — emoji reactions on comment replies (same shape)
+
+  chat_messages          — per-project chat history (last 500 returned via /api/chat)
+
+  chat_message_reactions — emoji reactions on chat messages (same toggle pattern)
 ```
 
 ---
@@ -454,22 +497,25 @@ The source document is never modified — every visual effect is a decoration on
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Frontend** | React 18 | UI framework |
+| **Frontend** | React 19 | UI framework |
 | | CodeMirror 6 | LaTeX editor |
-| | PDF.js 4.8 | PDF rendering |
-| | Vite 5.4 | Build tool & dev server |
+| | PDF.js 5 | PDF rendering |
+| | Vite 8 | Build tool & dev server |
 | | Typo.js | Spellcheck |
-| **Backend** | Express 4.21 | HTTP server |
+| **Backend** | Express 5 | HTTP server |
 | | ws | WebSocket server |
 | | pino / pino-http | Structured logging |
 | | Helmet | Security headers |
 | | express-rate-limit | Rate limiting |
 | | bcryptjs | Password hashing |
 | | express-session + connect-pg-simple | Session management |
+| | nodemailer | SMTP (email verification, password reset, mention digests) |
+| | archiver 8 | ZIP downloads (`ZipArchive` named export — v8 dropped the default) |
 | **Database** | PostgreSQL 14+ | Primary data store |
-| **Caching** | Redis (optional) | WebSocket pub/sub |
-| **LaTeX** | TeX Live (latexmk, pdflatex, synctex, lacheck, latexdiff) | Compilation toolchain |
+| **Caching** | Redis (optional) | WebSocket pub/sub for multi-instance |
+| **LaTeX** | TeX Live (latexmk, pdflatex, xelatex, synctex, lacheck, latexdiff) | Compilation toolchain |
 | **Git** | simple-git | GitHub integration |
+| **Reverse proxy (recommended)** | Caddy | TLS via Let's Encrypt; `www → apex` redirect, optional load-balanced upstream |
 
 ---
 

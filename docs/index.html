@@ -356,10 +356,13 @@
     <li><strong>LaTeX compilation</strong> &mdash; full TeX Live integration with streaming output, SyncTeX forward/inverse search</li>
     <li><strong>PDF viewer</strong> &mdash; built-in viewer with zoom, page navigation, and click-to-source sync</li>
     <li><strong>File management</strong> &mdash; hierarchical file tree with drag-and-drop ZIP upload</li>
-    <li><strong>Comments &amp; annotations</strong> &mdash; inline comments with threads, replies, and resolve/unresolve</li>
+    <li><strong>Comments &amp; annotations</strong> &mdash; inline comments with threads, replies, @-mentions, and emoji reactions on both comments and replies</li>
+    <li><strong>In-app @-mention notifications</strong> &mdash; bell in the toolbar with unread count and dropdown; offline users get a 5-minute email digest</li>
+    <li><strong>Per-project chat</strong> &mdash; sidecar chat panel with typing indicators, date separators, and emoji reactions on messages</li>
     <li><strong>Version history</strong> &mdash; automatic file versioning with diff viewer and one-click restore</li>
     <li><strong>GitHub integration</strong> &mdash; link projects to GitHub repos, push/pull with encrypted token storage</li>
-    <li><strong>Project sharing</strong> &mdash; invite collaborators by email with role-based access (owner/editor/viewer)</li>
+    <li><strong>Project sharing</strong> &mdash; invite collaborators by email with role-based access (owner/editor/viewer); member list refreshes live when anyone joins or is removed</li>
+    <li><strong>Project copy</strong> &mdash; duplicate a project including all files <em>and</em> the discussion thread (comments, replies, reactions)</li>
     <li><strong>Two-factor authentication</strong> &mdash; TOTP-based MFA with QR code setup</li>
     <li><strong>Tagging &amp; organization</strong> &mdash; color-coded tags for project organization</li>
     <li><strong>LaTeX linting</strong> &mdash; real-time syntax diagnostics with gutter markers</li>
@@ -367,9 +370,10 @@
     <li><strong>Spellcheck</strong> &mdash; integrated spellcheck with Hunspell dictionaries (multiple languages)</li>
     <li><strong>Bibliography management</strong> &mdash; BibTeX editing with Zotero integration for importing references</li>
     <li><strong>Tracked changes</strong> &mdash; accept/reject change tracking for collaborative review</li>
-    <li><strong>AI chat</strong> &mdash; integrated chat panel for LaTeX assistance</li>
     <li><strong>Template gallery</strong> &mdash; preloaded LaTeX templates for quick project setup</li>
-    <li><strong>Admin dashboard</strong> &mdash; user management and system overview for administrators</li>
+    <li><strong>Admin dashboard</strong> &mdash; overview, most-active projects (with owner column), active-users panel, audit log, SMTP settings, and per-user delete with triple-check confirmation</li>
+    <li><strong>Build identifier</strong> &mdash; About modal surfaces the deployed git short SHA and build timestamp</li>
+    <li><strong>One-shot VPS provisioner</strong> &mdash; <code>scripts/provision-vps.sh</code> deploys to a fresh Ubuntu host (Caddy + Let's Encrypt for apex <em>and</em> <code>www</code>, hardened ImageMagick policy, systemd, Postgres, optional SMTP); re-running doubles as the upgrade path</li>
     <li><strong>Dark theme</strong> &mdash; Catppuccin Mocha color scheme throughout</li>
   </ul>
 
@@ -484,7 +488,7 @@
         <span class="file">HistoryPanel.jsx</span>    <span class="comment"># Version history &amp; diff</span>
         <span class="file">GitHubSyncModal.jsx</span> <span class="comment"># GitHub push/pull UI</span>
         <span class="file">ZoteroModal.jsx</span>     <span class="comment"># Zotero reference import</span>
-        <span class="file">ChatPanel.jsx</span>       <span class="comment"># AI chat for LaTeX assistance</span>
+        <span class="file">ChatPanel.jsx</span>       <span class="comment"># Per-project chat (real-time, persisted)</span>
         <span class="file">AdminDashboard.jsx</span>  <span class="comment"># Admin user &amp; system management</span>
         <span class="file">TemplateGallery.jsx</span> <span class="comment"># Preloaded LaTeX templates</span>
         <span class="file">BinaryPreview.jsx</span>   <span class="comment"># Image &amp; PDF file previews</span>
@@ -511,18 +515,18 @@
     <span class="dir-name">middleware/</span>
       <span class="file">auth.js</span>               <span class="comment"># requireAuth, requireProjectAccess</span>
     <span class="dir-name">routes/</span>
-      <span class="file">auth.js</span>               <span class="comment"># Registration, login, logout, TOTP</span>
-      <span class="file">projects.js</span>           <span class="comment"># CRUD, files, members, invitations, ZIP upload</span>
+      <span class="file">auth.js</span>               <span class="comment"># Registration, login, logout, TOTP, self-delete</span>
+      <span class="file">projects.js</span>           <span class="comment"># CRUD, copy, files, members, invitations, ZIP upload</span>
       <span class="file">compile.js</span>            <span class="comment"># Compile, PDF, SyncTeX, lint, diff</span>
-      <span class="file">comments.js</span>           <span class="comment"># Comments &amp; replies</span>
+      <span class="file">comments.js</span>           <span class="comment"># Comments, replies, @mentions</span>
+      <span class="file">notifications.js</span>      <span class="comment"># In-app @mention inbox (list + mark-seen)</span>
       <span class="file">history.js</span>            <span class="comment"># File versions &amp; restore</span>
       <span class="file">github.js</span>             <span class="comment"># Token, linking, push/pull</span>
       <span class="file">tags.js</span>               <span class="comment"># User tags for projects</span>
       <span class="file">bib.js</span>                <span class="comment"># Bibliography management</span>
       <span class="file">zotero.js</span>             <span class="comment"># Zotero reference import</span>
-      <span class="file">chat.js</span>               <span class="comment"># AI chat endpoints</span>
-      <span class="file">tracked-changes.js</span>    <span class="comment"># Accept/reject change tracking</span>
-      <span class="file">admin.js</span>              <span class="comment"># Admin dashboard &amp; user management</span>
+      <span class="file">chat.js</span>               <span class="comment"># Per-project chat</span>
+      <span class="file">admin.js</span>              <span class="comment"># Admin dashboard + per-user delete (triple-check)</span>
       <span class="file">setup.js</span>              <span class="comment"># Initial server setup (first admin)</span>
     <span class="dir-name">utils/</span>
       <span class="file">audit.js</span>              <span class="comment"># Audit logging helper</span>

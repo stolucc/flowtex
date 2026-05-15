@@ -332,17 +332,20 @@
 │  │  ┌────────── REST API Routes ──────────┐  ┌──── WebSocket Server ───┐  │   │
 │  │  │                                     │  │                         │  │   │
 │  │  │  /api/auth/*     Auth &amp; MFA         │  │  Session-based auth     │  │   │
-│  │  │  /api/projects/* CRUD, files, ZIP   │  │  Project rooms          │  │   │
-│  │  │  /api/compile/*  Compile, PDF, sync │  │  Presence broadcast     │  │   │
-│  │  │  /api/comments/* Threads &amp; replies  │  │  Change propagation     │  │   │
-│  │  │  /api/history/*  Versions &amp; restore │  │  Cursor sync            │  │   │
-│  │  │  /api/github/*   Push/pull/link     │  │  Comment events         │  │   │
+│  │  │  /api/projects/* CRUD, copy, files, │  │  Project rooms          │  │   │
+│  │  │                  members, invites   │  │  Presence broadcast     │  │   │
+│  │  │  /api/compile/*  Compile, PDF, sync │  │  Change + cursor sync   │  │   │
+│  │  │  /api/comments/* Threads, replies,  │  │  Comment + reaction     │  │   │
+│  │  │                  @mentions          │  │   events                │  │   │
+│  │  │  /api/notifications/* @mention inbox│  │  Chat + reactions       │  │   │
+│  │  │  /api/history/*  Versions &amp; restore │  │  In-app mention push    │  │   │
+│  │  │  /api/github/*   Push/pull/link     │  │  members-update         │  │   │
 │  │  │  /api/tags/*     Tag management     │  │  Heartbeat (ping/pong)  │  │   │
 │  │  │  /api/bib/*      Bibliography mgmt  │  │                         │  │   │
 │  │  │  /api/zotero/*   Zotero import      │  │                         │  │   │
-│  │  │  /api/chat/*     AI chat            │  │                         │  │   │
-│  │  │  /api/tracked-*  Change tracking    │  │                         │  │   │
-│  │  │  /api/admin/*    Admin dashboard    │  │                         │  │   │
+│  │  │  /api/chat/*     Per-project chat   │  │                         │  │   │
+│  │  │  /api/admin/*    Admin dashboard +  │  │                         │  │   │
+│  │  │                  user delete        │  │                         │  │   │
 │  │  │  /api/setup/*    Initial setup      │  │                         │  │   │
 │  │  │  /api/health     Liveness probe     │  │                         │  │   │
 │  │  │  /api/ready      Readiness probe    │  │                         │  │   │
@@ -441,6 +444,33 @@
   │                          │ ─────────────────────►   │</code></pre>
   </div>
   <p>With Redis enabled, the server publishes WebSocket messages to a Redis channel, allowing multiple server instances to relay messages to their local clients.</p>
+
+  <h4>WebSocket frame catalogue</h4>
+  <p>Every frame is JSON <code>{type, ...}</code>. Inbound frames from clients are handled by a dispatch table in <code>server/websocket.js</code>; outbound frames are sent via <code>broadcastToRoom(projectId, msg, [exceptWs])</code> or <code>sendToUser(userId, msg)</code>. Both helpers are exposed at <code>app.locals.broadcastToRoom</code> / <code>app.locals.sendToUser</code> so HTTP routes (e.g. invite-accept, comment POST) can fan out updates without a WS round-trip.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Direction</th><th>Type</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>in / out</td><td><code>presence</code>, <code>join</code></td><td>Room membership + user list</td></tr>
+        <tr><td>in / out</td><td><code>changes</code></td><td>OT edits, stamped with a per-tab <code>originId</code> so the server's broadcast can be filtered as a self-echo on reconnect</td></tr>
+        <tr><td>in / out</td><td><code>cursor</code></td><td>Remote cursor positions (same self-echo filter)</td></tr>
+        <tr><td>in / out</td><td><code>comment</code>, <code>comment-reply</code>, <code>comment-resolve</code>, <code>comment-delete</code>, <code>comment-edit</code></td><td>Comment thread events</td></tr>
+        <tr><td>in</td><td><code>comment-react</code>, <code>reply-react</code></td><td>Toggle emoji reaction on a comment / reply</td></tr>
+        <tr><td>out</td><td><code>comment-reaction-update</code>, <code>reply-reaction-update</code></td><td>Authoritative full reaction set after each toggle (replayed to <em>everyone</em>, including sender, so clients converge)</td></tr>
+        <tr><td>out</td><td><code>mention</code></td><td>Real-time fan-out of a new @-mention to the mentioned user only (<code>sendToUser</code>); offline users get a digest email instead</td></tr>
+        <tr><td>in / out</td><td><code>chat</code></td><td>Chat message</td></tr>
+        <tr><td>in</td><td><code>chat-react</code></td><td>Toggle emoji reaction on chat message</td></tr>
+        <tr><td>out</td><td><code>chat-reaction-update</code></td><td>Authoritative reaction set after chat react</td></tr>
+        <tr><td>in / out</td><td><code>typing</code></td><td>Typing indicator (chat + comment compose)</td></tr>
+        <tr><td>in / out</td><td><code>tracked-change</code>, <code>tracked-change-resolve</code>, <code>tracked-change-delete</code>, <code>tc-delete-mark</code></td><td>Tracked-changes pipeline</td></tr>
+        <tr><td>out</td><td><code>members-update</code></td><td>Server signals that membership changed (invite accept / member remove); client refetches <code>/members</code></td></tr>
+        <tr><td>out</td><td><code>folder-create</code>, <code>folder-delete</code>, <code>folder-rename</code></td><td>File-tree updates fan-out from HTTP write routes</td></tr>
+        <tr><td>out</td><td><code>history_update</code></td><td>A new snapshot was created &mdash; refresh the history panel</td></tr>
+        <tr><td>out</td><td><code>invitation</code></td><td>A new project invitation for this user</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <h3>3. Compilation Flow</h3>
   <div class="diagram">
     <pre><code>Client                Server                TeX Live            Filesystem
@@ -569,7 +599,24 @@
                    │   │ expire           │       │ ip               │
                    └───┤ (contains userId)│       │ success          │
                        └──────────────────┘       │ created_at       │
-                                                  └──────────────────┘</code></pre>
+                                                  └──────────────────┘
+
+Collaboration tables (FKs back to comments / comment_replies / chat_messages):
+
+  comment_mentions       — log of every @-mention; powers in-app bell + 5-min digest
+    (id, comment_id?, reply_id?, mentioned_user_id, mentioner_user_id,
+     project_id, snippet, created_at, notified_at, seen_at)
+
+  comment_reactions      — emoji reactions on comments
+    (id, comment_id, user_id, user_name, emoji, created_at)
+    UNIQUE(comment_id, user_id, emoji) → re-applying toggles off
+
+  reply_reactions        — emoji reactions on comment replies (same shape)
+
+  chat_messages          — per-project chat history (last 500 returned via /api/chat)
+
+  chat_message_reactions — emoji reactions on chat messages (same toggle pattern)
+</code></pre>
   </div>
   <hr>
   <h2 id="component-architecture">Component Architecture</h2>
@@ -690,22 +737,25 @@
         <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong>Frontend</strong></td><td>React 18</td><td>UI framework</td></tr>
+        <tr><td><strong>Frontend</strong></td><td>React 19</td><td>UI framework</td></tr>
         <tr><td></td><td>CodeMirror 6</td><td>LaTeX editor</td></tr>
-        <tr><td></td><td>PDF.js 4.8</td><td>PDF rendering</td></tr>
-        <tr><td></td><td>Vite 5.4</td><td>Build tool &amp; dev server</td></tr>
+        <tr><td></td><td>PDF.js 5</td><td>PDF rendering</td></tr>
+        <tr><td></td><td>Vite 8</td><td>Build tool &amp; dev server</td></tr>
         <tr><td></td><td>Typo.js</td><td>Spellcheck</td></tr>
-        <tr><td><strong>Backend</strong></td><td>Express 4.21</td><td>HTTP server</td></tr>
+        <tr><td><strong>Backend</strong></td><td>Express 5</td><td>HTTP server</td></tr>
         <tr><td></td><td>ws</td><td>WebSocket server</td></tr>
         <tr><td></td><td>pino / pino-http</td><td>Structured logging</td></tr>
         <tr><td></td><td>Helmet</td><td>Security headers</td></tr>
         <tr><td></td><td>express-rate-limit</td><td>Rate limiting</td></tr>
         <tr><td></td><td>bcryptjs</td><td>Password hashing</td></tr>
         <tr><td></td><td>express-session + connect-pg-simple</td><td>Session management</td></tr>
+        <tr><td></td><td>nodemailer</td><td>SMTP (verification, reset, mention digests)</td></tr>
+        <tr><td></td><td>archiver 8</td><td>ZIP downloads (<code>ZipArchive</code> named export &mdash; v8 dropped the default)</td></tr>
         <tr><td><strong>Database</strong></td><td>PostgreSQL 14+</td><td>Primary data store</td></tr>
-        <tr><td><strong>Caching</strong></td><td>Redis (optional)</td><td>WebSocket pub/sub</td></tr>
-        <tr><td><strong>LaTeX</strong></td><td>TeX Live (latexmk, pdflatex, synctex, lacheck, latexdiff)</td><td>Compilation toolchain</td></tr>
+        <tr><td><strong>Caching</strong></td><td>Redis (optional)</td><td>WebSocket pub/sub for multi-instance scaling</td></tr>
+        <tr><td><strong>LaTeX</strong></td><td>TeX Live (latexmk, pdflatex, xelatex, synctex, lacheck, latexdiff)</td><td>Compilation toolchain</td></tr>
         <tr><td><strong>Git</strong></td><td>simple-git</td><td>GitHub integration</td></tr>
+        <tr><td><strong>Reverse proxy (recommended)</strong></td><td>Caddy</td><td>TLS via Let's Encrypt; <code>www &rarr; apex</code> redirect; optional load-balanced upstream</td></tr>
       </tbody>
     </table>
   </div>

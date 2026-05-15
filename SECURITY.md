@@ -36,7 +36,17 @@ chained-exploit risk.
   The policy disables `PS`, `EPS`, `PDF`, `XPS`, `MVG`, `MSL`, `URL`,
   `HTTPS`, `HTTP`, `FTP`, `TEXT`, `SHOW`, `LABEL`, `CAPTION`, `EPHEMERAL`,
   `WIN`, `PLT`, the Ghostscript delegate, `@`-prefixed file reads, and the
-  PS/PDF/XPS modules. Resource caps mirror our in-process limits. Install:
+  PS/PDF/XPS modules. Resource caps mirror our in-process limits.
+
+  > **If you use `scripts/provision-vps.sh`, this is already done.** The
+  > provisioner detects `/etc/ImageMagick-*`, backs up the distro
+  > `policy.xml` on first install, drops our hardened policy in place,
+  > verifies the PDF-deny rule landed, and reports the status in the
+  > completion banner. Re-runs are idempotent (skipped when the file
+  > already matches). The manual steps below are for non-provisioner
+  > deployments.
+
+  Manual install:
 
   ```bash
   # Back up, install, verify

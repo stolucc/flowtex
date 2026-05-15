@@ -129,7 +129,16 @@ Visual mode is purely visual — toggling it off restores the exact same source.
 - **Reply**: Click a comment to expand it, then type a reply
 - **Resolve**: Click the checkmark to resolve a comment thread
 - **Edit/Delete**: Use the menu on your own comments to edit or delete them
-- Comments are positioned alongside the relevant lines in the editor
+- **@-mention a collaborator**: Type `@` while composing a comment or reply — an autocomplete popover lists project members. Pick one and the mention is inserted as `@Name` (or `@"Full Name"` for multi-word names). Mentioned users get an in-app notification immediately (see the bell in the toolbar) and an emailed digest if they aren't online.
+- **Assign a comment**: When you @-mention someone, an "Assign to" checkbox appears — tick it to mark the comment as assigned to that person; their name shows in a banner above the comment.
+- **React with emoji**: Hover any comment or reply and click the ☺ trigger that appears in the bottom-right; pick from the palette (👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌). Reactions appear as pills under the comment; click a pill you've placed to remove it. All collaborators see the same reaction set in real time.
+- Comments are positioned alongside the relevant lines in the editor.
+
+### Notifications (Bell)
+
+The bell icon in the toolbar shows the count of unread @-mentions. Click it to see recent mentions (up to 50, kept 7 days after being seen), each linking back to its project. Clicking a mention from a *different* project switches you into that project; clicking one in the current project opens the comments panel. "Mark all read" is one click.
+
+If you're offline (or close the tab) when somebody mentions you, a digest email is sent within ~5 minutes covering everyone who mentioned you across all your projects — assuming the server has SMTP configured.
 
 ---
 
@@ -165,6 +174,26 @@ FlowTex supports multiple users editing the same project simultaneously.
    - **Viewer**: Can view files and PDF but cannot edit
 4. Click **Invite** — they'll see the invitation on their dashboard
 5. You can change roles or remove members at any time (owner only)
+
+The member list, the avatar bar, and the @-mention autocomplete refresh **live** when someone accepts an invitation or is removed — no page reload needed.
+
+### Copying a Project
+
+From the project list, the project menu has a **Copy** option. The copy includes:
+
+- All files (text and binary) with the same paths and content
+- All inline comments, replies, and emoji reactions
+
+The copy does **not** include the membership list (only you become the owner) or the @-mention notification log (so old mentions don't re-fire emails). Assignment metadata is preserved as-is — if the assignee is later invited to the copy, the assignment lights up again.
+
+### Per-Project Chat
+
+Open the chat panel from View → Chat. Messages are scoped to the current project and visible to all members. The chat has:
+
+- Date separators and per-author bubbles
+- A live typing indicator while others are composing
+- Emoji reactions (same palette as comments — click the ☺ trigger on hover)
+- An unread badge in the toolbar when new messages arrive while the panel is closed
 
 ---
 
@@ -278,3 +307,20 @@ Protect your account with TOTP-based two-factor authentication.
 - **Clean auxiliary files** if compilation produces unexpected results or gets stuck
 - **Upload a ZIP** to quickly import an existing LaTeX project
 - **Resolve comments** to keep the sidebar clean — resolved comments are hidden by default
+
+---
+
+## Admin Dashboard
+
+If your account has the admin flag, the user menu shows an **Admin Dashboard** entry. It surfaces:
+
+- **Overview** — total users / projects / files / versions / comments, with 7-day and 30-day deltas
+- **Most Active Projects** — top 20 by recent edits, with an **Owner** column so you can see at a glance who runs each one
+- **Active Users** — top 20 by edit count; click any row to drill into their projects, recent edits, comments, chat, audit entries, and login history
+- **Audit log** — every security-relevant event (logins, password / MFA changes, snapshot restores, GitHub-token issuance, admin actions); exportable as CSV
+- **SMTP settings** — test mail sending and rotate the admin SMTP password
+- **Delete user** — each user row has a Delete button that opens a triple-check modal: acknowledge, type the target's exact email, enter *your* admin password, only then is the destructive button enabled. The flow cleans up the user's authorship on comments / replies / versions, drops any project they alone own, and sends a goodbye email. Admins cannot delete *themselves* through this flow — use the regular self-delete instead.
+
+### About modal — which version is live?
+
+Help → About shows a **Build** line with the short git SHA and build timestamp. When the FlowTex server is deployed via the provisioner this is set automatically from `git rev-parse --short HEAD` at build time, so operators can confirm which commit is currently serving traffic. In a dev build (no git, or built without the env vars) it shows `dev`.

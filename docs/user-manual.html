@@ -639,7 +639,7 @@
     <div class="grid">
       <div class="card"><div class="ico">＋</div><h4>Create</h4><p>Blank project or pick from the template gallery.</p></div>
       <div class="card"><div class="ico">⤓</div><h4>Import</h4><p>From <code>.zip</code>, <code>.docx</code>, or a GitHub repo.</p></div>
-      <div class="card"><div class="ico">⎘</div><h4>Copy</h4><p>Duplicate a project including files and settings.</p></div>
+      <div class="card"><div class="ico">⎘</div><h4>Copy</h4><p>Duplicate a project including all files <em>and</em> the discussion thread &mdash; comments, replies, and emoji reactions all carry over. The membership list and the @-mention notification log are not copied (so old mentions don&rsquo;t re-fire emails); you become the sole owner of the copy.</p></div>
       <div class="card"><div class="ico">★</div><h4>Tag</h4><p>Color-coded labels; filter the list by tag.</p></div>
       <div class="card"><div class="ico">⌧</div><h4>Archive</h4><p>Hide finished projects; restore anytime.</p></div>
       <div class="card"><div class="ico">🗑</div><h4>Trash</h4><p>30-day soft-delete; owner-only restore.</p></div>
@@ -915,7 +915,11 @@
     <p>The top-right corner shows avatars of every collaborator currently in the project. Each has a unique cursor color in the editor; their cursors and selections move in real time. A small "is typing…" indicator appears below their name when they're editing.</p>
 
     <h3>Chat</h3>
-    <p><strong>View → Chat</strong> opens a per-project chat panel. Messages persist server-side; new collaborators see the full history. Viewers can read but not post (per role table above).</p>
+    <p><strong>View → Chat</strong> opens a per-project chat panel. Messages persist server-side; new collaborators see the full history. Viewers can read but not post (per role table above). The panel shows date separators, per-author bubbles, and a live typing indicator while others are composing.</p>
+    <p>Hover any chat message and click the &#9786; trigger to add an emoji reaction (👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌). Reactions appear as small pills below the bubble and sync in real time. When the chat panel is closed and new messages arrive, the toolbar shows an unread badge.</p>
+
+    <h3>Member list refreshes live</h3>
+    <p>When somebody accepts an invitation or is removed by the owner, the avatar bar in the toolbar and the @-mention autocomplete update automatically &mdash; no page reload needed. The server pushes a <code>members-update</code> frame on every change and the client refetches the member list.</p>
   </section>
 
   <!-- ═════════════════════════════════════════════════════════════════ -->
@@ -927,11 +931,17 @@
     <ol class="steps">
       <li>Double-click the text you want to comment on. A bubble appears in the right-hand panel aligned with the editor line.</li>
       <li>Type your comment. Use <code>@</code> to start a member mention; pick from the autocomplete.</li>
-      <li>Press <kbd>Enter</kbd> to post, or <kbd>⇧</kbd>+<kbd>Enter</kbd> for a newline. Mentioned users receive an email and a notification.</li>
+      <li>Press <kbd>Enter</kbd> to post, or <kbd>⇧</kbd>+<kbd>Enter</kbd> for a newline. Mentioned users get an in-app notification (the bell badges up) and an emailed digest if they aren't online.</li>
     </ol>
 
     <h3>Replies, mentions, assignments</h3>
     <p>Click <strong>Reply</strong> in any bubble to thread under it. @-mentioning a member with the optional "assign" UI puts the comment on their action list. Resolve a thread (✓ button) to collapse it; resolved comments are kept for the record and viewable in the bottom-of-panel "Resolved" section.</p>
+
+    <h3>Notifications (bell)</h3>
+    <p>The bell icon in the toolbar shows the count of unread @-mentions across all your projects. Click it for a dropdown of recent mentions (up to 50, kept for 7 days after being seen); each entry shows the mentioner, the project, and a snippet. Clicking a mention from a <em>different</em> project switches you into that project; clicking one in the current project opens the comments panel. "Mark all read" clears the badge in one click. If you're offline (or the tab is closed) when somebody mentions you, a single digest email is sent within ~5 minutes covering everyone who mentioned you, across all your projects.</p>
+
+    <h3>Emoji reactions on comments and replies</h3>
+    <p>Hover any comment or reply and click the &#9786; trigger that appears in the corner. Pick from a small palette: 👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌. Reactions appear as pills under the comment — click a pill you've placed to remove it, or click someone else's pill to add yours alongside. Reactions sync in real time across all collaborators (server-authoritative: the server broadcasts the full reaction set after every toggle so every client converges).</p>
 
     <h3>Live alignment</h3>
     <p>Comment bubbles slide in lockstep with editor scroll — each card pins to its line. If two comments target nearby lines, an elastic packer gracefully spaces them so they don't overlap.</p>
@@ -1143,13 +1153,18 @@
     <h2><span class="ch">18</span> Admin tools <span class="badge badge-admin">Admins only</span></h2>
     <p class="lead">If you have an admin account, the user menu shows an <strong>Admin Dashboard</strong> entry.</p>
     <ul>
-      <li><strong>Overview:</strong> user, project, file, compile, and storage counts.</li>
-      <li><strong>Users:</strong> list, search, view per-user activity (projects, edits, comments, recent logins).</li>
-      <li><strong>Audit log:</strong> every security-relevant event — logins, password changes, MFA changes, invitation accepts (and failed-by-mismatch attempts), snapshot restores, GitHub token issuance, and admin actions.</li>
+      <li><strong>Overview:</strong> user, project, file, compile, and storage counts, with 7- and 30-day deltas.</li>
+      <li><strong>Most Active Projects:</strong> top 20 by recent edits, with member / file / version / comment counts. An <strong>Owner</strong> column shows the project owner at a glance.</li>
+      <li><strong>Users:</strong> list, search, view per-user activity (projects, edits, comments, chat, audit entries, recent logins).</li>
+      <li><strong>Delete user:</strong> each user row has a Delete button that opens a <em>triple-check</em> modal &mdash; acknowledge the warning, type the target&rsquo;s exact email, enter <em>your</em> admin password. Only when all three are satisfied is the destructive button enabled. The flow cleans the user&rsquo;s authorship from comments / replies / versions, drops any project they alone own, audits the action as <code>account_deleted_by_admin</code>, and sends a goodbye email. Admins cannot delete themselves through this flow.</li>
+      <li><strong>Audit log:</strong> every security-relevant event &mdash; logins, password changes, MFA changes, invitation accepts (and failed-by-mismatch attempts), snapshot restores, GitHub token issuance, and admin actions. Exportable as CSV.</li>
       <li><strong>SMTP / Email:</strong> test mail sending and rotate the admin SMTP password.</li>
       <li><strong>Compile metrics:</strong> live look at running compiles, queue depth, average duration.</li>
     </ul>
     <p>Admin operations are themselves audit-logged.</p>
+
+    <h3>About modal &mdash; which version is live?</h3>
+    <p>Help &rsaquo; About shows a <strong>Build</strong> line with the short git SHA and build timestamp baked in at <code>npm run build</code> time. When FlowTex is deployed via <code>scripts/provision-vps.sh</code>, this is set automatically, so an operator opening About can confirm at a glance which commit is currently serving traffic. A development build (no git or missing env vars) shows <code>dev</code>.</p>
   </section>
 
   <!-- ═════════════════════════════════════════════════════════════════ -->
