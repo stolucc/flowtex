@@ -84,12 +84,18 @@ apt-get install -y --no-install-recommends \
   postgresql postgresql-contrib \
   texlive-full \
   texlive-fonts-extra \
+  fonts-texgyre \
   util-linux \
   ufw
 # texlive-fonts-extra is a transitive dep of texlive-full today, but we list
 # it explicitly so the install survives a future downgrade to a smaller
-# distribution. It ships TeX Gyre, Linux Libertine, lmodern variants, and
-# many other fonts that the DOCX-import path aliases proprietary names to.
+# distribution.
+# fonts-texgyre is *separate* from the TeX Live Gyre install: TeX Live drops
+# the OTFs into /usr/share/texmf-dist/fonts/... which fontconfig does NOT
+# scan by default, so xelatex+fontspec cannot resolve \setmainfont{TeX Gyre
+# Heros} even though the file is on disk. fonts-texgyre re-installs the
+# OTFs to /usr/share/fonts/opentype/texgyre/ where fontconfig sees them.
+# Required by the DOCX-import font alias map (Helvetica -> TeX Gyre Heros).
 # util-linux provides `prlimit` — without it FlowTex compiles run without
 # kernel-level memory/output caps (it warns loudly at startup).
 
