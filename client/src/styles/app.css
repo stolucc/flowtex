@@ -8506,16 +8506,19 @@ kbd {
 }
 .chat-react-picker-btn:hover { background: var(--bg-hover); }
 
-/* Reaction pills overlap the bubble's bottom edge — half on, half off,
-   the way Slack/Discord render them. The negative margin pulls the row
-   up; z-index keeps the pills on top of the bubble's border. */
+/* Reaction pills sit just below the bubble with a slight kiss against
+   its bottom edge. Earlier they were pulled deep into the bubble and
+   covered the text/timestamp; now the only overlap is a 3px nibble on
+   the bubble's bottom border. Pills use --bg-primary (the page colour,
+   darker than the bubble surface) so they read as distinct chips
+   rather than blending into the bubble. */
 .chat-reactions {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: -11px;
-  padding: 0 8px;
+  margin-top: -3px;
+  padding: 0 6px;
   z-index: 1;
 }
 .chat-message.own .chat-reactions { justify-content: flex-end; }
@@ -8523,15 +8526,15 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 7px;
+  padding: 2px 8px;
   border: 1px solid var(--border);
-  background: var(--bg-surface);
-  border-radius: 10px;
+  background: var(--bg-primary);
+  border-radius: 11px;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--text-primary);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 .chat-reaction-pill:hover { background: var(--bg-hover); }
 .chat-reaction-pill.mine {
