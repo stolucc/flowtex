@@ -482,6 +482,11 @@ export default function AdminDashboard({ onBack }) {
 
   const projectCols = [
     { key: 'name', label: 'Project' },
+    {
+      key: 'ownerName',
+      label: 'Owner',
+      render: (r) => r.ownerName || r.ownerEmail || '—',
+    },
     { key: 'memberCount', label: 'Members' },
     { key: 'fileCount', label: 'Files' },
     { key: 'versionCount', label: 'Edits' },

@@ -144,8 +144,19 @@ router.get('/stats/top-projects', async (req, res) => {
       (SELECT COUNT(*)::int FROM files WHERE project_id = p.id) AS file_count,
       (SELECT COUNT(*)::int FROM project_snapshots WHERE project_id = p.id) AS version_count,
       (SELECT COUNT(*)::int FROM comments c JOIN files f ON c.file_id = f.id WHERE f.project_id = p.id) AS comment_count,
-      (SELECT MAX(created_at) FROM project_snapshots WHERE project_id = p.id) AS last_edit
+      (SELECT MAX(created_at) FROM project_snapshots WHERE project_id = p.id) AS last_edit,
+      owner.id    AS owner_id,
+      owner.name  AS owner_name,
+      owner.email AS owner_email
     FROM projects p
+    LEFT JOIN LATERAL (
+      SELECT u.id, u.name, u.email
+        FROM project_members pm
+        JOIN users u ON u.id = pm.user_id
+       WHERE pm.project_id = p.id AND pm.role = 'owner'
+       ORDER BY pm.user_id
+       LIMIT 1
+    ) AS owner ON true
     ORDER BY last_edit DESC NULLS LAST
     LIMIT $1
   `,
@@ -162,6 +173,9 @@ router.get('/stats/top-projects', async (req, res) => {
       versionCount: r.version_count,
       commentCount: r.comment_count,
       lastEdit: r.last_edit,
+      ownerId: r.owner_id,
+      ownerName: r.owner_name,
+      ownerEmail: r.owner_email,
     })),
   );
 });
