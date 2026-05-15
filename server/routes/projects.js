@@ -339,12 +339,13 @@ router.post('/:id/members', async (req, res) => {
       'Someone';
     const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
     const projectName = project?.name || 'a project';
+
+    // Email is a precondition: if SMTP fails, undo the invitation so the
+    // recipient never sees an in-app banner without ever getting the email
+    // link. Prefer APP_URL (set in .env) over the request's host header so
+    // a forged Host: can't redirect the invite link to an attacker domain.
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     try {
-      // Prefer APP_URL (set in .env) over the request's host header. A
-      // forged or misconfigured Host: would otherwise let invitations
-      // point to attacker domains. Mirrors what every other email sender
-      // in the codebase already does.
-      const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
       await sendProjectInvitationEmail(email, {
         inviterName,
         projectName,
@@ -352,9 +353,15 @@ router.post('/:id/members', async (req, res) => {
         inviteUrl: `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
       });
     } catch (err) {
-      logger.warn({ err, email }, 'Failed to send invitation email');
+      logger.warn({ err, email, invitationId: invitation.id }, 'Failed to send invitation email; rolling back invitation');
+      await db.run('DELETE FROM project_invitations WHERE id = $1', [invitation.id]).catch((dbErr) =>
+        logger.error({ err: dbErr, invitationId: invitation.id }, 'Failed to roll back invitation after email failure'),
+      );
+      return res.status(502).json({ error: 'Failed to send invitation email — invitation was not created' });
     }
-    // Push invitation to invitee in real-time via WebSocket
+
+    // Email landed — now push the in-app banner over WebSocket so the
+    // recipient sees the pending invitation immediately if they're online.
     try {
       const invitee = await db.get('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
       if (invitee && req.app.locals.sendToUser) {

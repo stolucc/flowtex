@@ -8469,12 +8469,18 @@ kbd {
   left: 6px;
 }
 
-/* Small palette popover anchored above the bubble. */
+/* Small palette popover anchored above the bubble. The picker grows
+   *inward* (toward the chat panel's centre) so it never overflows the
+   panel on short bubbles — incoming bubbles sit on the left so the
+   picker grows right; own bubbles sit on the right so the picker grows
+   left. */
 .chat-react-picker {
   position: absolute;
   bottom: calc(100% + 6px);
-  right: 0;
+  left: 0;
   display: flex;
+  flex-wrap: wrap;
+  max-width: min(260px, 90vw);
   gap: 2px;
   padding: 4px;
   background: var(--bg-surface);
@@ -8483,7 +8489,7 @@ kbd {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
   z-index: 50;
 }
-.chat-message.own .chat-react-picker { right: auto; left: 0; }
+.chat-message.own .chat-react-picker { left: auto; right: 0; }
 
 .chat-react-picker-btn {
   width: 28px;
@@ -8500,13 +8506,19 @@ kbd {
 }
 .chat-react-picker-btn:hover { background: var(--bg-hover); }
 
-/* Reaction pill row underneath the bubble. */
+/* Reaction pills overlap the bubble's bottom edge — half on, half off,
+   the way Slack/Discord render them. The negative margin pulls the row
+   up; z-index keeps the pills on top of the bubble's border. */
 .chat-reactions {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: -11px;
+  padding: 0 8px;
+  z-index: 1;
 }
+.chat-message.own .chat-reactions { justify-content: flex-end; }
 .chat-reaction-pill {
   display: inline-flex;
   align-items: center;
@@ -8519,6 +8531,7 @@ kbd {
   line-height: 1.6;
   color: var(--text-primary);
   cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 .chat-reaction-pill:hover { background: var(--bg-hover); }
 .chat-reaction-pill.mine {
