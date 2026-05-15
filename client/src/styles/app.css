@@ -10412,3 +10412,90 @@ kbd {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Editor invitation toast ──────────────────────────────────────── */
+/* Stack of cards in the bottom-right of the editor view. New cards
+   push older ones up. Stays out of the way of the PDF viewer's icon
+   chips at the top-right and the chat input at the bottom of its
+   panel. */
+.invitation-toast-stack {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  z-index: 90;
+  pointer-events: none;
+}
+.invitation-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 320px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: invitation-toast-in 0.18s ease-out;
+}
+@keyframes invitation-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.invitation-toast-icon {
+  font-size: 18px;
+  color: var(--accent);
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.invitation-toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.invitation-toast-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.invitation-toast-detail {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.invitation-toast-open {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  font-size: 12px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.invitation-toast-open:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.invitation-toast-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.invitation-toast-close:hover { color: var(--text-primary); }

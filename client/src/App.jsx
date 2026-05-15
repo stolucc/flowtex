@@ -63,10 +63,46 @@ function stripJobSuffix(filename) {
   return filename.replace(/_[0-9a-f]{8}(?=\.)/, '').replace(/^__diff__/, 'diff');
 }
 
+/** Toast that pops up in the editor when a new invitation arrives while
+ *  the user is inside a project. The dashboard's pending-invitation banner
+ *  is the canonical surface; this toast is the temporary heads-up for
+ *  recipients who happen to be mid-edit. Auto-dismisses; or click "Open
+ *  dashboard" to jump straight to the banner. */
+function InvitationToast({ invitation, onDismiss, onOpen }) {
+  return (
+    <div className="invitation-toast" role="status">
+      <div className="invitation-toast-icon" aria-hidden="true">✉</div>
+      <div className="invitation-toast-body">
+        <div className="invitation-toast-title">New invitation</div>
+        <div className="invitation-toast-detail">
+          <strong>{invitation.inviter_name || 'Someone'}</strong> invited you to{' '}
+          <strong>{invitation.project_name || 'a project'}</strong>
+        </div>
+        <button type="button" className="invitation-toast-open" onClick={onOpen}>
+          Open dashboard
+        </button>
+      </div>
+      <button
+        type="button"
+        className="invitation-toast-close"
+        onClick={onDismiss}
+        aria-label="Dismiss invitation notification"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 /** Main application shell: wires together all hooks and renders the editor layout. */
 function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
+  // In-editor toasts for invitations that arrive while a user is mid-edit.
+  // The dashboard's banner is still the canonical surface — these are
+  // ephemeral heads-ups so the recipient sees the invite without having
+  // to return to the dashboard themselves.
+  const [invitationToasts, setInvitationToasts] = useState([]);
   const editorRef = useRef(null);
   const pdfRef = useRef(null);
 
@@ -361,6 +397,26 @@ function AppInner() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Listen for invitation pushes while in an editor view. (When on the
+  // dashboard, ProjectList listens separately for the same event and
+  // updates its banner — no duplicate handling because the two views
+  // are mutually exclusive.) Each toast auto-dismisses after 10s.
+  useEffect(() => {
+    if (!user || !project) return;
+    const onInvitation = (e) => {
+      const inv = e.detail;
+      if (!inv?.id) return;
+      setInvitationToasts((toasts) =>
+        toasts.some((t) => t.id === inv.id) ? toasts : [...toasts, inv],
+      );
+      setTimeout(() => {
+        setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id));
+      }, 10000);
+    };
+    window.addEventListener('ws:invitation', onInvitation);
+    return () => window.removeEventListener('ws:invitation', onInvitation);
+  }, [user, project]);
+
   // --- Render ---
 
   if (!authChecked) return <div className="auth-loading">Loading...</div>;
@@ -589,6 +645,24 @@ function AppInner() {
         projectSettingsTab={projectSettingsTab}
         setProjectSettingsTab={setProjectSettingsTab}
       />
+      {invitationToasts.length > 0 && (
+        <div className="invitation-toast-stack">
+          {invitationToasts.map((inv) => (
+            <InvitationToast
+              key={inv.id}
+              invitation={inv}
+              onDismiss={() => setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id))}
+              onOpen={() => {
+                // Stash the invitation id so the dashboard highlights it
+                // on mount (same hook the email-click path uses).
+                window.history.pushState({}, '', `/?invite=${encodeURIComponent(inv.id)}`);
+                setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id));
+                goBack();
+              }}
+            />
+          ))}
+        </div>
+      )}
       {formatWarning && (
         <div className="modal-overlay confirm-dialog-overlay" onClick={() => setFormatWarning(null)}>
           <div className="modal-card confirm-dialog" onClick={(e) => e.stopPropagation()}>
