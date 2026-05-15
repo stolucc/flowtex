@@ -311,11 +311,18 @@ systemctl daemon-reload
 systemctl enable flowtex
 
 # ── Caddy ───────────────────────────────────────────────────────────────
-log "Configuring Caddy for $DOMAIN (automatic HTTPS via Let's Encrypt)"
+# Serve the apex domain and redirect the www subdomain to it (so the canonical
+# URL stays clean). Caddy will fetch certs for both automatically — this only
+# works if DNS for `www.$DOMAIN` resolves to this VPS (A/AAAA or CNAME to apex).
+log "Configuring Caddy for $DOMAIN + www.$DOMAIN (automatic HTTPS)"
 cat > /etc/caddy/Caddyfile <<CADDY
 $DOMAIN {
 	reverse_proxy localhost:3001
 	encode zstd gzip
+}
+
+www.$DOMAIN {
+	redir https://$DOMAIN{uri} permanent
 }
 CADDY
 systemctl enable caddy
