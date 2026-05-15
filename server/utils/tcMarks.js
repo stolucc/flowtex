@@ -105,11 +105,34 @@ function findClose(s) {
   return -1;
 }
 
+// Matches a paragraph break: a blank line (one or more newlines with only
+// whitespace between two of them) or an explicit `\par` token. We split
+// on these so the wrapping macro is closed before the break — `\textcolor`,
+// `\uline` and `\sout` are short LaTeX commands that crash with "Paragraph
+// ended before \@textcolor was complete" if a `\par` lands inside them.
+const PARA_BREAK_RE = /(\n[ \t]*\n[ \t\n]*|\\par\b[ \t]*)/g;
+
 /**
- * Wrap `inner` with `macro` (`\TCadd` or `\TCdel`), routing around
- * sectioning commands so they don't end up inside ulem's hbox.
+ * Wrap `inner` with `macro` (`\TCadd` or `\TCdel`), splitting at paragraph
+ * breaks so the macro never spans a `\par` (fragile-command crash), and
+ * routing around sectioning commands so they don't end up inside ulem's hbox.
  */
 function wrapInner(macro, inner) {
+  // split() with a capturing group keeps the separators as alternating slots,
+  // so we can wrap content chunks (even indexes) and pass separators through.
+  const parts = inner.split(PARA_BREAK_RE);
+  if (parts.length === 1) return wrapOneParagraph(macro, inner);
+  return parts
+    .map((p, i) => {
+      if (i % 2 === 1) return p; // paragraph separator — leave outside the macro
+      if (!p || p.trim().length === 0) return p; // empty content slot
+      return wrapOneParagraph(macro, p);
+    })
+    .join('');
+}
+
+/** Wrap a single paragraph's worth of `inner` — no `\par` inside. */
+function wrapOneParagraph(macro, inner) {
   const m = SECTIONING_RE.exec(inner);
   if (m) {
     const header = m[0];

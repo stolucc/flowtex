@@ -334,6 +334,43 @@ describe('Fuzz: 300 random (content × marks) → strip+wrap preserve content si
   );
 });
 
+// Regression: \textcolor / \uline / \sout (inside \TCadd / \TCdel) are
+// fragile short commands. If a marked range spans a paragraph break
+// (blank line or \par), LaTeX crashes with "Paragraph ended before
+// \@textcolor was complete". The wrap must close the macro before each
+// paragraph break and re-open it on the next paragraph.
+describe('wrapPendingChangesAsMacros: paragraph breaks inside a marked range', () => {
+  it('splits the macro across a blank line', () => {
+    const content = 'first para\n\nsecond para';
+    const out = wrapPendingChangesAsMacros(content, [{ type: 'ins', from: 0, to: content.length }]);
+    expect(out).toBe('\\TCadd{first para}\n\n\\TCadd{second para}');
+  });
+
+  it('splits across an explicit \\par token', () => {
+    const content = 'first\\par second';
+    const out = wrapPendingChangesAsMacros(content, [{ type: 'ins', from: 0, to: content.length }]);
+    expect(out).toBe('\\TCadd{first}\\par \\TCadd{second}');
+  });
+
+  it('preserves the exact whitespace of the paragraph separator', () => {
+    const content = 'a\n  \n\n  b';
+    const out = wrapPendingChangesAsMacros(content, [{ type: 'ins', from: 0, to: content.length }]);
+    expect(out).toBe('\\TCadd{a}\n  \n\n  \\TCadd{b}');
+  });
+
+  it('handles three paragraphs in a single marked range', () => {
+    const content = 'one\n\ntwo\n\nthree';
+    const out = wrapPendingChangesAsMacros(content, [{ type: 'del', from: 0, to: content.length }]);
+    expect(out).toBe('\\TCdel{one}\n\n\\TCdel{two}\n\n\\TCdel{three}');
+  });
+
+  it('leaves single-newline content unsplit (not a paragraph break)', () => {
+    const content = 'line one\nline two';
+    const out = wrapPendingChangesAsMacros(content, [{ type: 'ins', from: 0, to: content.length }]);
+    expect(out).toBe('\\TCadd{line one\nline two}');
+  });
+});
+
 describe('Fuzz: 100 random docs → injectTcMacros is safe', () => {
   it.each(Array.from({ length: 100 }, (_, i) => ({ seed: i + 1000 })))(
     'seed=$seed: arbitrary content survives injection',
