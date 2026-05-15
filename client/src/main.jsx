@@ -15,6 +15,21 @@ document.addEventListener(
   { passive: false },
 );
 
+// Recover from stale chunk-hash errors after a deploy. Vite content-hashes
+// every chunk filename — when a new build replaces the old chunks but the
+// browser still has the previous index.html cached, lazy `import()` calls
+// 404 with "Failed to fetch dynamically imported module". Vite emits a
+// `vite:preloadError` event in that exact case; reloading the page
+// fetches the fresh index.html (and its new chunk hashes) and the user
+// is back in business. We only auto-reload once per session to avoid an
+// infinite loop if the chunk is genuinely missing for some other reason.
+window.addEventListener('vite:preloadError', () => {
+  if (!sessionStorage.getItem('flowtex-reloaded-after-preload-error')) {
+    sessionStorage.setItem('flowtex-reloaded-after-preload-error', '1');
+    window.location.reload();
+  }
+});
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
