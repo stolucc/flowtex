@@ -68,7 +68,16 @@ export function resetTransporter() {
 
 async function getFromAddress() {
   const dbSettings = await getSmtpSettings();
-  return dbSettings.smtp_from || process.env.SMTP_FROM || 'FlowTex <noreply@flowtex.local>';
+  const raw = (dbSettings.smtp_from || process.env.SMTP_FROM || 'noreply@flowtex.local').trim();
+  // If the configured value is just a bare email address (no display
+  // name, no `<...>` brackets), wrap it as "FlowTex <email>" so mail
+  // clients show "FlowTex" as the sender instead of the raw address.
+  // Values that already include a display name (e.g. "Support <x@y>" or
+  // "FlowTex Mentions <x@y>") are passed through unchanged.
+  if (/^[^\s<>"]+@[^\s<>"]+$/.test(raw)) {
+    return `FlowTex <${raw}>`;
+  }
+  return raw;
 }
 
 /** Send an email using the configured SMTP transport. */
