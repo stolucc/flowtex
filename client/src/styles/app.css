@@ -5021,10 +5021,15 @@ html {
   font-weight: 600;
   color: var(--accent);
   background: rgba(100, 181, 246, 0.1);
-  margin: -10px -12px 8px;
+  /* Negative margins pull the banner to the comment-item's inner edges on
+     all four sides. The right side has to cancel the 64px right-padding
+     that's reserved for the absolute-positioned resolve/menu buttons —
+     otherwise the banner stops short of the button column. */
+  margin: -10px -64px 8px -12px;
   padding: 6px 12px;
   border-bottom: 1px solid rgba(100, 181, 246, 0.2);
-  border-radius: 10px 10px 0 0;
+  /* Match the comment bubble's 6px corners so they align cleanly. */
+  border-radius: 6px 6px 0 0;
 }
 
 .comments-resolved-header {
