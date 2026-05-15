@@ -245,7 +245,10 @@ sudo -u "$APP_USER" bash -euo pipefail <<BUILD
 cd "$APP_DIR"
 npm install --prefix server --omit=dev
 npm install --prefix client
-( cd client && npx vite build )
+# `npm run build` (not `npx vite build`) so the package.json `build` script
+# runs — it bakes in VITE_BUILD_SHA (short git SHA) + VITE_BUILD_TIME, which
+# the About modal surfaces so operators can confirm what is deployed.
+( cd client && npm run build )
 cp -r client/dist/* server/public/
 BUILD
 
