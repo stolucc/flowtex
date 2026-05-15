@@ -1204,13 +1204,17 @@ export async function deleteProject(projectId) {
   await db.run('DELETE FROM projects WHERE id = $1', [projectId]);
 }
 
-/** Duplicate a project and all its files, making the user the owner of the copy. */
+/** Duplicate a project and all its files, making the user the owner of the
+ *  copy. Comments (incl. replies and emoji reactions) are also copied so the
+ *  discussion thread carries over. The `comment_mentions` notification log
+ *  is intentionally NOT copied — copying it would re-fire digest emails for
+ *  past mentions, which isn't what anyone expects when cloning a project. */
 export async function copyProject(projectId, userId, newName) {
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
   const newId = uuid();
   const name = (newName || source.name + ' (Copy)').slice(0, 200);
-  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+  const files = await db.all('SELECT id, path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
   await db.transaction(async (tx) => {
     await tx.run('INSERT INTO projects (id, name, main_file) VALUES ($1, $2, $3)', [newId, name, source.main_file]);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
@@ -1218,14 +1222,94 @@ export async function copyProject(projectId, userId, newName) {
       userId,
       'owner',
     ]);
+
+    const fileIdMap = new Map(); // oldFileId -> newFileId
     for (const file of files) {
+      const newFileId = uuid();
+      fileIdMap.set(file.id, newFileId);
       await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        uuid(),
+        newFileId,
         newId,
         file.path,
         file.content,
         file.is_binary,
       ]);
+    }
+
+    if (files.length === 0) return;
+
+    const sourceFileIds = files.map((f) => f.id);
+    const comments = await tx.all(
+      `SELECT id, file_id, from_pos, to_pos, text, author, author_id, assigned_to, resolved, created_at
+         FROM comments WHERE file_id = ANY($1)`,
+      [sourceFileIds],
+    );
+    if (comments.length === 0) return;
+
+    const commentIdMap = new Map();
+    for (const c of comments) {
+      const newCommentId = uuid();
+      commentIdMap.set(c.id, newCommentId);
+      await tx.run(
+        `INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, assigned_to, resolved)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          newCommentId,
+          fileIdMap.get(c.file_id),
+          c.from_pos,
+          c.to_pos,
+          c.text,
+          c.author,
+          c.author_id,
+          c.assigned_to,
+          c.resolved,
+        ],
+      );
+    }
+
+    const sourceCommentIds = comments.map((c) => c.id);
+    const replies = await tx.all(
+      `SELECT id, comment_id, text, author, author_id, created_at
+         FROM comment_replies WHERE comment_id = ANY($1)`,
+      [sourceCommentIds],
+    );
+    const replyIdMap = new Map();
+    for (const r of replies) {
+      const newReplyId = uuid();
+      replyIdMap.set(r.id, newReplyId);
+      await tx.run(
+        `INSERT INTO comment_replies (id, comment_id, text, author, author_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [newReplyId, commentIdMap.get(r.comment_id), r.text, r.author, r.author_id],
+      );
+    }
+
+    const commentReactions = await tx.all(
+      `SELECT comment_id, user_id, user_name, emoji
+         FROM comment_reactions WHERE comment_id = ANY($1)`,
+      [sourceCommentIds],
+    );
+    for (const cr of commentReactions) {
+      await tx.run(
+        `INSERT INTO comment_reactions (id, comment_id, user_id, user_name, emoji)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [uuid(), commentIdMap.get(cr.comment_id), cr.user_id, cr.user_name, cr.emoji],
+      );
+    }
+
+    if (replies.length === 0) return;
+    const sourceReplyIds = replies.map((r) => r.id);
+    const replyReactions = await tx.all(
+      `SELECT reply_id, user_id, user_name, emoji
+         FROM reply_reactions WHERE reply_id = ANY($1)`,
+      [sourceReplyIds],
+    );
+    for (const rr of replyReactions) {
+      await tx.run(
+        `INSERT INTO reply_reactions (id, reply_id, user_id, user_name, emoji)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [uuid(), replyIdMap.get(rr.reply_id), rr.user_id, rr.user_name, rr.emoji],
+      );
     }
   });
   return db.get('SELECT * FROM projects WHERE id = $1', [newId]);
