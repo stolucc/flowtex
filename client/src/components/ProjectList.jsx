@@ -825,6 +825,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           <SearchIcon />
           <input
             type="text"
+            // Defensive — browser password managers otherwise treat any
+            // generic text input as a "username" candidate when a password
+            // field appears anywhere on the page (e.g. the GitHub-PAT
+            // input in Account Settings). autocomplete="off" + the search
+            // semantics keep saved github.com usernames out of this box.
+            autoComplete="off"
+            name="project-search"
+            inputMode="search"
             placeholder="Search projects..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}

@@ -537,11 +537,27 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                   </p>
                 )}
                 {(ghShowTokenInput || !ghOauthAvailable) && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  // Wrapping the password input in its own form with
+                  // autoComplete="off" scopes the browser's autofill scan
+                  // to this form only. Without it, the browser scans the
+                  // whole page for a matching "username" field — and the
+                  // closest unattributed <input type="text"> is the
+                  // dashboard's project-search bar, into which the user's
+                  // saved github.com username then gets autofilled. The
+                  // <input name="username" hidden> is a decoy: it absorbs
+                  // the autofill so it cannot escape this form.
+                  <form
+                    autoComplete="off"
+                    onSubmit={(e) => { e.preventDefault(); ghSaveToken(); }}
+                    style={{ display: 'flex', gap: 8, marginTop: 8 }}
+                  >
+                    <input type="text" autoComplete="username" name="username" hidden readOnly value="" />
                     <input
                       type="password"
                       className="auth-input"
                       placeholder="ghp_..."
+                      autoComplete="new-password"
+                      name="github-pat"
                       value={ghTokenInput}
                       onChange={(e) => setGhTokenInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -550,14 +566,14 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                       style={{ flex: 1 }}
                     />
                     <button
+                      type="submit"
                       className="auth-button"
-                      onClick={ghSaveToken}
                       disabled={!ghTokenInput.trim()}
                       style={{ whiteSpace: 'nowrap' }}
                     >
                       Save
                     </button>
-                  </div>
+                  </form>
                 )}
               </>
             )}
