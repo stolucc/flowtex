@@ -478,8 +478,17 @@ router.get('/stats/system', async (req, res) => {
       ? Math.round(recentCompiles.reduce((s, h) => s + h.duration, 0) / recentCompiles.length)
       : 0;
 
-  // Active sessions from DB
-  const sessionCount = await db.get('SELECT COUNT(*)::int AS total FROM session WHERE expire > NOW()');
+  // Active sessions = unexpired session rows that actually belong to a
+  // logged-in user. The session table is also written for anonymous
+  // visitors because the CSRF middleware sets a token on every request,
+  // which would otherwise inflate this count by every bot / crawler /
+  // uptime probe that has hit the site.
+  const sessionCount = await db.get(
+    `SELECT COUNT(*)::int AS total
+       FROM session
+      WHERE expire > NOW()
+        AND sess->>'userId' IS NOT NULL`,
+  );
 
   // Live WebSocket stats from app
   const liveStats = req.app.getLiveStats ? req.app.getLiveStats() : { wsConnections: 0, wsUniqueUsers: 0 };
