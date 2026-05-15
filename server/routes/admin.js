@@ -182,7 +182,11 @@ router.get('/stats/top-projects', async (req, res) => {
   );
 });
 
-/** GET /api/admin/stats/top-users -- Most active users by edit count with redacted emails. */
+/** GET /api/admin/stats/top-users -- Most active users by edit count.
+ *  Returns full emails — admins already see real addresses in the audit
+ *  log, user-activity, and SMTP test panel; redacting them here both
+ *  hampered support workflows and broke the type-email-to-confirm step
+ *  of the delete-user modal. */
 router.get('/stats/top-users', async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 
@@ -201,21 +205,16 @@ router.get('/stats/top-users', async (req, res) => {
   );
 
   res.json(
-    rows.map((r) => {
-      // Partially redact email for privacy
-      const [local, domain] = (r.email || '').split('@');
-      const redacted = local ? local[0] + '***@' + (domain || '') : r.email;
-      return {
-        id: r.id,
-        name: r.name,
-        email: redacted,
-        createdAt: r.created_at,
-        projectCount: r.project_count,
-        editCount: r.edit_count,
-        commentCount: r.comment_count,
-        lastEdit: r.last_edit,
-      };
-    }),
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      createdAt: r.created_at,
+      projectCount: r.project_count,
+      editCount: r.edit_count,
+      commentCount: r.comment_count,
+      lastEdit: r.last_edit,
+    })),
   );
 });
 
