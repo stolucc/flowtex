@@ -234,6 +234,72 @@ describe('useWebSocket', () => {
     expect(mockWsInstances).toHaveLength(3);
   });
 
+  it('stamps outgoing changes frames with a stable per-tab originId, and filters echoes that bring it back', () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    const { result } = renderWsHook();
+    act(() => { vi.runAllTimers(); }); // let the mock ws open
+    const ws = mockWsInstances[0];
+
+    // Send a `changes` frame — should be stamped with originId. (The hook
+    // also sends a `join` on connect; pick the changes frame specifically.)
+    act(() => {
+      result.current.sendWsMessage({ type: 'changes', fileId: 'f1', changes: [{ from: 0, to: 0, insert: 'h' }] });
+    });
+    const sent = JSON.parse(ws.sent.find((s) => JSON.parse(s).type === 'changes'));
+    expect(sent.originId).toMatch(/.+/);
+
+    // Server echoes back the same change with our own originId — must be dropped.
+    dispatchSpy.mockClear();
+    act(() => {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: 'changes',
+          fileId: 'f1',
+          changes: [{ from: 0, to: 0, insert: 'h' }],
+          userId: 'u1',
+          originId: sent.originId,
+        }),
+      });
+    });
+    const echoEvent = dispatchSpy.mock.calls.find((c) => c[0]?.type === 'ws:changes');
+    expect(echoEvent).toBeFalsy(); // filtered — no ws:changes event
+
+    // Same shape with a *different* originId (another client / tab) must pass through.
+    dispatchSpy.mockClear();
+    act(() => {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: 'changes',
+          fileId: 'f1',
+          changes: [{ from: 0, to: 0, insert: 'x' }],
+          userId: 'u2',
+          originId: 'some-other-tab-id',
+        }),
+      });
+    });
+    const passEvent = dispatchSpy.mock.calls.find((c) => c[0]?.type === 'ws:changes');
+    expect(passEvent).toBeTruthy();
+
+    dispatchSpy.mockRestore();
+  });
+
+  it('uses a different originId per hook mount (one id per browser tab)', () => {
+    const findChanges = (ws) => JSON.parse(ws.sent.find((s) => JSON.parse(s).type === 'changes'));
+
+    const a = renderWsHook();
+    act(() => { vi.runAllTimers(); });
+    const wsA = mockWsInstances[0];
+    act(() => { a.result.current.sendWsMessage({ type: 'changes', fileId: 'f1', changes: [{ from: 0, to: 0, insert: 'a' }] }); });
+
+    // Second mount = second "tab" — fresh originId.
+    const b = renderWsHook();
+    act(() => { vi.runAllTimers(); });
+    const wsB = mockWsInstances[mockWsInstances.length - 1];
+    act(() => { b.result.current.sendWsMessage({ type: 'changes', fileId: 'f1', changes: [{ from: 0, to: 0, insert: 'b' }] }); });
+
+    expect(findChanges(wsA).originId).not.toBe(findChanges(wsB).originId);
+  });
+
   it('does not reconnect on 4003 close (removed from project)', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
     const { result } = renderWsHook();

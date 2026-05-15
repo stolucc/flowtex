@@ -30,6 +30,17 @@ export default function useWebSocket(
   const reconnectTimer = useRef(null);
   const reconnectDelay = useRef(1000);
   const intentionalClose = useRef(false);
+  // Per-tab origin id — stamps every outgoing `changes` frame so we can drop
+  // echoes of our own edits if they ever loop back (e.g. on reconnect, a
+  // zombie ws on the server can briefly co-exist with the new one and the
+  // server's broadcast then reaches the same browser tab). Different tabs of
+  // the same user get different ids, so legit multi-tab still works — only
+  // self-echoes within one tab are filtered.
+  const originIdRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'origin-' + Math.random().toString(36).slice(2) + Date.now(),
+  );
 
   const connect = useCallback(() => {
     if (!user) return;
@@ -53,6 +64,11 @@ export default function useWebSocket(
       if (msg.type === 'presence') {
         setActiveUsers(msg.users);
       } else if (msg.type === 'changes') {
+        // Drop echoes of our own edits — see originIdRef comment above. The
+        // server preserves the originId in its broadcast; if it matches ours,
+        // this is a zombie/reconnect echo of a change we already applied
+        // locally, and re-applying it would duplicate the text.
+        if (msg.originId && msg.originId === originIdRef.current) return;
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
       } else if (msg.type === 'cursor') {
         setRemoteCursors((prev) => ({
@@ -157,7 +173,10 @@ export default function useWebSocket(
   const sendWsMessage = useCallback((msg) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== 1) return;
-    const payload = JSON.stringify(msg);
+    // Stamp our origin on outgoing edit frames so the server's broadcast can
+    // echo it back unchanged and we can filter our own echoes on receive.
+    const stamped = msg.type === 'changes' ? { ...msg, originId: originIdRef.current } : msg;
+    const payload = JSON.stringify(stamped);
     if (payload.length > WS_MAX_FRAME) {
       console.warn(
         `[ws] dropping ${msg.type} frame (${(payload.length / 1024 / 1024).toFixed(2)} MiB) — exceeds ${WS_MAX_FRAME / 1024 / 1024} MiB cap`,

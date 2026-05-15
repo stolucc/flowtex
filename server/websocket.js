@@ -219,6 +219,10 @@ async function handleChanges(msg, state, ws) {
       fileId: msg.fileId,
       changes: msg.changes,
       userId: state.clientEntry.userId,
+      // Preserve the sender's per-tab origin so they can filter echoes of
+      // their own edits on reconnect (zombie ws in the room would otherwise
+      // bounce the change back to the same browser tab — see useWebSocket).
+      ...(typeof msg.originId === 'string' ? { originId: msg.originId } : {}),
       ...(msg.tracked ? { tracked: true } : {}),
       ...(Array.isArray(msg.deletions) ? { deletions: msg.deletions } : {}),
       ...(tcMarks ? { tcMarks } : {}),
