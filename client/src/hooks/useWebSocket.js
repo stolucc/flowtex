@@ -71,6 +71,9 @@ export default function useWebSocket(
         if (msg.originId && msg.originId === originIdRef.current) return;
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
       } else if (msg.type === 'cursor') {
+        // Same self-echo guard as `changes` — own cursor echoes on reconnect
+        // would render as a ghost cursor next to the real one.
+        if (msg.originId && msg.originId === originIdRef.current) return;
         setRemoteCursors((prev) => ({
           ...prev,
           [msg.userId]: { fileId: msg.fileId, head: msg.head, anchor: msg.anchor, userName: msg.userName },
@@ -173,9 +176,12 @@ export default function useWebSocket(
   const sendWsMessage = useCallback((msg) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== 1) return;
-    // Stamp our origin on outgoing edit frames so the server's broadcast can
-    // echo it back unchanged and we can filter our own echoes on receive.
-    const stamped = msg.type === 'changes' ? { ...msg, originId: originIdRef.current } : msg;
+    // Stamp our origin on outgoing edit/cursor frames so the server's
+    // broadcast can echo it back unchanged and we can filter our own echoes
+    // on receive (defends against the zombie-ws scenario on reconnect).
+    const stamped = msg.type === 'changes' || msg.type === 'cursor'
+      ? { ...msg, originId: originIdRef.current }
+      : msg;
     const payload = JSON.stringify(stamped);
     if (payload.length > WS_MAX_FRAME) {
       console.warn(

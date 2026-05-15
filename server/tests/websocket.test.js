@@ -209,6 +209,59 @@ describe('handleChanges', () => {
     expect(sent.userId).toBe('user-1');
   });
 
+  it('preserves the sender-supplied originId in the broadcast (echo-filter contract)', async () => {
+    // The client tags its outgoing changes with a per-tab originId so it can
+    // drop echoes of its own edits on reconnect. That only works if the
+    // server passes the field through unchanged in its broadcast.
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleChanges(
+      { type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ from: 0, insert: 'x' }], originId: 'tab-uuid-abc' },
+      state,
+      ws,
+    );
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect(sent.originId).toBe('tab-uuid-abc');
+  });
+
+  it('omits originId from the broadcast when the sender did not provide one', async () => {
+    // Backwards compatible — older clients that don't stamp the field
+    // shouldn't get an `originId: undefined` polluting the broadcast.
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleChanges(
+      { type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ from: 0, insert: 'x' }] },
+      state,
+      ws,
+    );
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect('originId' in sent).toBe(false);
+  });
+
+  it('rejects a non-string originId (does not echo arbitrary types)', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleChanges(
+      { type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [{ from: 0, insert: 'x' }], originId: { evil: true } },
+      state,
+      ws,
+    );
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect('originId' in sent).toBe(false);
+  });
+
   it('does not send back to the sender', async () => {
     const ws = makeWs();
     const state = makeState();
@@ -310,6 +363,22 @@ describe('handleCursor', () => {
     expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
     expect(sent.userId).toBe('user-1');
     expect(sent.userName).toBe('Alice');
+  });
+
+  it('preserves the sender-supplied originId so own-cursor echoes can be filtered client-side', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleCursor(
+      { type: 'cursor', head: 10, anchor: 5, fileId: TEST_FILE_IDS.f1, originId: 'tab-uuid-abc' },
+      state,
+      ws,
+    );
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect(sent.originId).toBe('tab-uuid-abc');
   });
 });
 

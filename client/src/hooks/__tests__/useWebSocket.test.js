@@ -187,9 +187,11 @@ describe('useWebSocket', () => {
       result.current.sendWsMessage({ type: 'cursor', head: 42 });
     });
 
-    // The join message is sent first, then our message
+    // The join message is sent first, then our message. cursor frames get
+    // an originId stamped automatically (see echo-filter tests below) — so
+    // assert the user-supplied fields are present rather than strict-equal.
     const lastSent = ws.sent[ws.sent.length - 1];
-    expect(JSON.parse(lastSent)).toEqual({ type: 'cursor', head: 42 });
+    expect(JSON.parse(lastSent)).toEqual(expect.objectContaining({ type: 'cursor', head: 42 }));
   });
 
   it('reconnects on non-4003 close with exponential backoff', () => {
@@ -281,6 +283,51 @@ describe('useWebSocket', () => {
     expect(passEvent).toBeTruthy();
 
     dispatchSpy.mockRestore();
+  });
+
+  it('also stamps + filters cursor frames so own-cursor echoes do not render as ghost cursors', () => {
+    const { result } = renderWsHook();
+    act(() => { vi.runAllTimers(); });
+    const ws = mockWsInstances[0];
+
+    // Outgoing cursor frame gets stamped.
+    act(() => {
+      result.current.sendWsMessage({ type: 'cursor', fileId: 'f1', head: 5, anchor: 5 });
+    });
+    const sent = JSON.parse(ws.sent.find((s) => JSON.parse(s).type === 'cursor'));
+    expect(sent.originId).toMatch(/.+/);
+
+    // Echo back with our own originId — must not update remoteCursors.
+    act(() => {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: 'cursor',
+          fileId: 'f1',
+          userId: 'u1',
+          userName: 'Alice',
+          head: 5,
+          anchor: 5,
+          originId: sent.originId,
+        }),
+      });
+    });
+    expect(result.current.remoteCursors).toEqual({});
+
+    // Different originId (another tab/client) — must update.
+    act(() => {
+      ws.onmessage({
+        data: JSON.stringify({
+          type: 'cursor',
+          fileId: 'f1',
+          userId: 'u2',
+          userName: 'Bob',
+          head: 12,
+          anchor: 12,
+          originId: 'someone-else',
+        }),
+      });
+    });
+    expect(result.current.remoteCursors.u2).toBeTruthy();
   });
 
   it('uses a different originId per hook mount (one id per browser tab)', () => {

@@ -245,6 +245,8 @@ async function handleCursor(msg, state, ws) {
       userName: state.clientEntry.userName,
       head: msg.head,
       anchor: msg.anchor,
+      // Preserve per-tab origin so the sender can filter their own echoes.
+      ...(typeof msg.originId === 'string' ? { originId: msg.originId } : {}),
     },
     ws,
   );
