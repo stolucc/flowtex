@@ -188,6 +188,21 @@ export default function ModalContainer({
             <div className="about-body">
               <p className="about-tagline">A collaborative LaTeX editor</p>
               <p className="about-version">Built with React, CodeMirror, and TeX Live</p>
+              {/* Build identifier — injected by the `build` script as
+                  VITE_BUILD_SHA (short git SHA) / VITE_BUILD_TIME (ISO). Lets
+                  an operator confirm which version is actually deployed. */}
+              <p className="about-build">
+                <span className="about-build-label">Build</span>{' '}
+                <code className="about-build-sha">{import.meta.env.VITE_BUILD_SHA || 'dev'}</code>
+                {import.meta.env.VITE_BUILD_TIME && (
+                  <>
+                    {' · '}
+                    <time dateTime={import.meta.env.VITE_BUILD_TIME}>
+                      {new Date(import.meta.env.VITE_BUILD_TIME).toLocaleString()}
+                    </time>
+                  </>
+                )}
+              </p>
             </div>
           </div>
         </div>
