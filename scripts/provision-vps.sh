@@ -25,7 +25,8 @@
 #   APP_DIR      install location         (default: /opt/flowtex)
 #   APP_USER     service account          (default: flowtex)
 #   WITH_REDIS   install + wire Redis     (default: 0 — only for multi-instance)
-#   WITH_DOCX    install LibreOffice/IM   (default: 1 — DOCX-import image conv.)
+#   WITH_DOCX    install LibreOffice/IM + Microsoft core fonts (default: 1)
+#                — image conversion + Arial/Times/Courier for DOCX docs.
 #
 # OPTIONAL ENV — SMTP (email). Supply SMTP_HOST to bake email config into the
 # generated .env. Without it the app logs emails instead of sending them, and
@@ -90,6 +91,23 @@ apt-get install -y --no-install-recommends \
 if [ "$WITH_DOCX" = "1" ]; then
   log "Installing DOCX-import toolchain (LibreOffice, ImageMagick, librsvg)"
   apt-get install -y --no-install-recommends librsvg2-bin imagemagick libreoffice
+
+  # Microsoft TrueType core fonts (Arial, Times New Roman, Courier New, …) —
+  # DOCX-imported documents typically reference these as the body/heading
+  # fonts, and the converter emits \setmainfont{Arial} etc. which fails at
+  # xelatex compile time if the actual font isn't installed system-wide.
+  # ttf-mscorefonts-installer lives in multiverse (enabled by default on
+  # Ubuntu), is EULA-gated (pre-accept via debconf), and downloads the .cab
+  # bundles from sourceforge on install — that download can occasionally
+  # fail, so treat as best-effort rather than letting it abort the provision.
+  log "Installing Microsoft TrueType core fonts (needed for DOCX-imported docs)"
+  echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" \
+    | debconf-set-selections
+  if apt-get install -y ttf-mscorefonts-installer; then
+    fc-cache -f
+  else
+    log "WARN: ttf-mscorefonts-installer failed (probably a flaky font download). DOCX docs that reference Microsoft fonts will fail to compile until you install it manually: sudo apt-get install ttf-mscorefonts-installer && sudo fc-cache -f"
+  fi
 fi
 
 # ── Node.js 22 ──────────────────────────────────────────────────────────
