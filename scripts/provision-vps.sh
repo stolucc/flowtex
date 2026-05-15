@@ -250,11 +250,32 @@ cp -r client/dist/* server/public/
 BUILD
 
 # ── ImageMagick hardening ───────────────────────────────────────────────
+# Drop a restrictive policy.xml so user-supplied files (DOCX imports, image
+# uploads) cannot trigger ImageMagick coder vulnerabilities. App-side caps
+# remain regardless; this is defense in depth at the OS level.
+IM_HARDENED=0
 if [ "$WITH_DOCX" = "1" ] && [ -f "$APP_DIR/docs/imagemagick-policy.xml" ]; then
   IM_POLICY_DIR="$(find /etc/ImageMagick-* -maxdepth 0 -type d 2>/dev/null | head -1 || true)"
-  if [ -n "$IM_POLICY_DIR" ]; then
+  IM_POLICY_FILE="$IM_POLICY_DIR/policy.xml"
+  if [ -z "$IM_POLICY_DIR" ]; then
+    log "WARNING: ImageMagick installed but /etc/ImageMagick-* not found — skipping policy hardening"
+  elif cmp -s "$APP_DIR/docs/imagemagick-policy.xml" "$IM_POLICY_FILE" 2>/dev/null; then
+    log "ImageMagick policy.xml already matches the FlowTex policy — skipping"
+    IM_HARDENED=1
+  else
     log "Hardening ImageMagick policy.xml ($IM_POLICY_DIR)"
-    cp "$APP_DIR/docs/imagemagick-policy.xml" "$IM_POLICY_DIR/policy.xml"
+    # Back up the distro policy on first install (idempotent: skip if a
+    # backup already exists so re-runs do not clobber the true original).
+    if [ -f "$IM_POLICY_FILE" ] && [ ! -f "${IM_POLICY_FILE}.distro" ]; then
+      cp -p "$IM_POLICY_FILE" "${IM_POLICY_FILE}.distro"
+    fi
+    install -m 644 "$APP_DIR/docs/imagemagick-policy.xml" "$IM_POLICY_FILE"
+    # Sanity check: our policy denies the PDF coder; confirm that landed.
+    if grep -q 'rights="none" pattern="PDF"' "$IM_POLICY_FILE" 2>/dev/null; then
+      IM_HARDENED=1
+    else
+      log "WARNING: policy.xml installed but PDF-deny rule not visible — check $IM_POLICY_FILE"
+    fi
   fi
 fi
 
@@ -333,6 +354,14 @@ else
      Settings, then: systemctl restart flowtex"
 fi
 
+if [ "$WITH_DOCX" != "1" ]; then
+  IM_STATUS="ImageMagick    not installed (WITH_DOCX=0)"
+elif [ "$IM_HARDENED" = "1" ]; then
+  IM_STATUS="ImageMagick    hardened — FlowTex policy.xml installed"
+else
+  IM_STATUS="ImageMagick    WARNING: installed but policy.xml NOT in place — see logs above"
+fi
+
 cat <<DONE
 
 \033[1;32m✓ FlowTex is provisioned and running.\033[0m
@@ -341,6 +370,7 @@ cat <<DONE
   App service    systemctl status flowtex   |   journalctl -u flowtex -f
   Proxy          systemctl status caddy
   Config         $APP_DIR/.env   (chmod 600, owned by $APP_USER)
+  $IM_STATUS
   $EMAIL_STATUS
 
 Next steps:
