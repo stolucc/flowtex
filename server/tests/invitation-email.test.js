@@ -152,23 +152,37 @@ describe('POST /:id/members — project invitation email', () => {
     });
   });
 
-  it('still creates invitation even if email send fails', async () => {
+  it('rolls back the invitation and returns 502 when the email send fails', async () => {
+    // Email is now a precondition for the invitation: if SMTP fails the
+    // server deletes the just-inserted invitations row and surfaces an
+    // error rather than leaving a banner the recipient never got an email
+    // for. The route consumes ONLY the project-name db.get mock — after
+    // email throws it short-circuits before the invitee lookup, so we
+    // intentionally do NOT queue a second mock here (queue leakage to the
+    // next test would silently break it).
     const invitation = { id: 'inv-3', role: 'editor' };
     projectService.inviteMember.mockResolvedValue(invitation);
     sendProjectInvitationEmail.mockRejectedValueOnce(new Error('SMTP connection refused'));
-    // Session has userName, so: project name lookup, then invitee lookup
-    db.get
-      .mockResolvedValueOnce({ name: 'My Paper' })
-      .mockResolvedValueOnce(null);
+    db.get.mockResolvedValueOnce({ name: 'My Paper' });
+    db.run.mockResolvedValue(undefined); // for the rollback DELETE
 
+    const sendToUser = vi.fn();
     const req = mockReq({ id: 'proj-1' }, { email: 'dan@example.com', role: 'editor' });
+    req.app.locals.sendToUser = sendToUser;
     const res = mockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual(invitation);
+    expect(res.statusCode).toBe(502);
+    expect(res.body.error).toMatch(/invitation email/i);
     expect(sendProjectInvitationEmail).toHaveBeenCalledOnce();
+    // Invitation row was deleted.
+    expect(db.run).toHaveBeenCalledWith(
+      expect.stringMatching(/DELETE FROM project_invitations WHERE id = \$1/),
+      ['inv-3'],
+    );
+    // No WS push when email failed (recipient never gets a banner).
+    expect(sendToUser).not.toHaveBeenCalled();
   });
 
   it('pushes invitation via WebSocket to existing users', async () => {

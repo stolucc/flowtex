@@ -206,6 +206,7 @@ const CSRF_EXEMPT_PATHS = Object.freeze([
   '/api/auth/register',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
+  '/api/auth/resend-verification',
   '/api/setup/init',
 ]);
 // Boot-time assertion so a typo or wrong addition fails loudly at startup
