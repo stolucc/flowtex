@@ -123,16 +123,23 @@ export default function useProject(user) {
       .catch(() => setEmptyFolders([]));
   }, [project]);
 
-  // Load members when project changes
+  // Load members when project changes, and whenever the server signals a
+  // membership change (e.g. someone accepted an invite / was removed) —
+  // so @-mention autocomplete and avatar list refresh without a reload.
   useEffect(() => {
     if (!project) {
       setMembers([]);
       return;
     }
-    get(`/api/projects/${project.id}/members`)
-      .then((r) => r.json())
-      .then((data) => setMembers(Array.isArray(data) ? data : []))
-      .catch(() => setMembers([]));
+    const refresh = () =>
+      get(`/api/projects/${project.id}/members`)
+        .then((r) => r.json())
+        .then((data) => setMembers(Array.isArray(data) ? data : []))
+        .catch(() => setMembers([]));
+    refresh();
+    const onMembersUpdate = () => refresh();
+    window.addEventListener('ws:members-update', onMembersUpdate);
+    return () => window.removeEventListener('ws:members-update', onMembersUpdate);
   }, [project]);
 
   // Mirror other users' folder ops into our local emptyFolders / files

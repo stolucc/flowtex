@@ -127,6 +127,10 @@ export default function useWebSocket(
       } else if (msg.type === 'mention') {
         // In-app @mention notification — forwarded to useNotifications hook.
         window.dispatchEvent(new CustomEvent('ws:mention', { detail: msg.mention }));
+      } else if (msg.type === 'members-update') {
+        // Membership changed (invite accepted, member removed, etc.) —
+        // useProject refetches the member list in response.
+        window.dispatchEvent(new Event('ws:members-update'));
       } else if (msg.type === 'folder-create' || msg.type === 'folder-delete' || msg.type === 'folder-rename') {
         // Folder ops are HTTP, broadcast via WS. Forward to useProject as a
         // single 'ws:folder' event so it can patch local state without a refetch.

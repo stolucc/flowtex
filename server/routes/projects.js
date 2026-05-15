@@ -240,7 +240,14 @@ router.get('/invitations/mine', async (req, res) => {
 /** POST /api/projects/invitations/:inviteId/accept -- Accept a project invitation. */
 router.post('/invitations/:inviteId/accept', async (req, res) => {
   try {
-    res.json(await projectService.acceptInvitation(req.params.inviteId, req.session.userId));
+    const result = await projectService.acceptInvitation(req.params.inviteId, req.session.userId);
+    // Tell anyone already in the project room that the membership list
+    // changed, so their @-mention autocomplete and avatar list refresh
+    // without a page reload.
+    if (result?.projectId) {
+      req.app.locals.broadcastToRoom?.(result.projectId, { type: 'members-update' });
+    }
+    res.json(result);
   } catch (err) {
     if (err.emailMismatch) {
       // Someone authenticated tried to accept an invitation addressed to a
@@ -398,6 +405,7 @@ router.delete('/:id/members/:userId', async (req, res) => {
   if (req.params.userId === req.session.userId) return res.status(400).json({ error: 'Cannot remove yourself' });
   await projectService.removeMember(req.params.id, req.params.userId);
   req.app.locals.disconnectUserFromProject?.(req.params.id, req.params.userId);
+  req.app.locals.broadcastToRoom?.(req.params.id, { type: 'members-update' });
   await auditLog(req.session.userId, 'member_remove', {
     targetType: 'project',
     targetId: req.params.id,
