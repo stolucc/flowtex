@@ -36,7 +36,14 @@ describe('recordMentions', () => {
       text: 'hi @Alice take a look',
       commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    expect(result).toEqual(['alice-id']);
+    expect(result).toEqual([{
+      id: 'uuid-1',
+      mentionedUserId: 'alice-id',
+      commentId: 'c1',
+      replyId: null,
+      projectId: 'p1',
+      snippet: 'hi @Alice take a look',
+    }]);
     expect(db.run).toHaveBeenCalledTimes(1);
     const [sql, params] = db.run.mock.calls[0];
     expect(sql).toContain('INSERT INTO comment_mentions');
@@ -57,7 +64,8 @@ describe('recordMentions', () => {
       text: 'cc @"Bob Jones" please',
       commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    expect(result).toEqual(['bob-id']);
+    expect(result).toHaveLength(1);
+    expect(result[0].mentionedUserId).toBe('bob-id');
   });
 
   it('matches case-insensitively (mention case ignored)', async () => {
@@ -66,7 +74,7 @@ describe('recordMentions', () => {
       text: 'hello @ALICE',
       commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    expect(result).toEqual(['a-id']);
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['a-id']);
   });
 
   it('skips a mention that does not match any project member', async () => {
@@ -98,7 +106,7 @@ describe('recordMentions', () => {
       text: '@Alice @Bob look at this',
       commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    expect(result).toEqual(['a-id', 'b-id']);
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['a-id', 'b-id']);
     expect(db.run).toHaveBeenCalledTimes(2);
   });
 
@@ -167,6 +175,6 @@ describe('recordMentions', () => {
       text: '@"Two Words" and @Bob',
       commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    expect(result).toEqual(['q-id', 'b-id']);
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['q-id', 'b-id']);
   });
 });

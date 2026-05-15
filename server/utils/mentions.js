@@ -37,7 +37,14 @@ export async function recordMentions({ text, commentId, replyId, mentionerUserId
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [id, commentId || null, replyId || null, member.id, mentionerUserId, projectId, snippet],
     );
-    recorded.push(member.id);
+    recorded.push({
+      id,
+      mentionedUserId: member.id,
+      commentId: commentId || null,
+      replyId: replyId || null,
+      projectId,
+      snippet,
+    });
   }
 
   return recorded;

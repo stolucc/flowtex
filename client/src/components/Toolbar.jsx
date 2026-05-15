@@ -98,6 +98,7 @@ export default function Toolbar({
   onToggleTrackedChangesInPdf,
   theme,
   onToggleTheme,
+  notificationsSlot,
 }) {
   const zipInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -375,6 +376,7 @@ export default function Toolbar({
               </span>
             ))}
         </div>
+        {notificationsSlot}
         {onHistory && (
           <button className="toolbar-btn toolbar-btn-history" onClick={onHistory} title="Version history">
             <svg

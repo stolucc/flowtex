@@ -321,6 +321,11 @@ async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       notified_at TIMESTAMPTZ
     );
+    -- In-app "seen" state for the notification bell — separate from
+    -- notified_at (email-sent state) so the two systems are independent.
+    ALTER TABLE comment_mentions ADD COLUMN IF NOT EXISTS seen_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_comment_mentions_inbox
+      ON comment_mentions(mentioned_user_id, created_at DESC);
 
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS assigned_to TEXT REFERENCES users(id);
 

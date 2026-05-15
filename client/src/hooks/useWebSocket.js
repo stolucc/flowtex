@@ -107,6 +107,9 @@ export default function useWebSocket(
         setTypingUsers((prev) => ({ ...prev, [msg.userId]: { userName: msg.userName, ts: Date.now() } }));
       } else if (msg.type === 'invitation') {
         window.dispatchEvent(new CustomEvent('ws:invitation', { detail: msg.invitation }));
+      } else if (msg.type === 'mention') {
+        // In-app @mention notification — forwarded to useNotifications hook.
+        window.dispatchEvent(new CustomEvent('ws:mention', { detail: msg.mention }));
       } else if (msg.type === 'folder-create' || msg.type === 'folder-delete' || msg.type === 'folder-rename') {
         // Folder ops are HTTP, broadcast via WS. Forward to useProject as a
         // single 'ws:folder' event so it can patch local state without a refetch.

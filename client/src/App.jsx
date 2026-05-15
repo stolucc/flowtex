@@ -30,8 +30,10 @@ import useCompilation from './hooks/useCompilation.js';
 import useTrackedChanges from './hooks/useTrackedChanges.js';
 import TrackChangesBar from './components/TrackChangesBar.jsx';
 import TrackChangesPanel from './components/TrackChangesPanel.jsx';
+import NotificationBell from './components/NotificationBell.jsx';
 import useComments from './hooks/useComments.js';
 import useGitHubSync from './hooks/useGitHubSync.js';
+import useNotifications from './hooks/useNotifications.js';
 import useUIState from './hooks/useUIState.js';
 import useClickOutside from './hooks/useClickOutside.js';
 import useEditorActions from './hooks/useEditorActions.js';
@@ -156,6 +158,14 @@ function AppInner() {
   } = useWebSocket(user, project, activeFileRef, { setComments, setHistoryVersion });
 
   sendWsRef.current = sendWsMessage;
+
+  const {
+    mentions: notifMentions,
+    unreadCount: notifUnread,
+    refresh: refreshNotifications,
+    markSeen: notifMarkSeen,
+    markAllSeen: notifMarkAllSeen,
+  } = useNotifications(user);
 
   const [showTrackedChangesInPdf, setShowTrackedChangesInPdf] = useState(false);
 
@@ -466,6 +476,31 @@ function AppInner() {
           onToggleVisualMode={() => ui.setVisualMode((v) => !v)}
           theme={ui.theme}
           onToggleTheme={() => ui.setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+          notificationsSlot={
+            <NotificationBell
+              mentions={notifMentions}
+              unreadCount={notifUnread}
+              currentProjectId={project?.id}
+              onOpen={refreshNotifications}
+              onMarkSeen={notifMarkSeen}
+              onMarkAllSeen={notifMarkAllSeen}
+              onNavigate={async (m) => {
+                if (m.project_id && m.project_id !== project?.id) {
+                  try {
+                    const r = await get('/api/projects');
+                    if (r.ok) {
+                      const projects = await r.json();
+                      const target = projects.find((p) => p.id === m.project_id);
+                      if (target) selectProject(target);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to switch project for mention:', e);
+                  }
+                }
+                ui.setShowComments(true);
+              }}
+            />
+          }
           onHelp={(topic) => {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);

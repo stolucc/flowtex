@@ -26,6 +26,7 @@ import setupRouter from './routes/setup.js';
 import bibRouter from './routes/bib.js';
 import zoteroRouter from './routes/zotero.js';
 import chatRouter from './routes/chat.js';
+import notificationsRouter from './routes/notifications.js';
 import cookieParser from 'cookie-parser';
 import { requireAuth, requireAdmin } from './middleware/auth.js';
 import { initWebSocket } from './websocket.js';
@@ -331,6 +332,7 @@ app.use(
 );
 app.use('/api/tags', requireAuth, tagsRouter);
 app.use('/api/chat', requireAuth, chatRouter);
+app.use('/api/notifications', requireAuth, notificationsRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);

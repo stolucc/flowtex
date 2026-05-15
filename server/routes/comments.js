@@ -6,6 +6,32 @@ import { recordMentions } from '../utils/mentions.js';
 
 const router = Router();
 
+/** Fire-and-forget WebSocket push for fresh mentions. Failure to push must not
+ *  break the HTTP response — the DB row is already persisted and the digest
+ *  job will email the mention later if the user is offline. */
+function pushMentionNotifications(app, mentions, { mentionerName }) {
+  const send = app.locals.sendToUser;
+  if (!send || !mentions?.length) return;
+  for (const m of mentions) {
+    try {
+      send(m.mentionedUserId, {
+        type: 'mention',
+        mention: {
+          id: m.id,
+          projectId: m.projectId,
+          commentId: m.commentId,
+          replyId: m.replyId,
+          snippet: m.snippet,
+          mentionerName,
+          createdAt: new Date().toISOString(),
+        },
+      });
+    } catch (e) {
+      console.warn('mention WS push failed:', e?.message || e);
+    }
+  }
+}
+
 /** Verify the user has access to the file's project; optionally require editor role. Returns the file or null. */
 async function requireFileAccess(fileId, userId, res, { requireEditor = false } = {}) {
   const file = await db.get('SELECT id, project_id, path FROM files WHERE id = $1', [fileId]);
@@ -90,9 +116,15 @@ router.post('/:fileId', async (req, res) => {
     [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assigned_to || null],
   );
 
-  // Record @mentions for batched email notification
+  // Record @mentions for batched email notification + real-time in-app push
   if (file) {
-    await recordMentions({ text, commentId: id, mentionerUserId: req.session.userId, projectId: file.project_id });
+    const mentions = await recordMentions({
+      text,
+      commentId: id,
+      mentionerUserId: req.session.userId,
+      projectId: file.project_id,
+    });
+    pushMentionNotifications(req.app, mentions, { mentionerName: author });
   }
 
   const comment = await db.get('SELECT * FROM comments WHERE id = $1', [id]);
@@ -150,7 +182,14 @@ router.post('/:commentId/reply', async (req, res) => {
     [req.params.commentId],
   );
   if (parentComment) {
-    await recordMentions({ text, replyId: id, commentId: req.params.commentId, mentionerUserId: req.session.userId, projectId: parentComment.project_id });
+    const mentions = await recordMentions({
+      text,
+      replyId: id,
+      commentId: req.params.commentId,
+      mentionerUserId: req.session.userId,
+      projectId: parentComment.project_id,
+    });
+    pushMentionNotifications(req.app, mentions, { mentionerName: author });
   }
 
   const reply = await db.get('SELECT * FROM comment_replies WHERE id = $1', [id]);

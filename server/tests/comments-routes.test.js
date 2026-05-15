@@ -43,6 +43,7 @@ function mockReq(params = {}, body = {}, session = {}) {
     params,
     body,
     session: { userId: 'user-1', userName: 'Alice', ...session },
+    app: { locals: { sendToUser: vi.fn() } },
   };
 }
 
