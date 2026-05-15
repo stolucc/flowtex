@@ -217,19 +217,30 @@ for (const p of CSRF_EXEMPT_PATHS) {
 }
 
 app.use((req, res, next) => {
-  // Generate a CSRF token and set it as a readable cookie
-  if (!req.session.csrfToken) {
-    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  // CSRF protection via double-submit token, but only for *authenticated*
+  // requests. Touching req.session.csrfToken triggers connect-pg-simple to
+  // persist the session row, so doing it for every anonymous visitor used
+  // to spawn one DB row per bot / crawler / health-check probe. Now only
+  // sessions that actually have a userId get a stored token and a cookie.
+  //
+  // Anonymous state-changing requests are restricted to CSRF_EXEMPT_PATHS
+  // (login, register, forgot-password, reset-password, setup/init), which
+  // are protected by an Origin-equality check below instead of a token.
+  if (req.session.userId) {
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+    }
+    res.cookie('csrf-token', req.session.csrfToken, {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    });
   }
-  res.cookie('csrf-token', req.session.csrfToken, {
-    httpOnly: false,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-  });
 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')) {
     if (CSRF_EXEMPT_PATHS.includes(req.path)) {
-      // For CSRF-exempt endpoints, validate Origin header to prevent cross-site login attacks
+      // For CSRF-exempt endpoints, validate Origin header to prevent
+      // cross-site login attacks. (Pre-auth: no CSRF token yet.)
       const origin = req.headers.origin;
       if (!origin) {
         return res.status(403).json({ error: 'Origin header required' });
@@ -244,8 +255,12 @@ app.use((req, res, next) => {
         return res.status(403).json({ error: 'Invalid origin' });
       }
     } else {
+      // Authenticated paths require a matching CSRF token. Anonymous users
+      // hitting a non-exempt state-changing path won't have a csrfToken
+      // and are rejected here (defense in depth — requireAuth would also
+      // reject them at the next layer).
       const token = req.headers['x-csrf-token'];
-      if (token !== req.session.csrfToken) {
+      if (!req.session.csrfToken || token !== req.session.csrfToken) {
         return res.status(403).json({ error: 'Invalid CSRF token' });
       }
     }

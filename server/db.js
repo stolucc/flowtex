@@ -439,6 +439,14 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_session_expire ON session(expire);
 
+    -- One-shot cleanup (2026-05-15): older builds wrote a CSRF token into
+    -- req.session on every request, which persisted a session row for
+    -- every anonymous visitor (bots, crawlers, uptime probes). The CSRF
+    -- middleware no longer touches the session for anonymous traffic, so
+    -- this DELETE clears the historical bloat. Idempotent — on every
+    -- subsequent boot it finds zero matching rows.
+    DELETE FROM session WHERE sess->>'userId' IS NULL;
+
     -- Performance indexes
     CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
     CREATE INDEX IF NOT EXISTS idx_comments_file ON comments(file_id);

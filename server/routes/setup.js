@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import db from '../db.js';
 import { registerUser } from '../services/authService.js';
 import { encrypt } from '../utils/crypto.js';
@@ -66,6 +67,17 @@ router.post('/init', async (req, res) => {
     });
     req.session.userId = result.id;
     req.session.userName = name.trim();
+    // Mint a CSRF token + cookie up front so the very next state-changing
+    // request from the client (e.g. creating their first project) has
+    // something to send in the X-CSRF-Token header. The global CSRF
+    // middleware would set this on the next request, but the cookie
+    // wouldn't reach the client until that response — too late.
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+    res.cookie('csrf-token', req.session.csrfToken, {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    });
 
     logger.info({ userId: result.id, email }, 'First-run setup completed');
 
