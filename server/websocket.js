@@ -309,6 +309,56 @@ async function handleTcDeleteMark(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
 }
 
+/** Build the current reaction summary for an editor comment. */
+async function fetchCommentReactionsFor(commentId) {
+  const rows = await db.all(
+    `SELECT emoji, user_id AS "userId", user_name AS "userName"
+     FROM comment_reactions WHERE comment_id = $1
+     ORDER BY created_at ASC`,
+    [commentId],
+  );
+  const byEmoji = new Map();
+  for (const r of rows) {
+    if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+    byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+  }
+  return Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }));
+}
+
+/** Toggle the current user's reaction on a comment. Confirms the comment
+ *  belongs to a file in the sender's room, then rebroadcasts the full
+ *  reaction list so every client converges. */
+async function handleCommentReact(msg, state) {
+  const commentId = typeof msg.commentId === 'string' ? msg.commentId : null;
+  const emoji = typeof msg.emoji === 'string' ? msg.emoji.trim() : '';
+  if (!commentId || !emoji || emoji.length > 32) return;
+  const owned = await db.get(
+    `SELECT 1 FROM comments c JOIN files f ON c.file_id = f.id
+      WHERE c.id = $1 AND f.project_id = $2`,
+    [commentId, state.projectId],
+  );
+  if (!owned) return;
+  try {
+    const inserted = await db.run(
+      `INSERT INTO comment_reactions (id, comment_id, user_id, user_name, emoji)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (comment_id, user_id, emoji) DO NOTHING`,
+      [crypto.randomUUID(), commentId, state.authenticatedUserId, state.authenticatedUserName, emoji],
+    );
+    if (!inserted?.rowCount) {
+      await db.run(
+        'DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND emoji = $3',
+        [commentId, state.authenticatedUserId, emoji],
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Comment reaction toggle error');
+    return;
+  }
+  const reactions = await fetchCommentReactionsFor(commentId);
+  broadcastToRoom(state.projectId, { type: 'comment-reaction-update', commentId, reactions });
+}
+
 /** Build the current reaction summary for a chat message: one row per emoji
  *  with the list of users who reacted with it. */
 async function fetchReactionsFor(messageId) {
@@ -395,6 +445,7 @@ const writeTypes = new Set([
   'comment-resolve',
   'comment-delete',
   'comment-edit',
+  'comment-react',
   'tracked-change',
   'tracked-change-resolve',
   'tracked-change-delete',
@@ -425,6 +476,7 @@ const messageHandlers = {
   'comment-resolve': handleCommentResolve,
   'comment-delete': handleCommentDelete,
   'comment-edit': handleCommentEdit,
+  'comment-react': handleCommentReact,
   'tracked-change': handleTrackedChange,
   'tracked-change-resolve': handleTrackedChangeResolve,
   'tracked-change-delete': handleTrackedChangeDelete,
@@ -722,6 +774,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleTcDeleteMark,
   handleChat,
   handleChatReact,
+  handleCommentReact,
   handleTyping,
   handleJoin,
   writeTypes,

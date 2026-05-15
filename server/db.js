@@ -555,6 +555,19 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_chat_message_reactions_message ON chat_message_reactions(message_id);
 
+    -- Emoji reactions on editor comments. Same toggle semantics as chat:
+    -- the UNIQUE constraint turns a re-apply into a delete.
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      id TEXT PRIMARY KEY,
+      comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (comment_id, user_id, emoji)
+    );
+    CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment ON comment_reactions(comment_id);
+
     -- Used TOTP codes for cross-instance replay prevention
     CREATE TABLE IF NOT EXISTS used_totp_codes (
       user_id TEXT NOT NULL,

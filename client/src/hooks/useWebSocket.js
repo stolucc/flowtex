@@ -92,6 +92,10 @@ export default function useWebSocket(
         setComments((cs) => cs.filter((c) => c.id !== msg.commentId));
       } else if (msg.type === 'comment-edit') {
         setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
+      } else if (msg.type === 'comment-reaction-update') {
+        setComments((cs) =>
+          cs.map((c) => (c.id === msg.commentId ? { ...c, reactions: msg.reactions } : c)),
+        );
       } else if (msg.type === 'history_update') {
         setHistoryVersion((v) => (v || 0) + 1);
       } else if (msg.type === 'chat') {

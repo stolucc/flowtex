@@ -120,6 +120,7 @@ function AppInner() {
     handleDeleteComment,
     handleReplyComment,
     handleEditComment,
+    handleReactComment,
     updateCommentPositions,
   } = useComments(activeFile, sendWsRef, editorRef);
 
@@ -802,6 +803,7 @@ function AppInner() {
                   onResolve={handleResolveComment}
                   onDelete={handleDeleteComment}
                   onEdit={handleEditComment}
+                  onReact={handleReactComment}
                   onCancelComment={() => setSelection(null)}
                   onReply={handleReplyComment}
                   onWheel={(e) => editorRef.current?.scrollBy(e.deltaX, e.deltaY)}

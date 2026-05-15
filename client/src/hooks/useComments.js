@@ -77,6 +77,16 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
     [sendWsRef],
   );
 
+  // Reactions are server-authoritative: send the toggle over WS, the server
+  // broadcasts the new reaction set back to every client (including us) via
+  // 'comment-reaction-update', so no optimistic local mutation here.
+  const handleReactComment = useCallback(
+    (commentId, emoji) => {
+      sendWsRef.current?.({ type: 'comment-react', commentId, emoji });
+    },
+    [sendWsRef],
+  );
+
   const updateCommentPositions = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) {
@@ -126,6 +136,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
     handleDeleteComment,
     handleReplyComment,
     handleEditComment,
+    handleReactComment,
     updateCommentPositions,
   };
 }

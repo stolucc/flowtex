@@ -101,6 +101,11 @@ describe('GET /:fileId', () => {
     db.all.mockResolvedValueOnce([
       { id: 'r1', comment_id: 'c1', text: 'Done', author: 'Bob', created_at: '2025-01-01' },
     ]); // replies query
+    db.all.mockResolvedValueOnce([
+      { commentId: 'c1', emoji: '👍', userId: 'u1', userName: 'Alice' },
+      { commentId: 'c1', emoji: '👍', userId: 'u2', userName: 'Bob' },
+      { commentId: 'c1', emoji: '🎉', userId: 'u2', userName: 'Bob' },
+    ]); // reactions query
 
     const res = mockRes();
     await handler(mockReq({ fileId: 'file-1' }), res);
@@ -108,6 +113,11 @@ describe('GET /:fileId', () => {
     expect(res.body).toHaveLength(2);
     expect(res.body[0].replies).toHaveLength(1);
     expect(res.body[1].replies).toEqual([]);
+    expect(res.body[0].reactions).toEqual([
+      { emoji: '👍', count: 2, users: [{ id: 'u1', name: 'Alice' }, { id: 'u2', name: 'Bob' }] },
+      { emoji: '🎉', count: 1, users: [{ id: 'u2', name: 'Bob' }] },
+    ]);
+    expect(res.body[1].reactions).toEqual([]);
   });
 
   it('returns empty array when no comments exist', async () => {
@@ -146,6 +156,7 @@ describe('GET /:fileId', () => {
     isProjectMember.mockResolvedValueOnce(MEMBER_VIEWER);
     db.all.mockResolvedValueOnce([COMMENT]);
     db.all.mockResolvedValueOnce([]); // no replies
+    db.all.mockResolvedValueOnce([]); // no reactions
 
     const res = mockRes();
     await handler(mockReq({ fileId: 'file-1' }), res);
