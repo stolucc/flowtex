@@ -1052,6 +1052,7 @@ function AppInner() {
                 messages={chatMessages}
                 currentUser={user}
                 onSend={(text) => sendWsMessage({ type: 'chat', text })}
+                onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
                 onClose={() => setShowChat(false)}
                 onTyping={() => sendWsMessage({ type: 'typing' })}
                 typingUsers={typingUsers}

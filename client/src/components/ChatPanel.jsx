@@ -2,9 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getColor } from './Avatar.jsx';
 import { CloseIcon } from './Icons.jsx';
 
+// Small fixed palette — keeps the picker tight and avoids a full unicode
+// emoji widget. If users want more, swap for a real picker later.
+const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅', '❌'];
+
 /** Real-time project chat panel with typing indicators and date-grouped messages. */
-export default function ChatPanel({ messages, currentUser, onSend, onClose, onTyping, typingUsers }) {
+export default function ChatPanel({ messages, currentUser, onSend, onReact, onClose, onTyping, typingUsers }) {
   const [text, setText] = useState('');
+  const [pickerForId, setPickerForId] = useState(null);
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const lastTypingSentRef = useRef(0);
@@ -52,6 +57,22 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose, onTy
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typingUsers]);
 
+  // Close the reaction picker on outside click / Escape.
+  useEffect(() => {
+    if (!pickerForId) return;
+    const close = (e) => {
+      if (e.target.closest?.('.chat-react-picker, .chat-react-trigger')) return;
+      setPickerForId(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setPickerForId(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [pickerForId]);
+
   return (
     <div className="chat-panel">
       <div className="chat-header">
@@ -97,7 +118,55 @@ export default function ChatPanel({ messages, currentUser, onSend, onClose, onTy
                   )}
                   <span className="chat-bubble-text">{m.text}</span>
                   <span className="chat-bubble-time">{formatTime(m.created_at)}</span>
+                  {onReact && (
+                    <button
+                      type="button"
+                      className="chat-react-trigger"
+                      aria-label="Add reaction"
+                      title="Add reaction"
+                      onClick={() => setPickerForId(pickerForId === m.id ? null : m.id)}
+                    >
+                      ☺
+                    </button>
+                  )}
+                  {pickerForId === m.id && (
+                    <div className="chat-react-picker" role="menu">
+                      {REACTION_PALETTE.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          className="chat-react-picker-btn"
+                          onClick={() => {
+                            onReact(m.id, e);
+                            setPickerForId(null);
+                          }}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                {Array.isArray(m.reactions) && m.reactions.length > 0 && (
+                  <div className="chat-reactions">
+                    {m.reactions.map((r) => {
+                      const mine = r.users.some((u) => u.id === currentUser?.id);
+                      const tip = r.users.map((u) => u.name).join(', ');
+                      return (
+                        <button
+                          key={r.emoji}
+                          type="button"
+                          className={`chat-reaction-pill${mine ? ' mine' : ''}`}
+                          title={tip}
+                          onClick={() => onReact?.(m.id, r.emoji)}
+                        >
+                          <span className="chat-reaction-emoji">{r.emoji}</span>
+                          <span className="chat-reaction-count">{r.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </React.Fragment>
           );

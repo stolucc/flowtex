@@ -99,6 +99,10 @@ export default function useWebSocket(
         if (!showChatRef.current) {
           setUnreadChat((n) => n + 1);
         }
+      } else if (msg.type === 'chat-reaction-update') {
+        setChatMessages((prev) =>
+          prev.map((m) => (m.id === msg.messageId ? { ...m, reactions: msg.reactions } : m)),
+        );
       } else if (msg.type === 'typing') {
         setTypingUsers((prev) => ({ ...prev, [msg.userId]: { userName: msg.userName, ts: Date.now() } }));
       } else if (msg.type === 'invitation') {

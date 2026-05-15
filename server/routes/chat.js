@@ -20,6 +20,29 @@ router.get('/:projectId', async (req, res) => {
       [projectId],
     );
     messages.reverse();
+
+    // Hydrate reactions in one query (no N+1) and bucket them per message.
+    if (messages.length > 0) {
+      const ids = messages.map((m) => m.id);
+      const reactionRows = await db.all(
+        `SELECT message_id AS "messageId", emoji, user_id AS "userId", user_name AS "userName"
+         FROM chat_message_reactions WHERE message_id = ANY($1) ORDER BY created_at ASC`,
+        [ids],
+      );
+      const grouped = new Map(); // messageId -> Map(emoji -> users[])
+      for (const r of reactionRows) {
+        if (!grouped.has(r.messageId)) grouped.set(r.messageId, new Map());
+        const byEmoji = grouped.get(r.messageId);
+        if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+        byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+      }
+      for (const m of messages) {
+        const byEmoji = grouped.get(m.id);
+        m.reactions = byEmoji
+          ? Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }))
+          : [];
+      }
+    }
     res.json(messages);
   } catch (err) {
     sendError(res, err);

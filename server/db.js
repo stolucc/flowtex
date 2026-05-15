@@ -536,6 +536,20 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_chat_messages_project ON chat_messages(project_id, created_at);
 
+    -- Emoji reactions on chat messages. The UNIQUE constraint is what enforces
+    -- the toggle: each user can hold at most one of each emoji on each message,
+    -- so re-applying the same emoji becomes a delete rather than a duplicate.
+    CREATE TABLE IF NOT EXISTS chat_message_reactions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (message_id, user_id, emoji)
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_message_reactions_message ON chat_message_reactions(message_id);
+
     -- Used TOTP codes for cross-instance replay prevention
     CREATE TABLE IF NOT EXISTS used_totp_codes (
       user_id TEXT NOT NULL,

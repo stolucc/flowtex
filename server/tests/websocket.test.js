@@ -41,6 +41,7 @@ const {
   handleTrackedChangeDelete,
   handleTcDeleteMark,
   handleChat,
+  handleChatReact,
   handleTyping,
   handleJoin,
   writeTypes,
@@ -619,6 +620,81 @@ describe('handleChat', () => {
 
     await handleChat({ type: 'chat', text: 'Hello' }, state);
     expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  });
+});
+
+// ── handleChatReact ──────────────────────────────────────────────────────
+
+describe('handleChatReact', () => {
+  it('drops if messageId is missing', async () => {
+    const state = makeState();
+    await handleChatReact({ type: 'chat-react', emoji: '👍' }, state);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('drops if emoji is missing or oversized (>32 chars)', async () => {
+    const state = makeState();
+    await handleChatReact({ type: 'chat-react', messageId: 'm1', emoji: '' }, state);
+    await handleChatReact({ type: 'chat-react', messageId: 'm1', emoji: 'x'.repeat(33) }, state);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('drops if the target message does not belong to the room', async () => {
+    db.get.mockResolvedValueOnce(null); // ownership check returns null
+    const state = makeState();
+    await handleChatReact({ type: 'chat-react', messageId: 'm1', emoji: '👍' }, state);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('adds a reaction (INSERT with ON CONFLICT DO NOTHING) and broadcasts the full reaction list', async () => {
+    db.get.mockResolvedValueOnce({ ok: 1 }); // ownership ok
+    db.run.mockResolvedValueOnce({ rowCount: 1 }); // INSERT succeeded
+    db.all.mockResolvedValueOnce([
+      { emoji: '👍', userId: 'user-1', userName: 'Alice' },
+    ]); // refetch reactions
+    const state = makeState();
+    const peer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, peer]);
+
+    await handleChatReact({ type: 'chat-react', messageId: 'm1', emoji: '👍' }, state);
+
+    // First db.run was the INSERT — only one call (no DELETE on fresh add).
+    expect(db.run).toHaveBeenCalledTimes(1);
+    const [insertSql, insertParams] = db.run.mock.calls[0];
+    expect(insertSql).toContain('INSERT INTO chat_message_reactions');
+    expect(insertSql).toContain('ON CONFLICT');
+    expect(insertParams[1]).toBe('m1');         // messageId
+    expect(insertParams[2]).toBe('user-1');     // userId
+    expect(insertParams[3]).toBe('Alice');      // userName
+    expect(insertParams[4]).toBe('👍');         // emoji
+
+    // Peer sees a chat-reaction-update with the full reaction list.
+    expect(peer.ws.send).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(peer.ws.send.mock.calls[0][0]);
+    expect(sent.type).toBe('chat-reaction-update');
+    expect(sent.messageId).toBe('m1');
+    expect(sent.reactions).toEqual([
+      { emoji: '👍', count: 1, users: [{ id: 'user-1', name: 'Alice' }] },
+    ]);
+  });
+
+  it('toggles off: when the same emoji is re-sent (ON CONFLICT no-op), follow up with a DELETE', async () => {
+    db.get.mockResolvedValueOnce({ ok: 1 });
+    db.run.mockResolvedValueOnce({ rowCount: 0 }); // INSERT: row already existed
+    db.run.mockResolvedValueOnce({ rowCount: 1 }); // DELETE
+    db.all.mockResolvedValueOnce([]); // refetch — empty after the toggle-off
+
+    const state = makeState();
+    const peer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, peer]);
+
+    await handleChatReact({ type: 'chat-react', messageId: 'm1', emoji: '👍' }, state);
+
+    expect(db.run).toHaveBeenCalledTimes(2);
+    expect(db.run.mock.calls[1][0]).toContain('DELETE FROM chat_message_reactions');
+    const sent = JSON.parse(peer.ws.send.mock.calls[0][0]);
+    expect(sent.type).toBe('chat-reaction-update');
+    expect(sent.reactions).toEqual([]);
   });
 });
 

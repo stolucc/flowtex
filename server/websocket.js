@@ -309,6 +309,58 @@ async function handleTcDeleteMark(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
 }
 
+/** Build the current reaction summary for a chat message: one row per emoji
+ *  with the list of users who reacted with it. */
+async function fetchReactionsFor(messageId) {
+  const rows = await db.all(
+    `SELECT emoji, user_id AS "userId", user_name AS "userName"
+     FROM chat_message_reactions WHERE message_id = $1
+     ORDER BY created_at ASC`,
+    [messageId],
+  );
+  const byEmoji = new Map();
+  for (const r of rows) {
+    if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+    byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+  }
+  return Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }));
+}
+
+/** Toggle the current user's reaction (emoji) on a chat message; rebroadcasts
+ *  the full reaction list for that message so every client lands on the same
+ *  state regardless of arrival order. */
+async function handleChatReact(msg, state) {
+  const messageId = typeof msg.messageId === 'string' ? msg.messageId : null;
+  const emoji = typeof msg.emoji === 'string' ? msg.emoji.trim() : '';
+  if (!messageId || !emoji || emoji.length > 32) return;
+  // Confirm the target message belongs to the room the sender claims to be in.
+  const owned = await db.get(
+    'SELECT 1 FROM chat_messages WHERE id = $1 AND project_id = $2',
+    [messageId, state.projectId],
+  );
+  if (!owned) return;
+  try {
+    // Toggle: try to insert; on conflict (already reacted), delete instead.
+    const inserted = await db.run(
+      `INSERT INTO chat_message_reactions (id, message_id, user_id, user_name, emoji)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+      [crypto.randomUUID(), messageId, state.authenticatedUserId, state.authenticatedUserName, emoji],
+    );
+    if (!inserted?.rowCount) {
+      await db.run(
+        'DELETE FROM chat_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3',
+        [messageId, state.authenticatedUserId, emoji],
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Chat reaction toggle error');
+    return;
+  }
+  const reactions = await fetchReactionsFor(messageId);
+  broadcastToRoom(state.projectId, { type: 'chat-reaction-update', messageId, reactions });
+}
+
 /** Persist a chat message to DB and broadcast it to the project room. */
 async function handleChat(msg, state) {
   const id = crypto.randomUUID();
@@ -349,6 +401,7 @@ const writeTypes = new Set([
   'tc-delete-mark',
   // chat persists to chat_messages; viewers should be read-only.
   'chat',
+  'chat-react',
 ]);
 
 /** Broadcast a typing indicator to other clients in the room. */
@@ -377,6 +430,7 @@ const messageHandlers = {
   'tracked-change-delete': handleTrackedChangeDelete,
   'tc-delete-mark': handleTcDeleteMark,
   chat: handleChat,
+  'chat-react': handleChatReact,
   typing: handleTyping,
 };
 
@@ -667,6 +721,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleTrackedChangeDelete,
   handleTcDeleteMark,
   handleChat,
+  handleChatReact,
   handleTyping,
   handleJoin,
   writeTypes,
