@@ -8522,19 +8522,24 @@ kbd {
   z-index: 1;
 }
 .chat-message.own .chat-reactions { justify-content: flex-end; }
+/* Pills want clear contrast against both incoming (var(--bg-surface)
+   ~#252536) and own (var(--accent) blue) bubbles. Using var(--bg-hover)
+   (slightly lighter than the bubble surface) plus a brighter border and
+   stronger shadow makes them read as "raised chips" rather than
+   blending into the bubble. */
 .chat-reaction-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 60%, transparent);
+  background: var(--bg-hover);
   border-radius: 11px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-primary);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 .chat-reaction-pill:hover { background: var(--bg-hover); }
 .chat-reaction-pill.mine {

@@ -83,8 +83,13 @@ apt-get install -y --no-install-recommends \
   build-essential python3 git curl ca-certificates \
   postgresql postgresql-contrib \
   texlive-full \
+  texlive-fonts-extra \
   util-linux \
   ufw
+# texlive-fonts-extra is a transitive dep of texlive-full today, but we list
+# it explicitly so the install survives a future downgrade to a smaller
+# distribution. It ships TeX Gyre, Linux Libertine, lmodern variants, and
+# many other fonts that the DOCX-import path aliases proprietary names to.
 # util-linux provides `prlimit` — without it FlowTex compiles run without
 # kernel-level memory/output caps (it warns loudly at startup).
 
