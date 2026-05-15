@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { get, put, post, del } from '../api.js';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
 
 /** Displays a single metric card with a value, label, and optional subtitle. */
@@ -325,6 +326,8 @@ export default function AdminDashboard({ onBack }) {
   const [expandedUser, setExpandedUser] = useState(null);
   const [userActivity, setUserActivity] = useState(null);
   const [userActivityLoading, setUserActivityLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, email, name } | null
+  const { user: currentAdmin } = useAuth();
   const [live, setLive] = useState(false);
   const [, setLastRefresh] = useState(null);
   const [system, setSystem] = useState(null);
@@ -501,6 +504,28 @@ export default function AdminDashboard({ onBack }) {
     { key: 'editCount', label: 'Edits' },
     { key: 'commentCount', label: 'Comments' },
     { key: 'createdAt', label: 'Joined', render: (r) => formatDate(r.createdAt) },
+    {
+      key: '__delete',
+      label: '',
+      // `stopPropagation` so the row-expand handler doesn't also fire when
+      // clicking the delete button.
+      render: (r) =>
+        r.id === currentAdmin?.id ? (
+          <span className="admin-user-self-badge" title="That is you">you</span>
+        ) : (
+          <button
+            type="button"
+            className="admin-user-delete-btn"
+            title="Delete this user permanently"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteTarget({ id: r.id, email: r.email, name: r.name });
+            }}
+          >
+            Delete
+          </button>
+        ),
+    },
   ];
 
   const auditCols = [
@@ -959,6 +984,111 @@ export default function AdminDashboard({ onBack }) {
           </div>
         </div>
       )}
+
+      {deleteTarget && (
+        <AdminDeleteUserModal
+          target={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => {
+            setDeleteTarget(null);
+            // Refresh the top-users panel and overview counts; if we were
+            // viewing this user's activity, close that pane too.
+            if (expandedUser === deleteTarget.id) {
+              setExpandedUser(null);
+              setUserActivity(null);
+            }
+            get('/api/admin/stats/top-users?limit=20').then((r) => r.json()).then(setTopUsers);
+            get('/api/admin/stats/overview').then((r) => r.json()).then(setOverview);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Three-step confirmation modal for an admin deleting another user.
+ *  All three controls must be satisfied before the Delete button activates:
+ *    1. "I understand" checkbox
+ *    2. Type the target's exact email
+ *    3. Enter the admin's own password
+ */
+function AdminDeleteUserModal({ target, onClose, onDeleted }) {
+  const [ack, setAck] = useState(false);
+  const [emailConfirm, setEmailConfirm] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const emailMatches = emailConfirm.trim().toLowerCase() === (target.email || '').toLowerCase();
+  const ready = ack && emailMatches && adminPassword.length > 0 && !submitting;
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault?.();
+    if (!ready) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await del(`/api/admin/users/${target.id}`, { password: adminPassword });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Delete failed');
+        setSubmitting(false);
+        return;
+      }
+      onDeleted();
+    } catch (err) {
+      setError(err.message || 'Delete failed');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal admin-delete-user-modal">
+        <div className="modal-header">
+          <h2>Delete user</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="admin-delete-user-body">
+          <p className="admin-delete-user-warning">
+            This permanently deletes <strong>{target.name || target.email}</strong> and removes
+            their authorship from comments, replies, and versions. Projects they own alone are
+            deleted. This cannot be undone.
+          </p>
+          <label className="admin-delete-user-check">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+            I understand this is permanent.
+          </label>
+          <label className="admin-delete-user-field">
+            <span>
+              Type <code>{target.email}</code> to confirm:
+            </span>
+            <input
+              type="text"
+              autoComplete="off"
+              value={emailConfirm}
+              onChange={(e) => setEmailConfirm(e.target.value)}
+              placeholder={target.email}
+            />
+          </label>
+          <label className="admin-delete-user-field">
+            <span>Your admin password:</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+            />
+          </label>
+          {error && <div className="admin-delete-user-error">{error}</div>}
+          <div className="admin-delete-user-actions">
+            <button type="button" onClick={onClose} disabled={submitting}>Cancel</button>
+            <button type="submit" className="admin-delete-user-confirm" disabled={!ready}>
+              {submitting ? 'Deleting…' : 'Delete user'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

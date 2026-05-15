@@ -10294,3 +10294,91 @@ kbd {
   padding: 0 6px;
 }
 .comment-reply .comment-reaction-emoji { font-size: 11px; }
+
+/* ── Admin: delete-user button + triple-check modal ───────────────── */
+.admin-user-delete-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid #cf222e;
+  background: transparent;
+  color: #cf222e;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.admin-user-delete-btn:hover {
+  background: rgba(207, 34, 46, 0.12);
+}
+.admin-user-self-badge {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.admin-delete-user-modal {
+  max-width: 460px;
+}
+.admin-delete-user-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.admin-delete-user-warning {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid rgba(207, 34, 46, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.admin-delete-user-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.admin-delete-user-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.admin-delete-user-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.admin-delete-user-field code {
+  background: var(--bg-surface);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.admin-delete-user-error {
+  color: #cf222e;
+  font-size: 12px;
+}
+.admin-delete-user-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.admin-delete-user-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.admin-delete-user-confirm {
+  background: #cf222e !important;
+  border-color: #cf222e !important;
+  color: #fff !important;
+}
+.admin-delete-user-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

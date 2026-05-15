@@ -2,8 +2,10 @@ import { Router } from 'express';
 import os from 'os';
 import db, { getWriteStats } from '../db.js';
 import { compileMetrics } from '../compiler.js';
-import { resetTransporter, sendEmail } from '../utils/email.js';
+import { resetTransporter, sendEmail, sendAccountDeletedEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
+import { adminDeleteUser } from '../services/authService.js';
+import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
 import { sendError } from '../middleware/errorHandler.js';
 
@@ -334,6 +336,34 @@ router.get('/users/:id/activity', async (req, res) => {
       createdAt: l.created_at,
     })),
   });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** DELETE /api/admin/users/:userId  body { password }
+ *  Admin-initiated permanent deletion of another user. Requires the *admin's*
+ *  own password as the final confirmation step. Mirrors the self-delete
+ *  cascade: NULLs out author references, drops sole-owner projects, deletes
+ *  the user row. Refuses self-delete via this route (admins must use the
+ *  self-delete flow). */
+router.delete('/users/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  try {
+    const deleted = await adminDeleteUser(req.session.userId, req.body?.password, userId);
+    await auditLog(req.session.userId, 'account_deleted_by_admin', {
+      targetType: 'user',
+      targetId: userId,
+      detail: deleted.email,
+      ip: req.ip,
+    }).catch((e) => logger.warn({ err: e }, 'Audit log failed for admin user delete'));
+    if (deleted.email) {
+      sendAccountDeletedEmail(deleted.email, deleted.name).catch((err) =>
+        logger.error({ err }, 'Failed to send admin-delete goodbye email'),
+      );
+    }
+    res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
   }

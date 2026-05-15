@@ -493,6 +493,29 @@ export async function changePassword(userId, currentPassword, newPassword) {
 }
 
 /** Permanently delete a user account and all owned data after verifying their password. */
+/** Tear down all rows referencing a user that don't ON-DELETE-CASCADE
+ *  cleanly, then delete the user row. Run inside a transaction. Shared by
+ *  the self-delete and admin-delete paths so they stay in lock-step. */
+async function purgeUserInTx(tx, user) {
+  await tx.run('UPDATE comments SET author_id = NULL WHERE author_id = $1', [user.id]);
+  await tx.run('UPDATE comment_replies SET author_id = NULL WHERE author_id = $1', [user.id]);
+  await tx.run('UPDATE file_versions SET author_id = NULL WHERE author_id = $1', [user.id]);
+  await tx.run('UPDATE project_snapshots SET author_id = NULL WHERE author_id = $1', [user.id]);
+  await tx.run('DELETE FROM project_invitations WHERE inviter_id = $1', [user.id]);
+  await tx.run('DELETE FROM project_github_links WHERE linked_by = $1', [user.id]);
+  await tx.run('UPDATE audit_log SET user_id = NULL WHERE user_id = $1', [user.id]);
+  await tx.run('DELETE FROM login_attempts WHERE email = $1', [user.email]);
+  await tx.run(
+    `DELETE FROM projects WHERE id IN (
+      SELECT p.id FROM projects p JOIN project_members pm ON p.id = pm.project_id
+      WHERE pm.user_id = $1 AND pm.role = 'owner'
+        AND NOT EXISTS (SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id != $1)
+    )`,
+    [user.id],
+  );
+  await tx.run('DELETE FROM users WHERE id = $1', [user.id]);
+}
+
 export async function deleteAccount(userId, password) {
   const user = await db.get('SELECT id, email, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -500,22 +523,34 @@ export async function deleteAccount(userId, password) {
     throw Object.assign(new Error('Invalid password'), { status: 401 });
 
   await db.transaction(async (tx) => {
-    await tx.run('UPDATE comments SET author_id = NULL WHERE author_id = $1', [user.id]);
-    await tx.run('UPDATE comment_replies SET author_id = NULL WHERE author_id = $1', [user.id]);
-    await tx.run('UPDATE file_versions SET author_id = NULL WHERE author_id = $1', [user.id]);
-    await tx.run('UPDATE project_snapshots SET author_id = NULL WHERE author_id = $1', [user.id]);
-    await tx.run('DELETE FROM project_invitations WHERE inviter_id = $1', [user.id]);
-    await tx.run('DELETE FROM project_github_links WHERE linked_by = $1', [user.id]);
-    await tx.run('UPDATE audit_log SET user_id = NULL WHERE user_id = $1', [user.id]);
-    await tx.run('DELETE FROM login_attempts WHERE email = $1', [user.email]);
-    await tx.run(
-      `DELETE FROM projects WHERE id IN (
-      SELECT p.id FROM projects p JOIN project_members pm ON p.id = pm.project_id
-      WHERE pm.user_id = $1 AND pm.role = 'owner'
-        AND NOT EXISTS (SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id != $1)
-    )`,
-      [user.id],
-    );
-    await tx.run('DELETE FROM users WHERE id = $1', [user.id]);
+    await purgeUserInTx(tx, user);
   });
+}
+
+/** Admin-driven delete of another user. Requires the *admin's* own password
+ *  (not the target's — the admin doesn't know it). Same cascade as the
+ *  self-delete path. Returns { email, name } of the deleted user so the
+ *  caller can send a goodbye email. */
+export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
+  if (!adminId || !targetUserId) throw Object.assign(new Error('Missing ids'), { status: 400 });
+  if (adminId === targetUserId) {
+    throw Object.assign(new Error('Use the self-delete flow to remove your own account'), { status: 400 });
+  }
+  const admin = await db.get('SELECT id, password_hash, is_admin FROM users WHERE id = $1', [adminId]);
+  if (!admin || !admin.is_admin) {
+    throw Object.assign(new Error('Not an admin'), { status: 403 });
+  }
+  if (!adminPassword || typeof adminPassword !== 'string') {
+    throw Object.assign(new Error('Admin password required'), { status: 400 });
+  }
+  if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
+    throw Object.assign(new Error('Invalid admin password'), { status: 401 });
+  }
+  const target = await db.get('SELECT id, email, name FROM users WHERE id = $1', [targetUserId]);
+  if (!target) throw Object.assign(new Error('Target user not found'), { status: 404 });
+
+  await db.transaction(async (tx) => {
+    await purgeUserInTx(tx, target);
+  });
+  return { email: target.email, name: target.name };
 }

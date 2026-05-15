@@ -44,6 +44,7 @@ import {
   createPasswordResetToken,
   resetPassword,
   deleteAccount,
+  adminDeleteUser,
   checkPasswordNotBreached,
 } from '../services/authService.js';
 
@@ -637,6 +638,68 @@ describe('deleteAccount', () => {
     db.get.mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH });
     await deleteAccount('u', TEST_PW);
     expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── adminDeleteUser ──────────────────────────────────────────────────
+
+describe('adminDeleteUser', () => {
+  // Earlier `mockResolvedValueOnce` queues from upstream tests can leak past
+  // the file-level beforeEach (which only clears call history). Reset both
+  // mocks here so each test sees the queue we set.
+  beforeEach(() => {
+    db.get.mockReset();
+    db.run.mockReset();
+    db.get.mockResolvedValue(undefined);
+    db.run.mockResolvedValue(undefined);
+  });
+
+  it('rejects when admin tries to delete themselves via this route', async () => {
+    await expect(adminDeleteUser('same', TEST_PW, 'same'))
+      .rejects.toMatchObject({ status: 400 });
+    expect(db.get).not.toHaveBeenCalled();
+  });
+
+  it('rejects when missing ids', async () => {
+    await expect(adminDeleteUser('', TEST_PW, 't')).rejects.toMatchObject({ status: 400 });
+    await expect(adminDeleteUser('a', TEST_PW, '')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects when caller is not an admin', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: false });
+    await expect(adminDeleteUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('rejects when admin user row is missing entirely', async () => {
+    db.get.mockResolvedValueOnce(null);
+    await expect(adminDeleteUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('rejects when admin password is wrong', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true });
+    await expect(adminDeleteUser('a', 'WrongPass1', 't'))
+      .rejects.toMatchObject({ status: 401, message: 'Invalid admin password' });
+  });
+
+  it('rejects when password is missing or not a string', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true });
+    await expect(adminDeleteUser('a', '', 't')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 404 when the target user does not exist', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce(null);
+    await expect(adminDeleteUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('runs the purge inside a transaction and returns target email/name', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ id: 't', email: 'target@example.com', name: 'Target User' });
+    const out = await adminDeleteUser('a', TEST_PW, 't');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ email: 'target@example.com', name: 'Target User' });
   });
 });
 
