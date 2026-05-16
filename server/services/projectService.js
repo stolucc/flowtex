@@ -1205,8 +1205,9 @@ export async function deleteProject(projectId) {
 }
 
 /** Duplicate a project and all its files, making the user the owner of the
- *  copy. Comments (incl. replies and emoji reactions) are also copied so the
- *  discussion thread carries over.
+ *  copy. Comments (incl. replies and emoji reactions) and the tracked-
+ *  changes sidecar (`files.tc_marks`) are also copied so the discussion
+ *  thread and any pending review marks carry over verbatim.
  *
  *  Intentional omissions (mirrors what GitHub-fork / Docs-make-a-copy do):
  *   - `comment_mentions`: copying would re-fire digest emails for past
@@ -1223,7 +1224,16 @@ export async function copyProject(projectId, userId, newName) {
   if (!source) throw new Error('Project not found');
   const newId = uuid();
   const name = (newName || source.name + ' (Copy)').slice(0, 200);
-  const files = await db.all('SELECT id, path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+  // tc_marks is the per-file tracked-changes JSON sidecar (insert / delete
+  // ranges + author + timestamp). It rides alongside content because the
+  // marks are coordinate-bound to the current text — copying content
+  // without tc_marks would silently flatten every pending edit into the
+  // source: deletes would no longer strike through (and would still
+  // appear in the compiled PDF), inserts would render as plain text.
+  const files = await db.all(
+    'SELECT id, path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+    [projectId],
+  );
   await db.transaction(async (tx) => {
     await tx.run('INSERT INTO projects (id, name, main_file) VALUES ($1, $2, $3)', [newId, name, source.main_file]);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
@@ -1236,13 +1246,10 @@ export async function copyProject(projectId, userId, newName) {
     for (const file of files) {
       const newFileId = uuid();
       fileIdMap.set(file.id, newFileId);
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        newFileId,
-        newId,
-        file.path,
-        file.content,
-        file.is_binary,
-      ]);
+      await tx.run(
+        'INSERT INTO files (id, project_id, path, content, is_binary, tc_marks) VALUES ($1, $2, $3, $4, $5, $6)',
+        [newFileId, newId, file.path, file.content, file.is_binary, JSON.stringify(file.tc_marks ?? [])],
+      );
     }
 
     if (files.length === 0) return;

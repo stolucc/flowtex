@@ -264,6 +264,31 @@ describe('projects — copyProject carries over comments', () => {
     expect(sourceComment).toBeDefined();
   });
 
+  it('copies the tc_marks sidecar so tracked changes survive a project copy', async () => {
+    const owner = await seedUser();
+    const src = await seedProject(owner.id);
+    const f = await seedFile(src.id, 'main.tex', 'Hello world');
+    // Mark a deletion of "world" and an insertion of "Earth" the way the
+    // editor does.
+    const marks = [
+      { id: 'm1', type: 'del', from: 6, to: 11, authorId: owner.id, authorName: 'Owner', timestamp: '2026-01-01T00:00:00Z' },
+      { id: 'm2', type: 'ins', from: 11, to: 16, authorId: owner.id, authorName: 'Owner', timestamp: '2026-01-01T00:00:00Z' },
+    ];
+    await db.run('UPDATE files SET content = $1, tc_marks = $2::jsonb WHERE id = $3', [
+      'Hello worldEarth',
+      JSON.stringify(marks),
+      f.id,
+    ]);
+
+    const copy = await copyProject(src.id, owner.id);
+    const copyFile = await db.get(
+      'SELECT content, tc_marks FROM files WHERE project_id = $1 AND path = $2',
+      [copy.id, 'main.tex'],
+    );
+    expect(copyFile.content).toBe('Hello worldEarth');
+    expect(copyFile.tc_marks).toEqual(marks);
+  });
+
   it('skips the comment_mentions notification log when copying', async () => {
     const owner = await seedUser();
     const mentioned = await seedUser();
