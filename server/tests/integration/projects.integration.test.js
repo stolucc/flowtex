@@ -264,6 +264,27 @@ describe('projects — copyProject carries over comments', () => {
     expect(sourceComment).toBeDefined();
   });
 
+  it('copies project compile settings (compiler / tex_distribution / snapshot_interval_sec)', async () => {
+    const owner = await seedUser();
+    const src = await seedProject(owner.id);
+    // Mirror what DOCX-import does: switch the project to xelatex with a
+    // specific TeX distribution and a custom snapshot interval.
+    await db.run(
+      `UPDATE projects SET compiler = $1, tex_distribution = $2, snapshot_interval_sec = $3 WHERE id = $4`,
+      ['xelatex', 'TeX Live 2024', 90, src.id],
+    );
+    await seedFile(src.id, 'main.tex');
+
+    const copy = await copyProject(src.id, owner.id);
+    const row = await db.get(
+      'SELECT compiler, tex_distribution, snapshot_interval_sec FROM projects WHERE id = $1',
+      [copy.id],
+    );
+    expect(row.compiler).toBe('xelatex');
+    expect(row.tex_distribution).toBe('TeX Live 2024');
+    expect(row.snapshot_interval_sec).toBe(90);
+  });
+
   it('with includeMembers=true, copies collaborators with their original roles', async () => {
     const owner = await seedUser();
     const editor = await seedUser();

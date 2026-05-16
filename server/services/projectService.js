@@ -1235,7 +1235,16 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
     [projectId],
   );
   await db.transaction(async (tx) => {
-    await tx.run('INSERT INTO projects (id, name, main_file) VALUES ($1, $2, $3)', [newId, name, source.main_file]);
+    // Carry the source's compile settings across — particularly `compiler`,
+    // which is set to xelatex for DOCX imports and other projects that use
+    // fontspec. If we let it default to pdflatex on copy, the compiled PDF
+    // would diverge wildly from the source editor (fontspec preamble fails
+    // under pdflatex and produces garbled or broken output).
+    await tx.run(
+      `INSERT INTO projects (id, name, main_file, compiler, tex_distribution, snapshot_interval_sec)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [newId, name, source.main_file, source.compiler, source.tex_distribution, source.snapshot_interval_sec],
+    );
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
       newId,
       userId,
