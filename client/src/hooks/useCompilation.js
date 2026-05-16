@@ -34,6 +34,34 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     }
   }, [showTrackedChanges]);
 
+  // Wipe all compile-derived state when the project changes. This hook
+  // is mounted once at App level and persists across project switches —
+  // without this reset, switching from project A to B would keep showing
+  // As last-compiled PDF (and its lint diagnostics, console output, and
+  // generated-files list) in Bs editor view until the user re-compiled.
+  // That was the source of the "PDF shows text from a different project,
+  // hard refresh fixes it" bug.
+  const projectIdRef = useRef(project?.id ?? null);
+  useEffect(() => {
+    const newId = project?.id ?? null;
+    if (projectIdRef.current !== newId) {
+      projectIdRef.current = newId;
+      setPdfUrl(null);
+      setCompileLog('');
+      setConsoleOutput('');
+      setLintDiagnostics([]);
+      setGeneratedFiles([]);
+      setActiveGenFile(null);
+      // Cancel any in-flight compile stream from the previous project so
+      // its `done` event cant land here and resurrect the stale PDF.
+      if (compileSourceRef.current) {
+        compileSourceRef.current.close();
+        compileSourceRef.current = null;
+      }
+      setCompiling(false);
+    }
+  }, [project?.id]);
+
   // Clean up EventSource on unmount
   useEffect(() => {
     return () => {

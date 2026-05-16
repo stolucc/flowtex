@@ -233,6 +233,41 @@ describe('useCompilation', () => {
     } catch {}
   });
 
+  // Regression: switching projects (or copying into a new project) without
+  // a hard refresh used to leak the previous projects last-compiled PDF
+  // URL into the new projects view. Now every compile-derived state is
+  // wiped on project.id change.
+  it('clears pdfUrl + compile state when switching to a different project', async () => {
+    const { result, rerender } = renderHook(
+      ({ p }) => useCompilation(p, activeFile, handleSave, editorRef),
+      { initialProps: { p: { id: 'A' } } },
+    );
+
+    // Simulate a successful compile on project A.
+    let compilePromise;
+    act(() => { compilePromise = result.current.handleCompile(); });
+    await waitFor(() => expect(result.current.compiling).toBe(true));
+    const esA = MockEventSource.instances[0];
+    act(() => {
+      esA.listeners.output({ data: JSON.stringify({ text: 'compiling A...' }) });
+      esA.listeners.done({ data: JSON.stringify({ success: true, log: 'A log' }) });
+    });
+    await act(async () => { await compilePromise; });
+    expect(result.current.pdfUrl).toMatch(/\/api\/compile\/A\/pdf/);
+    expect(result.current.compileLog).toBe('A log');
+    expect(result.current.consoleOutput).toContain('compiling A');
+
+    // Switch to project B (the cross-project leak the user reported).
+    rerender({ p: { id: 'B' } });
+
+    // Everything compile-derived from A must be wiped.
+    expect(result.current.pdfUrl).toBeNull();
+    expect(result.current.compileLog).toBe('');
+    expect(result.current.consoleOutput).toBe('');
+    expect(result.current.generatedFiles).toEqual([]);
+    expect(result.current.activeGenFile).toBeNull();
+  });
+
   it('prevents double compile', async () => {
     const { result } = renderHook(() => useCompilation(project, activeFile, handleSave, editorRef));
 
