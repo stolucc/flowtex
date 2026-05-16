@@ -10594,3 +10594,116 @@ kbd {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Bug-report modal ─────────────────────────────────────────────── */
+.bug-report-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 520px;
+  max-width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.bug-report-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.bug-report-modal .modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.bug-report-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+.bug-report-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.bug-report-field textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.bug-report-features {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+}
+.bug-report-features legend {
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.bug-report-features-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin-top: 4px;
+}
+.bug-report-feature-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.bug-report-feature-option input[type="checkbox"] {
+  margin: 0;
+}
+.bug-report-error {
+  font-size: 12px;
+  color: #cf222e;
+}
+.bug-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+.bug-report-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.bug-report-submit {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--bg-primary) !important;
+}
+.bug-report-submit:disabled,
+.bug-report-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.bug-report-sent {
+  padding: 24px 20px 28px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-primary);
+}

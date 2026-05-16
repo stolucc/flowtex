@@ -43,6 +43,7 @@ export default function useUIState() {
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
   const [visualMode, setVisualMode] = useState(false);
   // V2: tracked-changes display options (Word-style "Display for Review").
   // - showTrackedChangesInline: when false, the editor hides ins/del
@@ -97,6 +98,8 @@ export default function useUIState() {
     setShowShortcuts,
     showAbout,
     setShowAbout,
+    showBugReport,
+    setShowBugReport,
     visualMode,
     setVisualMode,
     showTrackedChangesInline,

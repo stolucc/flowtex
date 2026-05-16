@@ -209,3 +209,39 @@ export async function sendPasswordResetEmail(email, resetUrl) {
     `,
   });
 }
+
+/** Send a bug report from `reporter` (a user object) to one or more admin
+ *  inboxes. `features` is the user-checked feature-area list. */
+export async function sendBugReportEmail(adminEmails, { reporter, description, features }) {
+  if (!Array.isArray(adminEmails) || adminEmails.length === 0) {
+    throw new Error('No admin recipient configured for bug reports');
+  }
+  const featureList = Array.isArray(features) && features.length > 0 ? features.join(', ') : '(none specified)';
+  const reporterLine = `${reporter.name || 'Unknown'} <${reporter.email || 'unknown@unknown'}>`;
+  const safeName = escapeHtml(reporter.name || 'Unknown');
+  const safeEmail = escapeHtml(reporter.email || 'unknown@unknown');
+  const safeFeatures = escapeHtml(featureList);
+  // Bug-report descriptions can be multi-paragraph; preserve newlines in the
+  // HTML version via white-space: pre-wrap. The text body retains them
+  // verbatim. escapeHtml protects against any <script>… etc. the user types.
+  const safeDescription = escapeHtml(description);
+  return sendEmail({
+    to: adminEmails.join(', '),
+    subject: `[FlowTex bug report] ${featureList}`.slice(0, 200),
+    text:
+      `A FlowTex user submitted a bug report.\n\n` +
+      `Reported by: ${reporterLine}\n` +
+      `Features: ${featureList}\n` +
+      `Submitted at: ${new Date().toISOString()}\n\n` +
+      `--- Description ---\n${description}\n`,
+    html: `
+      <h2 style="margin:0 0 12px 0;font-size:16px">FlowTex bug report</h2>
+      <p><strong>Reported by:</strong> ${safeName} &lt;${safeEmail}&gt;</p>
+      <p><strong>Features:</strong> ${safeFeatures}</p>
+      <p><strong>Submitted at:</strong> ${new Date().toISOString()}</p>
+      <hr>
+      <h3 style="margin:16px 0 8px 0;font-size:14px">Description</h3>
+      <div style="white-space: pre-wrap; font-family: -apple-system, system-ui, sans-serif; line-height: 1.5;">${safeDescription}</div>
+    `,
+  });
+}

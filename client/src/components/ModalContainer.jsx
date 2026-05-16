@@ -16,6 +16,7 @@ const WordCountModal = lazy(() => import('./WordCountModal.jsx'));
 const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
+const BugReportModal = lazy(() => import('./BugReportModal.jsx'));
 
 /** Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.). */
 export default function ModalContainer({
@@ -226,6 +227,11 @@ export default function ModalContainer({
             onClose={() => ui.setShowCompareFiles(false)}
             onStartDiff={handleDiff}
           />
+        </Suspense>
+      )}
+      {ui.showBugReport && (
+        <Suspense fallback={null}>
+          <BugReportModal onClose={() => ui.setShowBugReport(false)} />
         </Suspense>
       )}
       {ui.showGitHubSync && (
