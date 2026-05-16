@@ -62,7 +62,11 @@ export default function useWebSocket(
         return;
       }
       if (msg.type === 'presence') {
-        setActiveUsers(msg.users);
+        // Defensive — a malformed presence frame from a future server
+        // version (or a manual ws.send injection) shouldnt nuke the
+        // active-users list into something non-array that downstream
+        // map() / filter() callers would throw on.
+        setActiveUsers(Array.isArray(msg.users) ? msg.users : []);
       } else if (msg.type === 'changes') {
         // Drop echoes of our own edits — see originIdRef comment above. The
         // server preserves the originId in its broadcast; if it matches ours,

@@ -1,13 +1,18 @@
 import React, { lazy, Suspense } from 'react';
-import ShareModal from './ShareModal.jsx';
-import CompareFilesModal from './CompareFilesModal.jsx';
-import ProjectSettingsModal from './ProjectSettingsModal.jsx';
-import WordCountModal from './WordCountModal.jsx';
 import { get, post, put, patch } from '../api.js';
 import { resolveUsedFiles } from '@shared/texDeps.js';
 import { useEditorRef } from '../contexts/EditorRefContext.jsx';
 import { useProjectContext } from '../contexts/ProjectContext.jsx';
 
+// Every editor-level modal is lazy. The previously-static four
+// (ShareModal, CompareFilesModal, ProjectSettingsModal, WordCountModal)
+// were the bulk of an otherwise-unused chunk of code shipped on every
+// initial page load — splitting them shrinks the main bundle and only
+// pays the cost when the user actually opens the modal.
+const ShareModal = lazy(() => import('./ShareModal.jsx'));
+const CompareFilesModal = lazy(() => import('./CompareFilesModal.jsx'));
+const ProjectSettingsModal = lazy(() => import('./ProjectSettingsModal.jsx'));
+const WordCountModal = lazy(() => import('./WordCountModal.jsx'));
 const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
@@ -44,45 +49,51 @@ export default function ModalContainer({
   return (
     <>
       {ui.showShareModal && (
-        <ShareModal
-          projectId={project.id}
-          onClose={() => {
-            ui.setShowShareModal(false);
-            get(`/api/projects/${project.id}/members`)
-              .then((r) => r.json())
-              .then(setMembers)
-              .catch((e) => console.warn('Failed to reload members:', e));
-          }}
-        />
+        <Suspense fallback={null}>
+          <ShareModal
+            projectId={project.id}
+            onClose={() => {
+              ui.setShowShareModal(false);
+              get(`/api/projects/${project.id}/members`)
+                .then((r) => r.json())
+                .then(setMembers)
+                .catch((e) => console.warn('Failed to reload members:', e));
+            }}
+          />
+        </Suspense>
       )}
       {ui.showProjectSettings && (
-        <ProjectSettingsModal
-          project={project}
-          files={files}
-          isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
-          onClose={() => {
-            ui.setShowProjectSettings(false);
-            setProjectSettingsTab(null);
-          }}
-          onUpdate={(updated) => setProject((p) => ({ ...p, ...updated }))}
-          trackChangesMode={trackChangesMode}
-          onTrackChangesChange={setTrackChangesMode}
-          autoSaveOn={!!githubLink?.autoPush}
-          onAutoSaveChange={async (val) => {
-            await patch(`/api/github/link/${project.id}/auto-push`, { enabled: val });
-            setGithubLink((prev) => (prev ? { ...prev, autoPush: val } : prev));
-          }}
-          githubLinked={!!hasGithubToken && !!githubLink?.linked}
-          initialTab={projectSettingsTab}
-        />
+        <Suspense fallback={null}>
+          <ProjectSettingsModal
+            project={project}
+            files={files}
+            isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
+            onClose={() => {
+              ui.setShowProjectSettings(false);
+              setProjectSettingsTab(null);
+            }}
+            onUpdate={(updated) => setProject((p) => ({ ...p, ...updated }))}
+            trackChangesMode={trackChangesMode}
+            onTrackChangesChange={setTrackChangesMode}
+            autoSaveOn={!!githubLink?.autoPush}
+            onAutoSaveChange={async (val) => {
+              await patch(`/api/github/link/${project.id}/auto-push`, { enabled: val });
+              setGithubLink((prev) => (prev ? { ...prev, autoPush: val } : prev));
+            }}
+            githubLinked={!!hasGithubToken && !!githubLink?.linked}
+            initialTab={projectSettingsTab}
+          />
+        </Suspense>
       )}
       {wordCountState.open && (
-        <WordCountModal
-          data={wordCountState.data}
-          loading={wordCountState.loading}
-          error={wordCountState.error}
-          onClose={() => setWordCountState((s) => ({ ...s, open: false }))}
-        />
+        <Suspense fallback={null}>
+          <WordCountModal
+            data={wordCountState.data}
+            loading={wordCountState.loading}
+            error={wordCountState.error}
+            onClose={() => setWordCountState((s) => ({ ...s, open: false }))}
+          />
+        </Suspense>
       )}
       {ui.showShortcuts && (
         <div
@@ -208,12 +219,14 @@ export default function ModalContainer({
         </div>
       )}
       {ui.showCompareFiles && (
-        <CompareFilesModal
-          projectId={project.id}
-          files={files}
-          onClose={() => ui.setShowCompareFiles(false)}
-          onStartDiff={handleDiff}
-        />
+        <Suspense fallback={null}>
+          <CompareFilesModal
+            projectId={project.id}
+            files={files}
+            onClose={() => ui.setShowCompareFiles(false)}
+            onStartDiff={handleDiff}
+          />
+        </Suspense>
       )}
       {ui.showGitHubSync && (
         <Suspense fallback={null}>

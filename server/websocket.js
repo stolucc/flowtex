@@ -619,11 +619,13 @@ export function initWebSocket(server, app, sessionSecret) {
   app.locals.disconnectUserFromProject = disconnectUserFromProject;
   app.locals.sendToUser = sendToUser;
 
-  // Expose live stats
+  // Expose live stats — only the aggregate counts are needed by the admin
+  // dashboard. The per-user wsConnectionCounts map is intentionally NOT
+  // surfaced: dumping userId → connection count to the admin live-monitor
+  // is information disclosure with no UI consumer.
   app.getLiveStats = () => ({
     wsConnections: wss.clients.size,
     wsUniqueUsers: wsConnectionCounts.size,
-    wsConnectionCounts: Object.fromEntries(wsConnectionCounts),
   });
 
   // Heartbeat

@@ -13,7 +13,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSetting, setSetting } from '../utils/settings.js';
 
-const NOOP = () => {};
 const EMPTY = [];
 
 export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorRef) {
@@ -198,9 +197,5 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     reviewPrev,
     acceptAndNext,
     rejectAndNext,
-    // Legacy fields kept so callers (App.jsx) don't break — unused in V1.
-    setTrackedChanges: NOOP,
-    setTcPopup: NOOP,
-    tcPopup: null,
   };
 }
