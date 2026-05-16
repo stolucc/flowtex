@@ -139,6 +139,12 @@ function AppInner() {
   const activeFileRef = useRef(activeFile);
   activeFileRef.current = activeFile;
 
+  // Mirror of `project` for cross-async use. The auto-compile + side-load
+  // effect below captures the project id at start and uses this ref to
+  // detect mid-flight project switches and drop the stale payload.
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const sendWsRef = useRef(null);
 
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -357,24 +363,39 @@ function AppInner() {
 
   useEffect(() => {
     if (!project) return;
+    // Capture the project id we're loading FOR. If the user switches to a
+    // different project before any of these async calls resolves, the
+    // late-arriving payload would otherwise overwrite the new project's
+    // state — that's the same bug class as the useCompilation leak
+    // (commit b023333). All three branches below check this on resolution
+    // and drop the result if the project changed.
+    const loadingId = project.id;
+    const stillCurrent = () => projectRef.current?.id === loadingId;
+
     if (needsAutoCompile.current) {
       needsAutoCompile.current = false;
-      setTimeout(() => {
-        post(`/api/compile/${project.id}`)
+      const autoCompileTimer = setTimeout(() => {
+        if (!stillCurrent()) return;
+        post(`/api/compile/${loadingId}`)
           .then((r) => r.json())
           .then((data) => {
+            if (!stillCurrent()) return;
             setCompileLog(data.log || '');
-            if (data.success) setPdfUrl(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
+            if (data.success) setPdfUrl(`/api/compile/${loadingId}/pdf?t=${Date.now()}`);
           });
       }, 100);
+      // If the project changes before the timeout fires, the inner check
+      // already short-circuits, but we still want the timer cleaned up to
+      // avoid leaving a no-op pending.
+      return () => clearTimeout(autoCompileTimer);
     }
-    get(`/api/compile/${project.id}/generated-files`)
+    get(`/api/compile/${loadingId}/generated-files`)
       .then((r) => r.json())
-      .then((d) => setGeneratedFiles(d.files || []))
+      .then((d) => { if (stillCurrent()) setGeneratedFiles(d.files || []); })
       .catch((e) => console.warn('Failed to load generated files:', e));
-    get(`/api/chat/${project.id}`)
+    get(`/api/chat/${loadingId}`)
       .then((r) => r.json())
-      .then((msgs) => setChatMessages(msgs || []))
+      .then((msgs) => { if (stillCurrent()) setChatMessages(msgs || []); })
       .catch((e) => console.warn('Failed to load chat messages:', e));
   }, [project, needsAutoCompile, setChatMessages, setCompileLog, setGeneratedFiles, setPdfUrl]);
 

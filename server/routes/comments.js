@@ -146,11 +146,22 @@ router.post('/:fileId', async (req, res) => {
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
     return res.status(400).json({ error: 'Invalid position values' });
   }
+  if (from_pos > to_pos) {
+    return res.status(400).json({ error: 'Comment range start is after its end' });
+  }
   if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 10000) {
     return res.status(400).json({ error: 'Comment text must be 1-10000 characters' });
   }
   const id = uuid();
-  const file = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
+  // Pull content alongside project_id so we can bound-check the range
+  // against the file's actual length. A stale client (e.g. selection
+  // captured against the previous active file then the user switches
+  // files) could otherwise write a comment at offsets past EOF, producing
+  // an orphan bubble that never lines up with any text.
+  const file = await db.get('SELECT project_id, content FROM files WHERE id = $1', [req.params.fileId]);
+  if (file && typeof file.content === 'string' && to_pos > file.content.length) {
+    return res.status(400).json({ error: 'Comment range is past end of file' });
+  }
 
   const author =
     req.session.userName ||

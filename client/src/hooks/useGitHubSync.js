@@ -10,6 +10,12 @@ export default function useGitHubSync(project) {
   const [hasGithubToken, setHasGithubToken] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('');
   const autoSyncTimer = useRef(null);
+  // Inner timeout that resets the status pill to '' a few seconds after
+  // each auto-push attempt. We track it in a ref so the effect cleanup
+  // (and the next tick's setStatus) can clear it — without this the
+  // setTimeout outlived the hook and would write to an unmounted
+  // component's setter after a project switch.
+  const autoSyncStatusClearTimer = useRef(null);
 
   // Check if the user has a GitHub token
   useEffect(() => {
@@ -61,12 +67,20 @@ export default function useGitHubSync(project) {
       } catch {
         setAutoSyncStatus('error');
       }
-      setTimeout(() => setAutoSyncStatus(''), 5000);
+      if (autoSyncStatusClearTimer.current) clearTimeout(autoSyncStatusClearTimer.current);
+      autoSyncStatusClearTimer.current = setTimeout(() => {
+        setAutoSyncStatus('');
+        autoSyncStatusClearTimer.current = null;
+      }, 5000);
     }, intervalMs);
 
     return () => {
       clearInterval(autoSyncTimer.current);
       autoSyncTimer.current = null;
+      if (autoSyncStatusClearTimer.current) {
+        clearTimeout(autoSyncStatusClearTimer.current);
+        autoSyncStatusClearTimer.current = null;
+      }
     };
   }, [project, githubLink?.linked, githubLink?.autoPush, githubLink?.autoPushInterval]);
 

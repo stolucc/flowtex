@@ -15,12 +15,26 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   const selectionRef = useRef(null);
   selectionRef.current = selection;
 
-  // Load comments for active file
+  // Load comments for active file. Also reset the pending-comment selection
+  // — `selection` is the range that the in-progress comment form is
+  // anchored to, captured against the previous file's content. If we kept
+  // it across a file switch, submitting the form would write a comment to
+  // the new file at positions captured from the old one (which could be
+  // past EOF), producing an orphaned bubble at an unreachable line.
   useEffect(() => {
     if (!activeFile) return;
+    setSelection(null);
+    setSelectionFormTop(null);
+    let cancelled = false;
     get(`/api/comments/${activeFile.id}`)
       .then((r) => r.json())
-      .then(setComments);
+      .then((rows) => {
+        // Drop the payload if the user switched files mid-fetch — the
+        // cleanup below flips `cancelled` when a new file is loaded.
+        if (cancelled) return;
+        setComments(rows);
+      });
+    return () => { cancelled = true; };
   }, [activeFile]);
 
   const handleAddComment = useCallback(

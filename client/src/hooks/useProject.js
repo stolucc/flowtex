@@ -20,6 +20,11 @@ function getFileIdFromUrl() {
 export default function useProject(user) {
   const [project, setProject] = useState(null);
   const [files, setFiles] = useState([]);
+  // Mirror of `files` for handleSave's cross-file baseVersion lookup —
+  // keeping the read-only handle in a ref avoids cascading dep updates
+  // through handleSave → handleCompile every time the user types.
+  const filesRef = useRef(files);
+  filesRef.current = files;
   const [emptyFolders, setEmptyFolders] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [members, setMembers] = useState([]);
@@ -187,10 +192,12 @@ export default function useProject(user) {
       const targetId = fileId ?? activeFile?.id;
       if (!targetId) return;
       // V2-3: include baseVersion so the server can detect stale saves.
-      // Look up the file's current updated_at from the in-memory list.
-      const target =
-        (activeFile?.id === targetId ? activeFile : null) ||
-        (typeof window !== 'undefined' ? null : null);
+      // Look up the file's current updated_at from the in-memory list —
+      // when the caller passes an explicit fileId that's NOT the active
+      // file (the documented hot path: debounced save / file-switch
+      // flush), we need to find it in `files` instead of falling through
+      // to undefined and silently losing conflict detection.
+      const target = activeFile?.id === targetId ? activeFile : filesRef.current.find((f) => f.id === targetId);
       const baseVersion = target?.updated_at ?? undefined;
       const body = { content };
       if (Array.isArray(tcMarks)) body.tcMarks = tcMarks;

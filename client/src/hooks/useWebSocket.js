@@ -181,6 +181,24 @@ export default function useWebSocket(
     };
   }, [user, connect]);
 
+  // Wipe collaboration state that's scoped to the previous project when
+  // the user switches. Without this, cursors from project A's collaborators
+  // would "teleport" into B's editor until B's own WS broadcasts overwrote
+  // them, the typing indicator could show "<A user> is typing" inside B,
+  // and unreadChat would accumulate across projects forever. Same bug
+  // class as the useCompilation leak (commit b023333).
+  const lastProjectIdRef = useRef(project?.id ?? null);
+  useEffect(() => {
+    const newId = project?.id ?? null;
+    if (lastProjectIdRef.current !== newId) {
+      lastProjectIdRef.current = newId;
+      setRemoteCursors({});
+      setTypingUsers({});
+      setUnreadChat(0);
+      setChatMessages([]);
+    }
+  }, [project?.id]);
+
   // Join project room when project changes or WS connects
   useEffect(() => {
     if (!project || !user) return;
