@@ -12,10 +12,10 @@
   "mutate": [
     "utils/crypto.js",
     "utils/fileTypes.js",
-    "utils/trackedChangeMarkup.js",
     "utils/audit.js",
     "utils/mentions.js",
     "utils/latexDiff.js",
+    "utils/tcMarks.js",
     "services/authService.js"
   ],
   "vitest": {

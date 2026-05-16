@@ -1329,31 +1329,42 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   maxLength={200}
                 />
               </label>
-              <label className="copy-project-check">
-                <input
-                  type="checkbox"
-                  checked={copyDialog.includeMembers}
-                  onChange={(e) =>
-                    setCopyDialog((d) => ({ ...d, includeMembers: e.target.checked }))
-                  }
-                />
-                <span>
-                  Also share with the {(copyDialog.members?.length ?? Math.max(1, (parseInt(copyDialog.project.member_count) || 1) - 1))} {' '}
-                  other collaborator{(copyDialog.members?.length ?? 1) === 1 ? '' : 's'} on the original
-                </span>
-              </label>
-              {copyDialog.members && copyDialog.members.length > 0 && (
-                <ul className="copy-project-members">
-                  {copyDialog.members
-                    .filter((m) => m.id !== user?.id)
-                    .map((m) => (
-                      <li key={m.id}>
-                        {m.name}
-                        {m.role && m.role !== 'editor' ? ` (${m.role})` : ''}
-                      </li>
-                    ))}
-                </ul>
-              )}
+              {(() => {
+                // Always exclude the caller from "other collaborators" —
+                // member_count and the /members response both include them.
+                const others = copyDialog.members
+                  ? copyDialog.members.filter((m) => m.id !== user?.id)
+                  : null;
+                const otherCount = others
+                  ? others.length
+                  : Math.max(0, (parseInt(copyDialog.project.member_count) || 1) - 1);
+                return (
+                  <>
+                    <label className="copy-project-check">
+                      <input
+                        type="checkbox"
+                        checked={copyDialog.includeMembers}
+                        onChange={(e) =>
+                          setCopyDialog((d) => ({ ...d, includeMembers: e.target.checked }))
+                        }
+                      />
+                      <span>
+                        Also share with the {otherCount} other collaborator{otherCount === 1 ? '' : 's'} on the original
+                      </span>
+                    </label>
+                    {others && others.length > 0 && (
+                      <ul className="copy-project-members">
+                        {others.map((m) => (
+                          <li key={m.id}>
+                            {m.name}
+                            {m.role && m.role !== 'editor' ? ` (${m.role})` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                );
+              })()}
               <div className="copy-project-actions">
                 <button
                   type="button"

@@ -5,6 +5,11 @@
 // suite (incl. integration) via Vitest's own resolution.
 import { defineConfig } from 'vitest/config';
 
+// Disable the HIBP password-check network call (same as `npm test`) — the
+// authService tests would otherwise fail in the dry-run with "password has
+// appeared in known data breaches" and abort the whole mutation run.
+process.env.DISABLE_HIBP_CHECK = '1';
+
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.js'],
