@@ -264,6 +264,43 @@ describe('projects — copyProject carries over comments', () => {
     expect(sourceComment).toBeDefined();
   });
 
+  it('with includeMembers=true, copies collaborators with their original roles', async () => {
+    const owner = await seedUser();
+    const editor = await seedUser();
+    const viewer = await seedUser();
+    const src = await seedProject(owner.id);
+    await db.run(`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'editor')`, [src.id, editor.id]);
+    await db.run(`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'viewer')`, [src.id, viewer.id]);
+    await seedFile(src.id, 'main.tex');
+
+    const copy = await copyProject(src.id, owner.id, null, { includeMembers: true });
+
+    const rows = await db.all(
+      `SELECT user_id, role FROM project_members WHERE project_id = $1 ORDER BY role, user_id`,
+      [copy.id],
+    );
+    // Caller still owner, editor/viewer carried across with their roles.
+    const byUser = Object.fromEntries(rows.map((r) => [r.user_id, r.role]));
+    expect(byUser[owner.id]).toBe('owner');
+    expect(byUser[editor.id]).toBe('editor');
+    expect(byUser[viewer.id]).toBe('viewer');
+    expect(rows).toHaveLength(3);
+  });
+
+  it('with includeMembers=false (default), caller is the only member of the copy', async () => {
+    const owner = await seedUser();
+    const editor = await seedUser();
+    const src = await seedProject(owner.id);
+    await db.run(`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'editor')`, [src.id, editor.id]);
+    await seedFile(src.id, 'main.tex');
+
+    const copy = await copyProject(src.id, owner.id);
+
+    const rows = await db.all('SELECT user_id, role FROM project_members WHERE project_id = $1', [copy.id]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ user_id: owner.id, role: 'owner' });
+  });
+
   it('copies the tc_marks sidecar so tracked changes survive a project copy', async () => {
     const owner = await seedUser();
     const src = await seedProject(owner.id);

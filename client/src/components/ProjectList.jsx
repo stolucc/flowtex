@@ -34,6 +34,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [tags, setTags] = useState([]);
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
+  // copyDialog is non-null while the "Copy project" confirm modal is open.
+  // { project, name, includeMembers, members?, submitting }
+  const [copyDialog, setCopyDialog] = useState(null);
   const [showMfa, setShowMfa] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('github') === 'connected';
@@ -295,13 +298,56 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   const handleCopy = async (e, project) => {
     e.stopPropagation();
-    try {
+    // Solo projects: copy directly with no prompt. Shared projects: open
+    // the dialog so the user can pick a name and decide whether to bring
+    // the collaborators across.
+    const memberCount = parseInt(project.member_count) || 1;
+    if (memberCount <= 1) {
       const res = await post(`/api/projects/${project.id}/copy`);
       if (res.ok) {
         const copied = await res.json();
         setProjects((ps) => [copied, ...ps]);
       }
-    } catch {}
+      return;
+    }
+    // Open the dialog. Fetch the actual member list in parallel so we can
+    // show their names alongside the share toggle.
+    setCopyDialog({
+      project,
+      name: `${project.name} (Copy)`,
+      includeMembers: true,
+      members: null,
+      submitting: false,
+    });
+    try {
+      const r = await get(`/api/projects/${project.id}/members`);
+      if (r.ok) {
+        const members = await r.json();
+        setCopyDialog((d) => (d && d.project.id === project.id ? { ...d, members } : d));
+      }
+    } catch {
+      // Non-fatal — dialog still works without the names.
+    }
+  };
+
+  const submitCopy = async () => {
+    if (!copyDialog || copyDialog.submitting) return;
+    setCopyDialog((d) => ({ ...d, submitting: true }));
+    try {
+      const res = await post(`/api/projects/${copyDialog.project.id}/copy`, {
+        name: copyDialog.name.trim() || undefined,
+        includeMembers: copyDialog.includeMembers,
+      });
+      if (res.ok) {
+        const copied = await res.json();
+        setProjects((ps) => [copied, ...ps]);
+        setCopyDialog(null);
+      } else {
+        setCopyDialog((d) => ({ ...d, submitting: false }));
+      }
+    } catch {
+      setCopyDialog((d) => ({ ...d, submitting: false }));
+    }
   };
 
   const confirmDeleteProject = (e, project) => {
@@ -1259,6 +1305,74 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           onConfirm={confirmDelete.onConfirm}
           onCancel={() => setConfirmDelete(null)}
         />
+      )}
+      {copyDialog && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => { if (e.target === e.currentTarget && !copyDialog.submitting) setCopyDialog(null); }}
+        >
+          <div className="modal copy-project-modal">
+            <div className="modal-header">
+              <h2>Copy project</h2>
+            </div>
+            <form
+              className="copy-project-body"
+              onSubmit={(e) => { e.preventDefault(); submitCopy(); }}
+            >
+              <label className="copy-project-field">
+                <span>Name of the copy</span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={copyDialog.name}
+                  onChange={(e) => setCopyDialog((d) => ({ ...d, name: e.target.value }))}
+                  maxLength={200}
+                />
+              </label>
+              <label className="copy-project-check">
+                <input
+                  type="checkbox"
+                  checked={copyDialog.includeMembers}
+                  onChange={(e) =>
+                    setCopyDialog((d) => ({ ...d, includeMembers: e.target.checked }))
+                  }
+                />
+                <span>
+                  Also share with the {(copyDialog.members?.length ?? Math.max(1, (parseInt(copyDialog.project.member_count) || 1) - 1))} {' '}
+                  other collaborator{(copyDialog.members?.length ?? 1) === 1 ? '' : 's'} on the original
+                </span>
+              </label>
+              {copyDialog.members && copyDialog.members.length > 0 && (
+                <ul className="copy-project-members">
+                  {copyDialog.members
+                    .filter((m) => m.id !== user?.id)
+                    .map((m) => (
+                      <li key={m.id}>
+                        {m.name}
+                        {m.role && m.role !== 'editor' ? ` (${m.role})` : ''}
+                      </li>
+                    ))}
+                </ul>
+              )}
+              <div className="copy-project-actions">
+                <button
+                  type="button"
+                  onClick={() => setCopyDialog(null)}
+                  disabled={copyDialog.submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="copy-project-confirm"
+                  disabled={copyDialog.submitting || !copyDialog.name.trim()}
+                >
+                  {copyDialog.submitting ? 'Copying…' : 'Copy'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
       {showMfa && (
         <MfaSetupModal

@@ -1219,7 +1219,7 @@ export async function deleteProject(projectId) {
  *     had access to the original. New history accrues from the moment of
  *     copy; the *current* state of every file is preserved verbatim via
  *     the files INSERTs below. */
-export async function copyProject(projectId, userId, newName) {
+export async function copyProject(projectId, userId, newName, { includeMembers = false } = {}) {
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
   const newId = uuid();
@@ -1241,6 +1241,26 @@ export async function copyProject(projectId, userId, newName) {
       userId,
       'owner',
     ]);
+
+    // When the caller opts in, also bring every other collaborator across
+    // with their original role. Caller is already inserted as 'owner'
+    // above (overriding their source role if it was lower), so we skip
+    // them here. ON CONFLICT DO NOTHING is defensive — there shouldn't
+    // be a collision but a race during the transaction would otherwise
+    // surface a UNIQUE-constraint error.
+    if (includeMembers) {
+      const sourceMembers = await tx.all(
+        'SELECT user_id, role FROM project_members WHERE project_id = $1 AND user_id <> $2',
+        [projectId, userId],
+      );
+      for (const m of sourceMembers) {
+        await tx.run(
+          `INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [newId, m.user_id, m.role],
+        );
+      }
+    }
 
     const fileIdMap = new Map(); // oldFileId -> newFileId
     for (const file of files) {

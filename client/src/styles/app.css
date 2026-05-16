@@ -10507,3 +10507,90 @@ kbd {
   flex-shrink: 0;
 }
 .invitation-toast-close:hover { color: var(--text-primary); }
+
+/* ── Copy project modal ───────────────────────────────────────────── */
+.copy-project-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.copy-project-modal .modal-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.copy-project-modal .modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.copy-project-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.copy-project-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.copy-project-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.copy-project-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.copy-project-members {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+.copy-project-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.copy-project-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.copy-project-confirm {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--bg-primary) !important;
+}
+.copy-project-confirm:disabled,
+.copy-project-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

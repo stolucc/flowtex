@@ -687,11 +687,19 @@ router.post('/:id/restore', async (req, res) => {
   res.json({ ok: true });
 });
 
-/** POST /api/projects/:id/copy -- Create a copy of the project for the current user. */
+/** POST /api/projects/:id/copy  body { name?, includeMembers? }
+ *  Duplicate a project for the current user. With includeMembers=true the
+ *  source's collaborators are carried over with their original roles
+ *  (caller is always the owner regardless). The UI confirms with the
+ *  user before sending includeMembers=true since the copy will then be
+ *  visible to those other members. */
 router.post('/:id/copy', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   try {
-    res.json(await projectService.copyProject(req.params.id, req.session.userId, req.body.name));
+    const includeMembers = req.body?.includeMembers === true;
+    res.json(
+      await projectService.copyProject(req.params.id, req.session.userId, req.body?.name, { includeMembers }),
+    );
   } catch (err) {
     sendError(res, err);
   }
