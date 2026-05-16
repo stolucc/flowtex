@@ -280,34 +280,13 @@ function handleCommentEdit(msg, state, ws) {
   broadcastToRoom(state.projectId, { type: 'comment-edit', commentId: msg.commentId, text: msg.text }, ws);
 }
 
-/** Broadcast a new tracked change to other clients in the room. */
-async function handleTrackedChange(msg, state, ws) {
-  if (!msg.change) return;
-  if (JSON.stringify(msg.change).length > 10000) return;
-  if (!(await isFileInProject(state, msg.fileId))) return;
-  broadcastToRoom(state.projectId, { type: 'tracked-change', fileId: msg.fileId, change: msg.change }, ws);
-}
-
-/** Broadcast a tracked-change accept/reject resolution to the room. */
-function handleTrackedChangeResolve(msg, state, ws) {
-  if (!['accepted', 'rejected'].includes(msg.status)) return;
-  // No fileId on this message — the changeId is a server-issued UUID and the
-  // resolution itself is broadcast project-wide so all viewing clients can
-  // update the affected change in their tracked-changes list.
-  broadcastToRoom(state.projectId, { type: 'tracked-change-resolve', changeId: msg.changeId, status: msg.status }, ws);
-}
-
-async function handleTrackedChangeDelete(msg, state, ws) {
-  if (typeof msg.changeId !== 'string') return;
-  if (!(await isFileInProject(state, msg.fileId))) return;
-  broadcastToRoom(state.projectId, { type: 'tracked-change-delete', fileId: msg.fileId, changeId: msg.changeId }, ws);
-}
-
-async function handleTcDeleteMark(msg, state, ws) {
-  if (typeof msg.from !== 'number' || typeof msg.to !== 'number') return;
-  if (!(await isFileInProject(state, msg.fileId))) return;
-  broadcastToRoom(state.projectId, { type: 'tc-delete-mark', fileId: msg.fileId, from: msg.from, to: msg.to }, ws);
-}
+// (Removed 2026-05-16) The old WS handlers `tracked-change`,
+// `tracked-change-resolve`, `tracked-change-delete`, `tc-delete-mark`
+// belonged to the V1 tracked-changes pipeline that was rebuilt against
+// the in-file `tc_marks` JSON sidecar — no client emits these frame
+// types any more. Keeping the handlers around left unnecessary write
+// surface (a malicious authenticated room member could broadcast
+// arbitrary tracked-change payloads).
 
 /** Build the current reaction summary for an editor comment. */
 async function fetchCommentReactionsFor(commentId) {
@@ -504,10 +483,6 @@ const writeTypes = new Set([
   'comment-edit',
   'comment-react',
   'reply-react',
-  'tracked-change',
-  'tracked-change-resolve',
-  'tracked-change-delete',
-  'tc-delete-mark',
   // chat persists to chat_messages; viewers should be read-only.
   'chat',
   'chat-react',
@@ -536,10 +511,6 @@ const messageHandlers = {
   'comment-edit': handleCommentEdit,
   'comment-react': handleCommentReact,
   'reply-react': handleReplyReact,
-  'tracked-change': handleTrackedChange,
-  'tracked-change-resolve': handleTrackedChangeResolve,
-  'tracked-change-delete': handleTrackedChangeDelete,
-  'tc-delete-mark': handleTcDeleteMark,
   chat: handleChat,
   'chat-react': handleChatReact,
   typing: handleTyping,
@@ -827,10 +798,6 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleCommentResolve,
   handleCommentDelete,
   handleCommentEdit,
-  handleTrackedChange,
-  handleTrackedChangeResolve,
-  handleTrackedChangeDelete,
-  handleTcDeleteMark,
   handleChat,
   handleChatReact,
   handleCommentReact,

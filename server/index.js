@@ -14,6 +14,7 @@ import fs from 'fs';
 import pinoHttp from 'pino-http';
 import logger from './logger.js';
 import db from './db.js';
+import { abortAllCompilations } from './compiler.js';
 import projectsRouter from './routes/projects.js';
 import compileRouter from './routes/compile.js';
 import commentsRouter from './routes/comments.js';
@@ -464,7 +465,17 @@ async function shutdown(signal) {
     client.close(1001, 'Server shutting down');
   }
 
-  // 3. Close Redis connections
+  // 3. SIGTERM any in-flight latexmk children — otherwise SIGTERM on the
+  //    parent leaves them blocked on closed stdio for the host's reap
+  //    timeout. We wait up to ~2s per child for a clean exit before
+  //    moving on to the DB drain.
+  const aborted = await abortAllCompilations(2000).catch((e) => {
+    logger.warn({ err: e }, 'Error aborting compilations on shutdown');
+    return 0;
+  });
+  if (aborted > 0) logger.info({ aborted }, 'Aborted in-flight compilations');
+
+  // 4. Close Redis connections
   if (redisPub) {
     redisPub.disconnect();
   }
@@ -472,7 +483,7 @@ async function shutdown(signal) {
     redisSub.disconnect();
   }
 
-  // 4. Drain the database pool
+  // 5. Drain the database pool
   await db.pool.end().catch((e) => logger.warn({ err: e }, 'DB pool drain error on shutdown'));
 
   logger.info('Cleanup complete — exiting');

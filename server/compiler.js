@@ -196,6 +196,32 @@ export function stopCompilation(projectId) {
 }
 
 /**
+ * Abort every in-flight compilation. Used by the graceful-shutdown path
+ * in `server/index.js` so SIGTERM doesn't leave orphan latexmk children
+ * blocking on the dead parent's stdio. Each child gets SIGTERM, then we
+ * wait up to `timeoutMs` for the process to actually exit.
+ *
+ * @param {number} [timeoutMs=2000] - Per-child grace period before we stop awaiting.
+ * @returns {Promise<number>} Number of compilations that were active when called.
+ */
+export async function abortAllCompilations(timeoutMs = 2000) {
+  const entries = Array.from(activeCompilations.values());
+  for (const entry of entries) {
+    try { entry.child.kill('SIGTERM'); } catch { /* already dead */ }
+  }
+  activeCompilations.clear();
+  await Promise.all(
+    entries.map((entry) =>
+      Promise.race([
+        entry.exitPromise.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]),
+    ),
+  );
+  return entries.length;
+}
+
+/**
  * Each user gets a unique jobname so concurrent compilations don't collide.
  * The suffix flows into latexmk's `-jobname` argument and into filesystem
  * paths, so it is hex-only — anything outside [a-fA-F0-9] is dropped before

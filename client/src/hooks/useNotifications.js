@@ -11,10 +11,17 @@ export default function useNotifications(user) {
 
   const refresh = useCallback(async () => {
     if (!user) return;
+    // Capture the user id at fetch time. If the user logs out (or switches
+    // accounts) before the response lands, the in-flight fetch must NOT
+    // overwrite the cleared/empty state with the previous accounts data.
+    const loadingUserId = user.id;
     try {
       const r = await get('/api/notifications/mentions');
       if (!r.ok) return;
       const data = await r.json();
+      // The effect below clears `mentions` + `loaded` on user → null. If
+      // that happened while we were awaiting the response, drop it.
+      if (userIdRef.current !== loadingUserId) return;
       setMentions(Array.isArray(data) ? data : []);
       setLoaded(true);
     } catch (e) {
@@ -22,7 +29,11 @@ export default function useNotifications(user) {
     }
   }, [user]);
 
+  // Tracks the currently-logged-in user id so async callbacks can detect
+  // a logout/switch and bail before writing stale data.
+  const userIdRef = useRef(user?.id ?? null);
   useEffect(() => {
+    userIdRef.current = user?.id ?? null;
     if (!user) {
       setMentions([]);
       setLoaded(false);

@@ -36,10 +36,6 @@ const {
   handleCommentResolve,
   handleCommentDelete,
   handleCommentEdit,
-  handleTrackedChange,
-  handleTrackedChangeResolve,
-  handleTrackedChangeDelete,
-  handleTcDeleteMark,
   handleChat,
   handleChatReact,
   handleCommentReact,
@@ -839,172 +835,6 @@ describe('handleTrackedChange', () => {
   it('drops if change is falsy', async () => {
     const ws = makeWs();
     const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTrackedChange({ type: 'tracked-change', change: null, fileId: TEST_FILE_IDS.f1 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('drops if fileId is not a string', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTrackedChange({ type: 'tracked-change', change: { from: 0 }, fileId: 123 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('drops if change JSON exceeds 10000 chars', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    const bigChange = { text: 'x'.repeat(10000) };
-    await handleTrackedChange({ type: 'tracked-change', change: bigChange, fileId: TEST_FILE_IDS.f1 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid tracked change', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    const change = { from: 0, to: 5, insert: 'new' };
-    await handleTrackedChange({ type: 'tracked-change', change, fileId: TEST_FILE_IDS.f1 }, state, ws);
-
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('tracked-change');
-    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
-    expect(sent.change).toEqual(change);
-  });
-});
-
-// ── handleTrackedChangeResolve ───────────────────────────────────────────
-
-describe('handleTrackedChangeResolve', () => {
-  it('drops if status is not accepted or rejected', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleTrackedChangeResolve({ type: 'tracked-change-resolve', changeId: 'tc1', status: 'pending' }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid resolve with accepted status', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleTrackedChangeResolve({ type: 'tracked-change-resolve', changeId: 'tc1', status: 'accepted' }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('tracked-change-resolve');
-    expect(sent.status).toBe('accepted');
-  });
-
-  it('broadcasts valid resolve with rejected status', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleTrackedChangeResolve({ type: 'tracked-change-resolve', changeId: 'tc1', status: 'rejected' }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.status).toBe('rejected');
-  });
-});
-
-// ── handleTrackedChangeDelete ────────────────────────────────────────────
-
-describe('handleTrackedChangeDelete', () => {
-  it('drops if changeId is not a string', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 123, fileId: TEST_FILE_IDS.f1 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('drops if fileId is not a string', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: 123 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid tracked change delete', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTrackedChangeDelete({ type: 'tracked-change-delete', changeId: 'tc1', fileId: TEST_FILE_IDS.f1 }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('tracked-change-delete');
-    expect(sent.changeId).toBe('tc1');
-    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
-  });
-});
-
-// ── handleTcDeleteMark ───────────────────────────────────────────────────
-
-describe('handleTcDeleteMark', () => {
-  it('drops if from is not a number', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 'bad', to: 10, fileId: TEST_FILE_IDS.f1 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('drops if to is not a number', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 'bad', fileId: TEST_FILE_IDS.f1 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid tc-delete-mark', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleTcDeleteMark({ type: 'tc-delete-mark', from: 0, to: 10, fileId: TEST_FILE_IDS.f1 }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('tc-delete-mark');
-    expect(sent.from).toBe(0);
-    expect(sent.to).toBe(10);
-  });
-});
-
-// ── handleTyping ─────────────────────────────────────────────────────────
-
-describe('handleTyping', () => {
-  it('broadcasts typing indicator to room excluding sender', async () => {
-    const ws = makeWs();
-    const state = makeState();
     state.clientEntry.ws = ws;
     const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
     setupRoom('project-123', [state.clientEntry, mockPeer]);
@@ -1028,13 +858,19 @@ describe('writeTypes', () => {
       'comment-resolve',
       'comment-delete',
       'comment-edit',
-      'tracked-change',
-      'tracked-change-resolve',
-      'tracked-change-delete',
-      'tc-delete-mark',
+      'comment-react',
+      'reply-react',
     ];
     for (const type of expected) {
       expect(writeTypes.has(type)).toBe(true);
+    }
+  });
+
+  it('does NOT contain the removed V1 tracked-change types', async () => {
+    // These were the old tracked-changes WS pipeline (removed); the V2
+    // pipeline uses the per-file tc_marks JSONB column instead.
+    for (const type of ['tracked-change', 'tracked-change-resolve', 'tracked-change-delete', 'tc-delete-mark']) {
+      expect(writeTypes.has(type)).toBe(false);
     }
   });
 

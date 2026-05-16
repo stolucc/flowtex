@@ -41,18 +41,23 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   // generated-files list) in Bs editor view until the user re-compiled.
   // That was the source of the "PDF shows text from a different project,
   // hard refresh fixes it" bug.
-  const projectIdRef = useRef(project?.id ?? null);
+  // Also wipe on main_file change: the cached PDF was compiled from
+  // the previous main file, so leaving it around when the user switches
+  // root document would show the wrong document next to the new editor.
+  const compileScopeRef = useRef({ id: project?.id ?? null, mainFile: project?.main_file ?? null });
   useEffect(() => {
     const newId = project?.id ?? null;
-    if (projectIdRef.current !== newId) {
-      projectIdRef.current = newId;
+    const newMain = project?.main_file ?? null;
+    const last = compileScopeRef.current;
+    if (last.id !== newId || last.mainFile !== newMain) {
+      compileScopeRef.current = { id: newId, mainFile: newMain };
       setPdfUrl(null);
       setCompileLog('');
       setConsoleOutput('');
       setLintDiagnostics([]);
       setGeneratedFiles([]);
       setActiveGenFile(null);
-      // Cancel any in-flight compile stream from the previous project so
+      // Cancel any in-flight compile stream from the previous scope so
       // its `done` event cant land here and resurrect the stale PDF.
       if (compileSourceRef.current) {
         compileSourceRef.current.close();
@@ -60,7 +65,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       }
       setCompiling(false);
     }
-  }, [project?.id]);
+  }, [project?.id, project?.main_file]);
 
   // Clean up EventSource on unmount
   useEffect(() => {

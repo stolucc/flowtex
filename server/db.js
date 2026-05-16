@@ -280,9 +280,13 @@ async function initSchema() {
       UNIQUE(project_id, path)
     );
     CREATE INDEX IF NOT EXISTS project_folders_project_id_idx ON project_folders(project_id);
-    -- tc_marks column kept dormant (track-changes pipeline was removed; will
-    -- be repurposed when the feature is rebuilt). Default '[]' so existing
-    -- inserts and the future rebuild can both rely on a non-null array.
+    -- tc_marks: per-file tracked-changes sidecar (V2 pipeline). JSONB array
+    -- of mark objects -- id, type (ins or del), from, to, authorId,
+    -- authorName, timestamp -- whose from/to positions are bound to the
+    -- current files content at write time. Read/written by the editor on
+    -- every save and by the compile pipeline to strip pending deletions
+    -- before LaTeX runs. Carried over by copyProject so tracked changes
+    -- survive a project copy.
     ALTER TABLE files ADD COLUMN IF NOT EXISTS tc_marks JSONB NOT NULL DEFAULT '[]'::jsonb;
 
     CREATE TABLE IF NOT EXISTS comments (
