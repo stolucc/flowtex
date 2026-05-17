@@ -1168,6 +1168,23 @@ const PdfViewer = forwardRef(function PdfViewer(
       {mainFileChanged && !compiling && (
         <div className="pdf-recompile-banner">Main file changed. Click &quot;PDF&quot; to recompile with the new main file.</div>
       )}
+      {/* Local-compile visibility banners — make the resolved choice
+          obvious, not silent. Two cases the user needs to know about:
+          (1) they asked for local but the helper is missing → we are
+              compiling on the server instead;
+          (2) they are compiling locally but their helpers TeX Live year
+              does not match the projects pinned year → PDF may differ
+              from what server-compiled collaborators see. */}
+      {localCompileFeatureOn && compileChoice?.fallbackReason === 'no_helper' && (
+        <div className="pdf-recompile-banner" role="status" style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#78350f' }}>
+          <strong>Local TeX Live not detected.</strong> You asked to compile on your own machine, but the flowtex-helper is not reachable. Compiling on the FlowTex server instead. Install and pair the helper to use your local install.
+        </div>
+      )}
+      {localCompileFeatureOn && compileChoice?.source === 'local' && compileChoice?.noticeReason === 'version_mismatch' && (
+        <div className="pdf-recompile-banner" role="status" style={{ background: '#e0f2fe', borderColor: '#0284c7', color: '#0c4a6e' }}>
+          <strong>TeX Live versions differ.</strong> Compiling on your local TeX Live; the project pins a different version, so the PDF may differ from what other collaborators see.
+        </div>
+      )}
       {!url && !compiling && mainFileExists && !mainFileChanged && (
         <div className="pdf-placeholder">Click &quot;PDF&quot; to generate PDF</div>
       )}

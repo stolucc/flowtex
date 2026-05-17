@@ -50,12 +50,14 @@ describe('resolveCompileLocation — when project=local', () => {
       UP_2025,
     )).toEqual({ source: 'local' });
   });
-  it('local + helper up + year mismatch → server with version_mismatch', () => {
+  it('local + helper up + year mismatch → local with version_mismatch notice (NOT a fallback)', () => {
+    // Policy 2026-05-17: version mismatch is a soft notice, the user
+    // opted into local so we honour it and flag the difference.
     expect(resolveCompileLocation(
       { compile_location: 'local', tex_distribution: '2025' },
       { compileLocation: 'server' },
       UP_2023,
-    )).toEqual({ source: 'server', fallbackReason: 'version_mismatch' });
+    )).toEqual({ source: 'local', noticeReason: 'version_mismatch' });
   });
   it('local + helper down → server with no_helper', () => {
     expect(resolveCompileLocation(
@@ -104,9 +106,9 @@ describe('describeChoice', () => {
     expect(describeChoice({ source: 'server', fallbackReason: 'no_helper' }, {}, {}, {}))
       .toMatch(/FlowTex server/);
   });
-  it('version_mismatch fallback names both years', () => {
+  it('version_mismatch notice (local, not fallback) names both years', () => {
     expect(describeChoice(
-      { source: 'server', fallbackReason: 'version_mismatch' },
+      { source: 'local', noticeReason: 'version_mismatch' },
       { tex_distribution: '2025' }, {}, { year: '2023' },
     )).toMatch(/2023.*2025|2025.*2023/);
   });
