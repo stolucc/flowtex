@@ -14,8 +14,10 @@ Inspect what was edited in this session (your own edit history, or `git status` 
 ## Build the client
 
 ```bash
-cd /Users/alan/flowtex/client && /Users/alan/.nvm/versions/node/v22.21.1/bin/npx vite build 2>&1 | tail -5
+cd /Users/alan/flowtex/client && /Users/alan/.nvm/versions/node/v22.21.1/bin/npm run build 2>&1 | tail -5
 ```
+
+**Always use `npm run build`, never `npx vite build` directly.** The `build` script wraps vite with `VITE_BUILD_SHA=$(git rev-parse --short HEAD)` and `VITE_BUILD_TIME=...` env vars that get baked into the About modal. Skipping the npm wrapper leaves the About showing "dev" forever, which makes it impossible for the user to verify they're on the right build.
 
 Verify "✓ built" appears in the output. If it errors, fix the underlying issue — do NOT report success.
 
