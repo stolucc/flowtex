@@ -213,8 +213,8 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     expect(result.current.files[0].path).toBe('new.tex');
   });
 
-  it('handleSetMainFile calls patch and updates project.main_file', async () => {
-    patch.mockResolvedValue({});
+  it('handleSetMainFile calls patch and updates project.main_file on success', async () => {
+    patch.mockResolvedValue({ ok: true });
     get.mockImplementation((url) => {
       if (url.includes('/files'))
         return Promise.resolve({ json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
@@ -234,6 +234,33 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
 
     expect(patch).toHaveBeenCalledWith('/api/projects/p1', { main_file: 'other.tex' });
     expect(result.current.project.main_file).toBe('other.tex');
+  });
+
+  it('handleSetMainFile throws and leaves project.main_file unchanged on PATCH failure', async () => {
+    patch.mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'Only the owner can modify these settings' }),
+    });
+    get.mockImplementation((url) => {
+      if (url.includes('/files'))
+        return Promise.resolve({ json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
+      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
+      return Promise.resolve({ json: () => Promise.resolve([]) });
+    });
+
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => {
+      result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' });
+    });
+    await waitFor(() => expect(result.current.project).not.toBeNull());
+
+    await act(async () => {
+      await expect(result.current.handleSetMainFile('other.tex')).rejects.toThrow(
+        'Only the owner can modify these settings',
+      );
+    });
+
+    expect(result.current.project.main_file).toBe('main.tex');
   });
 
   it('switchFile sets activeFile and updates URL search params', async () => {

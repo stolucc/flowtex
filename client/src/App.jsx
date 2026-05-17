@@ -744,8 +744,16 @@ function AppInner() {
                     onDeleteFolder={handleDeleteFolder}
                     emptyFolders={emptyFolders}
                     onCreateFolder={handleCreateFolder}
-                    onSetMainFile={(path) => {
-                      handleSetMainFile(path);
+                    onSetMainFile={async (path) => {
+                      // handleSetMainFile throws if the PATCH fails — keep the
+                      // local-state cleanup gated on success so a 403 / 4xx
+                      // doesnt leave the UI claiming a stale main file.
+                      try {
+                        await handleSetMainFile(path);
+                      } catch (err) {
+                        alert(err.message || 'Could not set main file');
+                        return;
+                      }
                       setPdfUrl(null);
                       setMainFileChanged(true);
                       setCompileLog('');

@@ -273,14 +273,24 @@ router.post('/invitations/:inviteId/decline', async (req, res) => {
   }
 });
 
-/** PATCH /api/projects/:id -- Update project settings (name, main_file, compiler, etc.). Owner only. */
+/** PATCH /api/projects/:id -- Update project settings.
+ *
+ *  Build / compile settings (main_file, tex_distribution, compiler) are
+ *  open to ANY project member — they are shared compile-target choices
+ *  that any collaborator routinely needs to flip while working. Name and
+ *  snapshot interval stay owner-only because they are administrative
+ *  (renaming changes how the project appears to everyone, snapshot
+ *  interval affects history storage costs). */
 router.patch('/:id', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
-  if (member.role !== 'owner') return res.status(403).json({ error: 'Only the owner can modify project settings' });
   const { name, main_file, snapshot_interval_sec, tex_distribution, compiler } = req.body;
   if (!name && !main_file && snapshot_interval_sec == null && tex_distribution == null && compiler == null)
     return res.status(400).json({ error: 'Nothing to update' });
+  const wantsOwnerOnlyChange = !!name || snapshot_interval_sec != null;
+  if (wantsOwnerOnlyChange && member.role !== 'owner') {
+    return res.status(403).json({ error: 'Only the owner can modify these settings' });
+  }
   try {
     const updated = await projectService.updateProject(req.params.id, {
       name,

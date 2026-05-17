@@ -376,7 +376,20 @@ export default function useProject(user) {
   const handleSetMainFile = useCallback(
     async (filePath) => {
       if (!project) return;
-      await patch(`/api/projects/${project.id}`, { main_file: filePath });
+      // Verify the PATCH actually persisted before flipping local state.
+      // The previous version updated optimistically and swallowed errors,
+      // which made auth/validation failures invisible: the file tree said
+      // "main" until the next hard refresh, then quietly snapped back to
+      // the server's actual value. Surface the error instead.
+      const res = await patch(`/api/projects/${project.id}`, { main_file: filePath });
+      if (!res.ok) {
+        let msg = 'Failed to set main file';
+        try {
+          const data = await res.json();
+          if (data?.error) msg = data.error;
+        } catch { /* keep default */ }
+        throw new Error(msg);
+      }
       setProject((p) => ({ ...p, main_file: filePath }));
     },
     [project],

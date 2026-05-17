@@ -51,11 +51,13 @@ function ProjectSection({
 
       <div className="settings-group">
         <label className="settings-label">Main File</label>
+        {/* Main file is intentionally NOT gated on isOwner — any collaborator
+            needs to be able to flip the compile target when they switch
+            chapters. Other fields above and below remain owner-only. */}
         <select
           className="settings-input"
           value={mainFile}
           onChange={(e) => setMainFile(e.target.value)}
-          disabled={!isOwner}
         >
           {texFiles.map((f) => (
             <option key={f} value={f}>
