@@ -383,6 +383,9 @@ describe('getCurrentUser', () => {
       totpEnabled: true,
       isAdmin: false,
       compileLocation: 'server',
+      // serverFeatures.localCompile reflects FEATURE_LOCAL_COMPILE env var
+      // at the moment of the call. Default off; this test does not set it.
+      serverFeatures: { localCompile: false },
     });
   });
 

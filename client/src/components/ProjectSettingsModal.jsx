@@ -153,6 +153,12 @@ function CompilerSection({
   texDistribution,
   setTexDistribution,
   distributions,
+  // Phase 3: per-project compile-location override. Hidden when the server
+  // hasn't enabled FEATURE_LOCAL_COMPILE (serverFeatures.localCompile false).
+  compileLocation,
+  setCompileLocation,
+  userCompileLocation,
+  localCompileFeatureOn,
 }) {
   return (
     <>
@@ -179,6 +185,43 @@ function CompilerSection({
           ))}
         </select>
       </div>
+      {localCompileFeatureOn && (
+        <div className="settings-group">
+          <label className="settings-label">Compile location for this project</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="radio"
+                name="compileLocation"
+                checked={!compileLocation}
+                onChange={() => setCompileLocation(null)}
+              />
+              <span>Use my default (currently: <strong>{userCompileLocation === 'local' ? 'Local TeX Live' : 'Server'}</strong>)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="radio"
+                name="compileLocation"
+                checked={compileLocation === 'server'}
+                onChange={() => setCompileLocation('server')}
+              />
+              <span>Always FlowTex server</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="radio"
+                name="compileLocation"
+                checked={compileLocation === 'local'}
+                onChange={() => setCompileLocation('local')}
+              />
+              <span>Always my local TeX Live</span>
+            </label>
+          </div>
+          <p className="settings-hint" style={{ marginTop: 6 }}>
+            If your local helper is missing or its TeX Live year does not match this project, compile silently falls back to the server.
+          </p>
+        </div>
+      )}
       <div className="settings-group">
         <div className="settings-toggle-row">
           <span className="settings-toggle-label">Show underfull/overfull box warnings</span>
@@ -342,6 +385,7 @@ export default function ProjectSettingsModal({
   project,
   files,
   isOwner,
+  user,
   onClose,
   onUpdate,
   trackChangesMode,
@@ -354,6 +398,9 @@ export default function ProjectSettingsModal({
   const [name, setName] = useState(project.name);
   const [mainFile, setMainFile] = useState(project.main_file || 'main.tex');
   const [snapshotInterval, setSnapshotInterval] = useState(project.snapshot_interval_sec || 30);
+  // null → "use my default" (inherit from user); 'server'|'local' → explicit override.
+  const [compileLocation, setCompileLocation] = useState(project.compile_location ?? null);
+  const localCompileFeatureOn = !!user?.serverFeatures?.localCompile;
   const [showBoxWarnings, setShowBoxWarnings] = useState(() => {
     const stored = getSetting(`show-box-warnings-${project.id}`);
     return stored === null ? true : stored === 'true';
@@ -407,6 +454,13 @@ export default function ProjectSettingsModal({
       if ((texDistribution || null) !== (project.tex_distribution || null))
         updates.tex_distribution = texDistribution || '';
       if (compiler !== (project.compiler || 'pdflatex')) updates.compiler = compiler;
+      // compile_location: '' = explicit null on the server (inherit from user).
+      // Only send when the value actually changed so we don't burn a PATCH on
+      // every Save.
+      const initialCompileLocation = project.compile_location ?? null;
+      if ((compileLocation ?? null) !== initialCompileLocation) {
+        updates.compile_location = compileLocation == null ? '' : compileLocation;
+      }
 
       if (Object.keys(updates).length > 0) {
         const res = await patch(`/api/projects/${project.id}`, updates);
@@ -522,6 +576,10 @@ export default function ProjectSettingsModal({
                 texDistribution={texDistribution}
                 setTexDistribution={setTexDistribution}
                 distributions={distributions}
+                compileLocation={compileLocation}
+                setCompileLocation={setCompileLocation}
+                userCompileLocation={user?.compileLocation || 'server'}
+                localCompileFeatureOn={localCompileFeatureOn}
               />
             )}
 

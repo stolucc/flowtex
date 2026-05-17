@@ -5,6 +5,7 @@ import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
+import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_WINDOW_MINUTES = 15;
@@ -314,13 +315,21 @@ export async function checkTrustedDevice(userId, trustCookie) {
   return { token: newToken, maxAge: TRUST_MS };
 }
 
-/** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin, compileLocation). */
+/** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin, compileLocation, serverFeatures). */
 export async function getCurrentUser(userId) {
   const user = await db.get(
     'SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1',
     [userId],
   );
   if (!user) return null;
+  // serverFeatures is the operator-controlled flag surface, returned on
+  // /me so the client can decide whether to render flag-gated UI without
+  // a separate round-trip. Feature flags are not secret — they describe
+  // what the deployment opts into, same shape as GitHubs or Linears
+  // /capabilities endpoints.
+  const serverFeatures = {
+    localCompile: isLocalCompileEnabled(),
+  };
   return {
     id: user.id,
     email: user.email,
@@ -329,10 +338,10 @@ export async function getCurrentUser(userId) {
     isAdmin: !!user.is_admin,
     // compile_location is always reported. When FEATURE_LOCAL_COMPILE is
     // off the API just refuses to mutate it, so legacy users always see
-    // the column default 'server' here. New clients can render the UI
-    // unconditionally and just hide the "Local TeX Live" radio when the
-    // flag is off (the client also checks the flag via /api/auth/me).
+    // the column default 'server' here. New clients hide the UI when
+    // serverFeatures.localCompile is false.
     compileLocation: user.compile_location || 'server',
+    serverFeatures,
   };
 }
 

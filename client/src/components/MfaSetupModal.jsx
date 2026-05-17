@@ -20,6 +20,13 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
 
+  // ── Compile-location state (Phase 3, hidden unless server flag on) ──
+  const [compileLocation, setCompileLocation] = useState(user.compileLocation || 'server');
+  const [compileLocError, setCompileLocError] = useState('');
+  const [compileLocSuccess, setCompileLocSuccess] = useState('');
+  const [compileLocLoading, setCompileLocLoading] = useState(false);
+  const localCompileFeatureOn = !!user.serverFeatures?.localCompile;
+
   // ── Change email state ─────────────────────────────────────────────
   const [emailNewVal, setEmailNewVal] = useState('');
   const [emailPassword, setEmailPassword] = useState('');
@@ -201,6 +208,32 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     }
   };
 
+  // ── Compile location handler ───────────────────────────────────────
+  const handleSaveCompileLocation = async (e) => {
+    e.preventDefault();
+    setCompileLocError('');
+    setCompileLocSuccess('');
+    if (compileLocation === (user.compileLocation || 'server')) {
+      setCompileLocSuccess('No changes to save');
+      return;
+    }
+    setCompileLocLoading(true);
+    try {
+      const res = await patch('/api/auth/me', { compile_location: compileLocation });
+      const data = await res.json();
+      if (!res.ok) {
+        setCompileLocError(data.error || 'Failed to update compile location');
+      } else {
+        setCompileLocSuccess('Compile location updated');
+        onUpdate?.(data);
+      }
+    } catch {
+      setCompileLocError('Failed to update compile location');
+    } finally {
+      setCompileLocLoading(false);
+    }
+  };
+
   // ── Change email handler ───────────────────────────────────────────
   /** Submit a request to change the user's email address. */
   const handleChangeEmail = async (e) => {
@@ -301,6 +334,11 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
           <button className={`settings-tab ${tab === 'github' ? 'active' : ''}`} onClick={() => setTab('github')}>
             GitHub
           </button>
+          {localCompileFeatureOn && (
+            <button className={`settings-tab ${tab === 'compile' ? 'active' : ''}`} onClick={() => setTab('compile')}>
+              Compile
+            </button>
+          )}
           <button className={`settings-tab ${tab === 'delete' ? 'active' : ''}`} onClick={() => setTab('delete')}>
             Delete Account
           </button>
@@ -577,6 +615,54 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {tab === 'compile' && localCompileFeatureOn && (
+          <div className="settings-section">
+            <p className="mfa-description">
+              Default compile location for projects you open. Each project can override this in its own settings.
+            </p>
+            <form onSubmit={handleSaveCompileLocation} className="auth-form">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="userCompileLocation"
+                  checked={compileLocation === 'server'}
+                  onChange={() => {
+                    setCompileLocation('server');
+                    setCompileLocError('');
+                    setCompileLocSuccess('');
+                  }}
+                />
+                <span>FlowTex server (default — works for everyone)</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 6 }}>
+                <input
+                  type="radio"
+                  name="userCompileLocation"
+                  checked={compileLocation === 'local'}
+                  onChange={() => {
+                    setCompileLocation('local');
+                    setCompileLocError('');
+                    setCompileLocSuccess('');
+                  }}
+                />
+                <span>My local TeX Live (requires the flowtex-helper binary)</span>
+              </label>
+              <p className="settings-hint" style={{ marginTop: 6 }}>
+                When &quot;Local&quot; is selected but the helper is missing or its TeX Live year does not match the project, compile silently falls back to the server.
+              </p>
+              {compileLocError && <div className="auth-error">{compileLocError}</div>}
+              {compileLocSuccess && <div className="mfa-success">{compileLocSuccess}</div>}
+              <button
+                type="submit"
+                className="auth-button"
+                disabled={compileLocLoading || compileLocation === (user.compileLocation || 'server')}
+              >
+                {compileLocLoading ? 'Saving...' : 'Save'}
+              </button>
+            </form>
           </div>
         )}
 
