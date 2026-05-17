@@ -122,9 +122,15 @@ function renderEmailLayout({ preheader, greeting, heading, bodyHtml, ctaLabel, c
   const FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
 
   // Preheader is the snippet most inbox lists show next to the subject.
-  // We hide it from the rendered body with the standard trick.
+  // We hide it from the rendered body with the standard trick. ALWAYS
+  // escape — preheader is semantically plain text and callers pass raw
+  // user-controllable strings (inviter name, project name, reporter
+  // name) into it; if a hostile project name like
+  // `</div><img src=x onerror=...>` slipped through unescaped, the
+  // hidden div would close and leak markup into the inbox-list preview
+  // (and into the rendered body on clients that strip the display:none).
   const preheaderHtml = preheader
-    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">${preheader}</div>`
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">${escapeHtml(preheader)}</div>`
     : '';
 
   const greetingHtml = greeting

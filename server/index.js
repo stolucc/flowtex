@@ -335,6 +335,27 @@ const bugReportLimiter = rateLimit({
   skip: () => skipRateLimit,
 });
 
+// Comment-create cap. Each new comment can fan-out: @-mention rows, an
+// assignee row, a WS push to the assignee + every collaborator open on
+// the same project, and a slot in the next mention-digest email batch.
+// The generic apiLimiter (200/min) would let an attacker silently spam
+// any victim user with up to 200 bell rows per minute. 60/min per author
+// is well above honest authoring (a human typing one comment per second
+// for a full minute is rare), but cuts the abuse ceiling by ~3x.
+const commentCreateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many comments created in a short period. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req, res) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  skip: () => skipRateLimit,
+  // Only count creates. Resolve/edit/delete/reply on existing comments
+  // is throttled by the generic apiLimiter.
+  skipFailedRequests: false,
+});
+
 // Auth routes (public, rate-limited)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -356,6 +377,10 @@ app.post('/api/projects/:id/upload-file', uploadLimiter);
 app.use('/api/', apiLimiter);
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/compile', requireAuth, compileRouter);
+// Per-author comment-create cap (see commentCreateLimiter above). Mounted
+// method-specifically so resolve/edit/delete/reply on existing comments
+// keep using the generic apiLimiter.
+app.post('/api/comments/:fileId', commentCreateLimiter);
 app.use('/api/comments', requireAuth, commentsRouter);
 app.use('/api/history', requireAuth, historyRouter);
 app.use(
