@@ -73,7 +73,7 @@ All panels are resizable — drag the borders between them.
 - **Create folder**: Click the folder "+" icon
 - **Rename**: Double-click a file name, or right-click > Rename
 - **Delete**: Right-click > Delete (with confirmation)
-- **Set main file**: Right-click a `.tex` file > Set as Main File — this is the file that gets compiled
+- **Set main file**: Right-click a `.tex` file > Set as Main File — this is the file that gets compiled. **Any project member can change the main file** (as well as the compiler and TeX distribution under Project Settings); these are shared compile choices, not owner-only settings. Only the project *name* and snapshot interval remain owner-only
 - **Upload ZIP**: Use the toolbar menu to upload a ZIP archive of files
 
 ### LaTeX Editor (Center)
@@ -130,15 +130,27 @@ Visual mode is purely visual — toggling it off restores the exact same source.
 - **Resolve**: Click the checkmark to resolve a comment thread
 - **Edit/Delete**: Use the menu on your own comments to edit or delete them
 - **@-mention a collaborator**: Type `@` while composing a comment or reply — an autocomplete popover lists project members. Pick one and the mention is inserted as `@Name` (or `@"Full Name"` for multi-word names). Mentioned users get an in-app notification immediately (see the bell in the toolbar) and an emailed digest if they aren't online.
-- **Assign a comment**: When you @-mention someone, an "Assign to" checkbox appears — tick it to mark the comment as assigned to that person; their name shows in a banner above the comment.
+- **Assign a comment**: When you @-mention someone, an "Assign to" checkbox appears — tick it to mark the comment as assigned to that person; their name shows in a banner above the comment. The assignee always receives both the bell notification and an entry in the next digest email **even when you assign the comment to yourself** (useful when you're tracking your own to-do items on a manuscript).
 - **React with emoji**: Hover any comment or reply and click the ☺ trigger that appears in the bottom-right; pick from the palette (👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌). Reactions appear as pills under the comment; click a pill you've placed to remove it. All collaborators see the same reaction set in real time.
 - Comments are positioned alongside the relevant lines in the editor.
 
 ### Notifications (Bell)
 
-The bell icon in the toolbar shows the count of unread @-mentions. Click it to see recent mentions (up to 50, kept 7 days after being seen), each linking back to its project. Clicking a mention from a *different* project switches you into that project; clicking one in the current project opens the comments panel. "Mark all read" is one click.
+The bell icon in the toolbar shows the count of unread @-mentions. Click it to see recent mentions (up to 50, kept 7 days after being seen), each linking back to its project.
 
-If you're offline (or close the tab) when somebody mentions you, a digest email is sent within ~5 minutes covering everyone who mentioned you across all your projects — assuming the server has SMTP configured.
+**Clicking a notification deep-links you to the exact comment.** The handler walks the necessary state changes in order: switches to the right project (if it's not the one you're in), waits for the file list to load, opens the file the comment lives in, then scrolls the editor to the commented range. The comments sidebar follows because its positioning already tracks the editor scroll, so the comment ends up centered and ready to reply to. If the file or the comment was deleted in the meantime, the click is a quiet no-op rather than spinning forever. "Mark all read" is one click.
+
+If you're offline (or close the tab) when somebody mentions you, a digest email is sent within ~5 minutes covering everyone who mentioned you across all your projects — assuming the server has SMTP configured. The new email layout is a Google-Docs-style card with a clear CTA button that drops you straight back into the conversation.
+
+### Reporting a Bug
+
+Help → **Report a bug** opens a small modal:
+
+1. Describe what went wrong (up to 10,000 characters).
+2. Tick one or more feature-area boxes (Editor, Compile / PDF viewer, Track changes, Comments, Notifications, Chat, Real-time collaboration, File management, Visual mode, GitHub sync, BibTeX / Zotero, DOCX import, Project copy / sharing, Account settings / MFA, Admin dashboard, or Something else).
+3. Send.
+
+The report is emailed to every admin on the server, with your name and email address attached so they can follow up. There's a soft limit of 5 reports per hour per user to keep the admin inbox sane. The modal has no "X" close button — use **Cancel** or click outside the modal to dismiss it.
 
 ---
 
@@ -179,12 +191,21 @@ The member list, the avatar bar, and the @-mention autocomplete refresh **live**
 
 ### Copying a Project
 
-From the project list, the project menu has a **Copy** option. The copy includes:
+From the project list, the project menu has a **Copy** option. If the project has collaborators other than yourself, a small modal opens first so you can:
+
+- Rename the copy (defaults to "Copy of …").
+- Optionally **share with the N other collaborators on the original** — when ticked, every non-caller member is added to the copy with their original role. (Solo projects skip this step and copy directly.)
+
+The copy includes:
 
 - All files (text and binary) with the same paths and content
-- All inline comments, replies, and emoji reactions
+- The tracked-changes sidecar (pending insert / delete ranges and their author attributions), so a review-in-progress survives the duplication
+- All inline comments, replies, and emoji reactions on those comments and replies
+- The original's compile settings: `compiler` (`pdflatex` / `xelatex` / `lualatex`), `tex_distribution`, the main-file pointer, and the snapshot interval
 
-The copy does **not** include the membership list (only you become the owner) or the @-mention notification log (so old mentions don't re-fire emails). Assignment metadata is preserved as-is — if the assignee is later invited to the copy, the assignment lights up again.
+The copy does **not** include the @-mention notification log (so old mentions don't re-fire emails). Assignment metadata on comments is preserved as-is — if the assignee is later invited to the copy, the assignment lights up again.
+
+To re-share an existing project via copy you must be an editor or owner of the source; viewers can still clone the project for themselves but cannot rebroadcast it to the source's members. Every member added through copy is recorded in the audit log.
 
 ### Per-Project Chat
 
@@ -213,6 +234,26 @@ FlowTex automatically saves versions of your files as you work.
 1. Select the version you want to restore
 2. Click **Restore** — the file content is replaced with the selected version
 3. A new version is created automatically so you don't lose the current content
+
+---
+
+## Importing a Word document (DOCX → LaTeX)
+
+From the project list, the **New Project** menu has an **Import from .docx** option. Drag in a `.docx` and pick a document type — the choice changes which document class FlowTex generates and how Word's heading levels map to LaTeX sectioning commands:
+
+| Document type | Class | Heading 1 → | Notes |
+| --- | --- | --- | --- |
+| Book / Thesis | `book` | `\chapter` | `\frontmatter` / `\mainmatter` split, `openany`, single-sided, suppressed running headers |
+| Report | `report` | `\chapter` | Single-sided by default; same chapter mapping as Book |
+| Journal paper | `article` | `\section` | Section-first numbering |
+| Conference paper | `article` | `\section` | Section-first numbering |
+| Generic | `article` | `\section` | Use when none of the above fits |
+
+The generated `.tex` is intentionally minimal: `\documentclass`, `geometry` margins, `setspace` (only if the source was one-and-a-half- or double-spaced), `graphicx`, `caption`, and `hyperref` / `ulem` / etc. *only* when the body actually needs them. Headings are emitted as bare `\section{Title}` (no `titlesec`, `xcolor`, or custom `\titleformat`), so the output reads like clean hand-written LaTeX and compiles under either `pdflatex` or `xelatex`.
+
+Named Word styles are picked up: `BlockQuote` / `IntenseQuote` / `PullQuote` / `Quotation` / `Aside` / `Epigraph` become `\begin{quote}…`, `Verse` / `Poetry` / `Poem` become `\begin{verse}`, and `Code` / `CodeBlock` / `Listing` / `Preformatted` / `Verbatim` become `\begin{verbatim}` (inline LaTeX is stripped from code blocks before emission because `verbatim` can't nest).
+
+Embedded media is extracted and converted: SVG via `rsvg-convert`, GIF/TIFF/BMP via ImageMagick, WMF/EMF via headless LibreOffice. Proprietary fonts (Helvetica, Times, Palatino, etc.) are aliased to the metric-compatible TeX Gyre family so `xelatex` finds them without a system install.
 
 ---
 
@@ -323,4 +364,4 @@ If your account has the admin flag, the user menu shows an **Admin Dashboard** e
 
 ### About modal — which version is live?
 
-Help → About shows a **Build** line with the short git SHA and build timestamp. When the FlowTex server is deployed via the provisioner this is set automatically from `git rev-parse --short HEAD` at build time, so operators can confirm which commit is currently serving traffic. In a dev build (no git, or built without the env vars) it shows `dev`.
+Help → **About FlowTex** shows a **Build** line with the short git SHA and build timestamp (rendered in your local timezone). When the FlowTex server is deployed via the provisioner or via `cd client && npm run build`, the SHA is set automatically from `git rev-parse --short HEAD` at build time, so operators can confirm which commit is currently serving traffic — handy for sanity-checking a deploy. A build done with `npx vite build` directly (skipping the npm wrapper) or in an environment without git shows `dev`. The modal closes via the **Close** button in the body or by clicking the dark area outside the card.

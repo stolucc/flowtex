@@ -11,15 +11,16 @@ A self-hosted, open-source real-time collaborative LaTeX editor. Edit LaTeX docu
 - **Visual mode (WYSIWYG)** — togglable preview that hides LaTeX markup and renders bold / italic / headings / lists / quotes inline, with widget badges for citations and references; the source `.tex` is never modified
 - **Tracked changes** — Word-style insert / delete marks with per-user attribution, accept / reject review walkthrough, and `latexdiff`-rendered PDF preview
 - **PDF viewer** — built-in viewer with zoom, page navigation, click-to-source sync, and an icon-based error / warning chip surfacing compile + lint diagnostics
-- **File management** — hierarchical file tree with drag-and-drop ZIP upload, BibTeX pretty-print, and DOCX → LaTeX import
-- **Comments & annotations** — inline comments with threads, replies, @mentions, emoji reactions (on both comments and replies), and resolve/unresolve
-- **In-app notifications** — a bell in the toolbar shows real-time @-mention notifications; offline users still receive a 5-minute email digest
+- **File management** — hierarchical file tree with drag-and-drop ZIP upload, BibTeX pretty-print, and DOCX → LaTeX import with five document-type templates (Book/Thesis, Journal paper, Conference paper, Report, and Generic) emitting clean minimal preambles that compile under either `pdflatex` or `xelatex`
+- **Comments & annotations** — inline comments with threads, replies, @mentions, emoji reactions (on both comments and replies), comment assignment (assignee always receives a notification, including on self-assignment), and resolve/unresolve
+- **In-app notifications** — a bell in the toolbar shows real-time @-mention notifications; clicking an entry deep-links to the comment (switches project, opens the file, scrolls the editor) so the recipient lands on the exact spot. Offline users still receive a 5-minute email digest
+- **Report a bug** — Help → Report a bug opens a modal that emails every admin (rate-limited to 5 reports per hour per user). Tag the report with one or more feature areas; the description and reporter identity are included so admins can follow up
 - **Per-project chat** — sidecar chat panel with typing indicators, date separators, and emoji reactions on messages
 - **Version history** — automatic file versioning with hunk-based diff viewer (cap with show-all toggle for large diffs) and one-click restore
 - **GitHub integration** — link projects to GitHub repos, push/pull with encrypted token storage
 - **Citations & bibliography** — Zotero import, BibTeX field enrichment, citation-key autocomplete, and hover tooltips with full author list and venue
 - **Project sharing** — invite collaborators by email with role-based access (owner/editor/viewer); the member list refreshes live when anyone joins or is removed
-- **Project copy** — duplicate a project including all files *and* the discussion thread (comments, replies, reactions)
+- **Project copy** — duplicate a project including all files, the tracked-changes sidecar, the discussion thread (comments, replies, reactions), and compile settings (`compiler`, `tex_distribution`, `main_file`, `snapshot_interval_sec`). Editors and owners can optionally share the copy with the original's collaborators in one step
 - **Two-factor authentication** — TOTP-based MFA with QR code setup
 - **Tagging & organization** — color-coded tags for project organization
 - **Admin dashboard** — overview stats, most-active projects (with owner column), active-users panel, audit log, SMTP settings, and per-user delete (triple-check confirmation)
@@ -94,6 +95,12 @@ Key environment variables:
 | `DISABLE_TLS_REDIRECT` | (none) | Set to `1` when a reverse proxy terminates TLS upstream (required for load-balanced deploys) |
 | `LOG_LEVEL` | `debug`/`info` | Pino log level (trace/debug/info/warn/error/fatal) |
 | `NODE_ENV` | `development` | Set to `production` for TLS enforcement + security checks |
+| `SMTP_HOST` | (none) | SMTP server hostname. **Required in production** — without it FlowTex only logs emails. Invitations, email verification, password reset, @-mention digests, and bug-report delivery all depend on this |
+| `SMTP_PORT` | `587` | SMTP port (`465` for implicit TLS, `587` for STARTTLS) |
+| `SMTP_SECURE` | `false` | Set to `true` when using port 465 (implicit TLS) |
+| `SMTP_USER` / `SMTP_PASS` | (none) | SMTP auth credentials. `SMTP_PASS` can be left blank in `.env` and set later from the admin dashboard (it is encrypted at rest using `ENCRYPTION_KEY`) |
+| `SMTP_FROM` | (none) | `From:` header. Accepts either a bare address (auto-wrapped as `FlowTex <addr>`) or a full `Display Name <addr>` form |
+| `ADMIN_EMAIL` | (none) | Bootstrap admin address. Receives bug-report fallback when no admin user is yet provisioned |
 
 ### 4. Install dependencies
 
@@ -115,10 +122,21 @@ This starts both the backend (port 3001) and the Vite dev server (port 5173) con
 
 ```bash
 cd client && npm run build && cd ..
-NODE_ENV=production node server/index.js
+NODE_ENV=production node --env-file=.env server/index.js
 ```
 
 The server serves the built client from `client/dist/` and listens on port 3001.
+
+**Always build with `npm run build` (not `npx vite build`).** The client's `build` script wraps Vite with `VITE_BUILD_SHA=$(git rev-parse --short HEAD)` and `VITE_BUILD_TIME=$(date -u +%FT%TZ)`, which Vite inlines via `import.meta.env`. Help → About reads those values back so operators can confirm at a glance which commit is serving traffic. Calling `npx vite build` directly skips the wrapper and the About modal stays stuck on `dev`.
+
+### 6a. SMTP
+
+Configure SMTP before going live — many flows are silently degraded otherwise:
+
+- **Email verification** is required at registration. With SMTP unset, only the first-run admin (created via the setup wizard) can log in; everyone else is stuck at the unverified gate.
+- **Invitations**, **@-mention digests** (sent every 5 minutes for offline recipients), **password reset**, and **bug reports** all dispatch through the same transport.
+
+Set `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` in `.env`, or leave them blank and fill them in from **Admin Dashboard → SMTP settings** post-deploy (the dashboard encrypts `smtp_pass` with `ENCRYPTION_KEY`). Once configured, hit **Send test email** on the same panel to verify the transport — it sends a one-line test message to the admin's own address and surfaces the SMTP error directly if it fails.
 
 ### 7. One-shot VPS deploy (Ubuntu/Debian)
 
@@ -127,12 +145,16 @@ For a fresh Ubuntu host with a domain pointed at it:
 ```bash
 ssh root@your.host
 curl -fsSL https://raw.githubusercontent.com/stolucc/flowtex/main/scripts/provision-vps.sh -o provision-vps.sh
-DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com bash provision-vps.sh
+DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com \
+  SMTP_HOST=smtp.example.com SMTP_USER=noreply@example.com SMTP_PASS='…' \
+  bash provision-vps.sh
 ```
 
-The provisioner installs Node, PostgreSQL, TeX Live, Caddy, Redis, and Microsoft core fonts (for `xelatex` of DOCX imports); creates a service user; generates `.env` with random secrets; runs `npm install` + `npm run build` (so the About modal shows the deployed git short SHA); writes a hardened ImageMagick `policy.xml`; configures Caddy for both `$DOMAIN` and `www.$DOMAIN` (the latter 301-redirects to apex); installs a systemd unit; and opens the firewall.
+The provisioner installs Node 22, PostgreSQL, TeX Live, Caddy, Redis, the DOCX-import toolchain (LibreOffice, ImageMagick, librsvg), `texlive-fonts-extra`, `fonts-texgyre` (without this `xelatex` cannot resolve `TeX Gyre Heros` etc. by name because TeX Live's font drop is invisible to `fontconfig`), and Microsoft core fonts; creates a service user; generates `.env` with random secrets and (if `SMTP_HOST` was supplied) live SMTP credentials; runs `npm install` + `cd client && npm run build` (so the About modal shows the deployed git short SHA); writes a hardened ImageMagick `policy.xml` (idempotent — backs up the distro file once, verifies the PDF-deny rule landed); configures Caddy for `$DOMAIN` (and `www.$DOMAIN` 301 → apex when a DNS record exists); installs a systemd unit; and opens the firewall.
 
-Re-running the same command pulls the latest commit, rebuilds, and restarts — so it doubles as the upgrade path. The existing `.env` is left untouched.
+If `SMTP_HOST` is omitted, the section in `.env` stays commented and the post-install banner warns that email is disabled — fill it in from Admin Dashboard → SMTP settings later.
+
+Re-running the same command pulls the latest commit, rebuilds, and restarts — so it doubles as the upgrade path. The existing `.env` is left untouched. WS clients reconnect within ~5–15 s on a single-instance redeploy; multi-instance behind a load balancer reconnects through Redis without a visible gap.
 
 See [docs/installation.html](docs/installation.html) for full operator documentation including Docker Compose, multi-instance load balancing, backups, and email setup.
 
@@ -207,8 +229,9 @@ flowtex/
       bib.js / zotero.js      # Bibliography import
       chat.js                 # Per-project chat
       tags.js                 # User tags for projects
-      admin.js                # Admin dashboard + per-user delete
+      admin.js                # Admin dashboard + per-user delete + SMTP test
       setup.js                # First-run setup
+      bugReports.js           # Help → Report a bug → email admins (5/hour/user)
     services/
       authService.js          # Account creation, password & MFA
       projectService.js       # File CRUD + main_file tracking
@@ -249,9 +272,10 @@ npm run test:watch    # Watch mode
 
 ## Security
 
-- **CSRF protection** — double-submit token on all state-changing API requests
+- **CSRF protection** — double-submit token on all state-changing API requests. Only minted for authenticated sessions so anonymous traffic doesn't allocate a session row
 - **Helmet** — full Content Security Policy, X-Frame-Options, HSTS
-- **Rate limiting** — 20 req/15 min on auth endpoints, 200 req/min on API
+- **Rate limiting** — auth `30/15min`, generic API `1000/15min`, comment-create `60/min/user`, bug-report `5/hour/user`, upload `100/hour`, compile `15/min/project` (and `30/min/user`). See [SECURITY.md](SECURITY.md) for the full table
+- **LaTeX sandbox** — `latexmk` runs with `--no-shell-escape`, `openin_any=p`, `openout_any=p`, `prlimit` caps (memory, file size, CPU, pids), and (for `lualatex`) the `--safer` flag that locks down `os.execute` / `io.open` / `os.remove` from `\directlua`
 - **Account lockout** — 10 failed login attempts triggers 15-minute lockout
 - **Session security** — httpOnly cookies, secure flag in production, session regeneration on login
 - **Encryption at rest** — GitHub tokens encrypted with AES-256-GCM

@@ -194,7 +194,48 @@ User A (Editor)         Server (WebSocket)        User B (Editor)
 
 With Redis enabled, the server publishes WebSocket messages to a Redis channel, allowing multiple server instances to relay messages to their local clients.
 
+**Mention → bell → email pipeline.** When a comment or reply is posted, `recordMentions` (in `server/utils/mentions.js`) parses the body for `@Name` / `@"Full Name"` tokens, resolves each to a project-member `user_id`, and writes a row into `comment_mentions` with `notified_at = NULL` and `seen_at = NULL`. The path also accepts an optional `assignedToUserId` so the comment-assignment UI always records a row for the assignee — including the case where the author assigns the comment to themselves (the plain @-mention path still skips self-mentions; assignment is treated as an explicit subscription). Dedup by user id means a user who is both assigned and @-mentioned gets one row, one bell entry, one email.
+
+Two consumers feed off this table:
+
+1. **Bell push.** `comments.js` calls `app.locals.sendToUser(userId, { type: 'mention', ... })` for every recorded mention. Connected clients update the bell badge in real time via `useNotifications`; disconnected users see the badge update on next page load via `GET /api/notifications/mentions`.
+2. **Digest email.** A background job (every ~5 minutes) finds rows with `notified_at IS NULL`, batches them by recipient, sends one email per recipient via `renderEmailLayout`, and stamps `notified_at`. `seen_at` is updated independently when the user opens the bell or marks an item read — so closing the tab and re-opening it later still shows the unread count correctly.
+
+**Bell deep-link executor.** Clicking a bell entry doesn't just switch projects — it walks a multi-step state machine in `client/src/App.jsx`:
+
+1. Stash a target (`projectId`, `fileId`, `commentId`) and tick a render counter.
+2. An effect picks it up and advances one step per render: wait until the right project is loaded (`selectProject` is async, files stream in via `setFiles`), find the target file by id (preferred) or path (fallback for renames), switch the editor to that file, and re-enter so `activeFile` updates and new-file comments are in flight. Once comments load, look up the target comment and scroll the editor to `from_pos`.
+3. If the file or the comment was deleted in the meantime, the executor aborts silently rather than spinning forever.
+
+Tiered rather than one giant when-everything-true gate because state arrives across multiple renders; a single gate would silently misfire if comments showed up before the file switch settled. The mention payload from `/api/notifications/mentions` already includes `file_id` + `file_path` via a `LEFT JOIN`, so no API change was needed.
+
+**Email layout helper (`renderEmailLayout`).** Every transactional email — invitations, email verification, account deletion, password change, mention digests, password reset, admin bug report — runs through one helper in `server/utils/email.js`. It produces a Google-Docs-style card (white card on soft grey, accent-blue wordmark, optional heading, body, single blue CTA button, divider + footnote, tiny footer below the card) using table-based layout and inline styles only (Outlook / Apple Mail won't render `flex`/`grid` or `<style>` blocks). The helper auto-escapes the `preheader` parameter because two callers pass user-controllable strings; the other parameters (`heading`, `bodyHtml`, `footnoteHtml`) deliberately accept HTML and are the caller's responsibility to escape.
+
+**Rate-limit hierarchy.** Limiters are mounted in `server/index.js` in this order:
+
+| Bucket | Limit | Keyed by | Routes |
+| --- | --- | --- | --- |
+| `apiLimiter` | 1000/15min | IP | catch-all under `/api/` |
+| `authLimiter` | 30/15min | IP | login, register, forgot, reset, resend-verification, setup/init |
+| `uploadLimiter` | 100/hour | IP | `from-zip`, `upload-zip`, `upload-file` |
+| `compileLimiter` (per-project) | 15/min | project id | `/api/compile/*` |
+| `compileUserLimiter` | 30/min | user id | `/api/compile/*` |
+| `commentCreateLimiter` | 60/min | user id (IPv6-safe fallback) | **method-specific** on `POST /api/comments/:fileId` only |
+| `bugReportLimiter` | 5/hour | user id (IPv6-safe fallback) | `/api/bug-reports` |
+
+The IPv6 fallback uses `express-rate-limit`'s `ipKeyGenerator` helper so co-tenants behind a shared `/64` don't share a bucket. All limiters honour `DISABLE_RATE_LIMIT=1` only when `NODE_ENV !== 'production'`. The comment-create limiter is mounted method-specifically so resolve / edit / delete / reply on existing comments stay under the generic limiter — only fresh creation triggers the fan-out the cap is defending against.
+
+**Bug-report flow.** `POST /api/bug-reports` (Help → Report a bug) accepts `{ description, features[] }`, resolves admin recipients via `SELECT email FROM users WHERE is_admin = TRUE` (falls back to `ADMIN_EMAIL` if empty), sends one email per recipient via `sendBugReportEmail` → `renderEmailLayout`, and writes one `bug_report_submitted` audit row whose `targetId` is `count:N` rather than the raw email list (PII hygiene + column-overflow safety on many-admin deployments).
+
 **File-identity invariant.** Both the OT change broadcaster and the tracked-change pipeline carry an explicit `fileId` end-to-end (capture-time on the editor side, payload field on the wire, `change.fileId` in the server-bound POST). Receivers — `applyRemoteChanges`, `applyRemoteTcDelete`, `useTrackedChanges.doHandleTrackChange`, and the WebSocket `tracked-change` handler — drop or shunt-aside any message whose `fileId` doesn't match the file currently being shown / edited. The same pattern protects the local debounced autosave: `handleSave` accepts an explicit `fileId`, and the editor's tcDelBuffer / tcInsertBuffer carry the file id captured at edit time so a buffer flush after a file switch can never write into the wrong file.
+
+### Compile sandbox
+
+`server/compiler.js` invokes `latexmk` with `--no-shell-escape`, TeX-level `openin_any=p` / `openout_any=p`, and (on Linux) `prlimit` caps on address space, file size, CPU time, and pid count. CPU time is set slightly above the JS-side timeout so the kernel never beats the in-process abort to the punch.
+
+For `lualatex` the wrap goes one step further: `$lualatex` is overridden via `-e '$lualatex = q(lualatex --safer %O %S)'` so the engine runs in safer mode, which sandboxes Lua's `os` and `io` libraries to a safe read-only subset. `--no-shell-escape` alone does not gate `io.open`, `os.remove`, or `os.rename` from `\directlua` — they bypass `openin_any` / `openout_any` (which are TeX-level, not Lua-level). `pdflatex` and `xelatex` have no embedded scripting and are already sealed by `--no-shell-escape`.
+
+`compiler`, `tex_distribution`, and `main_file` are settable by any project member (PATCH `/api/projects/:id`) — they're shared compile choices, not administrative settings. This is safe because the compiler engines themselves are sandboxed as above.
 
 ### 3. Compilation Flow
 
@@ -580,6 +621,14 @@ The source document is never modified — every visual effect is a decoration on
 ```
 
 ---
+
+## Session table hygiene
+
+`connect-pg-simple` is configured with `saveUninitialized: false`, so a session row is only persisted when the session object becomes non-empty. The CSRF middleware enforces this by skipping anonymous traffic entirely: a token + cookie pair is only minted for requests that already carry `req.session.userId`. Anonymous state-changing requests are still protected — `CSRF_EXEMPT_PATHS` (login, register, forgot/reset, setup/init, resend-verification) is Origin-validated, and any other anonymous POST / PUT / PATCH / DELETE fails the CSRF check (no `session.csrfToken` to compare against) and would hit `requireAuth` afterwards anyway.
+
+The first-run setup route explicitly mints the CSRF token + cookie after the bootstrap admin is logged in, mirroring the post-login `regenerateSession` flow in `auth.js` — without this the first state-changing request after setup would 403.
+
+Effect: bots / crawlers / uptime probes no longer accumulate orphan session rows. The admin dashboard's active-sessions count now reflects real authenticated users; on a single-digit-user install it should match.
 
 ## Route conventions
 

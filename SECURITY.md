@@ -221,11 +221,56 @@ salt in `settings`, restart, re-enroll.
 
 ## Rate limits
 
-- General API limiter: `1000/15min` per IP.
-- Auth endpoints: `30/15min`.
-- File uploads: `100/hour`.
-- Compile per project: `15/min`. Per user across all projects: `30/min`.
-- `DISABLE_RATE_LIMIT=1` is honored only when `NODE_ENV !== 'production'`.
+| Bucket | Limit | Keyed by | Why |
+| --- | --- | --- | --- |
+| General API | `1000/15min` | IP | Catch-all DoS floor for everything not listed below |
+| Auth (login, register, forgot/reset, resend-verification) | `30/15min` | IP | Brute-force + spray defence; account-lockout fires separately on 10 failed logins |
+| File uploads (`from-zip`, `upload-zip`, `upload-file`) | `100/hour` | IP | ZIP bombs / disk-fill defence |
+| Compile (per project) | `15/min` | project | Per-project burst protection |
+| Compile (per user) | `30/min` | session.userId | Cross-project compile spam from one account |
+| Comment create (`POST /api/comments/:fileId`) | `60/min` | session.userId (IP fallback via `ipKeyGenerator`) | Each create can fan out @-mention rows, an assignee row, a WS push to every collaborator, and a slot in the next 5-minute digest email — the generic limiter would let one author spray 200/min of bell rows at a victim |
+| Bug report (`POST /api/bug-reports`) | `5/hour` | session.userId (IP fallback) | Authenticated user could otherwise spray every admin inbox via the Help → Report a bug modal |
+
+All buckets honour `DISABLE_RATE_LIMIT=1` only when `NODE_ENV !== 'production'`. The IPv6 fallback uses `express-rate-limit`'s `ipKeyGenerator` helper so two callers behind the same `/64` don't share a bucket (otherwise one tenant could silence a neighbour). The comment-create and bug-report limiters key by `session.userId` first and only fall back to IP for the rare unauthenticated edge case.
+
+The `POST /api/comments/:fileId` limiter is mounted **method-specifically** so resolve / edit / delete / reply on existing comments stay under the generic `apiLimiter` — only fresh comment creation triggers the fan-out the cap is defending against.
+
+## LaTeX compile sandbox
+
+`server/compiler.js` invokes `latexmk` with:
+
+- `--no-shell-escape` — blocks `\write18` and `os.execute` (via `\directlua`).
+- TeX-level `openin_any=p` / `openout_any=p` (set via environment) — restricts file IO to paths under the compile workspace.
+- On Linux, `prlimit` wraps the invocation with caps on address space, file size, CPU time (slightly above the JS timeout so the kernel never beats the in-process abort), and process count.
+
+LuaLaTeX gets an extra wrap: `$lualatex` is overridden so the engine is invoked with `--safer`. This is necessary because `--no-shell-escape` does not gate `io.open` / `os.remove` / `os.rename` — they bypass `openin_any` / `openout_any` (which are TeX-level, not Lua-level). `--safer` sandboxes the Lua `os` and `io` libraries to a safe read-only subset. `pdflatex` and `xelatex` have no embedded scripting language and are already sealed by `--no-shell-escape`.
+
+Project members can change `compiler`, `tex_distribution`, and `main_file` without owner permission (PATCH `/api/projects/:id`). This is intentional — they are shared compile choices, not administrative settings — and is not a `\directlua` escape channel because LuaLaTeX is itself sandboxed as above.
+
+## Email layout helper
+
+All transactional emails (invitations, email verification, account deletion, password change, mention digests, password reset, admin bug report) render through a shared `renderEmailLayout(...)` helper in `server/utils/email.js`. The helper:
+
+- Composes a Google-Docs-style card layout (white card, soft grey page, small uppercase FlowTex wordmark, optional heading, body, single blue CTA button, divider + footnote, tiny footer below the card). Table-based layout with inline styles only — `flex`/`grid` and `<style>` blocks are unreliable across Outlook and Apple Mail. Width capped at 520 px for mobile.
+- **Auto-escapes the `preheader` parameter** before injecting it into the hidden inbox-preview div. Two callers (invitation, bug report) pass user-controllable strings — inviter name, project name, reporter name — and a project named like a tag that closes the div and injects an `<img>` could otherwise leak markup into the inbox preview or rendered body on clients that ignore `display:none`. Other parameters (`heading`, `bodyHtml`, `footnoteHtml`) still rely on caller-side escape because they intentionally accept HTML; `preheader` is plain-text-by-semantic, so the helper enforces it.
+
+`SMTP_FROM` accepts either a bare address (auto-wrapped as `FlowTex <addr>` for inbox display) or a full `Display Name <addr>` form (passed through unchanged).
+
+## Session hygiene
+
+The CSRF middleware **only** mints a token + cookie for sessions that already carry a `userId`. Anonymous traffic — bots, crawlers, uptime probes, every drive-by page load — does not allocate a session row, so `connect-pg-simple` respects `saveUninitialized: false` and nothing is persisted. This also fixes a long-standing accuracy bug in the admin dashboard's "active sessions" count, which used to inflate to hundreds even on single-digit-user installs.
+
+Anonymous state-changing requests stay protected: the existing `CSRF_EXEMPT_PATHS` list (login, register, forgot/reset password, setup init, resend-verification) is Origin-validated, and any other anonymous POST / PUT / PATCH / DELETE fails the CSRF check (no `session.csrfToken` to compare against) and would have been rejected at `requireAuth` anyway.
+
+The first-run setup flow explicitly mints the CSRF token + cookie after the bootstrap admin is logged in, mirroring `regenerateSession` in `auth.js` — without this the first state-changing request after setup would 403.
+
+## Bug-report endpoint
+
+`POST /api/bug-reports` (Help → Report a bug) is gated by `requireAuth` and the dedicated `bugReportLimiter` (above). Admin recipients are resolved from `users WHERE is_admin = TRUE`; if that set is empty, `ADMIN_EMAIL` is used as the bootstrap fallback. The audit log row stores `targetId = "count:N"` (recipient count) rather than the raw admin email list — keeps admin PII out of `audit_log` and stops the column from overflowing on deployments with many admins. The recipient count and the user-selected feature tags live in the JSON `detail` payload for forensic value.
+
+## Copy-project sharing
+
+`POST /api/projects/:id/copy` accepts `{ includeMembers: bool }`. With `includeMembers = true`, every non-caller member of the source is added to the new project at their original role. **This path requires editor or owner of the source** — a viewer can still clone the project for themselves but cannot rebroadcast it. Every member-addition through copy is audit-logged as `project_member_added_via_copy` so an admin can trace who pulled which user into which clone.
 
 ## TLS
 
