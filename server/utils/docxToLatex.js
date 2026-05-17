@@ -1564,6 +1564,8 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
   const headingLevel = getHeadingLevel(styleId);
   const isTitle = isTitleStyle(styleId);
   const isQuote = isQuoteStyle(styleId);
+  const isVerse = isVerseStyle(styleId);
+  const isCode = isCodeStyle(styleId);
 
   // Handle list/heading environment changes BEFORE emitting inline content,
   // so \begin{itemize}/\end{itemize}/\section{} don't leak into extractSince range.
@@ -1746,12 +1748,15 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
     }
     // Paragraph-level numId="0" overrides to unnumbered
     if (numId === '0') isNumbered = false;
-    // Strip inline \fontsize wrappers from heading content — \titleformat
-    // controls the heading font size, so per-run size overrides are wrong.
+    // Strip inline \fontsize wrappers from heading content — clean-output
+    // mode leaves heading styling to LaTeXs default. Per-run size and font
+    // overrides from the docx source shouldnt leak into the section title.
     content = stripFontsizeWrappers(content);
-    // Apply paragraph-style allCaps to heading text (style defines w:caps but
-    // the text is stored in original case; \MakeUppercase reproduces the visual)
-    if (styleAllCaps && content.trim()) content = `\\MakeUppercase{${content}}`;
+    content = stripInlineFontspec(content);
+    // Drop \MakeUppercase / \textsc / \color wrappers too: the heading
+    // visual aesthetic is whatever the LaTeX section style produces. The
+    // style ID from Word still picks the *level* (\section vs \subsection),
+    // it just no longer dictates the *look*.
     const star = isNumbered ? '' : '*';
     const prefix = `\\${cmd}${star}{`;
     const suffix = `}${footnotes}\n\n`;
@@ -1788,31 +1793,43 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
     return;
   }
 
-  // Block quote styles
+  // Block quote styles — emit a plain quote environment with no
+  // per-style font-size / setstretch wrapper. Clean-output mode means
+  // \begin{quote} ... \end{quote} reads as-is; users who want a
+  // visually different quote can swap to quotation, verse, or a custom
+  // env themselves.
   if (isQuote) {
     const content = extractSince(ctx.buf, inlineStart);
-    // Check if the quote style has a different font size or line spacing from document default
-    let quotePrefix = '';
-    const docFontPt = parseFloat(ctx.metadata.mainFontSize || '12');
-    const styleFontHp = ctx.metadata.styleFontSizes?.[styleId]; // half-points
-    if (styleFontHp && Math.abs(styleFontHp / 2 - docFontPt) >= 0.5) {
-      const pt = styleFontHp / 2;
-      const lead = Math.round(pt * 1.2);
-      quotePrefix += `\\fontsize{${pt}}{${lead}}\\selectfont `;
-    }
-    const docDefaultSpacing = ctx.metadata.defaultLineSpacing || 360;
-    const styleSpacing = ctx.metadata.styleLineSpacing?.[styleId];
-    if (styleSpacing && Math.abs(styleSpacing.line - docDefaultSpacing) > 20) {
-      const stretch = (styleSpacing.line / 240).toFixed(2).replace(/\.?0+$/, '');
-      quotePrefix += `\\setstretch{${stretch}}`;
-      ctx.usedPackages.add('setspace');
-    }
-    const wrapOpen = quotePrefix ? '{' + quotePrefix + '\n' : '';
-    const wrapClose = quotePrefix ? '}' : '';
-    const prefix = wrapOpen + '\\begin{quote}\n';
-    const suffix = '\n\\end{quote}\n' + wrapClose + '\n';
+    const prefix = '\\begin{quote}\n';
+    const suffix = '\n\\end{quote}\n\n';
     adjustTrackedChangePositions(ctx, inlineStart, prefix.length);
     ctx.buf.write(prefix + content + suffix);
+    return;
+  }
+
+  // Verse / poetry styles → verse environment.
+  if (isVerse) {
+    const content = extractSince(ctx.buf, inlineStart);
+    const prefix = '\\begin{verse}\n';
+    const suffix = '\n\\end{verse}\n\n';
+    adjustTrackedChangePositions(ctx, inlineStart, prefix.length);
+    ctx.buf.write(prefix + content + suffix);
+    return;
+  }
+
+  // Code / preformatted styles → verbatim. Strip the inline content
+  // back to plain text because verbatim cant nest LaTeX commands; any
+  // tracked-change mark in the middle is therefore intentionally
+  // flattened here (rare edge case for code blocks).
+  if (isCode) {
+    const content = extractSince(ctx.buf, inlineStart);
+    const plain = content
+      .replace(/\\[A-Za-z]+\*?(?:\{[^}]*\})?/g, '')
+      .replace(/[{}]/g, '');
+    const prefix = '\\begin{verbatim}\n';
+    const suffix = '\n\\end{verbatim}\n\n';
+    adjustTrackedChangePositions(ctx, inlineStart, prefix.length);
+    ctx.buf.write(prefix + plain + suffix);
     return;
   }
 
@@ -1896,6 +1913,40 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
 
   // Regular paragraph
   ctx.buf.write('\n\n');
+}
+
+/** Strip {\fontspec{Name}...} wrappers, keeping the inner content. Used
+ *  to keep heading content clean — fontspec on a section title is loud
+ *  and almost never what the LaTeX user wants. */
+function stripInlineFontspec(str) {
+  let result = str;
+  let idx;
+  while ((idx = result.indexOf('{\\fontspec{')) !== -1) {
+    // Find the closing brace of \fontspec{...}
+    const fsOpenBraceIdx = idx + '{\\fontspec'.length; // points at the next '{'
+    let depth = 1;
+    let pos = fsOpenBraceIdx + 1;
+    while (pos < result.length && depth > 0) {
+      if (result[pos] === '{') depth++;
+      else if (result[pos] === '}') depth--;
+      pos++;
+    }
+    if (depth !== 0) break;
+    // `pos` is now just past the closing `}` of \fontspec{Name}. The inner
+    // content of the outer `{...}` starts here. Find that outer closing `}`.
+    let innerStart = pos;
+    let outerDepth = 1;
+    let outerPos = innerStart;
+    while (outerPos < result.length && outerDepth > 0) {
+      if (result[outerPos] === '{') outerDepth++;
+      else if (result[outerPos] === '}') outerDepth--;
+      outerPos++;
+    }
+    if (outerDepth !== 0) break;
+    const inner = result.substring(innerStart, outerPos - 1);
+    result = result.substring(0, idx) + inner + result.substring(outerPos);
+  }
+  return result;
 }
 
 /** Extract text written since position `from` by removing it from the buffer end. */
@@ -3414,9 +3465,27 @@ function isTocStyle(styleId) {
   return /^(TOC\d|TableofFigures)$/i.test(styleId);
 }
 
-/** Style IDs that represent block quotes. */
+/** Style IDs that represent block quotes. Recognises Words built-in
+ *  quote styles plus common author conventions (PullQuote, BlockQuote,
+ *  Aside, Epigraph, …). Whitespace and hyphens are tolerated, matching
+ *  is case-insensitive. All map to \begin{quotation} on the LaTeX side. */
 function isQuoteStyle(styleId) {
-  return /^(Quote|paperquote|QuoteTempStyle|BlockQuote|IntenseQuote)$/i.test(styleId);
+  if (!styleId) return false;
+  return /^(?:Block ?-? ?Quote|Intense ?-? ?Quote|Pull ?-? ?Quote|Quote|Quotation|QuoteTempStyle|paperquote|Aside|Epigraph)$/i.test(styleId);
+}
+
+/** Style IDs that represent verse / line-broken poetry. */
+function isVerseStyle(styleId) {
+  if (!styleId) return false;
+  return /^(?:Verse|Poetry|Poem)$/i.test(styleId);
+}
+
+/** Style IDs that represent monospace / code blocks. Matches common
+ *  author conventions; the inline-font heuristic in resolveCodeBlock
+ *  catches the rest. */
+function isCodeStyle(styleId) {
+  if (!styleId) return false;
+  return /^(?:Code|CodeBlock|SourceCode|Listing|Preformatted|Verbatim|HTMLPreformatted)$/i.test(styleId);
 }
 
 function isTitleStyle(styleId) {
@@ -3725,41 +3794,11 @@ function generateBibContent(bibEntries) {
 
 // ── Preamble ─────────────────────────────────────────────────────────────────
 
-/** Map DOCX font names that are not reliably available on Linux LaTeX
- *  hosts to widely-shipped substitutes. The TeX Gyre family (always
- *  present with TeX Live) is metric-compatible with the original PostScript
- *  35 — Heros mirrors Helvetica, Termes mirrors Times, Pagella mirrors
- *  Palatino, etc. — so substituted output stays close to the source.
- *  Microsoft Core Fonts (installed by the provisioner under WITH_DOCX=1)
- *  cover Arial / Times New Roman / Courier New / etc. natively.
- *
- *  Without this map xelatex bails with "Package fontspec Error: The font
- *  '<NAME>' cannot be found" and falls through to METAFONT, which then
- *  fails on missing .tfm files (the user-reported error).
- *
- *  Match is case-insensitive on the canonicalised name (whitespace and
- *  punctuation stripped). Unknown fonts pass through unchanged. */
-const FONT_ALIAS_MAP = {
-  // Apple/Linotype proprietary — no Linux equivalent ships free.
-  helvetica: 'TeX Gyre Heros',
-  helveticaneue: 'TeX Gyre Heros',
-  // Adobe PostScript-35 — substitute with the metric-compatible Gyre fonts.
-  times: 'TeX Gyre Termes',
-  timesroman: 'TeX Gyre Termes',
-  palatino: 'TeX Gyre Pagella',
-  bookman: 'TeX Gyre Bonum',
-  avantgarde: 'TeX Gyre Adventor',
-  newcenturyschoolbook: 'TeX Gyre Schola',
-  zapfchancery: 'TeX Gyre Chorus',
-  // Courier — prefer mscorefonts' "Courier New" if available, else Gyre.
-  courier: 'TeX Gyre Cursor',
-};
-
-function aliasFont(name) {
-  if (typeof name !== 'string' || !name.trim()) return name;
-  const key = name.toLowerCase().replace(/[\s\-_]+/g, '');
-  return FONT_ALIAS_MAP[key] || name;
-}
+// FONT_ALIAS_MAP / aliasFont() were removed when clean-output mode
+// stopped emitting \setmainfont — without fontspec in the preamble
+// the substitute table has no consumer. If a future mode needs to
+// preserve the docxs font, the alias map should be restored at the
+// same time as the fontspec line.
 
 function buildPreamble(metadata, usedPackages, docClass = 'article') {
   const lines = [];
@@ -3775,8 +3814,11 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
     const m = metadata.margins;
     lines.push(`\\usepackage[top=${m.top}in,bottom=${m.bottom}in,left=${m.left}in,right=${m.right}in]{geometry}`);
   }
-  lines.push('\\usepackage{fontspec}');
-  if (metadata.mainFont) lines.push(`\\setmainfont{${aliasFont(metadata.mainFont)}}`);
+  // No \usepackage{fontspec} / \setmainfont: the generated LaTeX is meant
+  // to be a clean starting point (Computer Modern, the LaTeX default). If
+  // the user wants the original Word font, they can add the two lines
+  // themselves. Keeping fontspec out also lets the doc compile under
+  // pdflatex, not just xelatex/lualatex.
   lines.push('\\usepackage{setspace}');
   if (metadata.lineSpacing) {
     lines.push(metadata.lineSpacing === '2' ? '\\doublespacing' : '\\onehalfspacing');
@@ -3803,74 +3845,18 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
     }
   }
 
-  // Heading customization
-  if (Object.keys(metadata.headingStyles).length > 0) {
-    const tsLines = ['\\usepackage{titlesec}', '\\usepackage{xcolor}'];
-    const sectionMap = docClass === 'book'
-      ? { '1': 'chapter', '2': 'section', '3': 'subsection', '4': 'subsubsection', '5': 'paragraph' }
-      : { '1': 'section', '2': 'subsection', '3': 'subsubsection', '4': 'paragraph' };
-    for (const [level, info] of Object.entries(metadata.headingStyles)) {
-      const secCmd = sectionMap[level];
-      if (!secCmd) continue;
-      const fontCmds = [];
-      if (info.font && info.font !== metadata.mainFont) fontCmds.push(`\\fontspec{${aliasFont(info.font)}}`);
-      if (info.bold !== false) fontCmds.push('\\bfseries');
-      if (info.italic) fontCmds.push('\\itshape');
-      // Don't use \scshape — many fonts (e.g. Helvetica) lack smallcaps glyphs,
-      // causing silent fallback to normal shape. Use \MakeUppercase in before-code instead.
-      if (info.color) {
-        tsLines.push(`\\definecolor{heading${level}}{HTML}{${info.color}}`);
-        fontCmds.push(`\\color{heading${level}}`);
-      }
-      const sizeCmd = info.size ? `\\fontsize{${info.size}}{${Math.round(parseFloat(info.size) * 1.2)}}\\selectfont` : '';
-      const format = (sizeCmd + fontCmds.join('')).trim();
-      // Use empty counter label for unnumbered headings
-      const counterName = secCmd === 'chapter' ? 'chapter' : secCmd;
-      // For book chapters with [display] shape, include "Chapter N" label
-      const counterLabel = info.numbered
-        ? (secCmd === 'chapter' && docClass === 'book'
-          ? '{\\chaptername\\ \\thechapter}'
-          : `{\\the${counterName}}`)
-        : '{}';
-      // Centered headings use \titleformat with [display] shape and \filcenter
-      const uppercaseCmd = (info.allCaps || info.smallCaps) ? '\\MakeUppercase' : '';
-      if (info.centered) {
-        if (format) tsLines.push(`\\titleformat{\\${secCmd}}[display]{\\normalfont ${format}\\filcenter}${counterLabel}{${info.numbered ? '1em' : '0em'}}{\\filcenter${uppercaseCmd ? uppercaseCmd : ''}}`);
-      } else {
-        if (format) tsLines.push(`\\titleformat{\\${secCmd}}{\\normalfont ${format}}${counterLabel}{${info.numbered ? '1em' : '0em'}}{${uppercaseCmd}}`);
-      };
-      // Heading spacing: \titlespacing{cmd}{left}{before}{after}
-      // Word collapses adjacent paragraph spacing (like CSS margins);
-      // LaTeX stacks \parskip on top of \titlespacing. Subtract \parskip
-      // from the docx values so the total matches Word's rendering.
-      if (info.spaceBefore != null || info.spaceAfter != null) {
-        const parskip = metadata.defaultParSpacing?.after || metadata.defaultParSpacing?.before || 0;
-        const before = Math.max(0, (info.spaceBefore ?? 12) - parskip);
-        const after = Math.max(0, (info.spaceAfter ?? 6) - parskip);
-        tsLines.push(`\\titlespacing*{\\${secCmd}}{0pt}{${before}pt}{${after}pt}`);
-      }
-    }
-    if (tsLines.length > 2) lines.push(...tsLines);
-  }
-
-  // Title formatting based on docx Title style
-  const titleFmt = [];
-  if (metadata.titleStyle?.size) {
-    const sz = metadata.titleStyle.size;
-    const lead = Math.round(parseFloat(sz) * 1.2);
-    titleFmt.push(`\\fontsize{${sz}}{${lead}}\\selectfont`);
-  } else {
-    titleFmt.push('\\LARGE');
-  }
-  if (metadata.titleStyle?.bold) titleFmt.push('\\bfseries');
-  if (metadata.titleStyle?.italic) titleFmt.push('\\itshape');
-  if (metadata.titleStyle?.font && metadata.titleStyle.font !== metadata.mainFont) {
-    titleFmt.push(`\\fontspec{${aliasFont(metadata.titleStyle.font)}}`);
-  }
-  const titleFmtStr = titleFmt.join('');
-  lines.push('\\makeatletter');
-  lines.push(`\\renewcommand{\\maketitle}{\\par\\begingroup\\centering${titleFmtStr}\\@title\\par\\endgroup\\vskip 1em}`);
-  lines.push('\\makeatother');
+  // No `\titleformat` / `\titlespacing` / per-heading color or font: the
+  // headingStyles map (from styles.xml) is still consulted by the body
+  // emitter to pick the right LaTeX sectioning *command* for each Word
+  // heading level — but the *visual* formatting is whatever LaTeX's
+  // built-in section styling produces. Word's heading aesthetics are
+  // chosen for screen reading inside Word; LaTeX's defaults look at
+  // home in a typeset PDF, and the user almost always wants the LaTeX
+  // look on a fresh import.
+  //
+  // Likewise no custom `\maketitle` override — `\title{...}` + a plain
+  // `\maketitle` is enough. The user can drop a titlepage class option
+  // or roll their own if they want something fancier.
 
   // Headers and footers via fancyhdr
   const hf = metadata.headerFooter;
