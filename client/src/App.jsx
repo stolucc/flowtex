@@ -27,6 +27,7 @@ import { ProjectProvider } from './contexts/ProjectContext.jsx';
 import useProject from './hooks/useProject.js';
 import useWebSocket from './hooks/useWebSocket.js';
 import useCompilation from './hooks/useCompilation.js';
+import useHelperStatus from './hooks/useHelperStatus.js';
 import useTrackedChanges from './hooks/useTrackedChanges.js';
 import TrackChangesBar from './components/TrackChangesBar.jsx';
 import TrackChangesPanel from './components/TrackChangesPanel.jsx';
@@ -220,6 +221,15 @@ function AppInner() {
 
   const [showTrackedChangesInPdf, setShowTrackedChangesInPdf] = useState(false);
 
+  // Poll the local helper for liveness only when the user has opted into
+  // local compile somewhere (either as a default or on the current
+  // project). For users on the server default — which is everyone today
+  // — this hook stays disabled and never touches the network.
+  const localOptedIn =
+    !!user?.serverFeatures?.localCompile &&
+    (user?.compileLocation === 'local' || project?.compile_location === 'local');
+  const { status: helperStatusForCompile } = useHelperStatus({ enabled: localOptedIn });
+
   const {
     compiling,
     pdfUrl,
@@ -237,7 +247,12 @@ function AppInner() {
     handleCompile,
     handleStopCompile,
     handleDiff,
-  } = useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges: showTrackedChangesInPdf });
+    compileChoice,
+  } = useCompilation(project, activeFile, handleSave, editorRef, {
+    showTrackedChanges: showTrackedChangesInPdf,
+    user,
+    helperStatus: helperStatusForCompile,
+  });
 
   const { githubLink, setGithubLink, hasGithubToken, autoSyncStatus, handleToggleAutoSync } =
     useGitHubSync(project);
@@ -1205,6 +1220,7 @@ function AppInner() {
               ref={pdfRef}
               url={pdfUrl}
               compiling={compiling}
+              compileChoice={compileChoice}
               onCompile={() => {
                 setMainFileChanged(false);
                 handleCompile();

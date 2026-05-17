@@ -233,6 +233,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   {
     url,
     compiling,
+    compileChoice,
     onCompile,
     onStopCompile,
     onCleanFiles,
@@ -704,7 +705,18 @@ const PdfViewer = forwardRef(function PdfViewer(
     <div className="pdf-viewer" style={style}>
       <div className="pdf-viewer-header">
         <div className="compile-btn-group" ref={compileMenuRef}>
-          <button className="pdf-compile-btn" onClick={onCompile} disabled={compiling}>
+          <button
+            className="pdf-compile-btn"
+            onClick={onCompile}
+            disabled={compiling}
+            title={compileChoice?.source === 'local'
+              ? 'Compile locally on your machine'
+              : compileChoice?.fallbackReason === 'no_helper'
+                ? 'Local helper not detected — compiling on the FlowTex server'
+                : compileChoice?.fallbackReason === 'version_mismatch'
+                  ? 'Local helper TeX Live year does not match this project — compiling on the FlowTex server'
+                  : 'Compile on the FlowTex server'}
+          >
             {compiling ? (
               <>
                 <svg
@@ -721,6 +733,8 @@ const PdfViewer = forwardRef(function PdfViewer(
                 </svg>
                 Compiling...
               </>
+            ) : compileChoice?.source === 'local' ? (
+              'PDF (local)'
             ) : (
               'PDF'
             )}

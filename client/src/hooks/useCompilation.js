@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
 import { getSetting } from '../utils/settings.js';
+import { resolveCompileLocation } from '../utils/compileLocation.js';
 
 /**
  * Handles LaTeX compilation lifecycle: streaming compile output, PDF URL management, linting, and diff compilation.
@@ -8,8 +9,17 @@ import { getSetting } from '../utils/settings.js';
  * @param {object|null} activeFile - The currently active file.
  * @param {Function} handleSave - Saves the current editor content before compiling.
  * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ * @param {object} [opts]
+ * @param {boolean} [opts.showTrackedChanges]
+ * @param {object|null} [opts.user] - Current user, for compileLocation resolution.
+ * @param {object} [opts.helperStatus] - Local helper status, for compileLocation resolution.
  */
-export default function useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges } = {}) {
+export default function useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges, user, helperStatus } = {}) {
+  // Resolved compile choice for this render. Used by the compile button
+  // label and by handleCompile to pick a code path. Re-resolved every
+  // render so settings changes or a freshly-available helper take effect
+  // on the next compile without a manual refresh.
+  const compileChoice = resolveCompileLocation(project, user, helperStatus || { available: false });
   const [compiling, setCompiling] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [compileLog, setCompileLog] = useState('');
@@ -252,5 +262,12 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     handleCompile,
     handleStopCompile,
     handleDiff,
+    // Resolved compile-source decision for the next compile. Surface so
+    // the compile button / tooltip can show "(local)" when the helper is
+    // present and the user has opted in. Note: as of Phase 3b1 the
+    // handleCompile path is still always server (the local branch lands
+    // when the flowtex-helper binary ships in Phase 1). The choice is
+    // exposed now so the UI plumbing is already correct.
+    compileChoice,
   };
 }
