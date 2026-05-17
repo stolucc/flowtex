@@ -232,6 +232,13 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
     -- Mark all existing users as verified (they were created before email verification was added)
     UPDATE users SET email_verified = TRUE WHERE email_verified = FALSE AND created_at < NOW() - INTERVAL '1 minute';
+    -- Local-compile preference (see LOCAL_COMPILE_DESIGN.md). 'server' means
+    -- compile happens on the FlowTex VPS (the default and the only path
+    -- today). 'local' means the user has opted in to delegating compile to
+    -- a flowtex-helper binary running on their own machine. The columns
+    -- are present even when FEATURE_LOCAL_COMPILE is off so the schema
+    -- never moves backwards; the API layer is what enforces the flag.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS compile_location TEXT NOT NULL DEFAULT 'server';
 
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       id TEXT PRIMARY KEY,
@@ -255,6 +262,12 @@ async function initSchema() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS compiler TEXT NOT NULL DEFAULT 'pdflatex';
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS tex_distribution TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS snapshot_interval_sec INTEGER NOT NULL DEFAULT 30;
+    -- Per-project override of the users compile_location preference.
+    -- NULL  → "use my default"
+    -- text  → explicit 'server' or 'local'
+    -- The lack of a CHECK constraint is intentional: future locations
+    -- (e.g. 'cluster') should not require a migration to deploy.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS compile_location TEXT DEFAULT NULL;
 
     CREATE TABLE IF NOT EXISTS files (
       id TEXT PRIMARY KEY,

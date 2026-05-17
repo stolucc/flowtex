@@ -9,6 +9,7 @@ import * as projectService from '../services/projectService.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { resolveUsedFiles } from '../../shared/texDeps.js';
+import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 // TEMPLATES no longer imported here — all templates are in the DB
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -285,20 +286,35 @@ router.patch('/:id', async (req, res) => {
   const member = await requireMembership(req, res);
   if (!member) return;
   const { name, main_file, snapshot_interval_sec, tex_distribution, compiler } = req.body;
-  if (!name && !main_file && snapshot_interval_sec == null && tex_distribution == null && compiler == null)
+  // compile_location is gated behind FEATURE_LOCAL_COMPILE. When the flag
+  // is off the field is silently ignored — keeps legacy clients working
+  // and prevents users from setting a preference that nothing reads yet.
+  // Same role gate as the other compile-shared fields: any member, not
+  // just the owner.
+  const compileLocationProvided = isLocalCompileEnabled() && req.body.compile_location !== undefined;
+  if (
+    !name &&
+    !main_file &&
+    snapshot_interval_sec == null &&
+    tex_distribution == null &&
+    compiler == null &&
+    !compileLocationProvided
+  )
     return res.status(400).json({ error: 'Nothing to update' });
   const wantsOwnerOnlyChange = !!name || snapshot_interval_sec != null;
   if (wantsOwnerOnlyChange && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only the owner can modify these settings' });
   }
   try {
-    const updated = await projectService.updateProject(req.params.id, {
+    const updates = {
       name,
       main_file,
       snapshot_interval_sec,
       tex_distribution,
       compiler,
-    });
+    };
+    if (compileLocationProvided) updates.compile_location = req.body.compile_location;
+    const updated = await projectService.updateProject(req.params.id, updates);
     await auditLog(req.session.userId, 'project_update', {
       targetType: 'project',
       targetId: req.params.id,

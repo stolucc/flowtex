@@ -183,13 +183,13 @@ describe('authenticateUser equal-time path', () => {
 // ─── getCurrentUser SQL ───────────────────────────────────────────────
 
 describe('getCurrentUser SQL', () => {
-  it('selects id, email, name, totp_enabled, is_admin from users', async () => {
+  it('selects id, email, name, totp_enabled, is_admin, compile_location from users', async () => {
     db.get.mockResolvedValueOnce({
       id: 'u', email: 'e', name: 'n', totp_enabled: false, is_admin: false,
     });
     await getCurrentUser('u');
     const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toContain('SELECT id, email, name, totp_enabled, is_admin FROM users');
+    expect(sql).toContain('SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users');
     expect(params).toEqual(['u']);
   });
 });

@@ -314,9 +314,12 @@ export async function checkTrustedDevice(userId, trustCookie) {
   return { token: newToken, maxAge: TRUST_MS };
 }
 
-/** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin). */
+/** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin, compileLocation). */
 export async function getCurrentUser(userId) {
-  const user = await db.get('SELECT id, email, name, totp_enabled, is_admin FROM users WHERE id = $1', [userId]);
+  const user = await db.get(
+    'SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1',
+    [userId],
+  );
   if (!user) return null;
   return {
     id: user.id,
@@ -324,16 +327,31 @@ export async function getCurrentUser(userId) {
     name: user.name,
     totpEnabled: !!user.totp_enabled,
     isAdmin: !!user.is_admin,
+    // compile_location is always reported. When FEATURE_LOCAL_COMPILE is
+    // off the API just refuses to mutate it, so legacy users always see
+    // the column default 'server' here. New clients can render the UI
+    // unconditionally and just hide the "Local TeX Live" radio when the
+    // flag is off (the client also checks the flag via /api/auth/me).
+    compileLocation: user.compile_location || 'server',
   };
 }
 
-/** Update a user's mutable profile fields. Currently: name only. */
-export async function updateProfile(userId, { name }) {
-  // Strip CR/LF so the name can't inject email headers when reused in subjects.
-  const safeName = name.replace(/[\r\n]+/g, ' ').trim();
-  if (!safeName) throw Object.assign(new Error('Name cannot be empty'), { status: 400 });
-  if (safeName.length > 200) throw Object.assign(new Error('Name too long'), { status: 400 });
-  await db.run('UPDATE users SET name = $1 WHERE id = $2', [safeName, userId]);
+/** Update a user's mutable profile fields (name, optionally compile_location). */
+export async function updateProfile(userId, { name, compile_location }) {
+  if (name !== undefined) {
+    // Strip CR/LF so the name can't inject email headers when reused in subjects.
+    const safeName = name.replace(/[\r\n]+/g, ' ').trim();
+    if (!safeName) throw Object.assign(new Error('Name cannot be empty'), { status: 400 });
+    if (safeName.length > 200) throw Object.assign(new Error('Name too long'), { status: 400 });
+    await db.run('UPDATE users SET name = $1 WHERE id = $2', [safeName, userId]);
+  }
+  if (compile_location !== undefined) {
+    // Caller route already gated this behind FEATURE_LOCAL_COMPILE. Defensively
+    // coerce anything other than the two known values to 'server' so the column
+    // never holds a typo or an unsupported enum.
+    const val = compile_location === 'local' ? 'local' : 'server';
+    await db.run('UPDATE users SET compile_location = $1 WHERE id = $2', [val, userId]);
+  }
   return getCurrentUser(userId);
 }
 
