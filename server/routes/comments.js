@@ -173,13 +173,18 @@ router.post('/:fileId', async (req, res) => {
     [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assigned_to || null],
   );
 
-  // Record @mentions for batched email notification + real-time in-app push
+  // Record @mentions for batched email notification + real-time in-app push.
+  // Also notify the assignee (if any): assignment is an explicit subscription,
+  // so the assignee gets a row even when self-assigning. Dedupe happens
+  // inside recordMentions so an assignee who is also @-mentioned only
+  // produces one row + one email.
   if (file) {
     const mentions = await recordMentions({
       text,
       commentId: id,
       mentionerUserId: req.session.userId,
       projectId: file.project_id,
+      assignedToUserId: assigned_to || null,
     });
     pushMentionNotifications(req.app, mentions, { mentionerName: author });
   }

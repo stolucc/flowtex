@@ -211,4 +211,55 @@ describe('recordMentions', () => {
     });
     expect(result.map((r) => r.mentionedUserId)).toEqual(['q-id', 'b-id']);
   });
+
+  // ── Assignment notifications (assignedToUserId path) ────────────────
+  // Assigning a task is an explicit subscription — the assignee must always
+  // be notified, even when self-assigning. The body-text @-mention path
+  // continues to skip self-mentions so casually typing your own name
+  // doesnt spam your inbox.
+
+  it('records the assignee even when self-assigning (where the @-path would have skipped)', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'me', name_lower: 'me' }]);
+    const result = await recordMentions({
+      text: '@Me reminder to follow up',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+      assignedToUserId: 'me',
+    });
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['me']);
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the assignee even when the body has no @-mention at all', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
+    const result = await recordMentions({
+      text: 'plain note, no @ anywhere',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+      assignedToUserId: 'a-id',
+    });
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['a-id']);
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('dedupes: an assignee who is also @-mentioned only produces one row', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
+    const result = await recordMentions({
+      text: '@Alice please do this',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+      assignedToUserId: 'a-id',
+    });
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['a-id']);
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an assignee who is not a project member (tampered request)', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
+    const result = await recordMentions({
+      text: '@Alice ok',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+      assignedToUserId: 'outsider-id',
+    });
+    // Only the @-mention row, nothing for the outsider.
+    expect(result.map((r) => r.mentionedUserId)).toEqual(['a-id']);
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
 });
