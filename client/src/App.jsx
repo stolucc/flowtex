@@ -150,6 +150,13 @@ function AppInner() {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [mainFileChanged, setMainFileChanged] = useState(false);
 
+  // Bell-notification deep-link target. Set when the user clicks a mention
+  // in the dropdown; cleared once the editor has scrolled to the comment.
+  // Held in a ref AND mirror state so we can both kick effects and read
+  // the latest value inside async chains.
+  const pendingMentionNavRef = useRef(null);
+  const [pendingMentionNavTick, setPendingMentionNavTick] = useState(0);
+
   const {
     comments,
     setComments,
@@ -418,6 +425,58 @@ function AppInner() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Bell-notification deep-link executor. The click handler stashes a target
+  // (projectId, fileId, commentId) and ticks the counter. As project +
+  // files + comments arrive — possibly across several React renders — this
+  // effect picks up the work, advances one step, and re-runs on the next
+  // state arrival until either everything matches (scroll + done) or the
+  // user navigates away. Tiered to avoid one giant when-everything-is-true
+  // gate that would silently misfire if the comment shows up first.
+  useEffect(() => {
+    const target = pendingMentionNavRef.current;
+    if (!target) return;
+    // 1. Wait for the correct project to be loaded.
+    if (target.projectId && target.projectId !== project?.id) return;
+    // 2. Wait for the project's file list to arrive.
+    if (!files || files.length === 0) return;
+    // 3. If we are not on the right file yet, switch to it.
+    const targetFile = files.find((f) => f.id === target.fileId)
+      || files.find((f) => f.path === target.filePath);
+    if (!targetFile) {
+      // File listed in the mention is gone (renamed away or deleted) —
+      // give up rather than spin forever.
+      pendingMentionNavRef.current = null;
+      return;
+    }
+    if (activeFile?.id !== targetFile.id) {
+      setActiveFile(targetFile);
+      return; // next render will re-enter the effect with activeFile updated
+    }
+    // 4. Comments for this file have loaded; find the target comment.
+    if (!target.commentId) {
+      // Reply mention without a comment id (shouldnt happen for current
+      // payloads, but be defensive) — just opened the file, done.
+      pendingMentionNavRef.current = null;
+      return;
+    }
+    const targetComment = comments.find((c) => c.id === target.commentId);
+    if (!targetComment) {
+      // Comments may still be in-flight; another render will retry. But
+      // if the comments list is non-empty and our id isnt in it, the
+      // comment was deleted — stop retrying.
+      if (comments.length > 0) pendingMentionNavRef.current = null;
+      return;
+    }
+    // 5. Scroll the editor to the comments anchor. The sidebars elastic
+    //    positioning will follow because it listens to editor scroll.
+    const pos = Math.min(targetComment.from_pos, targetComment.to_pos);
+    // Small delay so the editor view is mounted + the file content is
+    // applied before we ask it to scroll. 50ms matches the initial-scroll
+    // settle window used elsewhere in this file.
+    setTimeout(() => editorRef.current?.goToPosition(pos), 50);
+    pendingMentionNavRef.current = null;
+  }, [pendingMentionNavTick, project?.id, files, activeFile?.id, comments, setActiveFile]);
+
   // Listen for invitation pushes while in an editor view. (When on the
   // dashboard, ProjectList listens separately for the same event and
   // updates its banner — no duplicate handling because the two views
@@ -564,6 +623,17 @@ function AppInner() {
               onMarkSeen={notifMarkSeen}
               onMarkAllSeen={notifMarkAllSeen}
               onNavigate={async (m) => {
+                // Record the deep-link target. The effect below executes the
+                // remaining steps as state catches up: switch file → wait for
+                // comments to load → scroll editor to the comments from_pos.
+                pendingMentionNavRef.current = {
+                  projectId: m.project_id,
+                  fileId: m.file_id,
+                  filePath: m.file_path,
+                  commentId: m.comment_id,
+                };
+                setPendingMentionNavTick((t) => t + 1);
+                ui.setShowComments(true);
                 if (m.project_id && m.project_id !== project?.id) {
                   try {
                     const r = await get('/api/projects');
@@ -576,7 +646,6 @@ function AppInner() {
                     console.warn('Failed to switch project for mention:', e);
                   }
                 }
-                ui.setShowComments(true);
               }}
             />
           }
