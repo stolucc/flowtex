@@ -4,7 +4,7 @@ import cors from 'cors';
 import session from 'express-session';
 import pgSession from 'connect-pg-simple';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -316,6 +316,25 @@ const uploadLimiter = rateLimit({
   skip: () => skipRateLimit,
 });
 
+// Bug-report endpoint fans out to every admins inbox per submission, so the
+// generic apiLimiter (200/min) is too loose — a single authenticated user
+// could spray admins with hundreds of emails. Cap to 5 per hour, keyed by
+// userId (not IP) so a user behind NAT cant be silenced by a co-tenant.
+const bugReportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many bug reports — please wait before sending another.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // IPv6 needs the librarys ipKeyGenerator helper so two callers from the
+  // same /64 subnet dont share a bucket (which would let one tenant
+  // silence a neighbour). When the user is authenticated we key by userId
+  // directly, which is the common path.
+  keyGenerator: (req, res) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  skip: () => skipRateLimit,
+});
+
 // Auth routes (public, rate-limited)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -351,7 +370,7 @@ app.use(
 app.use('/api/tags', requireAuth, tagsRouter);
 app.use('/api/chat', requireAuth, chatRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
-app.use('/api/bug-reports', requireAuth, bugReportsRouter);
+app.use('/api/bug-reports', requireAuth, bugReportLimiter, bugReportsRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);

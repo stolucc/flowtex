@@ -690,16 +690,42 @@ router.post('/:id/restore', async (req, res) => {
 /** POST /api/projects/:id/copy  body { name?, includeMembers? }
  *  Duplicate a project for the current user. With includeMembers=true the
  *  source's collaborators are carried over with their original roles
- *  (caller is always the owner regardless). The UI confirms with the
- *  user before sending includeMembers=true since the copy will then be
- *  visible to those other members. */
+ *  (caller is always the owner regardless). Because carrying members is
+ *  an implicit share with people who have not opted in, that variant is
+ *  restricted to editors/owners of the source — a viewer can clone the
+ *  project for themselves, but cannot rebroadcast it. Every per-user
+ *  add is recorded in the audit log so it is traceable. */
 router.post('/:id/copy', async (req, res) => {
-  if (!(await requireMembership(req, res))) return;
+  const includeMembers = req.body?.includeMembers === true;
+  if (includeMembers) {
+    if (!(await requireEditor(req, res))) return;
+  } else {
+    if (!(await requireMembership(req, res))) return;
+  }
   try {
-    const includeMembers = req.body?.includeMembers === true;
-    res.json(
-      await projectService.copyProject(req.params.id, req.session.userId, req.body?.name, { includeMembers }),
+    const result = await projectService.copyProject(
+      req.params.id,
+      req.session.userId,
+      req.body?.name,
+      { includeMembers },
     );
+    await auditLog(req.session.userId, 'project_copy', {
+      targetType: 'project',
+      targetId: result.id,
+      detail: { sourceId: req.params.id, includeMembers, addedMemberCount: result.addedMembers?.length || 0 },
+      ip: req.ip,
+    });
+    if (result.addedMembers?.length) {
+      for (const uid of result.addedMembers) {
+        await auditLog(req.session.userId, 'project_member_added_via_copy', {
+          targetType: 'user',
+          targetId: uid,
+          detail: { projectId: result.id, sourceId: req.params.id },
+          ip: req.ip,
+        });
+      }
+    }
+    res.json(result);
   } catch (err) {
     sendError(res, err);
   }

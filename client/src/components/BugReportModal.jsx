@@ -77,7 +77,6 @@ export default function BugReportModal({ onClose }) {
       <div className="modal bug-report-modal">
         <div className="modal-header">
           <h2>Report a bug</h2>
-          <button className="modal-close" onClick={onClose} disabled={submitting}>&times;</button>
         </div>
         {sent ? (
           <div className="bug-report-sent">

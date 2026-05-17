@@ -1224,6 +1224,9 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
   if (!source) throw new Error('Project not found');
   const newId = uuid();
   const name = (newName || source.name + ' (Copy)').slice(0, 200);
+  // Track user_ids of source collaborators carried over so the route layer
+  // can audit-log each implicit re-share. Owner (caller) is not included.
+  const addedMembers = [];
   // tc_marks is the per-file tracked-changes JSON sidecar (insert / delete
   // ranges + author + timestamp). It rides alongside content because the
   // marks are coordinate-bound to the current text — copying content
@@ -1268,6 +1271,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
            ON CONFLICT DO NOTHING`,
           [newId, m.user_id, m.role],
         );
+        addedMembers.push(m.user_id);
       }
     }
 
@@ -1357,7 +1361,8 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
       );
     }
   });
-  return db.get('SELECT * FROM projects WHERE id = $1', [newId]);
+  const project = await db.get('SELECT * FROM projects WHERE id = $1', [newId]);
+  return { ...project, addedMembers };
 }
 
 // --- File operations ---

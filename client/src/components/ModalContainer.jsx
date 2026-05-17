@@ -193,9 +193,6 @@ export default function ModalContainer({
           <div className="modal about-modal">
             <div className="modal-header">
               <h2>About FlowTex</h2>
-              <button className="modal-close" onClick={() => ui.setShowAbout(false)}>
-                &times;
-              </button>
             </div>
             <div className="about-body">
               <p className="about-tagline">A collaborative LaTeX editor</p>
@@ -215,6 +212,9 @@ export default function ModalContainer({
                   </>
                 )}
               </p>
+              <div className="about-actions">
+                <button type="button" onClick={() => ui.setShowAbout(false)}>Close</button>
+              </div>
             </div>
           </div>
         </div>

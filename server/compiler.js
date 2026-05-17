@@ -364,6 +364,16 @@ async function _doCompile(
 
     let child;
     try {
+      // LuaLaTeX needs an extra defence beyond --no-shell-escape: \directlua
+      // can still call io.open / os.remove / os.rename on arbitrary paths,
+      // bypassing openin_any/openout_any (which are TeX-level, not Lua-level).
+      // --safer sandboxes the Lua os and io libraries to a safe read-only
+      // subset (no exec, no file removal). We override $lualatex so latexmk
+      // forwards the flag. The other engines (pdflatex, xelatex) have no
+      // embedded scripting language and are already sealed by --no-shell-escape.
+      const luaSaferArgs = compiler === 'lualatex'
+        ? ['-e', '$lualatex = q(lualatex --safer %O %S)']
+        : [];
       const latexmkArgs = [
         engineFlag,
         '-synctex=1',
@@ -371,6 +381,7 @@ async function _doCompile(
         '-f',
         '--no-shell-escape',
         '-e', '$max_repeat=4',
+        ...luaSaferArgs,
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
         mainFile,

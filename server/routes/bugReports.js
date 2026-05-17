@@ -57,10 +57,15 @@ router.post('/', async (req, res) => {
 
     await sendBugReportEmail(adminEmails, { reporter, description, features });
 
+    // Audit row: targetId is a stable summary (recipient count), not the
+    // raw email list. Storing the raw list duplicates admin PII into the
+    // audit table on every report and risks overflowing the column on
+    // deployments with many admins. The detail payload keeps the count
+    // and a short feature breakdown for forensic value.
     await auditLog(reporter.id, 'bug_report_submitted', {
       targetType: 'admins',
-      targetId: adminEmails.join(','),
-      detail: JSON.stringify({ features, length: description.length }),
+      targetId: `count:${adminEmails.length}`,
+      detail: JSON.stringify({ features, length: description.length, recipientCount: adminEmails.length }),
       ip: req.ip,
     }).catch((e) => logger.warn({ err: e }, 'Audit log failed for bug report'));
 

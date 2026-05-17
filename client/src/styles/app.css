@@ -6037,6 +6037,20 @@ kbd {
   margin: 10px 0 0;
 }
 .about-build-label { opacity: 0.7; }
+.about-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+.about-actions button {
+  padding: 6px 18px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
 .about-build-sha {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   background: var(--bg-surface);
