@@ -364,6 +364,8 @@ export async function convertDocxToLatex(buffer, options = {}) {
   let docClass;
   if (options.docType === 'book') {
     docClass = 'book';
+  } else if (options.docType === 'report') {
+    docClass = 'report';
   } else if (options.docType === 'journal' || options.docType === 'conference') {
     docClass = 'article';
   } else {
@@ -1732,7 +1734,8 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
         break; // malformed — stop trying
       }
     }
-    const cmds = ctx.docClass === 'book'
+    const hasChapter = ctx.docClass === 'book' || ctx.docClass === 'report';
+    const cmds = hasChapter
       ? ['chapter', 'section', 'subsection', 'subsubsection', 'paragraph']
       : ['section', 'subsection', 'subsubsection', 'paragraph'];
     const cmd = cmds[headingLevel - 1] || 'paragraph';
@@ -3915,7 +3918,7 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
       lines.push('  \\renewcommand{\\footrulewidth}{0pt}');
       lines.push('}');
     }
-  } else if (docClass === 'book') {
+  } else if (docClass === 'book' || docClass === 'report') {
     // No explicit headers/footers — suppress default running headers which
     // overflow the page with long chapter titles.  Use plain (page number only).
     lines.push('\\pagestyle{plain}');

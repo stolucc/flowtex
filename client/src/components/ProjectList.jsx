@@ -1439,6 +1439,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
                   {[
                     { value: 'book', label: 'Book / Thesis' },
+                    { value: 'report', label: 'Report' },
                     { value: 'journal', label: 'Journal paper' },
                     { value: 'conference', label: 'Conference paper' },
                   ].map((opt) => (
