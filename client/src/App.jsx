@@ -1221,6 +1221,31 @@ function AppInner() {
               url={pdfUrl}
               compiling={compiling}
               compileChoice={compileChoice}
+              localCompileFeatureOn={!!user?.serverFeatures?.localCompile}
+              projectCompileLocation={project?.compile_location ?? null}
+              onSetProjectCompileLocation={async (loc) => {
+                if (!project) return;
+                // Send '' for null so the server-side coerces it to NULL
+                // (inherit user default). Matches the contract enforced
+                // by updateProject in projectService.
+                try {
+                  const res = await patch(`/api/projects/${project.id}`, {
+                    compile_location: loc == null ? '' : loc,
+                  });
+                  if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    alert(data.error || 'Could not change compile location');
+                    return;
+                  }
+                  // Updated project echoes the new value; mirror it into
+                  // local state so the dropdowns checkmark + the compile
+                  // button label refresh without a reload.
+                  const updated = await res.json();
+                  setProject((p) => (p ? { ...p, ...updated } : p));
+                } catch (err) {
+                  alert(err?.message || 'Could not change compile location');
+                }
+              }}
               onCompile={() => {
                 setMainFileChanged(false);
                 handleCompile();

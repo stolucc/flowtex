@@ -234,6 +234,13 @@ const PdfViewer = forwardRef(function PdfViewer(
     url,
     compiling,
     compileChoice,
+    // Phase 3b1: per-project compile-location toggle on the PDF dropdown.
+    // Hidden unless the server has FEATURE_LOCAL_COMPILE on. The "current"
+    // value is the project-level override (null means "inherit user
+    // default"); clicking flips it via onSetProjectCompileLocation.
+    localCompileFeatureOn,
+    projectCompileLocation,
+    onSetProjectCompileLocation,
     onCompile,
     onStopCompile,
     onCleanFiles,
@@ -792,6 +799,58 @@ const PdfViewer = forwardRef(function PdfViewer(
                 <TrashIcon />
                 Clear generated files
               </button>
+              {localCompileFeatureOn && (
+                <>
+                  <div className="compile-dropdown-separator" />
+                  <div style={{ padding: '6px 12px 4px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>
+                    Compile on
+                    {compileChoice?.source === 'server' && compileChoice?.fallbackReason && (
+                      <span style={{ marginLeft: 4, fontStyle: 'italic' }}>
+                        (now: server, {compileChoice.fallbackReason === 'no_helper' ? 'helper offline' : 'version mismatch'})
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.('server');
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation === 'server' ? '✓' : ''}
+                    </span>
+                    Server (this project)
+                  </button>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.('local');
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation === 'local' ? '✓' : ''}
+                    </span>
+                    My local TeX Live (this project)
+                  </button>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.(null);
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation == null ? '✓' : ''}
+                    </span>
+                    Use my account default
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
