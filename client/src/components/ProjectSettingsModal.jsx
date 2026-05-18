@@ -178,7 +178,15 @@ function CompilerSection({
           value={texDistribution || ''}
           onChange={(e) => setTexDistribution(e.target.value || null)}
         >
-          <option value="">Latest available</option>
+          {/* distributions is server-sorted newest-first, so [0] is what
+              "latest" resolves to. Surface the year so the user can see
+              exactly which TeX Live they'll be compiled against without
+              having to read a tooltip. */}
+          <option value="">
+            {distributions.length > 0
+              ? `Latest available — ${distributions[0].year}`
+              : 'Server default'}
+          </option>
           {distributions.map((d) => (
             <option key={d.year} value={d.year}>
               {d.year} — {d.version}
