@@ -1,0 +1,7 @@
+# Built binaries — produced by `make build` / `make dist`.
+flowtex-helper
+dist/
+
+# Go test caches.
+*.test
+*.out

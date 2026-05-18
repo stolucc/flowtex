@@ -5,6 +5,7 @@ import session from 'express-session';
 import pgSession from 'connect-pg-simple';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { isLocalCompileEnabled } from './utils/featureFlags.js';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -75,7 +76,32 @@ app.use(
         ],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", ...(isProduction ? [] : ['ws:', 'wss:'])],
+        connectSrc: [
+          "'self'",
+          ...(isProduction ? [] : ['ws:', 'wss:']),
+          // When local-compile is enabled, two things need to be in
+          // connect-src:
+          //   1. The helper origin (the bridge fetches /health,
+          //      /version, /compile against http://localhost:9876).
+          //   2. blob: — pdfjs workers fetch the locally-compiled PDF
+          //      via blob URL (URL.createObjectURL(pdfBlob)), and CSP
+          //      treats those as "connect" sub-resources. Without it
+          //      the worker fails with a generic NetworkError and the
+          //      PdfViewer surfaces "Failed to load PDF" with no clue
+          //      it was a CSP block.
+          // http://localhost is a "potentially trustworthy" origin per
+          // W3C Secure Contexts §3.1, exempt from mixed-content. The
+          // https variants are listed too for users who run the helper
+          // with --tls. All of this gated on the feature flag.
+          ...(isLocalCompileEnabled()
+            ? [
+                'http://localhost:9876',
+                'https://localhost:9876',
+                'https://helper.localhost.flowtex.click:9876',
+                'blob:',
+              ]
+            : []),
+        ],
         fontSrc: ["'self'", 'data:'],
         objectSrc: ["'self'", 'blob:'],
         frameSrc: ["'self'", 'blob:'],

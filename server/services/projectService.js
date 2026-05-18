@@ -1172,8 +1172,11 @@ async function stripCommonPrefix(created) {
   });
 }
 
-/** Update project settings (name, main file, snapshot interval, TeX distribution, compiler). */
-export async function updateProject(projectId, { name, main_file, snapshot_interval_sec, tex_distribution, compiler }) {
+/** Update project settings (name, main file, snapshot interval, TeX distribution, compiler, compile location). */
+export async function updateProject(
+  projectId,
+  { name, main_file, snapshot_interval_sec, tex_distribution, compiler, compile_location },
+) {
   if (main_file) {
     if (!isValidFilePath(main_file)) throw new Error('Invalid main file path');
     if (!main_file.endsWith('.tex')) throw new Error('Main file must be a .tex file');
@@ -1196,6 +1199,17 @@ export async function updateProject(projectId, { name, main_file, snapshot_inter
     const valid = ['pdflatex', 'xelatex', 'lualatex'];
     const val = valid.includes(compiler) ? compiler : 'pdflatex';
     await db.run('UPDATE projects SET compiler = $1 WHERE id = $2', [val, projectId]);
+  }
+  // compile_location: caller already gated on the feature flag, so any
+  // value reaching here is intended. Allowed values: '' / null (meaning
+  // "inherit user default"), 'server', 'local'. Anything else is coerced
+  // to NULL to avoid storing unknown enum-ish values.
+  if (compile_location !== undefined) {
+    let val = null;
+    if (compile_location === 'server' || compile_location === 'local') {
+      val = compile_location;
+    }
+    await db.run('UPDATE projects SET compile_location = $1 WHERE id = $2', [val, projectId]);
   }
   return db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
 }

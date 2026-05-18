@@ -7,6 +7,7 @@ import logger from '../logger.js';
 import db from '../db.js';
 import * as authService from '../services/authService.js';
 import { sendError } from '../middleware/errorHandler.js';
+import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 
 const router = Router();
 
@@ -269,14 +270,28 @@ router.post('/reset-password', async (req, res) => {
 });
 
 /** POST /api/auth/change-email -- Change the user's email address after password verification. */
-/** PATCH /api/auth/me -- Update the current user's profile (currently: name only). */
+/** PATCH /api/auth/me -- Update the current user's profile.
+ *
+ *  Always-allowed fields: `name`.
+ *  Flag-gated fields: `compile_location` (FEATURE_LOCAL_COMPILE). When the
+ *  flag is off the field is silently dropped — legacy clients see no change.
+ */
 router.patch('/me', requireAuth, async (req, res) => {
-  const { name } = req.body;
-  if (typeof name !== 'string' || !name.trim()) {
-    return res.status(400).json({ error: 'Name is required' });
+  const updates = {};
+  if (req.body.name !== undefined) {
+    if (typeof req.body.name !== 'string' || !req.body.name.trim()) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    updates.name = req.body.name;
+  }
+  if (isLocalCompileEnabled() && req.body.compile_location !== undefined) {
+    updates.compile_location = req.body.compile_location;
+  }
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'Nothing to update' });
   }
   try {
-    const user = await authService.updateProfile(req.session.userId, { name });
+    const user = await authService.updateProfile(req.session.userId, updates);
     await auditLog(req.session.userId, 'profile_updated', { ip: req.ip });
     res.json(user);
   } catch (err) {

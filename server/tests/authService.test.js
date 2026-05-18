@@ -372,6 +372,7 @@ describe('getCurrentUser', () => {
       name: 'Test User',
       totp_enabled: true,
       is_admin: false,
+      compile_location: 'server',
     });
 
     const result = await getCurrentUser('u1');
@@ -381,6 +382,10 @@ describe('getCurrentUser', () => {
       name: 'Test User',
       totpEnabled: true,
       isAdmin: false,
+      compileLocation: 'server',
+      // serverFeatures.localCompile reflects FEATURE_LOCAL_COMPILE env var
+      // at the moment of the call. Default off; this test does not set it.
+      serverFeatures: { localCompile: false },
     });
   });
 

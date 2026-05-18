@@ -1,5 +1,237 @@
 import React, { useState, useEffect } from 'react';
 import { get, post, put, patch, del } from '../api.js';
+import {
+  pingHealth,
+  fetchHelperVersion,
+  pairWithHelper,
+  getHelperToken,
+  clearHelperToken,
+} from '../utils/helperBridge.js';
+import { detectPlatform, helperAssetName, helperDownloadURL, helperReleasesURL } from '../utils/platformDetect.js';
+
+/** Helper-install guide for the "not detected" state. Detects the
+ *  users platform and offers a one-click download to the matching
+ *  pre-built binary, with a "build from source" fallback for
+ *  unsupported platforms and dev mode. */
+function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiagnostics }) {
+  const [showBuildFromSource, setShowBuildFromSource] = useState(false);
+  const plat = detectPlatform();
+  const downloadUrl = helperDownloadURL(plat);
+  const assetName = helperAssetName(plat);
+
+  return (
+    <div style={{ fontSize: 13 }}>
+      <div style={{ marginBottom: 8 }}>
+        <span style={{ color: '#ef4444' }}>●</span>{' '}
+        Helper not detected. Install once, then run it whenever you want to compile locally.
+      </div>
+
+      {/* ── Download path (for the supported platforms) ─────────── */}
+      {downloadUrl && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+            Detected: <strong>{plat.os === 'darwin' ? `macOS (${plat.arch})` : 'Linux (amd64)'}</strong>
+          </div>
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-block',
+              padding: '8px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              background: 'var(--accent)',
+              color: 'var(--bg-primary)',
+              border: 'none',
+              borderRadius: 4,
+              textDecoration: 'none',
+            }}
+          >
+            Download flowtex-helper for {plat.os === 'darwin' ? 'macOS' : 'Linux'}
+          </a>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            File: <code>{assetName}</code> from <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>
+          </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+              After download — make executable and run
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <CommandBlock
+                label={plat.os === 'darwin'
+                  ? "On macOS, Gatekeeper will block the unsigned binary the first time. Run this to allow it:"
+                  : "Make it executable:"}
+                command={plat.os === 'darwin'
+                  ? `cd ~/Downloads\nxattr -d com.apple.quarantine ${assetName}\nchmod +x ${assetName}`
+                  : `cd ~/Downloads\nchmod +x ${assetName}`}
+                copyKey="post-download"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <CommandBlock
+                label="Then run it (leave this terminal open):"
+                command={`./${assetName}`}
+                copyKey="run-downloaded"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Optional: move it onto your PATH so you can run it as <code>flowtex-helper</code> from anywhere — <code>mv {assetName} /usr/local/bin/flowtex-helper</code>.
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Unsupported platform message ─────────────────────────── */}
+      {!downloadUrl && plat.os === 'windows' && (
+        <div style={{ marginBottom: 12, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}>
+          A pre-built Windows binary is not yet available. You can build from source — see below.
+        </div>
+      )}
+      {!downloadUrl && plat.os !== 'windows' && (
+        <div style={{ marginBottom: 12, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}>
+          Could not detect your platform. Pick a binary from <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>, or build from source.
+        </div>
+      )}
+
+      {/* ── Build-from-source fallback ───────────────────────────── */}
+      <button
+        type="button"
+        onClick={() => setShowBuildFromSource((s) => !s)}
+        style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
+      >
+        {showBuildFromSource ? 'Hide' : 'Show'} build-from-source instructions
+      </button>
+      {showBuildFromSource && (
+        <div style={{ marginTop: 8 }}>
+          <CommandBlock
+            label="Requires Go 1.22+ and a checkout of the flowtex repo:"
+            command={'brew install go\ncd helper\nmake build'}
+            copyKey="build"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+          <CommandBlock
+            label="Then run it (leave this terminal open):"
+            command="./flowtex-helper"
+            copyKey="run-src"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+        </div>
+      )}
+
+      {/* ── Self-hosting on a non-default domain ─────────────────── */}
+      {(() => {
+        // The helper trusts flowtex.click + localhost dev origins by
+        // default. Anything else needs `allow-origin` first or every
+        // request is rejected by CORS (which the browser shows as
+        // "unreachable" — indistinguishable from a missing helper).
+        // Only show this hint when the current FlowTex origin is NOT
+        // one of the defaults; otherwise its noise.
+        const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+        const defaults = [
+          'https://flowtex.click',
+          'https://localhost:3001',
+          'http://localhost:3001',
+          'http://localhost:5173',
+        ];
+        if (!currentOrigin || defaults.includes(currentOrigin)) return null;
+        return (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+              Self-hosting on a non-default FlowTex domain? Trust this server first.
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <CommandBlock
+                label={`Your FlowTex server is ${currentOrigin}. Add it to the helper's trust list:`}
+                command={`flowtex-helper allow-origin ${currentOrigin}`}
+                copyKey="allow-origin"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Restart the helper after running this command. Symptom of skipping it: the status stays red even after the helper is running, because CORS blocks the browser from talking to it.
+              </div>
+            </div>
+          </details>
+        );
+      })()}
+
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+        This panel polls every 3 seconds. As soon as the helper is running and trusts this origin, the status flips to yellow and a "Pair helper" button appears.
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          onClick={toggleDiagnostics}
+          style={{ padding: '2px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
+        >
+          {showDiagnostics ? 'Hide' : 'Show'} diagnostics
+        </button>
+      </div>
+      {showDiagnostics && (
+        <div style={{ marginTop: 6, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+{`Probing: http://localhost:9876/health then https://localhost:9876/health
+Bearer token in localStorage: ${localStorage.getItem('flowtex.helper.token') ? 'yes' : 'no'}
+Cached scheme: ${localStorage.getItem('flowtex.helper.scheme') || '(none — http tried first)'}
+Detected platform: ${plat.os} ${plat.arch || ''}
+
+Common causes:
+- helper binary is not running (run ./flowtex-helper)
+- terminal is blocked by firewall (loopback only — should not happen)
+- another process owns port 9876 (lsof -iTCP:9876)
+- still on the old TLS-only helper binary (download the latest or make build again)`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Boxed command snippet with a copy-to-clipboard button. Used in the
+ *  "Helper not detected" walkthrough so users can run the install
+ *  commands without manually retyping. */
+function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
+  const isCopied = copiedCommand === copyKey;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+        <pre style={{
+          flex: 1,
+          margin: 0,
+          padding: '6px 10px',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+          fontSize: 12,
+          fontFamily: 'monospace',
+          color: 'var(--text-primary)',
+          whiteSpace: 'pre-wrap',
+          overflowX: 'auto',
+        }}>{command}</pre>
+        <button
+          type="button"
+          onClick={() => onCopy(command, copyKey)}
+          style={{
+            padding: '6px 10px',
+            fontSize: 11,
+            background: isCopied ? '#16a34a' : 'var(--bg-surface)',
+            color: isCopied ? '#fff' : 'var(--text-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isCopied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
 export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
@@ -19,6 +251,110 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [profileError, setProfileError] = useState('');
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
+
+  // ── Compile-location state (Phase 3, hidden unless server flag on) ──
+  const [compileLocation, setCompileLocation] = useState(user.compileLocation || 'server');
+  const [compileLocError, setCompileLocError] = useState('');
+  const [compileLocSuccess, setCompileLocSuccess] = useState('');
+  const [compileLocLoading, setCompileLocLoading] = useState(false);
+  const localCompileFeatureOn = !!user.serverFeatures?.localCompile;
+
+  // ── Helper pairing state ───────────────────────────────────────────
+  // The helper status object reflects what useHelperStatus would compute,
+  // but here we probe directly when the Compile tab is opened so the user
+  // sees the latest state without leaving and coming back. Three top-level
+  // shapes:
+  //  - { available:false, error:'unreachable' }  → not installed / not running
+  //  - { available:false, error:'unpaired' }     → helper is up, no token / wrong token
+  //  - { available:true,  year:'2025', ... }     → fully paired and healthy
+  const [helperStatus, setHelperStatus] = useState({ available: false, loading: false });
+  const [pairCode, setPairCode] = useState('');
+  const [pairError, setPairError] = useState('');
+  const [pairLoading, setPairLoading] = useState(false);
+  const [showPairInput, setShowPairInput] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(null);
+
+  // Two probe entry points so the polling ticker doesnt flash
+  // "Detecting…" over an already-green status. The user-initiated
+  // version (button click, tab open) shows the loading state because
+  // there was no prior info; the silent version just settles the new
+  // status without UI churn.
+  const probeHelperSilent = async () => {
+    const alive = await pingHealth();
+    if (!alive) {
+      setHelperStatus({ available: false, loading: false, error: 'unreachable' });
+      return;
+    }
+    const v = await fetchHelperVersion();
+    if (!v) {
+      setHelperStatus({ available: false, loading: false, error: 'unpaired' });
+      return;
+    }
+    setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
+  };
+  const probeHelper = async () => {
+    setHelperStatus((s) => ({ ...s, loading: true }));
+    await probeHelperSilent();
+  };
+
+  // Probe on tab open AND keep polling while the tab is visible.
+  // Adaptive cadence:
+  //   - 3 s when not green: user is mid-install / mid-pair, fast feedback
+  //     loop matters (start the helper in a terminal and the badge flips
+  //     within a few seconds).
+  //   - 60 s when green: helpers state is stable, just a periodic
+  //     liveness check so a crashed/killed helper eventually shows up.
+  // Re-runs whenever availability flips because the dep is read at
+  // hook setup time.
+  useEffect(() => {
+    if (tab !== 'compile' || !localCompileFeatureOn) return undefined;
+    probeHelper();
+    const interval = helperStatus.available ? 60_000 : 3_000;
+    const id = setInterval(probeHelperSilent, interval);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, localCompileFeatureOn, helperStatus.available]);
+
+  const copyToClipboard = (text, key) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedCommand(key);
+      setTimeout(() => setCopiedCommand((c) => (c === key ? null : c)), 1500);
+    } catch {
+      // No clipboard permission — fall back silently. The text is
+      // already in the visible block so the user can select-and-copy.
+    }
+  };
+
+  const handlePairSubmit = async (e) => {
+    e.preventDefault();
+    setPairError('');
+    if (!/^\d{6}$/.test(pairCode)) {
+      setPairError('Pairing code must be 6 digits');
+      return;
+    }
+    setPairLoading(true);
+    try {
+      const result = await pairWithHelper(pairCode);
+      if (!result.ok) {
+        setPairError(result.error || 'Pairing failed');
+      } else {
+        setShowPairInput(false);
+        setPairCode('');
+        await probeHelper();
+      }
+    } catch (err) {
+      setPairError(err?.message || 'Pairing failed');
+    } finally {
+      setPairLoading(false);
+    }
+  };
+
+  const handleUnpair = () => {
+    clearHelperToken();
+    probeHelper();
+  };
 
   // ── Change email state ─────────────────────────────────────────────
   const [emailNewVal, setEmailNewVal] = useState('');
@@ -201,6 +537,32 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     }
   };
 
+  // ── Compile location handler ───────────────────────────────────────
+  const handleSaveCompileLocation = async (e) => {
+    e.preventDefault();
+    setCompileLocError('');
+    setCompileLocSuccess('');
+    if (compileLocation === (user.compileLocation || 'server')) {
+      setCompileLocSuccess('No changes to save');
+      return;
+    }
+    setCompileLocLoading(true);
+    try {
+      const res = await patch('/api/auth/me', { compile_location: compileLocation });
+      const data = await res.json();
+      if (!res.ok) {
+        setCompileLocError(data.error || 'Failed to update compile location');
+      } else {
+        setCompileLocSuccess('Compile location updated');
+        onUpdate?.(data);
+      }
+    } catch {
+      setCompileLocError('Failed to update compile location');
+    } finally {
+      setCompileLocLoading(false);
+    }
+  };
+
   // ── Change email handler ───────────────────────────────────────────
   /** Submit a request to change the user's email address. */
   const handleChangeEmail = async (e) => {
@@ -301,6 +663,11 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
           <button className={`settings-tab ${tab === 'github' ? 'active' : ''}`} onClick={() => setTab('github')}>
             GitHub
           </button>
+          {localCompileFeatureOn && (
+            <button className={`settings-tab ${tab === 'compile' ? 'active' : ''}`} onClick={() => setTab('compile')}>
+              Compile
+            </button>
+          )}
           <button className={`settings-tab ${tab === 'delete' ? 'active' : ''}`} onClick={() => setTab('delete')}>
             Delete Account
           </button>
@@ -577,6 +944,139 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {tab === 'compile' && localCompileFeatureOn && (
+          <div className="settings-section">
+            {/* ── Helper status + pairing ─────────────────────────── */}
+            <div style={{ padding: '10px 14px', marginBottom: 16, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>flowtex-helper status</div>
+              {helperStatus.loading && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Detecting…</div>}
+              {!helperStatus.loading && helperStatus.available && (
+                <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                  <span style={{ color: '#16a34a' }}>●</span>{' '}
+                  Paired. TeX Live {helperStatus.year || '?'}
+                  {helperStatus.enginesAvailable?.length > 0 && (
+                    <span style={{ color: 'var(--text-muted)' }}> ({helperStatus.enginesAvailable.join(', ')})</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleUnpair}
+                    style={{ marginLeft: 12, padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Unpair
+                  </button>
+                </div>
+              )}
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && (
+                <div style={{ fontSize: 13 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{ color: '#f59e0b' }}>●</span>{' '}
+                    Helper is running but not paired with this browser.
+                  </div>
+                  {!showPairInput && (
+                    <>
+                      <CommandBlock
+                        label="In a second terminal, generate a pairing code:"
+                        command="./flowtex-helper pair"
+                        copyKey="pair"
+                        copiedCommand={copiedCommand}
+                        onCopy={copyToClipboard}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPairInput(true)}
+                        style={{ marginTop: 4, padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                      >
+                        Got a code — pair now
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unreachable' && (
+                <HelperInstallGuide
+                  copiedCommand={copiedCommand}
+                  onCopy={copyToClipboard}
+                  showDiagnostics={showDiagnostics}
+                  toggleDiagnostics={() => setShowDiagnostics((s) => !s)}
+                />
+              )}
+              {showPairInput && (
+                <form onSubmit={handlePairSubmit} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    placeholder="6-digit code"
+                    value={pairCode}
+                    onChange={(e) => { setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setPairError(''); }}
+                    maxLength={6}
+                    style={{ padding: '4px 8px', fontSize: 13, width: 110, fontFamily: 'monospace', letterSpacing: 2, border: '1px solid var(--border)', borderRadius: 4 }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={pairLoading || pairCode.length !== 6}
+                    style={{ padding: '4px 12px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: pairCode.length === 6 ? 'pointer' : 'not-allowed', opacity: pairCode.length === 6 ? 1 : 0.6 }}
+                  >
+                    {pairLoading ? 'Pairing…' : 'Pair'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowPairInput(false); setPairCode(''); setPairError(''); }}
+                    style={{ padding: '4px 12px', fontSize: 13, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                </form>
+              )}
+              {pairError && <div className="auth-error" style={{ marginTop: 6 }}>{pairError}</div>}
+            </div>
+
+            <p className="mfa-description">
+              Default compile location for projects you open. Each project can override this in its own settings.
+            </p>
+            <form onSubmit={handleSaveCompileLocation} className="auth-form">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="userCompileLocation"
+                  checked={compileLocation === 'server'}
+                  onChange={() => {
+                    setCompileLocation('server');
+                    setCompileLocError('');
+                    setCompileLocSuccess('');
+                  }}
+                />
+                <span>FlowTex server (default — works for everyone)</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 6 }}>
+                <input
+                  type="radio"
+                  name="userCompileLocation"
+                  checked={compileLocation === 'local'}
+                  onChange={() => {
+                    setCompileLocation('local');
+                    setCompileLocError('');
+                    setCompileLocSuccess('');
+                  }}
+                />
+                <span>My local TeX Live (requires the flowtex-helper binary)</span>
+              </label>
+              <p className="settings-hint" style={{ marginTop: 6 }}>
+                When &quot;Local&quot; is selected but the helper is missing or its TeX Live year does not match the project, compile silently falls back to the server.
+              </p>
+              {compileLocError && <div className="auth-error">{compileLocError}</div>}
+              {compileLocSuccess && <div className="mfa-success">{compileLocSuccess}</div>}
+              <button
+                type="submit"
+                className="auth-button"
+                disabled={compileLocLoading || compileLocation === (user.compileLocation || 'server')}
+              >
+                {compileLocLoading ? 'Saving...' : 'Save'}
+              </button>
+            </form>
           </div>
         )}
 

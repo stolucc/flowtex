@@ -1,0 +1,207 @@
+name: helper-release
+
+# Builds the flowtex-helper binary for mac arm64, mac amd64, and linux
+# amd64 whenever a tag starting with "helper-v" is pushed (e.g.
+# helper-v0.1.0). Attaches the three binaries plus an install.sh
+# convenience script to a GitHub Release. Users then install with:
+#
+#   curl -sSL https://github.com/stolucc/flowtex/releases/download/helper-v0.1.0/install.sh | bash
+#
+# The macOS binaries are NOT code-signed or notarized in this workflow.
+# Users will see Gatekeeper warnings on first run; right-clicking the
+# binary and choosing Open dismisses it once. Apple code-signing
+# requires an Apple Developer account and is a separate workflow we
+# can layer on later if helper distribution volume grows.
+
+on:
+  push:
+    tags:
+      - 'helper-v*'
+  # Manual trigger so an operator can publish a release without bumping
+  # a tag (useful for dry-runs).
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to create the release
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        include:
+          # Darwin builds run on macos-latest so the optional codesign
+          # + notarize steps (which require Apple's `security`,
+          # `codesign`, and `xcrun notarytool`) work. The actual `go build`
+          # is a cross-compile from the same host, which is fine because
+          # the helper is CGO-disabled and stdlib-only.
+          - goos: darwin
+            goarch: arm64
+            runs-on: macos-latest
+          - goos: darwin
+            goarch: amd64
+            runs-on: macos-latest
+          - goos: linux
+            goarch: amd64
+            runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          # No cache: the helper has zero third-party deps (stdlib only),
+          # so there's nothing to cache. Setting cache: true here would
+          # require a go.sum file to exist, which it doesn't for a
+          # stdlib-only module.
+          cache: false
+
+      - name: Run helper unit tests (host arch)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        working-directory: helper
+        run: go test ./...
+
+      - name: Build
+        working-directory: helper
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME#helper-v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          go build -trimpath -ldflags "-s -w -X main.helperVersion=$VERSION" \
+            -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
+
+      # ── macOS code signing + notarization (optional) ────────────
+      #
+      # Auto-skips if any required secret is missing — unsigned binary
+      # ships and users see a Gatekeeper warning (mitigated by the
+      # in-app `xattr -d com.apple.quarantine` instructions). To
+      # enable, set ALL of these repo secrets (Settings → Secrets and
+      # variables → Actions):
+      #
+      #   MACOS_CERTIFICATE_P12         — base64-encoded .p12 export
+      #                                   of your "Developer ID
+      #                                   Application" cert.
+      #   MACOS_CERTIFICATE_PASSWORD    — password set when exporting.
+      #   MACOS_CODESIGN_IDENTITY       — "Developer ID Application:
+      #                                   Your Name (TEAMID)" string.
+      #   APPLE_ID                      — your Apple ID email.
+      #   APPLE_TEAM_ID                 — 10-character Team ID.
+      #   APPLE_APP_PASSWORD            — app-specific password from
+      #                                   appleid.apple.com.
+      #
+      # Full setup walk-through: helper/CODESIGN.md.
+      - name: Code-sign + notarize (macOS, optional)
+        if: matrix.goos == 'darwin'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          BINARY: dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          # Secret guard. All-or-nothing: if any signing secret is
+          # missing, we leave the binary unsigned (this run still
+          # succeeds — operator can layer signing on later by adding
+          # the secrets and re-tagging).
+          if [ -z "$MACOS_CERTIFICATE_P12" ] || [ -z "$MACOS_CERTIFICATE_PASSWORD" ] || [ -z "$MACOS_CODESIGN_IDENTITY" ]; then
+            echo "::notice::macOS signing secrets not configured — shipping unsigned binary. See helper/CODESIGN.md."
+            exit 0
+          fi
+
+          # Import the cert into a temporary keychain.
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          /usr/bin/codesign --force --timestamp --options runtime \
+            --sign "$MACOS_CODESIGN_IDENTITY" \
+            "$BINARY"
+          /usr/bin/codesign --verify --strict --verbose=2 "$BINARY"
+
+          # Notarization — separate-but-required for full Gatekeeper
+          # acceptance. Skip if Apple-ID secrets are missing (signing
+          # alone is still an improvement over unsigned).
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$APPLE_APP_PASSWORD" ]; then
+            echo "::notice::Notarization secrets not configured — binary is signed but not notarized."
+            exit 0
+          fi
+          ZIP="$RUNNER_TEMP/$(basename "$BINARY").zip"
+          /usr/bin/ditto -c -k --keepParent "$BINARY" "$ZIP"
+          xcrun notarytool submit "$ZIP" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+          rm -f "$ZIP"
+          # Stapling is not supported for raw binaries (only .app /
+          # .pkg / .dmg). Notarization status is verified online on
+          # first run; from then on Gatekeeper caches the result.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/helper-v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Stage install script
+        run: |
+          cp helper/install.sh dist/install.sh
+          chmod +x dist/install.sh
+          chmod +x dist/flowtex-helper-* || true
+          ls -lh dist/
+
+      - name: Compute SHA-256 checksums
+        working-directory: dist
+        run: |
+          sha256sum flowtex-helper-* install.sh > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#helper-v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "flowtex-helper v$VERSION" \
+            --notes "Pre-built flowtex-helper binaries for the FlowTex local-compile feature. See helper/README.md in this repo for install + pair instructions.
+
+          Install (Mac/Linux):
+
+              curl -sSL https://github.com/stolucc/flowtex/releases/download/$GITHUB_REF_NAME/install.sh | bash
+
+          Verify checksums against SHA256SUMS in this release." \
+            dist/flowtex-helper-darwin-arm64 \
+            dist/flowtex-helper-darwin-amd64 \
+            dist/flowtex-helper-linux-amd64 \
+            dist/install.sh \
+            dist/SHA256SUMS

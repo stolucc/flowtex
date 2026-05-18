@@ -69,6 +69,7 @@ export default function ModalContainer({
             project={project}
             files={files}
             isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
+            user={user}
             onClose={() => {
               ui.setShowProjectSettings(false);
               setProjectSettingsTab(null);

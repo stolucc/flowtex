@@ -233,6 +233,14 @@ const PdfViewer = forwardRef(function PdfViewer(
   {
     url,
     compiling,
+    compileChoice,
+    // Phase 3b1: per-project compile-location toggle on the PDF dropdown.
+    // Hidden unless the server has FEATURE_LOCAL_COMPILE on. The "current"
+    // value is the project-level override (null means "inherit user
+    // default"); clicking flips it via onSetProjectCompileLocation.
+    localCompileFeatureOn,
+    projectCompileLocation,
+    onSetProjectCompileLocation,
     onCompile,
     onStopCompile,
     onCleanFiles,
@@ -704,7 +712,18 @@ const PdfViewer = forwardRef(function PdfViewer(
     <div className="pdf-viewer" style={style}>
       <div className="pdf-viewer-header">
         <div className="compile-btn-group" ref={compileMenuRef}>
-          <button className="pdf-compile-btn" onClick={onCompile} disabled={compiling}>
+          <button
+            className="pdf-compile-btn"
+            onClick={onCompile}
+            disabled={compiling}
+            title={compileChoice?.source === 'local'
+              ? 'Compile locally on your machine'
+              : compileChoice?.fallbackReason === 'no_helper'
+                ? 'Local helper not detected — compiling on the FlowTex server'
+                : compileChoice?.fallbackReason === 'version_mismatch'
+                  ? 'Local helper TeX Live year does not match this project — compiling on the FlowTex server'
+                  : 'Compile on the FlowTex server'}
+          >
             {compiling ? (
               <>
                 <svg
@@ -721,6 +740,8 @@ const PdfViewer = forwardRef(function PdfViewer(
                 </svg>
                 Compiling...
               </>
+            ) : compileChoice?.source === 'local' ? (
+              'PDF (local)'
             ) : (
               'PDF'
             )}
@@ -778,6 +799,58 @@ const PdfViewer = forwardRef(function PdfViewer(
                 <TrashIcon />
                 Clear generated files
               </button>
+              {localCompileFeatureOn && (
+                <>
+                  <div className="compile-dropdown-separator" />
+                  <div style={{ padding: '6px 12px 4px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>
+                    Compile on
+                    {compileChoice?.source === 'server' && compileChoice?.fallbackReason && (
+                      <span style={{ marginLeft: 4, fontStyle: 'italic' }}>
+                        (now: server, {compileChoice.fallbackReason === 'no_helper' ? 'helper offline' : 'version mismatch'})
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.('server');
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation === 'server' ? '✓' : ''}
+                    </span>
+                    Server (this project)
+                  </button>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.('local');
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation === 'local' ? '✓' : ''}
+                    </span>
+                    My local TeX Live (this project)
+                  </button>
+                  <button
+                    disabled={compiling}
+                    onClick={() => {
+                      setShowCompileMenu(false);
+                      onSetProjectCompileLocation?.(null);
+                    }}
+                    style={{ paddingLeft: 28 }}
+                  >
+                    <span style={{ width: 16, display: 'inline-block' }}>
+                      {projectCompileLocation == null ? '✓' : ''}
+                    </span>
+                    Use my account default
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1094,6 +1167,23 @@ const PdfViewer = forwardRef(function PdfViewer(
       )}
       {mainFileChanged && !compiling && (
         <div className="pdf-recompile-banner">Main file changed. Click &quot;PDF&quot; to recompile with the new main file.</div>
+      )}
+      {/* Local-compile visibility banners — make the resolved choice
+          obvious, not silent. Two cases the user needs to know about:
+          (1) they asked for local but the helper is missing → we are
+              compiling on the server instead;
+          (2) they are compiling locally but their helpers TeX Live year
+              does not match the projects pinned year → PDF may differ
+              from what server-compiled collaborators see. */}
+      {localCompileFeatureOn && compileChoice?.fallbackReason === 'no_helper' && (
+        <div className="pdf-recompile-banner" role="status" style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#78350f' }}>
+          <strong>Local TeX Live not detected.</strong> You asked to compile on your own machine, but the flowtex-helper is not reachable. Compiling on the FlowTex server instead. Install and pair the helper to use your local install.
+        </div>
+      )}
+      {localCompileFeatureOn && compileChoice?.source === 'local' && compileChoice?.noticeReason === 'version_mismatch' && (
+        <div className="pdf-recompile-banner" role="status" style={{ background: '#e0f2fe', borderColor: '#0284c7', color: '#0c4a6e' }}>
+          <strong>TeX Live versions differ.</strong> Compiling on your local TeX Live; the project pins a different version, so the PDF may differ from what other collaborators see.
+        </div>
       )}
       {!url && !compiling && mainFileExists && !mainFileChanged && (
         <div className="pdf-placeholder">Click &quot;PDF&quot; to generate PDF</div>
