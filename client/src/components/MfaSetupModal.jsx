@@ -7,6 +7,151 @@ import {
   getHelperToken,
   clearHelperToken,
 } from '../utils/helperBridge.js';
+import { detectPlatform, helperAssetName, helperDownloadURL, helperReleasesURL } from '../utils/platformDetect.js';
+
+/** Helper-install guide for the "not detected" state. Detects the
+ *  users platform and offers a one-click download to the matching
+ *  pre-built binary, with a "build from source" fallback for
+ *  unsupported platforms and dev mode. */
+function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiagnostics }) {
+  const [showBuildFromSource, setShowBuildFromSource] = useState(false);
+  const plat = detectPlatform();
+  const downloadUrl = helperDownloadURL(plat);
+  const assetName = helperAssetName(plat);
+
+  return (
+    <div style={{ fontSize: 13 }}>
+      <div style={{ marginBottom: 8 }}>
+        <span style={{ color: '#ef4444' }}>●</span>{' '}
+        Helper not detected. Install once, then run it whenever you want to compile locally.
+      </div>
+
+      {/* ── Download path (for the supported platforms) ─────────── */}
+      {downloadUrl && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+            Detected: <strong>{plat.os === 'darwin' ? `macOS (${plat.arch})` : 'Linux (amd64)'}</strong>
+          </div>
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-block',
+              padding: '8px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              background: 'var(--accent)',
+              color: 'var(--bg-primary)',
+              border: 'none',
+              borderRadius: 4,
+              textDecoration: 'none',
+            }}
+          >
+            Download flowtex-helper for {plat.os === 'darwin' ? 'macOS' : 'Linux'}
+          </a>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            File: <code>{assetName}</code> from <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>
+          </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+              After download — make executable and run
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <CommandBlock
+                label={plat.os === 'darwin'
+                  ? "On macOS, Gatekeeper will block the unsigned binary the first time. Run this to allow it:"
+                  : "Make it executable:"}
+                command={plat.os === 'darwin'
+                  ? `cd ~/Downloads\nxattr -d com.apple.quarantine ${assetName}\nchmod +x ${assetName}`
+                  : `cd ~/Downloads\nchmod +x ${assetName}`}
+                copyKey="post-download"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <CommandBlock
+                label="Then run it (leave this terminal open):"
+                command={`./${assetName}`}
+                copyKey="run-downloaded"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Optional: move it onto your PATH so you can run it as <code>flowtex-helper</code> from anywhere — <code>mv {assetName} /usr/local/bin/flowtex-helper</code>.
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Unsupported platform message ─────────────────────────── */}
+      {!downloadUrl && plat.os === 'windows' && (
+        <div style={{ marginBottom: 12, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}>
+          A pre-built Windows binary is not yet available. You can build from source — see below.
+        </div>
+      )}
+      {!downloadUrl && plat.os !== 'windows' && (
+        <div style={{ marginBottom: 12, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}>
+          Could not detect your platform. Pick a binary from <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>, or build from source.
+        </div>
+      )}
+
+      {/* ── Build-from-source fallback ───────────────────────────── */}
+      <button
+        type="button"
+        onClick={() => setShowBuildFromSource((s) => !s)}
+        style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
+      >
+        {showBuildFromSource ? 'Hide' : 'Show'} build-from-source instructions
+      </button>
+      {showBuildFromSource && (
+        <div style={{ marginTop: 8 }}>
+          <CommandBlock
+            label="Requires Go 1.22+ and a checkout of the flowtex repo:"
+            command={'brew install go\ncd helper\nmake build'}
+            copyKey="build"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+          <CommandBlock
+            label="Then run it (leave this terminal open):"
+            command="./flowtex-helper"
+            copyKey="run-src"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+        This panel polls every 3 seconds. As soon as the helper is running, the status flips to yellow and a "Pair helper" button appears.
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          onClick={toggleDiagnostics}
+          style={{ padding: '2px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
+        >
+          {showDiagnostics ? 'Hide' : 'Show'} diagnostics
+        </button>
+      </div>
+      {showDiagnostics && (
+        <div style={{ marginTop: 6, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+{`Probing: http://localhost:9876/health then https://localhost:9876/health
+Bearer token in localStorage: ${localStorage.getItem('flowtex.helper.token') ? 'yes' : 'no'}
+Cached scheme: ${localStorage.getItem('flowtex.helper.scheme') || '(none — http tried first)'}
+Detected platform: ${plat.os} ${plat.arch || ''}
+
+Common causes:
+- helper binary is not running (run ./flowtex-helper)
+- terminal is blocked by firewall (loopback only — should not happen)
+- another process owns port 9876 (lsof -iTCP:9876)
+- still on the old TLS-only helper binary (download the latest or make build again)`}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Boxed command snippet with a copy-to-clipboard button. Used in the
  *  "Helper not detected" walkthrough so users can run the install
@@ -814,52 +959,12 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 </div>
               )}
               {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unreachable' && (
-                <div style={{ fontSize: 13 }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <span style={{ color: '#ef4444' }}>●</span>{' '}
-                    Helper not detected. Open a terminal and run these commands once:
-                  </div>
-                  <CommandBlock
-                    label="1. Build the helper (one-time, requires Go)"
-                    command={'brew install go\ncd /Users/alan/flowtex/helper\nmake build'}
-                    copyKey="build"
-                    copiedCommand={copiedCommand}
-                    onCopy={copyToClipboard}
-                  />
-                  <CommandBlock
-                    label="2. Run it (leave this terminal open)"
-                    command="./flowtex-helper"
-                    copyKey="run"
-                    copiedCommand={copiedCommand}
-                    onCopy={copyToClipboard}
-                  />
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-                    This panel polls every 3 seconds. As soon as the helper is running, the status flips to yellow and a "Pair helper" button appears — no need to click Retry.
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowDiagnostics((s) => !s)}
-                      style={{ padding: '2px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
-                    >
-                      {showDiagnostics ? 'Hide' : 'Show'} diagnostics
-                    </button>
-                  </div>
-                  {showDiagnostics && (
-                    <div style={{ marginTop: 6, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
-{`Probing: http://localhost:9876/health and https://localhost:9876/health
-Bearer token in localStorage: ${localStorage.getItem('flowtex.helper.token') ? 'yes' : 'no'}
-Cached scheme: ${localStorage.getItem('flowtex.helper.scheme') || '(none — http tried first)'}
-Result: unreachable
-
-Common causes:
-- helper binary is not running (run ./flowtex-helper)
-- terminal is blocked by firewall (loopback only, should not happen)
-- another process owns port 9876 (lsof -iTCP:9876)
-- still on the old TLS-only helper binary (rebuild with make build)`}
-                    </div>
-                  )}
-                </div>
+                <HelperInstallGuide
+                  copiedCommand={copiedCommand}
+                  onCopy={copyToClipboard}
+                  showDiagnostics={showDiagnostics}
+                  toggleDiagnostics={() => setShowDiagnostics((s) => !s)}
+                />
               )}
               {showPairInput && (
                 <form onSubmit={handlePairSubmit} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
