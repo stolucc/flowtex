@@ -43,8 +43,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
-          cache-dependency-path: helper/go.sum
+          # No cache: the helper has zero third-party deps (stdlib only),
+          # so there's nothing to cache. Setting cache: true here would
+          # require a go.sum file to exist, which it doesn't for a
+          # stdlib-only module.
+          cache: false
 
       - name: Run helper unit tests (host arch)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
