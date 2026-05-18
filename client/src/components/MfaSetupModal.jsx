@@ -26,58 +26,74 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
         Helper not detected. Install once, then run it whenever you want to compile locally.
       </div>
 
-      {/* ── Download path (for the supported platforms) ─────────── */}
+      {/* ── Recommended: one-line installer ───────────────────────── */}
       {downloadUrl && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-            Detected: <strong>{plat.os === 'darwin' ? `macOS (${plat.arch})` : 'Linux (amd64)'}</strong>
+            Detected: <strong>{plat.os === 'darwin' ? `macOS (${plat.arch})` : 'Linux (amd64)'}</strong>. Recommended install:
           </div>
-          <a
-            href={downloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-block',
-              padding: '8px 16px',
-              fontSize: 13,
-              fontWeight: 500,
-              background: 'var(--accent)',
-              color: 'var(--bg-primary)',
-              border: 'none',
-              borderRadius: 4,
-              textDecoration: 'none',
-            }}
-          >
-            Download flowtex-helper for {plat.os === 'darwin' ? 'macOS' : 'Linux'}
-          </a>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-            File: <code>{assetName}</code> from <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>
-          </div>
-          <details style={{ marginTop: 8 }}>
+          <CommandBlock
+            label="Paste this in a terminal. It downloads the matching binary, verifies the checksum, and installs it on your PATH as flowtex-helper."
+            command="curl -sSL https://github.com/stolucc/flowtex/releases/latest/download/install.sh | bash"
+            copyKey="install-sh"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+          <CommandBlock
+            label="Then run it (leave this terminal open):"
+            command="flowtex-helper"
+            copyKey="run-installed"
+            copiedCommand={copiedCommand}
+            onCopy={onCopy}
+          />
+
+          {/* Manual-download fallback for users who prefer to click. */}
+          <details style={{ marginTop: 10 }}>
             <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
-              After download — make executable and run
+              Prefer to download manually instead?
             </summary>
             <div style={{ marginTop: 8 }}>
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  textDecoration: 'none',
+                }}
+              >
+                Download {assetName}
+              </a>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, marginBottom: 8 }}>
+                From <a href={helperReleasesURL()} target="_blank" rel="noopener noreferrer">GitHub Releases</a>.
+              </div>
               <CommandBlock
                 label={plat.os === 'darwin'
-                  ? "On macOS, Gatekeeper will block the unsigned binary the first time. Run this to allow it:"
-                  : "Make it executable:"}
+                  ? "In a terminal — clear browser quarantine, ad-hoc sign so Apple Silicon does not kill it with 'Killed: 9', rename to flowtex-helper, make executable:"
+                  : "In a terminal — rename to flowtex-helper, make executable:"}
                 command={plat.os === 'darwin'
-                  ? `cd ~/Downloads\nxattr -d com.apple.quarantine ${assetName}\nchmod +x ${assetName}`
-                  : `cd ~/Downloads\nchmod +x ${assetName}`}
+                  ? `cd ~/Downloads\nxattr -d com.apple.quarantine ${assetName}\ncodesign --force --deep --sign - ${assetName}\nmv ${assetName} flowtex-helper\nchmod +x flowtex-helper`
+                  : `cd ~/Downloads\nmv ${assetName} flowtex-helper\nchmod +x flowtex-helper`}
                 copyKey="post-download"
                 copiedCommand={copiedCommand}
                 onCopy={onCopy}
               />
               <CommandBlock
-                label="Then run it (leave this terminal open):"
-                command={`./${assetName}`}
+                label="Run it (leave this terminal open):"
+                command="./flowtex-helper"
                 copyKey="run-downloaded"
                 copiedCommand={copiedCommand}
                 onCopy={onCopy}
               />
               <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                Optional: move it onto your PATH so you can run it as <code>flowtex-helper</code> from anywhere — <code>mv {assetName} /usr/local/bin/flowtex-helper</code>.
+                Tip: move it to <code>/usr/local/bin/flowtex-helper</code> so you can run it from anywhere — <code>sudo mv flowtex-helper /usr/local/bin/</code>.
               </div>
             </div>
           </details>

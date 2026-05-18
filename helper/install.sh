@@ -106,6 +106,15 @@ fi
 
 # ── Install ───────────────────────────────────────────────────────────
 chmod +x "$TMP/$ASSET"
+
+# Ad-hoc codesign on macOS so an unsigned binary survives the kernels
+# "Killed: 9" check on Apple Silicon. Idempotent; safe if the binary
+# is already signed by CI. Silent on failure (degrades to "binary
+# might not run on Apple Silicon" rather than aborting the install).
+if [ "$OS" = "darwin" ] && command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$TMP/$ASSET" 2>/dev/null || true
+fi
+
 mv "$TMP/$ASSET" "$INSTALL_DIR/$BINARY_NAME"
 
 echo

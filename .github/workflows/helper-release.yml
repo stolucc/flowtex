@@ -76,6 +76,24 @@ jobs:
           go build -trimpath -ldflags "-s -w -X main.helperVersion=$VERSION" \
             -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
 
+      # ── Ad-hoc codesign (macOS, no credentials needed) ──────────
+      # An entirely unsigned Mach-O on Apple Silicon is killed with
+      # "Killed: 9" by the kernel before even hitting Gatekeeper. An
+      # ad-hoc signature (no developer ID, no trust chain — just a
+      # cryptographic checksum embedded in the binary) is enough to
+      # satisfy the runtime loader. This is FREE — no Apple Developer
+      # Program needed.
+      #
+      # Users will still see the Gatekeeper "cannot verify developer"
+      # warning the first time, mitigated by the in-app `xattr` step.
+      # If real Developer ID signing is configured below, that step
+      # overwrites the ad-hoc signature and the warning goes away too.
+      - name: Ad-hoc codesign (macOS)
+        if: matrix.goos == 'darwin'
+        run: |
+          codesign --force --deep --sign - "dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}"
+          codesign --verify --verbose=2 "dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}"
+
       # ── macOS code signing + notarization (optional) ────────────
       #
       # Auto-skips if any required secret is missing — unsigned binary
