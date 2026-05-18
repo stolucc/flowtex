@@ -85,13 +85,79 @@ export async function fetchHelperVersion() {
 }
 
 /**
+ * Compile a project via the local helper. Resolves to either:
+ *
+ *   { ok: true,  pdfBlob, log }   — helper compiled, PDF byte-array returned
+ *   { ok: false, fatal: true,  error }  — bearer auth failed; token was
+ *                                          cleared. Caller should fall back
+ *                                          to server compile.
+ *   { ok: false, fatal: true,  error }  — transport / DNS / TLS / unreachable.
+ *                                          Caller should fall back to server.
+ *   { ok: false, fatal: false, error, log? }
+ *                                  — helper reachable, but the compile itself
+ *                                    failed (no PDF). Server compile would
+ *                                    fail the same way; surface the error,
+ *                                    do NOT fall back.
+ *
+ * `fatal` distinguishes "the helper bridge is broken, retry on server"
+ * from "the latex itself blew up, retrying on server is pointless".
+ */
+export async function compileLocal({ jobId, mainFile, compiler, showTrackedChanges, files }) {
+  const token = getHelperToken();
+  if (!token) {
+    return { ok: false, fatal: true, error: 'No helper token. Pair the helper in Account Settings.' };
+  }
+  let res;
+  try {
+    res = await fetch(`${HELPER_BASE}/compile`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jobId, mainFile, compiler, showTrackedChanges, files }),
+    });
+  } catch (err) {
+    return { ok: false, fatal: true, error: `Helper unreachable: ${err?.message || err}` };
+  }
+  if (res.status === 401) {
+    // Stale token — helper rotated since last pair. Clear and bubble.
+    clearHelperToken();
+    return { ok: false, fatal: true, error: 'Helper authentication failed. Re-pair the helper.' };
+  }
+  if (!res.ok) {
+    return { ok: false, fatal: true, error: `Helper returned HTTP ${res.status}` };
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch (err) {
+    return { ok: false, fatal: true, error: 'Helper returned malformed JSON' };
+  }
+  if (data.success && typeof data.pdf === 'string' && data.pdf.length > 0) {
+    // Decode base64 PDF -> Uint8Array -> Blob. Slightly verbose because
+    // atob doesn't handle binary cleanly without this dance.
+    const bin = atob(data.pdf);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pdfBlob = new Blob([bytes], { type: 'application/pdf' });
+    return { ok: true, pdfBlob, log: data.log || '' };
+  }
+  // Helper reachable, but the compile itself failed. The server compile
+  // would fail the same way (same source, same TC marks); do not fall
+  // back, just surface the error.
+  return {
+    ok: false,
+    fatal: false,
+    error: data.error || 'Compile failed (no PDF produced)',
+    log: data.log || '',
+  };
+}
+
+/**
  * Pair the helper using a 6-digit tray code shown in the helper's tray
  * menu (§7.3). On success, persists the returned bearer token to
  * localStorage and returns true. Returns false on any failure.
- *
- * NOTE: not yet usable — the helper binary doesn't exist as of Phase 3.
- * Wired now so the settings UI button has somewhere to call; will start
- * succeeding the day a helper ships.
  */
 export async function pairWithHelper(code) {
   if (!/^\d{6}$/.test(String(code || ''))) return { ok: false, error: 'Code must be 6 digits' };

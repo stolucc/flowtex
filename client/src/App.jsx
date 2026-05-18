@@ -252,6 +252,7 @@ function AppInner() {
     showTrackedChanges: showTrackedChangesInPdf,
     user,
     helperStatus: helperStatusForCompile,
+    files,
   });
 
   const { githubLink, setGithubLink, hasGithubToken, autoSyncStatus, handleToggleAutoSync } =

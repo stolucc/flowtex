@@ -2,6 +2,12 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
 import { getSetting } from '../utils/settings.js';
 import { resolveCompileLocation } from '../utils/compileLocation.js';
+import { compileLocal } from '../utils/helperBridge.js';
+import {
+  wrapPendingChangesAsMacros,
+  injectTcMacros,
+  stripPendingDeletions,
+} from '@shared/trackedChanges.js';
 
 /**
  * Handles LaTeX compilation lifecycle: streaming compile output, PDF URL management, linting, and diff compilation.
@@ -13,8 +19,11 @@ import { resolveCompileLocation } from '../utils/compileLocation.js';
  * @param {boolean} [opts.showTrackedChanges]
  * @param {object|null} [opts.user] - Current user, for compileLocation resolution.
  * @param {object} [opts.helperStatus] - Local helper status, for compileLocation resolution.
+ * @param {Array} [opts.files] - The full project files array. Required for the local-compile
+ *                                path so the helper can write source to disk; ignored on the
+ *                                server path (server pulls fresh from PostgreSQL).
  */
-export default function useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges, user, helperStatus } = {}) {
+export default function useCompilation(project, activeFile, handleSave, editorRef, { showTrackedChanges, user, helperStatus, files } = {}) {
   // Resolved compile choice for this render. Used by the compile button
   // label and by handleCompile to pick a code path. Re-resolved every
   // render so settings changes or a freshly-available helper take effect
@@ -87,6 +96,54 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     };
   }, []);
 
+  // Track blob URLs created from local-helper PDF responses so they can
+  // be revoked on the next compile / on project switch — otherwise they
+  // sit in the browser until reload (real memory cost: ~5-20 MB per
+  // typical PDF).
+  const lastBlobUrlRef = useRef(null);
+  const setPdfUrlSmart = useCallback((next) => {
+    setPdfUrl((prev) => {
+      if (lastBlobUrlRef.current && lastBlobUrlRef.current !== next) {
+        URL.revokeObjectURL(lastBlobUrlRef.current);
+        lastBlobUrlRef.current = null;
+      }
+      if (typeof next === 'string' && next.startsWith('blob:')) {
+        lastBlobUrlRef.current = next;
+      }
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (lastBlobUrlRef.current) {
+        URL.revokeObjectURL(lastBlobUrlRef.current);
+        lastBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  // Apply the same tracked-changes transform the server applies before
+  // shipping source to the helper. Stays in sync with the server
+  // because both call the same `shared/trackedChanges.js` module.
+  const buildLocalPayloadFiles = useCallback((proj, allFiles) => {
+    if (!Array.isArray(allFiles)) return [];
+    const mainFile = proj?.main_file || 'main.tex';
+    return allFiles.map((f) => {
+      if (f.is_binary) {
+        return { path: f.path, content: f.content || '', isBinary: true };
+      }
+      let content = f.content || '';
+      const marks = Array.isArray(f.tc_marks) ? f.tc_marks : [];
+      if (showTrackedChanges) {
+        content = wrapPendingChangesAsMacros(content, marks);
+        if (f.path === mainFile) content = injectTcMacros(content);
+      } else {
+        content = stripPendingDeletions(content, marks);
+      }
+      return { path: f.path, content, isBinary: false };
+    });
+  }, [showTrackedChanges]);
+
   const handleCompile = useCallback(async () => {
     if (!project) return;
     // Prevent double-compile
@@ -115,6 +172,49 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       compileSourceRef.current = null;
     }
 
+    // ── Local-compile path ─────────────────────────────────────────
+    // When the resolved choice is `local`, ship the source to the helper
+    // and put the resulting PDF blob straight into the viewer. On any
+    // transport/auth error we silently fall through to the server path
+    // so the user still gets a PDF; on a compile-level failure (helper
+    // ran latexmk and got no PDF) we surface it as-is, since the server
+    // would fail the same way against the same source.
+    let didLocalPath = false;
+    if (compileChoice.source === 'local') {
+      didLocalPath = true;
+      setConsoleOutput('Compiling locally on your machine…\n');
+      const jobId =
+        (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+          ? crypto.randomUUID()
+          : `job-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const result = await compileLocal({
+        jobId,
+        mainFile: project.main_file || 'main.tex',
+        compiler: project.compiler || 'pdflatex',
+        showTrackedChanges: !!showTrackedChanges,
+        files: buildLocalPayloadFiles(project, files),
+      });
+      if (result.ok) {
+        const blobUrl = URL.createObjectURL(result.pdfBlob);
+        setPdfUrlSmart(blobUrl);
+        setCompileLog(result.log || '');
+        setConsoleOutput((prev) => prev + (result.log || ''));
+        setCompiling(false);
+        return; // skip server path, skip server-side lint (helper doesn't lint)
+      }
+      if (!result.fatal) {
+        // The helper ran but the compile itself failed; identical
+        // outcome to a server compile, so don't bounce — just surface.
+        setCompileLog(result.error || 'Local compile failed');
+        setConsoleOutput((prev) => prev + (result.log || '') + '\n' + (result.error || ''));
+        setCompiling(false);
+        return;
+      }
+      // fatal: transport/auth — fall through to the server stream below.
+      setConsoleOutput((prev) => prev + `Local compile unavailable (${result.error}). Falling back to server.\n`);
+    }
+
+    // ── Server-compile path (existing behaviour, unchanged) ────────
     try {
       const tcParam = showTrackedChanges ? '?showTrackedChanges=1' : '';
       const evtSource = new EventSource(`/api/compile/${project.id}/compile-stream${tcParam}`);
@@ -136,7 +236,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           const data = JSON.parse(e.data);
           setCompileLog(data.log || '');
           if (data.success) {
-            setPdfUrl(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
+            setPdfUrlSmart(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
           }
           evtSource.close();
           compileSourceRef.current = null;
@@ -181,7 +281,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         setLintDiagnostics([]);
       }
     }
-  }, [project, activeFile, handleSave, editorRef, showTrackedChanges]);
+  }, [project, activeFile, handleSave, editorRef, showTrackedChanges, compileChoice, buildLocalPayloadFiles, files, setPdfUrlSmart]);
 
   const handleDiff = useCallback(
     (oldFileId, newFileId) => {
