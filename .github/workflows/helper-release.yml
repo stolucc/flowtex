@@ -1,0 +1,117 @@
+name: helper-release
+
+# Builds the flowtex-helper binary for mac arm64, mac amd64, and linux
+# amd64 whenever a tag starting with "helper-v" is pushed (e.g.
+# helper-v0.1.0). Attaches the three binaries plus an install.sh
+# convenience script to a GitHub Release. Users then install with:
+#
+#   curl -sSL https://github.com/stolucc/flowtex/releases/download/helper-v0.1.0/install.sh | bash
+#
+# The macOS binaries are NOT code-signed or notarized in this workflow.
+# Users will see Gatekeeper warnings on first run; right-clicking the
+# binary and choosing Open dismisses it once. Apple code-signing
+# requires an Apple Developer account and is a separate workflow we
+# can layer on later if helper distribution volume grows.
+
+on:
+  push:
+    tags:
+      - 'helper-v*'
+  # Manual trigger so an operator can publish a release without bumping
+  # a tag (useful for dry-runs).
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to create the release
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+          cache-dependency-path: helper/go.sum
+
+      - name: Run helper unit tests (host arch)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        working-directory: helper
+        run: go test ./...
+
+      - name: Build
+        working-directory: helper
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME#helper-v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          go build -trimpath -ldflags "-s -w -X main.helperVersion=$VERSION" \
+            -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/helper-v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Stage install script
+        run: |
+          cp helper/install.sh dist/install.sh
+          chmod +x dist/install.sh
+          chmod +x dist/flowtex-helper-* || true
+          ls -lh dist/
+
+      - name: Compute SHA-256 checksums
+        working-directory: dist
+        run: |
+          sha256sum flowtex-helper-* install.sh > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#helper-v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "flowtex-helper v$VERSION" \
+            --notes "Pre-built flowtex-helper binaries for the FlowTex local-compile feature. See helper/README.md in this repo for install + pair instructions.
+
+          Install (Mac/Linux):
+
+              curl -sSL https://github.com/stolucc/flowtex/releases/download/$GITHUB_REF_NAME/install.sh | bash
+
+          Verify checksums against SHA256SUMS in this release." \
+            dist/flowtex-helper-darwin-arm64 \
+            dist/flowtex-helper-darwin-amd64 \
+            dist/flowtex-helper-linux-amd64 \
+            dist/install.sh \
+            dist/SHA256SUMS

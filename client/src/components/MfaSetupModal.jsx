@@ -8,6 +8,49 @@ import {
   clearHelperToken,
 } from '../utils/helperBridge.js';
 
+/** Boxed command snippet with a copy-to-clipboard button. Used in the
+ *  "Helper not detected" walkthrough so users can run the install
+ *  commands without manually retyping. */
+function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
+  const isCopied = copiedCommand === copyKey;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+        <pre style={{
+          flex: 1,
+          margin: 0,
+          padding: '6px 10px',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+          fontSize: 12,
+          fontFamily: 'monospace',
+          color: 'var(--text-primary)',
+          whiteSpace: 'pre-wrap',
+          overflowX: 'auto',
+        }}>{command}</pre>
+        <button
+          type="button"
+          onClick={() => onCopy(command, copyKey)}
+          style={{
+            padding: '6px 10px',
+            fontSize: 11,
+            background: isCopied ? '#16a34a' : 'var(--bg-surface)',
+            color: isCopied ? '#fff' : 'var(--text-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isCopied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
 export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
   const [tab, setTab] = useState(initialTab || 'mfa');
@@ -47,6 +90,8 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [pairError, setPairError] = useState('');
   const [pairLoading, setPairLoading] = useState(false);
   const [showPairInput, setShowPairInput] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(null);
 
   const probeHelper = async () => {
     setHelperStatus((s) => ({ ...s, loading: true }));
@@ -63,14 +108,30 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
   };
 
-  // Probe automatically when the Compile tab is opened (only when the
-  // feature is on and the tab is actually visible).
+  // Probe on tab open AND poll every 3s while the tab is visible. The
+  // poll cost is one fetch to http://localhost:9876/health (potentially
+  // trustworthy origin, no CORS preflight, ~1ms loopback) — cheap
+  // enough to run at this cadence and dramatically improves the
+  // first-run UX (start the helper in a terminal, the green dot appears
+  // within seconds without clicking anything).
   useEffect(() => {
-    if (tab === 'compile' && localCompileFeatureOn) {
-      probeHelper();
-    }
+    if (tab !== 'compile' || !localCompileFeatureOn) return undefined;
+    probeHelper();
+    const id = setInterval(probeHelper, 3000);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, localCompileFeatureOn]);
+
+  const copyToClipboard = (text, key) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedCommand(key);
+      setTimeout(() => setCopiedCommand((c) => (c === key ? null : c)), 1500);
+    } catch {
+      // No clipboard permission — fall back silently. The text is
+      // already in the visible block so the user can select-and-copy.
+    }
+  };
 
   const handlePairSubmit = async (e) => {
     e.preventDefault();
@@ -716,33 +777,76 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
               )}
               {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && (
                 <div style={{ fontSize: 13 }}>
-                  <span style={{ color: '#f59e0b' }}>●</span>{' '}
-                  Helper is running but not paired with this browser.
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{ color: '#f59e0b' }}>●</span>{' '}
+                    Helper is running but not paired with this browser.
+                  </div>
                   {!showPairInput && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPairInput(true)}
-                      style={{ marginLeft: 8, padding: '2px 10px', fontSize: 12, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                    >
-                      Pair helper
-                    </button>
+                    <>
+                      <CommandBlock
+                        label="In a second terminal, generate a pairing code:"
+                        command="./flowtex-helper pair"
+                        copyKey="pair"
+                        copiedCommand={copiedCommand}
+                        onCopy={copyToClipboard}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPairInput(true)}
+                        style={{ marginTop: 4, padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                      >
+                        Got a code — pair now
+                      </button>
+                    </>
                   )}
                 </div>
               )}
               {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unreachable' && (
                 <div style={{ fontSize: 13 }}>
-                  <span style={{ color: '#ef4444' }}>●</span>{' '}
-                  Helper not detected on this machine.
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Install <code>flowtex-helper</code> from the repo <code>helper/</code> directory and run it in a terminal: <code>./flowtex-helper</code>. Then click Retry below.
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{ color: '#ef4444' }}>●</span>{' '}
+                    Helper not detected. Open a terminal and run these commands once:
                   </div>
-                  <button
-                    type="button"
-                    onClick={probeHelper}
-                    style={{ marginTop: 6, padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
-                  >
-                    Retry detection
-                  </button>
+                  <CommandBlock
+                    label="1. Build the helper (one-time, requires Go)"
+                    command={'brew install go\ncd /Users/alan/flowtex/helper\nmake build'}
+                    copyKey="build"
+                    copiedCommand={copiedCommand}
+                    onCopy={copyToClipboard}
+                  />
+                  <CommandBlock
+                    label="2. Run it (leave this terminal open)"
+                    command="./flowtex-helper"
+                    copyKey="run"
+                    copiedCommand={copiedCommand}
+                    onCopy={copyToClipboard}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                    This panel polls every 3 seconds. As soon as the helper is running, the status flips to yellow and a "Pair helper" button appears — no need to click Retry.
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowDiagnostics((s) => !s)}
+                      style={{ padding: '2px 8px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
+                    >
+                      {showDiagnostics ? 'Hide' : 'Show'} diagnostics
+                    </button>
+                  </div>
+                  {showDiagnostics && (
+                    <div style={{ marginTop: 6, padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+{`Probing: http://localhost:9876/health and https://localhost:9876/health
+Bearer token in localStorage: ${localStorage.getItem('flowtex.helper.token') ? 'yes' : 'no'}
+Cached scheme: ${localStorage.getItem('flowtex.helper.scheme') || '(none — http tried first)'}
+Result: unreachable
+
+Common causes:
+- helper binary is not running (run ./flowtex-helper)
+- terminal is blocked by firewall (loopback only, should not happen)
+- another process owns port 9876 (lsof -iTCP:9876)
+- still on the old TLS-only helper binary (rebuild with make build)`}
+                    </div>
+                  )}
                 </div>
               )}
               {showPairInput && (
@@ -774,9 +878,6 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                 </form>
               )}
               {pairError && <div className="auth-error" style={{ marginTop: 6 }}>{pairError}</div>}
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-                To generate a code, run <code>flowtex-helper pair</code> in a terminal where the helper is running.
-              </div>
             </div>
 
             <p className="mfa-description">
