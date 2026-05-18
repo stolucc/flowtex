@@ -79,19 +79,26 @@ app.use(
         connectSrc: [
           "'self'",
           ...(isProduction ? [] : ['ws:', 'wss:']),
-          // When local-compile is enabled, the client fetches against the
-          // flowtex-helper binary on the user's machine. The helper
-          // listens on http://localhost:9876 by default (the W3C Secure
-          // Contexts spec marks http://localhost as a "potentially
-          // trustworthy" origin, exempt from mixed-content blocking).
-          // The https variant is included too for users who launch the
-          // helper with --tls. Gated on the feature flag — operators
-          // who do not use local compile keep the tighter default.
+          // When local-compile is enabled, two things need to be in
+          // connect-src:
+          //   1. The helper origin (the bridge fetches /health,
+          //      /version, /compile against http://localhost:9876).
+          //   2. blob: — pdfjs workers fetch the locally-compiled PDF
+          //      via blob URL (URL.createObjectURL(pdfBlob)), and CSP
+          //      treats those as "connect" sub-resources. Without it
+          //      the worker fails with a generic NetworkError and the
+          //      PdfViewer surfaces "Failed to load PDF" with no clue
+          //      it was a CSP block.
+          // http://localhost is a "potentially trustworthy" origin per
+          // W3C Secure Contexts §3.1, exempt from mixed-content. The
+          // https variants are listed too for users who run the helper
+          // with --tls. All of this gated on the feature flag.
           ...(isLocalCompileEnabled()
             ? [
                 'http://localhost:9876',
                 'https://localhost:9876',
                 'https://helper.localhost.flowtex.click:9876',
+                'blob:',
               ]
             : []),
         ],

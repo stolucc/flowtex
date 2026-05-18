@@ -93,8 +93,12 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(null);
 
-  const probeHelper = async () => {
-    setHelperStatus((s) => ({ ...s, loading: true }));
+  // Two probe entry points so the polling ticker doesnt flash
+  // "Detecting…" over an already-green status. The user-initiated
+  // version (button click, tab open) shows the loading state because
+  // there was no prior info; the silent version just settles the new
+  // status without UI churn.
+  const probeHelperSilent = async () => {
     const alive = await pingHealth();
     if (!alive) {
       setHelperStatus({ available: false, loading: false, error: 'unreachable' });
@@ -107,20 +111,28 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     }
     setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
   };
+  const probeHelper = async () => {
+    setHelperStatus((s) => ({ ...s, loading: true }));
+    await probeHelperSilent();
+  };
 
-  // Probe on tab open AND poll every 3s while the tab is visible. The
-  // poll cost is one fetch to http://localhost:9876/health (potentially
-  // trustworthy origin, no CORS preflight, ~1ms loopback) — cheap
-  // enough to run at this cadence and dramatically improves the
-  // first-run UX (start the helper in a terminal, the green dot appears
-  // within seconds without clicking anything).
+  // Probe on tab open AND keep polling while the tab is visible.
+  // Adaptive cadence:
+  //   - 3 s when not green: user is mid-install / mid-pair, fast feedback
+  //     loop matters (start the helper in a terminal and the badge flips
+  //     within a few seconds).
+  //   - 60 s when green: helpers state is stable, just a periodic
+  //     liveness check so a crashed/killed helper eventually shows up.
+  // Re-runs whenever availability flips because the dep is read at
+  // hook setup time.
   useEffect(() => {
     if (tab !== 'compile' || !localCompileFeatureOn) return undefined;
     probeHelper();
-    const id = setInterval(probeHelper, 3000);
+    const interval = helperStatus.available ? 60_000 : 3_000;
+    const id = setInterval(probeHelperSilent, interval);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, localCompileFeatureOn]);
+  }, [tab, localCompileFeatureOn, helperStatus.available]);
 
   const copyToClipboard = (text, key) => {
     try {

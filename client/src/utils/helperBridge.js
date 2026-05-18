@@ -200,9 +200,31 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
   if (data.success && typeof data.pdf === 'string' && data.pdf.length > 0) {
     // Decode base64 PDF -> Uint8Array -> Blob. Slightly verbose because
     // atob doesn't handle binary cleanly without this dance.
-    const bin = atob(data.pdf);
+    let bin;
+    try {
+      bin = atob(data.pdf);
+    } catch (err) {
+      return { ok: false, fatal: false, error: `Helper returned malformed base64: ${err?.message || err}`, log: data.log || '' };
+    }
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    // Sanity check: a real PDF starts with "%PDF-" (0x25 0x50 0x44 0x46 0x2D).
+    // latexmk with -f keeps going past errors and can sometimes produce a
+    // truncated/garbage file; bouncing it back as "no PDF" here gives the
+    // user a clearer error than the PdfViewer's generic "Failed to load PDF".
+    if (bytes.length < 5 ||
+        bytes[0] !== 0x25 || bytes[1] !== 0x50 ||
+        bytes[2] !== 0x44 || bytes[3] !== 0x46 ||
+        bytes[4] !== 0x2D) {
+      const head = Array.from(bytes.slice(0, Math.min(16, bytes.length)))
+        .map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      return {
+        ok: false,
+        fatal: false,
+        error: `Helper returned a non-PDF blob (${bytes.length} bytes, first bytes: ${head}). Check the compile log.`,
+        log: data.log || '',
+      };
+    }
     const pdfBlob = new Blob([bytes], { type: 'application/pdf' });
     return { ok: true, pdfBlob, log: data.log || '' };
   }

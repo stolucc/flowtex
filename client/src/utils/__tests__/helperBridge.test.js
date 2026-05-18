@@ -92,9 +92,11 @@ describe('compileLocal — return shape', () => {
 
   it('returns ok=true + pdfBlob when helper produced a PDF', async () => {
     setHelperToken('a'.repeat(64));
-    // 4-byte payload so we can verify the round-trip without depending
-    // on a real PDF parser. Base64 of [0x25, 0x50, 0x44, 0x46] = "%PDF" header.
-    const b64 = 'JVBERg==';
+    // Minimal valid PDF signature: %PDF-1.4\n. Base64 of the 9 bytes
+    // [0x25,0x50,0x44,0x46,0x2D,0x31,0x2E,0x34,0x0A].
+    // The bridge rejects anything that doesnt start with %PDF-, so
+    // tests have to use a real signature.
+    const b64 = 'JVBERi0xLjQK';
     mockFetchOnce(() => Promise.resolve({
       ok: true,
       status: 200,
@@ -103,8 +105,34 @@ describe('compileLocal — return shape', () => {
     const result = await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
     expect(result.ok).toBe(true);
     expect(result.pdfBlob).toBeInstanceOf(Blob);
-    expect(result.pdfBlob.size).toBe(4);
+    expect(result.pdfBlob.size).toBe(9);
     expect(result.log).toMatch(/main\.pdf/);
+  });
+
+  it('rejects non-PDF blobs as non-fatal (clearer than "Failed to load PDF" downstream)', async () => {
+    setHelperToken('a'.repeat(64));
+    // Base64 of "hello\n" — definitely not a PDF.
+    mockFetchOnce(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, pdf: 'aGVsbG8K', log: '' }),
+    }));
+    const result = await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
+    expect(result.ok).toBe(false);
+    expect(result.fatal).toBe(false); // server retry pointless — same source would fail there too
+    expect(result.error).toMatch(/non-PDF/i);
+  });
+
+  it('rejects malformed base64 with a clear error', async () => {
+    setHelperToken('a'.repeat(64));
+    mockFetchOnce(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, pdf: '!!!not base64!!!', log: '' }),
+    }));
+    const result = await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/base64/i);
   });
 
   it('passes the bearer token through to the helper', async () => {
@@ -115,7 +143,7 @@ describe('compileLocal — return shape', () => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ success: true, pdf: 'JVBERg==', log: '' }),
+        json: () => Promise.resolve({ success: true, pdf: 'JVBERi0xLjQK', log: '' }),
       });
     });
     await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
@@ -177,7 +205,7 @@ describe('scheme fallback (http → https when http fails)', () => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ success: true, pdf: 'JVBERg==', log: '' }),
+        json: () => Promise.resolve({ success: true, pdf: 'JVBERi0xLjQK', log: '' }),
       });
     });
     const result = await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
@@ -197,7 +225,7 @@ describe('scheme fallback (http → https when http fails)', () => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ success: true, pdf: 'JVBERg==', log: '' }),
+        json: () => Promise.resolve({ success: true, pdf: 'JVBERi0xLjQK', log: '' }),
       });
     });
     await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
