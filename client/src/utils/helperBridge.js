@@ -23,11 +23,28 @@ export function getHelperToken() {
 export function setHelperToken(token) {
   try { window.localStorage.setItem(TOKEN_STORAGE_KEY, token); }
   catch { /* private mode — degrade silently */ }
+  notifyHelperStatusChanged();
 }
 
 export function clearHelperToken() {
   try { window.localStorage.removeItem(TOKEN_STORAGE_KEY); }
   catch { /* ignore */ }
+  notifyHelperStatusChanged();
+}
+
+/**
+ * Fires a window event that long-lived consumers (notably the
+ * useHelperStatus hook used in App.jsx) can listen for to re-probe the
+ * helper immediately. Without this, App.jsx caches the "unreachable"
+ * state for 5 minutes after first probe — so right after pairing the
+ * PdfViewer would still show the "Local TeX Live not detected" banner
+ * for several minutes even though the helper became available.
+ */
+function notifyHelperStatusChanged() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new Event('flowtex:helper-status-changed'));
+  } catch { /* very old browser without Event() — give up silently */ }
 }
 
 /**

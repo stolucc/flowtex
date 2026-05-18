@@ -58,7 +58,16 @@ export default function useHelperStatus({ enabled }) {
     }
     probe();
     const id = setInterval(probe, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    // Listen for explicit status-change pings from helperBridge (fires
+    // on pair / unpair). Without this the consumer waits up to 5 min
+    // for the polling interval to re-probe, so a freshly-paired helper
+    // shows as "unreachable" in the PdfViewer banner for ages.
+    const onChange = () => probe();
+    window.addEventListener('flowtex:helper-status-changed', onChange);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('flowtex:helper-status-changed', onChange);
+    };
   }, [enabled, pokeKey, probe]);
 
   return { status, redetect: () => setPokeKey((k) => k + 1) };
