@@ -44,6 +44,12 @@ func main() {
 		case "info":
 			runInfo(logger)
 			return
+		case "allow-origin":
+			runAllowOrigin(logger, os.Args[2:])
+			return
+		case "deny-origin":
+			runDenyOrigin(logger, os.Args[2:])
+			return
 		case "help", "-h", "--help":
 			printHelp()
 			return
@@ -133,21 +139,27 @@ func printHelp() {
 	fmt.Print(`flowtex-helper — local LaTeX compile companion for FlowTex.
 
 Usage:
-  flowtex-helper                run the helper (foreground)
-  flowtex-helper pair           print a one-time 6-digit pairing code
-  flowtex-helper rotate         rotate the bearer token
-  flowtex-helper info           print config path + listening port + cert fingerprint
-  flowtex-helper version        print version
-  flowtex-helper help           this message
+  flowtex-helper                       run the helper (foreground)
+  flowtex-helper pair                  print a one-time 6-digit pairing code
+  flowtex-helper rotate                rotate the bearer token
+  flowtex-helper allow-origin <url>    add a FlowTex origin to the trust list
+  flowtex-helper deny-origin <url>     remove an origin from the trust list
+  flowtex-helper info                  print config path + port + trusted origins
+  flowtex-helper version               print version
+  flowtex-helper help                  this message
 
 Config file: ~/.flowtex-helper/config.json (auto-created on first run).
-TLS cert:    ~/.flowtex-helper/certs/   (self-signed, regenerated if missing).
+TLS cert:    ~/.flowtex-helper/certs/   (only used when running with --tls).
 
 Once running, pair with a FlowTex browser tab:
   1. In this terminal:        flowtex-helper pair
   2. Copy the 6-digit code.
   3. In FlowTex:              Account Settings → Compile → Pair helper.
   4. Paste the code.
+
+Self-hosters on a non-default FlowTex domain need to trust their server
+first:
+  flowtex-helper allow-origin https://latex.example.edu
 `)
 }
 
@@ -193,9 +205,66 @@ func runInfo(logger *log.Logger) {
 	}
 	fmt.Printf("config:           %s\n", cfg.Path)
 	fmt.Printf("port:             %d\n", cfg.Port)
-	fmt.Printf("allowed origins:  %v\n", cfg.AllowedOrigins)
 	fmt.Printf("bearer token set: %v\n", cfg.BearerToken != "")
+	fmt.Println("trusted origins:")
+	for _, o := range cfg.AllowedOrigins {
+		fmt.Printf("  - %s\n", o)
+	}
 	if fp, err := certFingerprint(cfg.CertFile); err == nil {
 		fmt.Printf("TLS fingerprint:  %s\n", fp)
 	}
+}
+
+func runAllowOrigin(logger *log.Logger, args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "Usage: flowtex-helper allow-origin <url>")
+		fmt.Fprintln(os.Stderr, "Example: flowtex-helper allow-origin https://latex.example.edu")
+		os.Exit(2)
+	}
+	origin, err := normalizeOrigin(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid origin: %v\n", err)
+		os.Exit(2)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		logger.Fatalf("load config: %v", err)
+	}
+	if added := addAllowedOrigin(cfg, origin); !added {
+		fmt.Printf("%s is already trusted. No change.\n", origin)
+		return
+	}
+	if err := saveConfig(cfg); err != nil {
+		logger.Fatalf("save config: %v", err)
+	}
+	fmt.Printf("Trusted: %s\n", origin)
+	fmt.Println()
+	fmt.Println("Restart the helper for the change to take effect:")
+	fmt.Println("  (Ctrl-C the running helper, then re-run ./flowtex-helper)")
+}
+
+func runDenyOrigin(logger *log.Logger, args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "Usage: flowtex-helper deny-origin <url>")
+		os.Exit(2)
+	}
+	origin, err := normalizeOrigin(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid origin: %v\n", err)
+		os.Exit(2)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		logger.Fatalf("load config: %v", err)
+	}
+	if removed := removeAllowedOrigin(cfg, origin); !removed {
+		fmt.Printf("%s is not in the trust list. No change.\n", origin)
+		return
+	}
+	if err := saveConfig(cfg); err != nil {
+		logger.Fatalf("save config: %v", err)
+	}
+	fmt.Printf("Removed: %s\n", origin)
+	fmt.Println()
+	fmt.Println("Restart the helper for the change to take effect.")
 }

@@ -155,12 +155,33 @@ systemctl --user enable --now flowtex-helper.service
 
 | Command | What it does |
 | --- | --- |
-| `flowtex-helper`            | Run the helper (foreground). |
-| `flowtex-helper pair`       | Print a 6-digit code, open a 60-second pairing window. |
-| `flowtex-helper rotate`     | Rotate the bearer token. Invalidates every previously-paired browser. |
-| `flowtex-helper info`       | Print config path, port, allowed origins, cert fingerprint. |
-| `flowtex-helper version`    | Print the binary version. |
-| `flowtex-helper help`       | Brief usage info. |
+| `flowtex-helper`                    | Run the helper (foreground). |
+| `flowtex-helper pair`               | Print a 6-digit code, open a 60-second pairing window. |
+| `flowtex-helper rotate`             | Rotate the bearer token. Invalidates every previously-paired browser. |
+| `flowtex-helper allow-origin <url>` | Add a FlowTex origin to the trust list (for self-hosters on a non-default domain). |
+| `flowtex-helper deny-origin <url>`  | Remove an origin from the trust list. |
+| `flowtex-helper info`               | Print config path, port, trusted origins, cert fingerprint. |
+| `flowtex-helper version`            | Print the binary version. |
+| `flowtex-helper help`               | Brief usage info. |
+
+### Trusting a non-default FlowTex origin
+
+The helper trusts these origins out of the box:
+
+- `https://flowtex.click`
+- `https://localhost:3001`, `http://localhost:3001`, `http://localhost:5173`
+
+If your FlowTex server lives anywhere else (e.g. `https://latex.example.edu`),
+add it with `allow-origin`:
+
+```bash
+flowtex-helper allow-origin https://latex.example.edu
+# then restart the running helper for the change to take effect
+```
+
+Origins are normalized to `scheme://host[:non-default-port]`; case and
+trailing-slash differences are collapsed. Origins are stored in
+`~/.flowtex-helper/config.json` and persist across restarts.
 
 ## HTTP API surface
 

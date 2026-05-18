@@ -123,8 +123,45 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
         </div>
       )}
 
+      {/* ── Self-hosting on a non-default domain ─────────────────── */}
+      {(() => {
+        // The helper trusts flowtex.click + localhost dev origins by
+        // default. Anything else needs `allow-origin` first or every
+        // request is rejected by CORS (which the browser shows as
+        // "unreachable" — indistinguishable from a missing helper).
+        // Only show this hint when the current FlowTex origin is NOT
+        // one of the defaults; otherwise its noise.
+        const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+        const defaults = [
+          'https://flowtex.click',
+          'https://localhost:3001',
+          'http://localhost:3001',
+          'http://localhost:5173',
+        ];
+        if (!currentOrigin || defaults.includes(currentOrigin)) return null;
+        return (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+              Self-hosting on a non-default FlowTex domain? Trust this server first.
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <CommandBlock
+                label={`Your FlowTex server is ${currentOrigin}. Add it to the helper's trust list:`}
+                command={`flowtex-helper allow-origin ${currentOrigin}`}
+                copyKey="allow-origin"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Restart the helper after running this command. Symptom of skipping it: the status stays red even after the helper is running, because CORS blocks the browser from talking to it.
+              </div>
+            </div>
+          </details>
+        );
+      })()}
+
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-        This panel polls every 3 seconds. As soon as the helper is running, the status flips to yellow and a "Pair helper" button appears.
+        This panel polls every 3 seconds. As soon as the helper is running and trusts this origin, the status flips to yellow and a "Pair helper" button appears.
       </div>
       <div style={{ marginTop: 8 }}>
         <button
