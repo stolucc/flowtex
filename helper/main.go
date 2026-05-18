@@ -54,7 +54,21 @@ func main() {
 	}
 
 	// Default: run the server.
+	//
+	// Listen scheme is HTTP by default. The helper binds to 127.0.0.1
+	// only, and modern browsers treat http://localhost as a "potentially
+	// trustworthy" origin exempt from mixed-content blocking even when
+	// the calling FlowTex page is on HTTPS (W3C Secure Contexts §3.1).
+	// So plain HTTP eliminates the entire self-signed-cert acceptance
+	// step without weakening any real security property — the token
+	// auth + origin allowlist + host pin still apply.
+	//
+	// Users who want belt-and-suspenders TLS can pass --tls; the helper
+	// then generates a self-signed cert (as in Phase 1 v0.1) and serves
+	// HTTPS on the same port. The trust dance is back, but for users
+	// who actively want it.
 	var portFlag = flag.Int("port", 0, "override the configured port (default reads from config)")
+	var tlsFlag = flag.Bool("tls", false, "serve HTTPS with a self-signed cert instead of HTTP")
 	flag.CommandLine.Parse(os.Args[1:])
 
 	cfg, err := loadConfig()
@@ -64,9 +78,12 @@ func main() {
 	if *portFlag > 0 {
 		cfg.Port = *portFlag
 	}
+	cfg.UseTLS = *tlsFlag
 
-	if err := ensureTLSCert(cfg); err != nil {
-		logger.Fatalf("ensure TLS cert: %v", err)
+	if cfg.UseTLS {
+		if err := ensureTLSCert(cfg); err != nil {
+			logger.Fatalf("ensure TLS cert: %v", err)
+		}
 	}
 
 	if err := saveConfig(cfg); err != nil {
@@ -91,13 +108,23 @@ func main() {
 		_ = srv.HTTP.Shutdown(shutdownCtx)
 	}()
 
-	logger.Printf("flowtex-helper %s listening on https://127.0.0.1:%d (config: %s)",
-		helperVersion, cfg.Port, cfg.Path)
+	scheme := "http"
+	if cfg.UseTLS {
+		scheme = "https"
+	}
+	logger.Printf("flowtex-helper %s listening on %s://127.0.0.1:%d (config: %s)",
+		helperVersion, scheme, cfg.Port, cfg.Path)
 	logger.Printf("allowed origins: %v", cfg.AllowedOrigins)
 	logger.Printf("first-time pairing? run: flowtex-helper pair")
 
-	if err := srv.HTTP.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Fatalf("listen: %v", err)
+	var listenErr error
+	if cfg.UseTLS {
+		listenErr = srv.HTTP.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+	} else {
+		listenErr = srv.HTTP.ListenAndServe()
+	}
+	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
+		logger.Fatalf("listen: %v", listenErr)
 	}
 	logger.Print("shutdown complete")
 }

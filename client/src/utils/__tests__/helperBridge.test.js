@@ -160,6 +160,56 @@ describe('pairWithHelper', () => {
   });
 });
 
+describe('scheme fallback (http → https when http fails)', () => {
+  // The helper listens on http by default but a --tls user has it on
+  // https only. The bridge probes the cached scheme first, falls back
+  // on network error. Cover both directions so a regression cant lock
+  // out either operator mode.
+
+  it('falls back to https when http throws', async () => {
+    setHelperToken('a'.repeat(64));
+    const seenUrls = [];
+    global.fetch = vi.fn((url) => {
+      seenUrls.push(url);
+      if (url.startsWith('http://')) {
+        return Promise.reject(new Error('connect refused'));
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, pdf: 'JVBERg==', log: '' }),
+      });
+    });
+    const result = await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
+    expect(result.ok).toBe(true);
+    expect(seenUrls).toHaveLength(2);
+    expect(seenUrls[0]).toMatch(/^http:\/\//);
+    expect(seenUrls[1]).toMatch(/^https:\/\//);
+  });
+
+  it('uses cached scheme on subsequent calls (no double-probe)', async () => {
+    setHelperToken('a'.repeat(64));
+    // First call: http fails, https wins → cache should remember https.
+    let callCount = 0;
+    global.fetch = vi.fn((url) => {
+      callCount++;
+      if (url.startsWith('http://')) return Promise.reject(new Error('no'));
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, pdf: 'JVBERg==', log: '' }),
+      });
+    });
+    await compileLocal({ jobId: 'j1', mainFile: 'main.tex', files: [] });
+    const afterFirst = callCount;
+    // Second call: cache is now https, should not retry http.
+    await compileLocal({ jobId: 'j2', mainFile: 'main.tex', files: [] });
+    // Each compileLocal should have done exactly 1 fetch (no fallback
+    // needed) on the second call.
+    expect(callCount - afterFirst).toBe(1);
+  });
+});
+
 describe('token storage', () => {
   it('round-trips via setHelperToken / getHelperToken / clearHelperToken', () => {
     expect(getHelperToken()).toBe('');

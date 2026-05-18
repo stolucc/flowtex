@@ -80,15 +80,19 @@ app.use(
           "'self'",
           ...(isProduction ? [] : ['ws:', 'wss:']),
           // When local-compile is enabled, the client fetches against the
-          // flowtex-helper binary on the user's machine. Both the dev
-          // loopback URL (https://localhost:9876) and the planned production
-          // hostname (https://helper.localhost.flowtex.click:9876, DNS A
-          // → 127.0.0.1) are listed so a switch from self-signed to
-          // Let's-Encrypt later does not need a CSP edit. Gated on the
-          // feature flag — operators who do not use local compile keep
-          // the tighter default.
+          // flowtex-helper binary on the user's machine. The helper
+          // listens on http://localhost:9876 by default (the W3C Secure
+          // Contexts spec marks http://localhost as a "potentially
+          // trustworthy" origin, exempt from mixed-content blocking).
+          // The https variant is included too for users who launch the
+          // helper with --tls. Gated on the feature flag — operators
+          // who do not use local compile keep the tighter default.
           ...(isLocalCompileEnabled()
-            ? ['https://localhost:9876', 'https://helper.localhost.flowtex.click:9876']
+            ? [
+                'http://localhost:9876',
+                'https://localhost:9876',
+                'https://helper.localhost.flowtex.click:9876',
+              ]
             : []),
         ],
         fontSrc: ["'self'", 'data:'],

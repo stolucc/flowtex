@@ -734,12 +734,7 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
                   <span style={{ color: '#ef4444' }}>●</span>{' '}
                   Helper not detected on this machine.
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Install <code>flowtex-helper</code> from the repo helper/ directory, run it, then click below to retry.
-                    {' '}
-                    <a href="https://127.0.0.1:9876/health" target="_blank" rel="noopener noreferrer">
-                      Accept the self-signed cert first
-                    </a>
-                    {' '}— a browser exception is required for the localhost loopback.
+                    Install <code>flowtex-helper</code> from the repo <code>helper/</code> directory and run it in a terminal: <code>./flowtex-helper</code>. Then click Retry below.
                   </div>
                   <button
                     type="button"

@@ -1,19 +1,65 @@
 // Thin wrapper around fetch() targeting the local flowtex-helper binary.
 //
-// Phase 1: helper terminates TLS with a self-signed cert and we hit it via
-// https://localhost:9876. The user has to accept the cert exception once
-// (browsers cache that per-origin), then this works for the lifetime of
-// the cert (10 years).
+// The helper listens on http://localhost:9876 by default. Modern browsers
+// treat http://localhost as a "potentially trustworthy" origin (W3C Secure
+// Contexts §3.1), so a fetch from a HTTPS-served FlowTex tab to plain HTTP
+// localhost is NOT mixed-content-blocked. This eliminates the self-signed-
+// cert acceptance dance that earlier phases required.
 //
-// Phase 2 plan: ship a Lets-Encrypt cert for helper.localhost.flowtex.click
-// (DNS A record → 127.0.0.1, see LOCAL_COMPILE_DESIGN.md §7.4) so the
-// self-signed-cert step goes away.
+// Security is still real: token auth + origin allowlist + Host pin all
+// apply. The only thing dropped vs the old TLS mode is integrity-on-the-
+// wire over loopback — which on localhost is moot, traffic never leaves
+// the machine.
 //
-// Auth: bearer token paired via the tray-code handshake (LOCAL_COMPILE_DESIGN.md §7.3).
-// Stored in localStorage under `flowtex.helper.token`. Cleared on unpair.
+// Users who want TLS regardless can launch the helper with --tls; the
+// bridge transparently uses https in that case via the HELPER_BASE_HTTPS
+// fallback below. We probe http first because it is the new default.
+//
+// Auth: bearer token paired via the tray-code handshake. Stored in
+// localStorage under `flowtex.helper.token`. Cleared on unpair.
 
-const HELPER_BASE = 'https://localhost:9876';
+const HELPER_BASE_HTTP = 'http://localhost:9876';
+const HELPER_BASE_HTTPS = 'https://localhost:9876';
+// Cache which scheme answered most recently so we don't double-probe
+// every request. Lives in localStorage so a refresh remembers.
+const SCHEME_CACHE_KEY = 'flowtex.helper.scheme';
 const TOKEN_STORAGE_KEY = 'flowtex.helper.token';
+
+function getCachedBase() {
+  try {
+    const cached = window.localStorage.getItem(SCHEME_CACHE_KEY);
+    if (cached === 'https') return HELPER_BASE_HTTPS;
+    return HELPER_BASE_HTTP;
+  } catch { return HELPER_BASE_HTTP; }
+}
+
+function rememberBase(url) {
+  try {
+    const scheme = url.startsWith('https://') ? 'https' : 'http';
+    window.localStorage.setItem(SCHEME_CACHE_KEY, scheme);
+  } catch { /* private mode — ignore */ }
+}
+
+// Try the preferred scheme first, fall back to the other on network error.
+// Used by pingHealth / fetchHelperVersion / pairWithHelper. compileLocal
+// uses the cached base directly because by then we know which one works.
+async function fetchTryBoth(path, opts) {
+  const first = getCachedBase();
+  const second = first === HELPER_BASE_HTTPS ? HELPER_BASE_HTTP : HELPER_BASE_HTTPS;
+  try {
+    const res = await fetch(first + path, opts);
+    rememberBase(first);
+    return res;
+  } catch {
+    try {
+      const res = await fetch(second + path, opts);
+      rememberBase(second);
+      return res;
+    } catch (err) {
+      throw err;
+    }
+  }
+}
 
 export function getHelperToken() {
   try { return window.localStorage.getItem(TOKEN_STORAGE_KEY) || ''; }
@@ -60,7 +106,7 @@ export async function pingHealth() {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 1500);
     try {
-      const res = await fetch(`${HELPER_BASE}/health`, { signal: ctl.signal });
+      const res = await fetchTryBoth('/health', { signal: ctl.signal });
       return res.ok;
     } finally { clearTimeout(timer); }
   } catch {
@@ -81,7 +127,7 @@ export async function fetchHelperVersion() {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 2000);
     try {
-      const res = await fetch(`${HELPER_BASE}/version`, {
+      const res = await fetchTryBoth('/version', {
         headers: { Authorization: `Bearer ${token}` },
         signal: ctl.signal,
       });
@@ -126,7 +172,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
   }
   let res;
   try {
-    res = await fetch(`${HELPER_BASE}/compile`, {
+    res = await fetchTryBoth('/compile', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -179,7 +225,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
 export async function pairWithHelper(code) {
   if (!/^\d{6}$/.test(String(code || ''))) return { ok: false, error: 'Code must be 6 digits' };
   try {
-    const res = await fetch(`${HELPER_BASE}/pair?code=${encodeURIComponent(code)}`, {
+    const res = await fetchTryBoth(`/pair?code=${encodeURIComponent(code)}`, {
       method: 'POST',
     });
     if (!res.ok) return { ok: false, error: `Helper returned ${res.status}` };

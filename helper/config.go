@@ -28,6 +28,10 @@ type config struct {
 	Path     string `json:"-"`
 	CertFile string `json:"-"`
 	KeyFile  string `json:"-"`
+
+	// Runtime listen mode. Set from the --tls flag at startup. Not
+	// persisted — restarting without --tls returns to plain HTTP.
+	UseTLS bool `json:"-"`
 }
 
 const defaultPort = 9876

@@ -48,26 +48,30 @@ On first run the helper creates `~/.flowtex-helper/`:
 ```
 ~/.flowtex-helper/
   config.json       # bearer token, port (9876), allowed origins
-  certs/
-    helper.crt      # self-signed, valid 10 years
-    helper.key
+  certs/            # only populated if you ran with --tls
 ```
 
-The helper binds to `https://127.0.0.1:9876`. Your browser will reject
-the self-signed certificate the first time. Once:
+The helper binds to **`http://127.0.0.1:9876`** by default. Modern
+browsers treat `http://localhost` as a "potentially trustworthy"
+origin (W3C Secure Contexts §3.1), so a FlowTex tab on HTTPS can
+fetch against the helper directly with no mixed-content blocking and
+no certificate-acceptance step. **You do not need to visit the
+helper URL in a browser before using it.**
 
-1. Visit **https://127.0.0.1:9876/health** in the same browser you use
-   FlowTex with.
-2. Accept the certificate exception (Advanced → Proceed). Chrome caches
-   the exception per-origin, so this is a one-time annoyance.
+If you specifically want TLS (encryption + integrity on loopback —
+moot in most threat models, but available for paranoia mode), pass
+`--tls`:
 
-From then on, FlowTex pages can `fetch()` against the helper without
-warnings.
+```bash
+./flowtex-helper --tls
+```
 
-> A proper Let's-Encrypt cert for `helper.localhost.flowtex.click`
-> (DNS A record → 127.0.0.1) is on the roadmap — eliminates the
-> "accept self-signed cert" step. See `LOCAL_COMPILE_DESIGN.md`
-> §7.4.
+The helper then generates a self-signed cert under `~/.flowtex-helper/certs/`
+(valid 10 years) and serves HTTPS on the same port. Your browser will
+need to accept the cert exception once via
+**https://localhost:9876/health**. The FlowTex client probes both
+schemes automatically, so you can switch between modes without
+re-pairing.
 
 ## Pair with FlowTex
 
