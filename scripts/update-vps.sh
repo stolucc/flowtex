@@ -74,12 +74,34 @@ say "Fetching latest $BRANCH"
 as_app_user "git fetch --quiet origin"
 INCOMING=$(as_app_user "git log --oneline ..origin/$BRANCH 2>/dev/null || true")
 if [ -z "$INCOMING" ]; then
-  ok "Already up to date — nothing to deploy."
-  exit 0
+  ok "Repo is up to date with origin/$BRANCH."
+  # BUT: the running build may still be behind HEAD (e.g. someone
+  # pulled but never rebuilt, or a previous deploy stopped halfway).
+  # Compare the SHA baked into the live client bundle against
+  # current HEAD; if they differ, fall through to rebuild + restart.
+  HEAD_SHA=$(as_app_user "git rev-parse --short HEAD")
+  BUNDLE_SHA=""
+  if [ -f "$APP_DIR/client/dist/index.html" ]; then
+    # The build script injects VITE_BUILD_SHA into the bundle; we
+    # grep for it in the bundled JS. Conservative: if we cant find
+    # it, treat as stale and rebuild.
+    BUNDLE_HASH=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' "$APP_DIR/client/dist/index.html" | head -1 || true)
+    if [ -n "$BUNDLE_HASH" ] && [ -f "$APP_DIR/client/dist/assets/$BUNDLE_HASH" ]; then
+      BUNDLE_SHA=$(grep -oE "\"$HEAD_SHA\"" "$APP_DIR/client/dist/assets/$BUNDLE_HASH" | head -1 | tr -d '"' || true)
+    fi
+  fi
+  if [ -n "$BUNDLE_SHA" ] && [ "$BUNDLE_SHA" = "$HEAD_SHA" ]; then
+    ok "Live build SHA ($BUNDLE_SHA) matches HEAD — nothing to do."
+    exit 0
+  fi
+  warn "Live build is stale (HEAD=$HEAD_SHA, bundle SHA=$BUNDLE_SHA). Rebuilding."
+  FORCE_REBUILD=1
+else
+  echo "Incoming commits:"
+  echo "$INCOMING" | sed 's/^/  /'
+  echo
+  FORCE_REBUILD=0
 fi
-echo "Incoming commits:"
-echo "$INCOMING" | sed 's/^/  /'
-echo
 
 # Record current HEAD so we can show a meaningful diff and so a rollback
 # is one git command away.
