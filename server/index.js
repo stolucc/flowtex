@@ -5,6 +5,7 @@ import session from 'express-session';
 import pgSession from 'connect-pg-simple';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { isLocalCompileEnabled } from './utils/featureFlags.js';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -75,7 +76,21 @@ app.use(
         ],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", ...(isProduction ? [] : ['ws:', 'wss:'])],
+        connectSrc: [
+          "'self'",
+          ...(isProduction ? [] : ['ws:', 'wss:']),
+          // When local-compile is enabled, the client fetches against the
+          // flowtex-helper binary on the user's machine. Both the dev
+          // loopback URL (https://localhost:9876) and the planned production
+          // hostname (https://helper.localhost.flowtex.click:9876, DNS A
+          // → 127.0.0.1) are listed so a switch from self-signed to
+          // Let's-Encrypt later does not need a CSP edit. Gated on the
+          // feature flag — operators who do not use local compile keep
+          // the tighter default.
+          ...(isLocalCompileEnabled()
+            ? ['https://localhost:9876', 'https://helper.localhost.flowtex.click:9876']
+            : []),
+        ],
         fontSrc: ["'self'", 'data:'],
         objectSrc: ["'self'", 'blob:'],
         frameSrc: ["'self'", 'blob:'],
