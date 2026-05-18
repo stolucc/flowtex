@@ -300,14 +300,22 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
     const alive = await pingHealth();
     if (!alive) {
       setHelperStatus({ available: false, loading: false, error: 'unreachable' });
+      // Broadcast so the App.jsx-level useHelperStatus (which feeds the
+      // PdfViewer "not detected" banner) converges with what this modal
+      // sees. Without it, App.jsxs hook may take a full poll cycle to
+      // notice an unreachable->reachable transition (or vice versa)
+      // that the modal already detected here.
+      window.dispatchEvent(new Event('flowtex:helper-status-changed'));
       return;
     }
     const v = await fetchHelperVersion();
     if (!v) {
       setHelperStatus({ available: false, loading: false, error: 'unpaired' });
+      window.dispatchEvent(new Event('flowtex:helper-status-changed'));
       return;
     }
     setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
+    window.dispatchEvent(new Event('flowtex:helper-status-changed'));
   };
   const probeHelper = async () => {
     setHelperStatus((s) => ({ ...s, loading: true }));
