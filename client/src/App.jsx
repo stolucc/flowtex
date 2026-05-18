@@ -28,6 +28,7 @@ import useProject from './hooks/useProject.js';
 import useWebSocket from './hooks/useWebSocket.js';
 import useCompilation from './hooks/useCompilation.js';
 import useHelperStatus from './hooks/useHelperStatus.js';
+import { HelperStatusProvider } from './contexts/HelperStatusContext.jsx';
 import useTrackedChanges from './hooks/useTrackedChanges.js';
 import TrackChangesBar from './components/TrackChangesBar.jsx';
 import TrackChangesPanel from './components/TrackChangesPanel.jsx';
@@ -221,14 +222,16 @@ function AppInner() {
 
   const [showTrackedChangesInPdf, setShowTrackedChangesInPdf] = useState(false);
 
-  // Poll the local helper for liveness only when the user has opted into
-  // local compile somewhere (either as a default or on the current
-  // project). For users on the server default — which is everyone today
-  // — this hook stays disabled and never touches the network.
-  const localOptedIn =
-    !!user?.serverFeatures?.localCompile &&
-    (user?.compileLocation === 'local' || project?.compile_location === 'local');
-  const { status: helperStatusForCompile } = useHelperStatus({ enabled: localOptedIn });
+  // Single helper-status probe loop for the whole app. Enabled whenever
+  // the operator has the feature flag on — every place that wants to
+  // show "is the helper paired" or compute a compile choice reads from
+  // the same context, so they cant disagree. The cost is one fetch
+  // every 3 s (not green) or 60 s (green) against localhost; for users
+  // on the server flag off this hook is fully inert.
+  const helperStatusHook = useHelperStatus({
+    enabled: !!user?.serverFeatures?.localCompile,
+  });
+  const helperStatusForCompile = helperStatusHook.status;
 
   const {
     compiling,
@@ -545,21 +548,24 @@ function AppInner() {
     // fall through to a "not for you" banner.
     const pendingInviteId = new URLSearchParams(window.location.search).get('invite') || null;
     return (
-      <ProjectList
-        onSelect={selectProject}
-        user={user}
-        onLogout={handleLogoutFull}
-        onUserUpdate={setUser}
-        pendingInviteId={pendingInviteId}
-        onAdmin={() => {
-          setShowAdmin(true);
-          window.history.pushState(null, '', '/admin');
-        }}
-      />
+      <HelperStatusProvider value={helperStatusHook}>
+        <ProjectList
+          onSelect={selectProject}
+          user={user}
+          onLogout={handleLogoutFull}
+          onUserUpdate={setUser}
+          pendingInviteId={pendingInviteId}
+          onAdmin={() => {
+            setShowAdmin(true);
+            window.history.pushState(null, '', '/admin');
+          }}
+        />
+      </HelperStatusProvider>
     );
   }
 
   return (
+    <HelperStatusProvider value={helperStatusHook}>
     <EditorRefProvider value={editorRef}>
       <ProjectProvider
         value={{
@@ -1345,6 +1351,7 @@ function AppInner() {
         </div>
       </ProjectProvider>
     </EditorRefProvider>
+    </HelperStatusProvider>
   );
 }
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { get, patch } from '../api.js';
 import { getSetting, setSetting } from '../utils/settings.js';
+import HelperStatusBadge from './HelperStatusBadge.jsx';
 
 /** Accessible toggle switch button. */
 function Toggle({ on, onChange, disabled }) {
@@ -188,6 +189,9 @@ function CompilerSection({
       {localCompileFeatureOn && (
         <div className="settings-group">
           <label className="settings-label">Compile location for this project</label>
+          <div style={{ marginBottom: 8 }}>
+            <HelperStatusBadge size="small" />
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
               <input

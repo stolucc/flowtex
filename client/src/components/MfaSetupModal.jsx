@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 import {
-  pingHealth,
-  fetchHelperVersion,
   pairWithHelper,
   getHelperToken,
   clearHelperToken,
 } from '../utils/helperBridge.js';
 import { detectPlatform, helperAssetName, helperDownloadURL, helperReleasesURL } from '../utils/platformDetect.js';
+import { useHelperStatusContext } from '../contexts/HelperStatusContext.jsx';
+import HelperStatusBadge from './HelperStatusBadge.jsx';
 
 /** Helper-install guide for the "not detected" state. Detects the
  *  users platform and offers a one-click download to the matching
@@ -21,9 +21,8 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
 
   return (
     <div style={{ fontSize: 13 }}>
-      <div style={{ marginBottom: 8 }}>
-        <span style={{ color: '#ef4444' }}>●</span>{' '}
-        Helper not detected. Install once, then run it whenever you want to compile locally.
+      <div style={{ marginBottom: 8, color: 'var(--text-muted)' }}>
+        Install once, then run it whenever you want to compile locally.
       </div>
 
       {/* ── Recommended: one-line installer ───────────────────────── */}
@@ -277,68 +276,16 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
 
   // ── Helper pairing state ───────────────────────────────────────────
   // The helper status object reflects what useHelperStatus would compute,
-  // but here we probe directly when the Compile tab is opened so the user
-  // sees the latest state without leaving and coming back. Three top-level
-  // shapes:
-  //  - { available:false, error:'unreachable' }  → not installed / not running
-  //  - { available:false, error:'unpaired' }     → helper is up, no token / wrong token
-  //  - { available:true,  year:'2025', ... }     → fully paired and healthy
-  const [helperStatus, setHelperStatus] = useState({ available: false, loading: false });
+  // Helper status comes from a shared context — same probe loop that
+  // App.jsx and ProjectSettingsModal read from. No local probe state
+  // here; the previous duplicate-source-of-truth caused multiple bugs.
+  const { status: helperStatus, redetect: probeHelper } = useHelperStatusContext();
   const [pairCode, setPairCode] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairLoading, setPairLoading] = useState(false);
   const [showPairInput, setShowPairInput] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(null);
-
-  // Two probe entry points so the polling ticker doesnt flash
-  // "Detecting…" over an already-green status. The user-initiated
-  // version (button click, tab open) shows the loading state because
-  // there was no prior info; the silent version just settles the new
-  // status without UI churn.
-  const probeHelperSilent = async () => {
-    const alive = await pingHealth();
-    if (!alive) {
-      setHelperStatus({ available: false, loading: false, error: 'unreachable' });
-      // Broadcast so the App.jsx-level useHelperStatus (which feeds the
-      // PdfViewer "not detected" banner) converges with what this modal
-      // sees. Without it, App.jsxs hook may take a full poll cycle to
-      // notice an unreachable->reachable transition (or vice versa)
-      // that the modal already detected here.
-      window.dispatchEvent(new Event('flowtex:helper-status-changed'));
-      return;
-    }
-    const v = await fetchHelperVersion();
-    if (!v) {
-      setHelperStatus({ available: false, loading: false, error: 'unpaired' });
-      window.dispatchEvent(new Event('flowtex:helper-status-changed'));
-      return;
-    }
-    setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
-    window.dispatchEvent(new Event('flowtex:helper-status-changed'));
-  };
-  const probeHelper = async () => {
-    setHelperStatus((s) => ({ ...s, loading: true }));
-    await probeHelperSilent();
-  };
-
-  // Probe on tab open AND keep polling while the tab is visible.
-  // Adaptive cadence:
-  //   - 3 s when not green: user is mid-install / mid-pair, fast feedback
-  //     loop matters (start the helper in a terminal and the badge flips
-  //     within a few seconds).
-  //   - 60 s when green: helpers state is stable, just a periodic
-  //     liveness check so a crashed/killed helper eventually shows up.
-  // Re-runs whenever availability flips because the dep is read at
-  // hook setup time.
-  useEffect(() => {
-    if (tab !== 'compile' || !localCompileFeatureOn) return undefined;
-    probeHelper();
-    const interval = helperStatus.available ? 60_000 : 3_000;
-    const id = setInterval(probeHelperSilent, interval);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, localCompileFeatureOn, helperStatus.available]);
 
   const copyToClipboard = (text, key) => {
     try {
@@ -976,47 +923,34 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
             {/* ── Helper status + pairing ─────────────────────────── */}
             <div style={{ padding: '10px 14px', marginBottom: 16, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>flowtex-helper status</div>
-              {helperStatus.loading && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Detecting…</div>}
-              {!helperStatus.loading && helperStatus.available && (
-                <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                  <span style={{ color: '#16a34a' }}>●</span>{' '}
-                  Paired. TeX Live {helperStatus.year || '?'}
-                  {helperStatus.enginesAvailable?.length > 0 && (
-                    <span style={{ color: 'var(--text-muted)' }}> ({helperStatus.enginesAvailable.join(', ')})</span>
-                  )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <HelperStatusBadge />
+                {helperStatus.available && (
                   <button
                     type="button"
                     onClick={handleUnpair}
-                    style={{ marginLeft: 12, padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                    style={{ padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
                   >
                     Unpair
                   </button>
-                </div>
-              )}
-              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && (
+                )}
+              </div>
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && !showPairInput && (
                 <div style={{ fontSize: 13 }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <span style={{ color: '#f59e0b' }}>●</span>{' '}
-                    Helper is running but not paired with this browser.
-                  </div>
-                  {!showPairInput && (
-                    <>
-                      <CommandBlock
-                        label="In a second terminal, generate a pairing code:"
-                        command="./flowtex-helper pair"
-                        copyKey="pair"
-                        copiedCommand={copiedCommand}
-                        onCopy={copyToClipboard}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPairInput(true)}
-                        style={{ marginTop: 4, padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                      >
-                        Got a code — pair now
-                      </button>
-                    </>
-                  )}
+                  <CommandBlock
+                    label="In a second terminal, generate a pairing code:"
+                    command="./flowtex-helper pair"
+                    copyKey="pair"
+                    copiedCommand={copiedCommand}
+                    onCopy={copyToClipboard}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPairInput(true)}
+                    style={{ marginTop: 4, padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Got a code — pair now
+                  </button>
                 </div>
               )}
               {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unreachable' && (
