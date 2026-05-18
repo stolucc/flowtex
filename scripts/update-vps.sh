@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # FlowTex VPS updater — routine deploy of a new main branch.
 #
-# Run as the flowtex unix user (or root with --become-flowtex) on a host
-# that was previously bootstrapped by provision-vps.sh. Does the safe
-# routine deploy: git pull main, npm ci if package-locks changed,
-# rebuild the client, run the schema migration on next boot, restart
-# the systemd service, then verify the new build is up.
+# Designed to run AS ROOT (sudo). The flowtex service account doesnt
+# have an interactive shell (provision-vps.sh sets it to /usr/sbin/nologin
+# for security), so `sudo -iu flowtex` returns "This account is currently
+# not available." Instead, run this script as root and it will drop to
+# the flowtex user via `sudo -u flowtex` for the file-ownership-sensitive
+# operations (git pull, npm ci, npm run build) and run systemctl
+# directly for the service restart.
 #
-# USAGE
-#   sudo -iu flowtex bash /opt/flowtex/scripts/update-vps.sh
+# USAGE (run on the VPS)
+#   sudo bash /opt/flowtex/scripts/update-vps.sh
 #
-# or, if you keep the script on your laptop and SCP it up:
-#   scp scripts/update-vps.sh flowtex.click:/tmp/
-#   ssh flowtex.click sudo -iu flowtex bash /tmp/update-vps.sh
+# Or from your laptop with SSH:
+#   ssh flowtex.click sudo bash /opt/flowtex/scripts/update-vps.sh
 #
 # ENV
 #   APP_DIR      install location (default: /opt/flowtex)
+#   APP_USER     unix user that owns the app (default: flowtex)
 #   SERVICE      systemd service name (default: flowtex)
 #   BRANCH       branch to deploy (default: main)
 #   SKIP_NPM_CI  set to 1 to skip npm ci even if locks changed (saves time on
@@ -26,6 +28,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/flowtex}"
+APP_USER="${APP_USER:-flowtex}"
 SERVICE="${SERVICE:-flowtex}"
 BRANCH="${BRANCH:-main}"
 SKIP_NPM_CI="${SKIP_NPM_CI:-0}"
@@ -41,13 +44,35 @@ ok()   { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn() { printf '%s⚠%s %s\n' "$YELLOW" "$RESET" "$*"; }
 die()  { printf '%s✗%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 
+# Must be root so we can both `sudo -u $APP_USER` AND `systemctl restart`.
+if [ "$EUID" -ne 0 ]; then
+  die "This script must be run as root (sudo bash $0). It drops to $APP_USER internally for file ops."
+fi
+
+# Wrapper that runs the given command as APP_USER. Uses `sudo -u` (not
+# `sudo -iu`) so we dont need APP_USER to have a login shell — works
+# with /usr/sbin/nologin which provision-vps.sh sets by default.
+# `-H` keeps HOME pointed at APP_USERs home so npm puts its cache in
+# the right place; `-E` lets us pass through PATH-affecting env vars.
+as_app_user() {
+  sudo -u "$APP_USER" -H bash -c "cd $APP_DIR && $*"
+}
+
 [ -d "$APP_DIR" ] || die "APP_DIR ($APP_DIR) does not exist. Did you run provision-vps.sh first?"
+if ! id "$APP_USER" >/dev/null 2>&1; then
+  die "User '$APP_USER' does not exist. Set APP_USER=<name> or check provision-vps.sh ran."
+fi
 cd "$APP_DIR"
+
+# Allow root to read $APP_DIR's git repo even though it's owned by
+# $APP_USER. Without this, `git rev-parse` from root in a repo owned
+# by flowtex would fail with "dubious ownership".
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 
 # ── 1. Pull ──────────────────────────────────────────────────────────
 say "Fetching latest $BRANCH"
-git fetch --quiet origin
-INCOMING=$(git log --oneline "..origin/$BRANCH" 2>/dev/null || true)
+as_app_user "git fetch --quiet origin"
+INCOMING=$(as_app_user "git log --oneline ..origin/$BRANCH 2>/dev/null || true")
 if [ -z "$INCOMING" ]; then
   ok "Already up to date — nothing to deploy."
   exit 0
@@ -58,17 +83,17 @@ echo
 
 # Record current HEAD so we can show a meaningful diff and so a rollback
 # is one git command away.
-PREV_HEAD=$(git rev-parse HEAD)
-PREV_SHA=$(git rev-parse --short HEAD)
+PREV_HEAD=$(as_app_user "git rev-parse HEAD")
+PREV_SHA=$(as_app_user "git rev-parse --short HEAD")
 
 # Check we're not on a dirty working tree (would block ff merge).
-if ! git diff-index --quiet HEAD --; then
-  die "Working tree is dirty. 'git status' to see what; commit, stash, or reset before deploying."
+if ! as_app_user "git diff-index --quiet HEAD --"; then
+  die "Working tree is dirty. As $APP_USER: cd $APP_DIR && git status — commit, stash, or reset before deploying."
 fi
 
 # ── 2. Detect what changed ──────────────────────────────────────────
 say "Checking what's affected"
-CHANGED_FILES=$(git diff --name-only "$PREV_HEAD" "origin/$BRANCH")
+CHANGED_FILES=$(as_app_user "git diff --name-only $PREV_HEAD origin/$BRANCH")
 NEEDS_CLIENT_BUILD=0
 NEEDS_SERVER_RESTART=0
 NEEDS_NPM_CI_SERVER=0
@@ -95,8 +120,8 @@ echo
 
 # ── 3. Apply the pull ───────────────────────────────────────────────
 say "Pulling $BRANCH"
-git pull --ff-only origin "$BRANCH"
-NEW_SHA=$(git rev-parse --short HEAD)
+as_app_user "git pull --ff-only origin $BRANCH"
+NEW_SHA=$(as_app_user "git rev-parse --short HEAD")
 ok "HEAD: $PREV_SHA → $NEW_SHA"
 
 # ── 4. npm ci if locks changed ──────────────────────────────────────
@@ -105,12 +130,12 @@ if [ "$SKIP_NPM_CI" = "1" ]; then
 else
   if [ $NEEDS_NPM_CI_SERVER -eq 1 ]; then
     say "Installing server deps (server/package-lock.json changed)"
-    (cd server && npm ci --omit=dev)
+    as_app_user "cd server && npm ci --omit=dev"
     ok "Server deps updated."
   fi
   if [ $NEEDS_NPM_CI_CLIENT -eq 1 ]; then
     say "Installing client deps (client/package-lock.json changed)"
-    (cd client && npm ci)
+    as_app_user "cd client && npm ci"
     ok "Client deps updated."
   fi
 fi
@@ -118,8 +143,8 @@ fi
 # ── 5. Build client ─────────────────────────────────────────────────
 if [ $NEEDS_CLIENT_BUILD -eq 1 ]; then
   say "Building client"
-  (cd client && npm run build)
-  BUNDLE=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' client/dist/index.html | head -1 || echo "(unknown)")
+  as_app_user "cd client && npm run build"
+  BUNDLE=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' "$APP_DIR/client/dist/index.html" | head -1 || echo "(unknown)")
   ok "New bundle: $BUNDLE"
 else
   warn "No client/ changes — skipping rebuild."
@@ -129,13 +154,14 @@ fi
 if [ $NEEDS_SERVER_RESTART -eq 1 ]; then
   say "Restarting $SERVICE"
   if command -v systemctl >/dev/null && systemctl list-units --type=service --all | grep -q "^${SERVICE}.service"; then
-    sudo systemctl restart "$SERVICE"
+    # Running as root already, so no sudo prefix needed.
+    systemctl restart "$SERVICE"
     sleep 2
     if systemctl is-active --quiet "$SERVICE"; then
       ok "$SERVICE is running."
     else
-      sudo systemctl status "$SERVICE" --no-pager | tail -20
-      die "$SERVICE failed to start. Restore with: git reset --hard $PREV_SHA && (cd client && npm run build) && sudo systemctl restart $SERVICE"
+      systemctl status "$SERVICE" --no-pager | tail -20
+      die "$SERVICE failed to start. Restore with: cd $APP_DIR && sudo -u $APP_USER git reset --hard $PREV_SHA && sudo -u $APP_USER bash -c 'cd client && npm run build' && systemctl restart $SERVICE"
     fi
   else
     warn "No systemd unit named '$SERVICE' found. Restart your process manager manually."
@@ -157,10 +183,9 @@ fi
 # ── 8. Print rollback recipe for the lazy / panicked future-you ─────
 echo
 say "Rollback (if you need it):"
-echo "  cd $APP_DIR"
-echo "  git reset --hard $PREV_SHA"
-[ $NEEDS_CLIENT_BUILD -eq 1 ]    && echo "  (cd client && npm run build)"
-[ $NEEDS_SERVER_RESTART -eq 1 ]  && echo "  sudo systemctl restart $SERVICE"
+echo "  sudo -u $APP_USER bash -c 'cd $APP_DIR && git reset --hard $PREV_SHA'"
+[ $NEEDS_CLIENT_BUILD -eq 1 ]    && echo "  sudo -u $APP_USER bash -c 'cd $APP_DIR/client && npm run build'"
+[ $NEEDS_SERVER_RESTART -eq 1 ]  && echo "  systemctl restart $SERVICE"
 
 echo
 ok "Deploy complete: $PREV_SHA → $NEW_SHA"
