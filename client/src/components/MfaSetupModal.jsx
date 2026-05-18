@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { get, post, put, patch, del } from '../api.js';
+import {
+  pingHealth,
+  fetchHelperVersion,
+  pairWithHelper,
+  getHelperToken,
+  clearHelperToken,
+} from '../utils/helperBridge.js';
 
 /** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
 export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
@@ -26,6 +33,73 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
   const [compileLocSuccess, setCompileLocSuccess] = useState('');
   const [compileLocLoading, setCompileLocLoading] = useState(false);
   const localCompileFeatureOn = !!user.serverFeatures?.localCompile;
+
+  // ── Helper pairing state ───────────────────────────────────────────
+  // The helper status object reflects what useHelperStatus would compute,
+  // but here we probe directly when the Compile tab is opened so the user
+  // sees the latest state without leaving and coming back. Three top-level
+  // shapes:
+  //  - { available:false, error:'unreachable' }  → not installed / not running
+  //  - { available:false, error:'unpaired' }     → helper is up, no token / wrong token
+  //  - { available:true,  year:'2025', ... }     → fully paired and healthy
+  const [helperStatus, setHelperStatus] = useState({ available: false, loading: false });
+  const [pairCode, setPairCode] = useState('');
+  const [pairError, setPairError] = useState('');
+  const [pairLoading, setPairLoading] = useState(false);
+  const [showPairInput, setShowPairInput] = useState(false);
+
+  const probeHelper = async () => {
+    setHelperStatus((s) => ({ ...s, loading: true }));
+    const alive = await pingHealth();
+    if (!alive) {
+      setHelperStatus({ available: false, loading: false, error: 'unreachable' });
+      return;
+    }
+    const v = await fetchHelperVersion();
+    if (!v) {
+      setHelperStatus({ available: false, loading: false, error: 'unpaired' });
+      return;
+    }
+    setHelperStatus({ available: true, loading: false, year: v.year, enginesAvailable: v.enginesAvailable, biber: v.biber });
+  };
+
+  // Probe automatically when the Compile tab is opened (only when the
+  // feature is on and the tab is actually visible).
+  useEffect(() => {
+    if (tab === 'compile' && localCompileFeatureOn) {
+      probeHelper();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, localCompileFeatureOn]);
+
+  const handlePairSubmit = async (e) => {
+    e.preventDefault();
+    setPairError('');
+    if (!/^\d{6}$/.test(pairCode)) {
+      setPairError('Pairing code must be 6 digits');
+      return;
+    }
+    setPairLoading(true);
+    try {
+      const result = await pairWithHelper(pairCode);
+      if (!result.ok) {
+        setPairError(result.error || 'Pairing failed');
+      } else {
+        setShowPairInput(false);
+        setPairCode('');
+        await probeHelper();
+      }
+    } catch (err) {
+      setPairError(err?.message || 'Pairing failed');
+    } finally {
+      setPairLoading(false);
+    }
+  };
+
+  const handleUnpair = () => {
+    clearHelperToken();
+    probeHelper();
+  };
 
   // ── Change email state ─────────────────────────────────────────────
   const [emailNewVal, setEmailNewVal] = useState('');
@@ -620,6 +694,96 @@ export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDelete
 
         {tab === 'compile' && localCompileFeatureOn && (
           <div className="settings-section">
+            {/* ── Helper status + pairing ─────────────────────────── */}
+            <div style={{ padding: '10px 14px', marginBottom: 16, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>flowtex-helper status</div>
+              {helperStatus.loading && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Detecting…</div>}
+              {!helperStatus.loading && helperStatus.available && (
+                <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                  <span style={{ color: '#16a34a' }}>●</span>{' '}
+                  Paired. TeX Live {helperStatus.year || '?'}
+                  {helperStatus.enginesAvailable?.length > 0 && (
+                    <span style={{ color: 'var(--text-muted)' }}> ({helperStatus.enginesAvailable.join(', ')})</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleUnpair}
+                    style={{ marginLeft: 12, padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Unpair
+                  </button>
+                </div>
+              )}
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && (
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ color: '#f59e0b' }}>●</span>{' '}
+                  Helper is running but not paired with this browser.
+                  {!showPairInput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPairInput(true)}
+                      style={{ marginLeft: 8, padding: '2px 10px', fontSize: 12, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                    >
+                      Pair helper
+                    </button>
+                  )}
+                </div>
+              )}
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unreachable' && (
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ color: '#ef4444' }}>●</span>{' '}
+                  Helper not detected on this machine.
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Install <code>flowtex-helper</code> from the repo helper/ directory, run it, then click below to retry.
+                    {' '}
+                    <a href="https://127.0.0.1:9876/health" target="_blank" rel="noopener noreferrer">
+                      Accept the self-signed cert first
+                    </a>
+                    {' '}— a browser exception is required for the localhost loopback.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={probeHelper}
+                    style={{ marginTop: 6, padding: '2px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Retry detection
+                  </button>
+                </div>
+              )}
+              {showPairInput && (
+                <form onSubmit={handlePairSubmit} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    placeholder="6-digit code"
+                    value={pairCode}
+                    onChange={(e) => { setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setPairError(''); }}
+                    maxLength={6}
+                    style={{ padding: '4px 8px', fontSize: 13, width: 110, fontFamily: 'monospace', letterSpacing: 2, border: '1px solid var(--border)', borderRadius: 4 }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={pairLoading || pairCode.length !== 6}
+                    style={{ padding: '4px 12px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: pairCode.length === 6 ? 'pointer' : 'not-allowed', opacity: pairCode.length === 6 ? 1 : 0.6 }}
+                  >
+                    {pairLoading ? 'Pairing…' : 'Pair'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowPairInput(false); setPairCode(''); setPairError(''); }}
+                    style={{ padding: '4px 12px', fontSize: 13, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                </form>
+              )}
+              {pairError && <div className="auth-error" style={{ marginTop: 6 }}>{pairError}</div>}
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                To generate a code, run <code>flowtex-helper pair</code> in a terminal where the helper is running.
+              </div>
+            </div>
+
             <p className="mfa-description">
               Default compile location for projects you open. Each project can override this in its own settings.
             </p>

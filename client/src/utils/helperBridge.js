@@ -1,19 +1,18 @@
 // Thin wrapper around fetch() targeting the local flowtex-helper binary.
-// The helper exposes its API on https://helper.localhost.flowtex.click:9876
-// (DNS A record points to 127.0.0.1, helper terminates TLS with a real
-// Lets-Encrypt cert — see LOCAL_COMPILE_DESIGN.md §7.4 for why the
-// elaborate hostname dance instead of plain http://127.0.0.1).
 //
-// Auth: bearer token paired via the tray-code handshake (§7.3). Stored in
-// localStorage under `flowtex.helper.token`. Cleared on unpair.
+// Phase 1: helper terminates TLS with a self-signed cert and we hit it via
+// https://localhost:9876. The user has to accept the cert exception once
+// (browsers cache that per-origin), then this works for the lifetime of
+// the cert (10 years).
 //
-// Status: as of Phase 3, this module exposes the shape the rest of the
-// app needs but pingHealth() will always return `{ available: false }`
-// for users who haven't installed and paired a helper. Once the helper
-// binary ships (Phase 1), the same endpoints become reachable and this
-// file flips on automatically.
+// Phase 2 plan: ship a Lets-Encrypt cert for helper.localhost.flowtex.click
+// (DNS A record → 127.0.0.1, see LOCAL_COMPILE_DESIGN.md §7.4) so the
+// self-signed-cert step goes away.
+//
+// Auth: bearer token paired via the tray-code handshake (LOCAL_COMPILE_DESIGN.md §7.3).
+// Stored in localStorage under `flowtex.helper.token`. Cleared on unpair.
 
-const HELPER_BASE = 'https://helper.localhost.flowtex.click:9876';
+const HELPER_BASE = 'https://localhost:9876';
 const TOKEN_STORAGE_KEY = 'flowtex.helper.token';
 
 export function getHelperToken() {
