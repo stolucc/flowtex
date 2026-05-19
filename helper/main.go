@@ -34,6 +34,14 @@ import (
 func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
+	// Prepend the standard TeX Live + Homebrew locations to $PATH so
+	// the helper can find latexmk / tex / pdflatex even when launched
+	// as a macOS .app (launchd hands GUI apps a bare PATH that
+	// excludes /Library/TeX/texbin and /usr/local/texlive/*). Without
+	// this, year detection fails and the FlowTex badge shows
+	// "TeX Live ?" after a successful pair — and compile fails.
+	augmentPathForTeX()
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "pair":
