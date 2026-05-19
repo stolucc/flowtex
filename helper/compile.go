@@ -45,6 +45,10 @@ type compileRequest struct {
 	MainFile           string        `json:"mainFile"`
 	Compiler           string        `json:"compiler"`
 	ShowTrackedChanges bool          `json:"showTrackedChanges"`
+	// TexDistribution is an optional year ("2024") pinning compile to
+	// /usr/local/texlive/<year>/bin/<arch>. Empty / unknown year =
+	// use the default on $PATH.
+	TexDistribution    string        `json:"texDistribution"`
 	Files              []compileFile `json:"files"`
 }
 
@@ -78,6 +82,35 @@ func runCompile(ctx context.Context, cfg *config, req *compileRequest) compileRe
 	}
 	if tex.Latexmk == "" {
 		return compileResponse{Error: "latexmk not found on PATH; install TeX Live"}
+	}
+
+	// Year pinning: if the project specifies a TeX Live year and that
+	// year is installed here, override the latexmk binary + the env
+	// PATH for this compile so binaries in the chosen distribution
+	// are found ahead of the default one. Unknown year falls back to
+	// the default detector silently; the user already saw the year
+	// in the picker, so a silent fallback would mask a config bug —
+	// instead, return a clear error.
+	pinnedBinDir := ""
+	if req.TexDistribution != "" {
+		match := texDistribution{}
+		for _, d := range tex.DistributionsAvailable {
+			if d.Year == req.TexDistribution {
+				match = d
+				break
+			}
+		}
+		if match.Path == "" {
+			return compileResponse{
+				Error: fmt.Sprintf("TeX Live %s is not installed on this machine (available: %s)",
+					req.TexDistribution, summariseYears(tex.DistributionsAvailable)),
+			}
+		}
+		pinnedBinDir = match.Path
+		// Switch latexmk to the pinned distribution if it ships one.
+		if pinned := filepath.Join(pinnedBinDir, "latexmk"); fileExists(pinned) {
+			tex.Latexmk = pinned
+		}
 	}
 
 	// Per-job temp dir, mode 0700, deleted on return.
@@ -141,7 +174,30 @@ func runCompile(ctx context.Context, cfg *config, req *compileRequest) compileRe
 	defer cancel()
 	cmd := exec.CommandContext(tctx, tex.Latexmk, args...)
 	cmd.Dir = jobDir
-	cmd.Env = append(os.Environ(),
+	env := os.Environ()
+	if pinnedBinDir != "" {
+		// Prepend the pinned distribution's bin dir so engine binaries
+		// (pdflatex / xelatex / lualatex), kpsewhich, mktexlsr, etc.
+		// resolve to the pinned year, not whatever's first on the
+		// inherited PATH. We mutate a copy of os.Environ() so the
+		// helper's own PATH (used by detectTex on subsequent
+		// requests) is untouched.
+		newEnv := make([]string, 0, len(env))
+		injected := false
+		for _, e := range env {
+			if !injected && strings.HasPrefix(e, "PATH=") {
+				newEnv = append(newEnv, "PATH="+pinnedBinDir+string(os.PathListSeparator)+e[len("PATH="):])
+				injected = true
+				continue
+			}
+			newEnv = append(newEnv, e)
+		}
+		if !injected {
+			newEnv = append(newEnv, "PATH="+pinnedBinDir)
+		}
+		env = newEnv
+	}
+	cmd.Env = append(env,
 		"openin_any=p",
 		"openout_any=p",
 	)
@@ -223,6 +279,28 @@ func isSafeRelPath(p string) bool {
 		return false
 	}
 	return true
+}
+
+// summariseYears returns a comma-joined string of the years in `ds`,
+// used in the "not installed" error path so the user can see what IS
+// available without re-fetching /version.
+func summariseYears(ds []texDistribution) string {
+	if len(ds) == 0 {
+		return "none"
+	}
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.Year)
+	}
+	return strings.Join(out, ", ")
+}
+
+// fileExists reports whether `p` resolves to a regular file (or a
+// symlink pointing at one). Used to gate the "switch latexmk to the
+// pinned year" path.
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 // stripJobDirPaths replaces every absolute path that contains the job

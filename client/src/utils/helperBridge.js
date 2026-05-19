@@ -134,12 +134,21 @@ export async function fetchHelperVersion() {
       if (!res.ok) return null;
       const data = await res.json();
       if (!data || typeof data !== 'object') return null;
+      // distributions_available is the full list of installed TeX
+      // Live years the helper detected (typically just one, but
+      // install-texlive-year.sh users can have several side-by-side).
+      // The picker UI unions these with the server's list so the user
+      // can pin a project to any year reachable on either side.
+      const dists = Array.isArray(data.distributions_available) ? data.distributions_available : [];
       return {
         engine: typeof data.engine === 'string' ? data.engine : '',
         year: typeof data.year === 'string' ? data.year : '',
         scheme: typeof data.scheme === 'string' ? data.scheme : '',
         enginesAvailable: Array.isArray(data.engines_available) ? data.engines_available : [],
         biber: typeof data.biber === 'string' ? data.biber : '',
+        distributionsAvailable: dists
+          .filter((d) => d && typeof d.year === 'string')
+          .map((d) => ({ year: d.year, path: typeof d.path === 'string' ? d.path : '' })),
       };
     } finally { clearTimeout(timer); }
   } catch {
@@ -165,7 +174,7 @@ export async function fetchHelperVersion() {
  * `fatal` distinguishes "the helper bridge is broken, retry on server"
  * from "the latex itself blew up, retrying on server is pointless".
  */
-export async function compileLocal({ jobId, mainFile, compiler, showTrackedChanges, files }) {
+export async function compileLocal({ jobId, mainFile, compiler, showTrackedChanges, texDistribution, files }) {
   const token = getHelperToken();
   if (!token) {
     return { ok: false, fatal: true, error: 'No helper token. Pair the helper in Account Settings.' };
@@ -178,7 +187,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ jobId, mainFile, compiler, showTrackedChanges, files }),
+      body: JSON.stringify({ jobId, mainFile, compiler, showTrackedChanges, texDistribution: texDistribution || '', files }),
     });
   } catch (err) {
     return { ok: false, fatal: true, error: `Helper unreachable: ${err?.message || err}` };

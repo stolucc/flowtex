@@ -192,6 +192,10 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         mainFile: project.main_file || 'main.tex',
         compiler: project.compiler || 'pdflatex',
         showTrackedChanges: !!showTrackedChanges,
+        // Pin local compile to the project's chosen TeX Live year (if
+        // any). Empty string = use whatever the helper has as default
+        // — matches the server-side fallback behaviour.
+        texDistribution: project.tex_distribution || '',
         files: buildLocalPayloadFiles(project, files),
       });
       if (result.ok) {

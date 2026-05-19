@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { get, patch } from '../api.js';
 import { getSetting, setSetting } from '../utils/settings.js';
 import HelperStatusBadge from './HelperStatusBadge.jsx';
+import { useHelperStatusContext } from '../contexts/HelperStatusContext.jsx';
 
 /** Accessible toggle switch button. */
 function Toggle({ on, onChange, disabled }) {
@@ -161,6 +162,32 @@ function CompilerSection({
   userCompileLocation,
   localCompileFeatureOn,
 }) {
+  // Union of server-installed years and helper-installed years. Each
+  // entry tracks where it's available (server / local / both) so the
+  // picker can hint at how the project will actually compile. The
+  // merge is sorted newest-first to keep the UI consistent regardless
+  // of which side has more recent installs.
+  const { status: helperStatus } = useHelperStatusContext();
+  const localDistros = (helperStatus?.distributionsAvailable || []).map((d) => d.year);
+  const merged = [];
+  const seen = new Map();
+  for (const d of distributions) {
+    seen.set(d.year, { year: d.year, version: d.version, server: true, local: localDistros.includes(d.year) });
+  }
+  for (const year of localDistros) {
+    if (!seen.has(year)) {
+      seen.set(year, { year, version: `TeX Live ${year}`, server: false, local: true });
+    }
+  }
+  for (const v of seen.values()) merged.push(v);
+  merged.sort((a, b) => (a.year < b.year ? 1 : -1));
+
+  const originLabel = (d) => {
+    if (d.server && d.local) return 'server + local';
+    if (d.local) return 'local only';
+    return 'server only';
+  };
+
   return (
     <>
       <div className="settings-group">
@@ -178,18 +205,18 @@ function CompilerSection({
           value={texDistribution || ''}
           onChange={(e) => setTexDistribution(e.target.value || null)}
         >
-          {/* distributions is server-sorted newest-first, so [0] is what
-              "latest" resolves to. Surface the year so the user can see
-              exactly which TeX Live they'll be compiled against without
-              having to read a tooltip. */}
+          {/* Merged list: newest-first across server + helper. Origin
+              label tells the user where the year is actually
+              installed — useful when their project compile-location
+              flips between server and local. */}
           <option value="">
-            {distributions.length > 0
-              ? `Latest available — ${distributions[0].year}`
+            {merged.length > 0
+              ? `Latest available — ${merged[0].year}`
               : 'Server default'}
           </option>
-          {distributions.map((d) => (
+          {merged.map((d) => (
             <option key={d.year} value={d.year}>
-              {d.year} — {d.version}
+              {d.year} — {d.version} ({originLabel(d)})
             </option>
           ))}
         </select>

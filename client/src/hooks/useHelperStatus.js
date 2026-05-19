@@ -47,6 +47,7 @@ export default function useHelperStatus({ enabled }) {
       scheme: version.scheme,
       enginesAvailable: version.enginesAvailable,
       biber: version.biber,
+      distributionsAvailable: version.distributionsAvailable || [],
     });
   }, []);
 

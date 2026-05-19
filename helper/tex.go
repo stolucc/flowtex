@@ -7,18 +7,31 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 type texInfo struct {
-	Engine            string   `json:"engine"`             // always "TeX Live" if detected
-	Year              string   `json:"year"`               // e.g. "2025"
-	Scheme            string   `json:"scheme"`             // e.g. "full" — best-effort
-	EnginesAvailable  []string `json:"engines_available"`  // {pdflatex,xelatex,lualatex} found on PATH
-	Biber             string   `json:"biber"`              // e.g. "2.20"
-	Latexmk           string   `json:"latexmk"`            // path to latexmk
+	Engine                  string             `json:"engine"`                   // always "TeX Live" if detected
+	Year                    string             `json:"year"`                     // e.g. "2025" — default-on-PATH version
+	Scheme                  string             `json:"scheme"`                   // e.g. "full" — best-effort
+	EnginesAvailable        []string           `json:"engines_available"`        // {pdflatex,xelatex,lualatex} found on PATH
+	Biber                   string             `json:"biber"`                    // e.g. "2.20"
+	Latexmk                 string             `json:"latexmk"`                  // path to latexmk
+	DistributionsAvailable  []texDistribution  `json:"distributions_available"`  // every /usr/local/texlive/YYYY we can find
+}
+
+// texDistribution describes one of possibly several side-by-side
+// TeX Live installs. The client offers these as picker options when
+// compiling locally so a project pinned to 2024 still compiles with
+// 2024 even if 2026 is the default on $PATH.
+type texDistribution struct {
+	Year string `json:"year"` // "2024"
+	Path string `json:"path"` // "/usr/local/texlive/2024/bin/universal-darwin"
 }
 
 var (
@@ -63,6 +76,39 @@ func detectTex() texInfo {
 	// would tell us, but tlmgr can be slow / require sudo. Skip for
 	// now — leave as empty string; the client only uses Year for the
 	// match check.
+	out.DistributionsAvailable = detectAllDistributions()
+	return out
+}
+
+// detectAllDistributions scans /usr/local/texlive/<year>/bin/<arch>/
+// for every installed annual release. Mirrors the server-side
+// detector in server/compiler.js so the FlowTex picker UI presents
+// a coherent superset across server + helper. Sorted newest-first.
+func detectAllDistributions() []texDistribution {
+	var out []texDistribution
+	base := "/usr/local/texlive"
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		year := e.Name()
+		// 4-digit year only; skip "texmf-local" and friends.
+		if len(year) != 4 {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(base, year, "bin", "*"))
+		for _, m := range matches {
+			if _, err := os.Stat(filepath.Join(m, "pdflatex")); err == nil {
+				out = append(out, texDistribution{Year: year, Path: m})
+				break // one arch per year is enough
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Year > out[j].Year })
 	return out
 }
 
