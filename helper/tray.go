@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,9 +143,12 @@ func refreshStatus(statusMI *systray.MenuItem) {
 }
 
 // handleGeneratePair opens the 60-second pairing window in-process and
-// surfaces the resulting code as a dynamic disabled menu item so the
-// user can read it without flipping to a terminal. The item expires
-// when the pairing window does.
+// surfaces the resulting code three ways at once: a native dialog so
+// the user sees it immediately (clicking the menu item dismisses the
+// menu, so a disabled menu-item alone is invisible until they reopen
+// it); the system clipboard so they can paste into FlowTex; and a
+// persistent disabled menu item so they can re-read after dismissing
+// the dialog. The item updates to "expired" after 60s.
 func handleGeneratePair() {
 	tray.mu.Lock()
 	cfg := tray.cfg
@@ -165,6 +169,12 @@ func handleGeneratePair() {
 	tray.pairExpiry = expiry
 	tray.mu.Unlock()
 
+	// Copy first, then dialog. If the dialog blocks (it does on macOS
+	// until the user clicks OK), the clipboard is already set so the
+	// user can paste mid-dialog.
+	copyToClipboard(code)
+	showPairCodeDialog(code)
+
 	go func() {
 		<-time.After(60 * time.Second)
 		tray.mu.Lock()
@@ -173,6 +183,60 @@ func handleGeneratePair() {
 		}
 		tray.mu.Unlock()
 	}()
+}
+
+// showPairCodeDialog pops a native modal with the code. macOS uses
+// osascript (built into the OS — no extra dependency); Windows uses
+// PowerShell's System.Windows.Forms MessageBox. Both run the dialog
+// in their own process so we don't block the systray goroutine, but
+// we still .Run() to wait — the dialog dismissing is when the user
+// is most likely to switch to FlowTex.
+func showPairCodeDialog(code string) {
+	switch runtime.GOOS {
+	case "darwin":
+		// osascript's display-dialog string is single-line; embed
+		// "\n" explicitly. The code itself is digits-only, so no
+		// quote-escaping concerns.
+		script := fmt.Sprintf(
+			`display dialog "Pairing code:\n\n        %s\n\nValid for 60 seconds. Already copied to clipboard." `+
+				`with title "FlowTex Helper" `+
+				`buttons {"OK"} default button "OK" `+
+				`with icon note`,
+			code,
+		)
+		if err := exec.Command("osascript", "-e", script).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show dialog: %v", err)
+		}
+	case "windows":
+		// Quotes are escaped via PowerShell's backtick. Code is digit-
+		// only so there's no injection surface, but defence-in-depth.
+		ps := fmt.Sprintf(
+			`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('Pairing code: %s`+"`n`n"+`Valid for 60 seconds. Already copied to clipboard.', 'FlowTex Helper') | Out-Null`,
+			code,
+		)
+		if err := exec.Command("powershell", "-NoProfile", "-Command", ps).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show dialog: %v", err)
+		}
+	}
+}
+
+// copyToClipboard places `text` on the system clipboard. macOS pbcopy
+// reads stdin; Windows clip.exe does the same. Best-effort — if the
+// helper fails the user still has the menu item + dialog.
+func copyToClipboard(text string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		return
+	}
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil && tray.logger != nil {
+		tray.logger.Printf("copy to clipboard: %v", err)
+	}
 }
 
 // openBrowser launches the platform's URL handler. No shell, no
