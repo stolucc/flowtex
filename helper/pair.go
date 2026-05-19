@@ -31,6 +31,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -125,7 +126,10 @@ func (p *pairStore) consume(code string) bool {
 		// No active window. Whatever code the client sent, reject.
 		return false
 	}
-	ok := p.code == code
+	// Constant-time compare. The window is loopback-only and codes are
+	// short, so the practical timing attack surface is tiny, but match
+	// the bearer-token path's discipline.
+	ok := subtle.ConstantTimeCompare([]byte(p.code), []byte(code)) == 1
 	if ok {
 		// Single-use: clear the window AND the lock file so we don't
 		// honour the same code twice.

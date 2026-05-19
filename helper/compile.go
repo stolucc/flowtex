@@ -200,8 +200,22 @@ func isSafeRelPath(p string) bool {
 	if filepath.IsAbs(p) {
 		return false
 	}
-	for _, part := range strings.Split(p, string(filepath.Separator)) {
-		if part == "" || part == ".." {
+	// Split on BOTH / and \ regardless of GOOS. Previously this used
+	// filepath.Separator alone, which on Windows is '\'. That meant a
+	// path like "../../etc/passwd" (forward slashes) had no separator
+	// to split on, slipped through the ".." check, and then
+	// filepath.Join would happily clean the slashes and escape the job
+	// dir. Manual scan rather than strings.FieldsFunc so we still see
+	// empty components (e.g. "a//b") and reject them.
+	parts := strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' })
+	// strings.FieldsFunc collapses consecutive separators, so re-scan
+	// to catch "//" / "\\" / mixed cases that imply an empty path
+	// component (and historically signalled a sloppy join).
+	if strings.Contains(p, "//") || strings.Contains(p, "\\\\") || strings.Contains(p, "/\\") || strings.Contains(p, "\\/") {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || part == ".." || part == "." {
 			return false
 		}
 	}

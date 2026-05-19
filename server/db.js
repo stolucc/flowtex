@@ -230,8 +230,14 @@ async function initSchema() {
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
-    -- Mark all existing users as verified (they were created before email verification was added)
-    UPDATE users SET email_verified = TRUE WHERE email_verified = FALSE AND created_at < NOW() - INTERVAL '1 minute';
+    -- NOTE: a one-shot "mark pre-verification users as verified" UPDATE used to
+    -- live here. It was wrong: re-running on every startup, it auto-verified
+    -- ANY unverified account older than 1 minute — meaning an attacker could
+    -- squat a victim's email (registration is first-come) and wait for the
+    -- next deploy to convert the squat into a logged-in account. The legacy
+    -- back-fill ran in April 2026; there is no remaining batch of users this
+    -- could legitimately need to flip. New accounts must verify by clicking
+    -- the email link (or by an admin manually flipping the column).
     -- Local-compile preference (see LOCAL_COMPILE_DESIGN.md). 'server' means
     -- compile happens on the FlowTex VPS (the default and the only path
     -- today). 'local' means the user has opted in to delegating compile to

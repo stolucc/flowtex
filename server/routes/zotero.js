@@ -69,6 +69,14 @@ async function getZoteroAuth(userId) {
 /** Make an authenticated request to the Zotero API and return the parsed response with total count. */
 async function zoteroFetch(path, apiKey, query = {}) {
   const url = new URL(path, ZOTERO_API);
+  // SSRF guard: if `path` is ever passed as an absolute URL (now or in
+  // a future refactor), `new URL(path, base)` lets it override the
+  // base entirely. Pin the origin to the Zotero API so a caller that
+  // accidentally accepts user input here can't redirect us at an
+  // internal service or attacker host.
+  if (url.origin !== new URL(ZOTERO_API).origin) {
+    throw new Error(`zoteroFetch: refusing to fetch non-Zotero origin: ${url.origin}`);
+  }
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   const resp = await fetch(url.toString(), {
     headers: { 'Zotero-API-Key': apiKey, 'Zotero-API-Version': '3' },

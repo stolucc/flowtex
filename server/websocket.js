@@ -103,7 +103,12 @@ async function getSessionFromRequest(req, sessionSecret) {
       return null;
     }
 
-    const row = await db.get('SELECT sess FROM session WHERE sid = $1', [sessionId]);
+    // Enforce session expiry in-query. The HTTP middleware also enforces
+    // the 7-day absolute lifetime, but the WS path bypasses Express
+    // entirely — without this check, a cookie whose `expire` has elapsed
+    // would still authenticate WS connections until connect-pg-simple's
+    // cleanup cron (every 15 min) deletes the row.
+    const row = await db.get('SELECT sess FROM session WHERE sid = $1 AND expire > NOW()', [sessionId]);
     if (!row) return null;
 
     const sess = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;

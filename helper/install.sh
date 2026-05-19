@@ -83,25 +83,38 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 curl -sSL -f -o "$TMP/$ASSET" "$URL"
-curl -sSL -f -o "$TMP/SHA256SUMS" "$CHECKSUMS_URL" || {
-  echo "Warning: could not fetch SHA256SUMS — skipping checksum verification." >&2
-}
 
-# ── Verify checksum (if available) ────────────────────────────────────
-if [ -f "$TMP/SHA256SUMS" ]; then
-  EXPECTED=$(grep "  $ASSET$" "$TMP/SHA256SUMS" | awk '{print $1}' || true)
-  if [ -n "$EXPECTED" ]; then
-    if command -v shasum >/dev/null 2>&1; then
-      ACTUAL=$(shasum -a 256 "$TMP/$ASSET" | awk '{print $1}')
-    else
-      ACTUAL=$(sha256sum "$TMP/$ASSET" | awk '{print $1}')
-    fi
-    if [ "$EXPECTED" != "$ACTUAL" ]; then
-      echo "Checksum mismatch! Expected $EXPECTED, got $ACTUAL. Refusing to install." >&2
-      exit 1
-    fi
-    echo "Checksum verified." >&2
+# ── Verify checksum (fail closed) ─────────────────────────────────────
+# Previously this fell through to "install unverified" when SHA256SUMS
+# couldn't be fetched. That was wrong: an attacker who could disrupt
+# the checksum URL (cache poisoning, partial CDN failure, malicious
+# tampering of the release) but not the binary URL would silently
+# install an unverified Mach-O. Now: missing checksum = abort. Users
+# who genuinely need to skip can opt in explicitly.
+if ! curl -sSL -f -o "$TMP/SHA256SUMS" "$CHECKSUMS_URL"; then
+  if [ "${FLOWTEX_HELPER_SKIP_CHECKSUM:-0}" = "1" ]; then
+    echo "WARNING: SHA256SUMS unavailable and FLOWTEX_HELPER_SKIP_CHECKSUM=1 set — installing UNVERIFIED binary." >&2
+  else
+    echo "ERROR: could not fetch SHA256SUMS from $CHECKSUMS_URL — refusing to install." >&2
+    echo "If you understand the risk, re-run with FLOWTEX_HELPER_SKIP_CHECKSUM=1." >&2
+    exit 1
   fi
+else
+  EXPECTED=$(grep "  $ASSET$" "$TMP/SHA256SUMS" | awk '{print $1}' || true)
+  if [ -z "$EXPECTED" ]; then
+    echo "ERROR: $ASSET not listed in SHA256SUMS — refusing to install." >&2
+    exit 1
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    ACTUAL=$(shasum -a 256 "$TMP/$ASSET" | awk '{print $1}')
+  else
+    ACTUAL=$(sha256sum "$TMP/$ASSET" | awk '{print $1}')
+  fi
+  if [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "Checksum mismatch! Expected $EXPECTED, got $ACTUAL. Refusing to install." >&2
+    exit 1
+  fi
+  echo "Checksum verified." >&2
 fi
 
 # ── Install ───────────────────────────────────────────────────────────

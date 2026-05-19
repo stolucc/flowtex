@@ -31,6 +31,14 @@ func TestIsSafeRelPath(t *testing.T) {
 		"a//b.tex",                             // double separator → empty component
 		"file\x00.tex",                         // null byte
 		"a/" + string(make([]byte, 500)) + ".tex", // length cap (>500)
+		// Regression: Windows path-traversal via forward slashes. The
+		// old check split on filepath.Separator, which on Windows is
+		// '\'; forward-slashed ".." slipped through and filepath.Join
+		// would clean it on Windows builds, escaping the job dir.
+		"..\\escape.tex",
+		"a\\..\\..\\etc\\passwd",
+		"foo/..\\bar.tex",
+		"./relative.tex", // single-dot component
 	}
 	for _, p := range bad {
 		if isSafeRelPath(p) {

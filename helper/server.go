@@ -123,6 +123,15 @@ func (s *server) handlePair(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"token": s.cfg.BearerToken})
 }
 
+// compileMaxBodyBytes caps the JSON payload accepted by /compile. The
+// helper runs on the user's own machine, so the threat model is mostly
+// "a paired browser page that's been compromised tries to fill the
+// disk" — but defense in depth: TeX projects routinely sit comfortably
+// under a few MB even with images base64-inlined. 64 MB is generous
+// for legitimate projects and small enough to short-circuit obvious
+// abuse before we hit os.WriteFile per file.
+const compileMaxBodyBytes = 64 << 20 // 64 MiB
+
 // /compile — authenticated POST. Body shape: compileRequest. Blocks
 // until the compile finishes, then returns compileResponse (with
 // base64-encoded PDF). Cancellation: a sibling POST to /cancel/:jobId
@@ -132,6 +141,7 @@ func (s *server) handleCompile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, compileMaxBodyBytes)
 	defer r.Body.Close()
 	var req compileRequest
 	dec := json.NewDecoder(r.Body)
