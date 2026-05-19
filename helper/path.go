@@ -31,8 +31,33 @@ import (
 // $PATH so the helper finds latexmk / pdflatex / tex / biber whether
 // it was launched from a terminal or from a Launch Agent / .app.
 // Idempotent: paths already on $PATH stay put rather than duplicating.
-func augmentPathForTeX() {
+//
+// If preferYear is non-empty AND /usr/local/texlive/<year>/bin/* exists,
+// that year's bin dir is placed at the *front* of the prepended block
+// so it wins on lookup over any other installed year. Use this to
+// implement the tray's "Default TeX Live" picker.
+func augmentPathForTeX(preferYear string) {
 	candidates := texLikeDirs()
+	// Hoist the preferred year to the front so it beats any other
+	// installed year that ended up in `candidates`.
+	if preferYear != "" {
+		matches, _ := filepath.Glob(filepath.Join("/usr/local/texlive", preferYear, "bin", "*"))
+		// Filter out the preferred-year entries from the existing list
+		// before prepending them — otherwise the first occurrence wins
+		// but the original spot is wasted.
+		hoist := map[string]bool{}
+		for _, m := range matches {
+			hoist[m] = true
+		}
+		filtered := candidates[:0]
+		for _, c := range candidates {
+			if !hoist[c] {
+				filtered = append(filtered, c)
+			}
+		}
+		candidates = append(matches, filtered...)
+	}
+
 	existing := os.Getenv("PATH")
 	have := map[string]bool{}
 	for _, p := range filepath.SplitList(existing) {

@@ -88,6 +88,16 @@ func onTrayReady() {
 
 	pairMI := systray.AddMenuItem("Generate pairing code…", "Print a 6-digit code, valid for 60s")
 	openMI := systray.AddMenuItem("Open FlowTex pairing page", "Opens https://flowtex.click in your browser")
+
+	// Default TeX Live submenu — one entry per /usr/local/texlive/YYYY
+	// the helper can find. Picking one writes the year into config
+	// and rebuilds $PATH so subsequent unpinned compiles (no
+	// `texDistribution` field on the request) use it. Project
+	// Settings pins still override.
+	systray.AddSeparator()
+	distRoot := systray.AddMenuItem("Default TeX Live", "Pick the year used for compile requests without an explicit pin")
+	distItems := buildDistributionMenu(distRoot)
+
 	systray.AddSeparator()
 	quitMI := systray.AddMenuItem("Quit", "Stop the helper and exit")
 
@@ -104,6 +114,17 @@ func onTrayReady() {
 		}
 	}()
 
+	// Dynamic select cases: pair / open / quit + one per distribution.
+	// reflect would tidy this up, but the menu-item count is tiny (one
+	// per /usr/local/texlive/YYYY) so a hand-rolled fan-in is clearer
+	// and avoids pulling reflect in. Each distItem ships its own
+	// goroutine that turns its ClickedCh into a call to
+	// switchDefaultDistribution(year, distItems) which updates check
+	// marks across the whole submenu.
+	for _, item := range distItems {
+		go listenDistributionClick(item, distItems)
+	}
+
 	for {
 		select {
 		case <-pairMI.ClickedCh:
@@ -113,6 +134,98 @@ func onTrayReady() {
 		case <-quitMI.ClickedCh:
 			systray.Quit()
 			return
+		}
+	}
+}
+
+// distributionMenuItem couples a tray entry to the year it represents.
+// Held in a slice so the click handler can iterate and toggle check
+// marks across all entries when the user picks a different default.
+type distributionMenuItem struct {
+	year string
+	item *systray.MenuItem
+}
+
+// buildDistributionMenu populates the "Default TeX Live" submenu with
+// one entry per installed year, plus a "System default" entry meaning
+// "no year preference — first match on PATH wins". The check mark
+// reflects cfg.DefaultTexYear at startup; later picks call
+// switchDefaultDistribution which re-marks atomically.
+func buildDistributionMenu(root *systray.MenuItem) []distributionMenuItem {
+	var items []distributionMenuItem
+
+	// "(System default)" entry first — semantically a clear option
+	// even when there's only one installed year.
+	def := root.AddSubMenuItem("System default", "Let $PATH order decide which year wins")
+	items = append(items, distributionMenuItem{year: "", item: def})
+
+	for _, d := range detectAllDistributions() {
+		mi := root.AddSubMenuItem("TeX Live "+d.Year, "Prefer this year for compiles without an explicit pin")
+		items = append(items, distributionMenuItem{year: d.Year, item: mi})
+	}
+
+	// Apply the current preference: check the matching entry, leave
+	// the rest unchecked.
+	current := ""
+	if cfg, err := loadConfig(); err == nil {
+		current = cfg.DefaultTexYear
+	}
+	for _, it := range items {
+		if it.year == current {
+			it.item.Check()
+		} else {
+			it.item.Uncheck()
+		}
+	}
+	if len(items) == 1 {
+		// Only the System-default entry — no installed distributions
+		// to pick between. Disable the placeholder so the submenu
+		// isn't a dead-end click.
+		def.Disable()
+	}
+	return items
+}
+
+// listenDistributionClick blocks on a single submenu entry's click
+// channel and, on each click, calls switchDefaultDistribution.
+// Forever-loop so a single click doesn't unsubscribe; systray
+// re-arms ClickedCh on every click.
+func listenDistributionClick(self distributionMenuItem, all []distributionMenuItem) {
+	for range self.item.ClickedCh {
+		switchDefaultDistribution(self.year, all)
+	}
+}
+
+// switchDefaultDistribution persists the new preference, recomputes
+// $PATH so future exec.LookPath calls prefer the chosen year, and
+// flips check marks across the submenu so the UI reflects the new
+// state without a relaunch.
+func switchDefaultDistribution(year string, all []distributionMenuItem) {
+	cfg, err := loadConfig()
+	if err != nil {
+		if tray.logger != nil {
+			tray.logger.Printf("switch default distribution: %v", err)
+		}
+		return
+	}
+	cfg.DefaultTexYear = year
+	if err := saveConfig(cfg); err != nil {
+		if tray.logger != nil {
+			tray.logger.Printf("save config: %v", err)
+		}
+		return
+	}
+	// Recompute PATH so the next detectTex() / runCompile sees the
+	// new default first.
+	augmentPathForTeX(year)
+
+	// Flip the check marks. systray doesn't expose a "radio group"
+	// abstraction so we manage exclusivity ourselves.
+	for _, it := range all {
+		if it.year == year {
+			it.item.Check()
+		} else {
+			it.item.Uncheck()
 		}
 	}
 }

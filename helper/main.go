@@ -40,7 +40,16 @@ func main() {
 	// excludes /Library/TeX/texbin and /usr/local/texlive/*). Without
 	// this, year detection fails and the FlowTex badge shows
 	// "TeX Live ?" after a successful pair — and compile fails.
-	augmentPathForTeX()
+	//
+	// If config.json names a preferred TeX year, hoist that one to the
+	// front so it wins on lookup. Falling back to "" when the config
+	// can't be read keeps the helper usable even if ~/.flowtex-helper
+	// is partially broken.
+	preferYear := ""
+	if cfg, err := loadConfig(); err == nil {
+		preferYear = cfg.DefaultTexYear
+	}
+	augmentPathForTeX(preferYear)
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {

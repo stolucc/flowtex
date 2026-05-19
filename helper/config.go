@@ -23,6 +23,12 @@ type config struct {
 	AllowedOrigins []string `json:"allowed_origins"`
 	ShellEscape    bool     `json:"shell_escape"`
 	Telemetry      bool     `json:"telemetry"`
+	// DefaultTexYear, when set, picks which installed TeX Live year
+	// the helper prefers on PATH. Used for compile requests that
+	// don't carry an explicit `texDistribution` (e.g. browser tabs
+	// that haven't pinned one in Project Settings). Empty = whatever
+	// the PATH glob orders first.
+	DefaultTexYear string `json:"default_tex_year,omitempty"`
 
 	// File paths derived from the config location. Not persisted.
 	Path     string `json:"-"`
