@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { get, patch } from '../api.js';
 import { getSetting, setSetting } from '../utils/settings.js';
 import HelperStatusBadge from './HelperStatusBadge.jsx';
@@ -173,15 +173,31 @@ function CompilerSection({
   // server distros, since "local" can't be reached.)
   const { status: helperStatus } = useHelperStatusContext();
   const effectiveLocation = compileLocation || userCompileLocation || 'server';
-  const localDistros = (helperStatus?.distributionsAvailable || []).map((d) => ({
-    year: d.year, version: `TeX Live ${d.year}`,
-  }));
-  const visible = (localCompileFeatureOn && effectiveLocation === 'local')
-    ? localDistros
-    : distributions;
-  // Newest-first regardless of source so the dropdown ordering stays
-  // stable when the user flips compile-location.
-  const sortedVisible = [...visible].sort((a, b) => (a.year < b.year ? 1 : -1));
+  const localDistros = useMemo(
+    () => (helperStatus?.distributionsAvailable || []).map((d) => ({
+      year: d.year, version: `TeX Live ${d.year}`,
+    })),
+    [helperStatus?.distributionsAvailable],
+  );
+  const sortedVisible = useMemo(() => {
+    const visible = (localCompileFeatureOn && effectiveLocation === 'local')
+      ? localDistros
+      : distributions;
+    return [...visible].sort((a, b) => (a.year < b.year ? 1 : -1));
+  }, [localCompileFeatureOn, effectiveLocation, localDistros, distributions]);
+
+  // Flipping compile-location can invalidate the currently-picked year
+  // (e.g. picked "2022 (local-only)", then switched to server-compile
+  // where 2022 isn't installed). Without this, the <select> value
+  // points at a non-existent option — it visually shows blank but the
+  // stale year still lives in state and would save to the DB. Reset
+  // to "latest available" whenever the pick falls outside the visible
+  // list, so the value the user sees matches what gets saved.
+  useEffect(() => {
+    if (!texDistribution) return;
+    if (sortedVisible.some((d) => d.year === texDistribution)) return;
+    setTexDistribution(null);
+  }, [sortedVisible, texDistribution, setTexDistribution]);
 
   return (
     <>
