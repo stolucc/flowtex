@@ -162,31 +162,26 @@ function CompilerSection({
   userCompileLocation,
   localCompileFeatureOn,
 }) {
-  // Union of server-installed years and helper-installed years. Each
-  // entry tracks where it's available (server / local / both) so the
-  // picker can hint at how the project will actually compile. The
-  // merge is sorted newest-first to keep the UI consistent regardless
-  // of which side has more recent installs.
+  // The picker has to be consistent with where compile will actually
+  // run, or you can pick a year that doesn't exist on the side that
+  // ends up doing the work. Resolution:
+  //   - compileLocation === 'server'    → show server-installed years
+  //   - compileLocation === 'local'     → show helper-detected years
+  //   - compileLocation === null (use my default) → show whichever
+  //     the user's account default points to
+  // (FEATURE_LOCAL_COMPILE off is handled by the picker still showing
+  // server distros, since "local" can't be reached.)
   const { status: helperStatus } = useHelperStatusContext();
-  const localDistros = (helperStatus?.distributionsAvailable || []).map((d) => d.year);
-  const merged = [];
-  const seen = new Map();
-  for (const d of distributions) {
-    seen.set(d.year, { year: d.year, version: d.version, server: true, local: localDistros.includes(d.year) });
-  }
-  for (const year of localDistros) {
-    if (!seen.has(year)) {
-      seen.set(year, { year, version: `TeX Live ${year}`, server: false, local: true });
-    }
-  }
-  for (const v of seen.values()) merged.push(v);
-  merged.sort((a, b) => (a.year < b.year ? 1 : -1));
-
-  const originLabel = (d) => {
-    if (d.server && d.local) return 'server + local';
-    if (d.local) return 'local only';
-    return 'server only';
-  };
+  const effectiveLocation = compileLocation || userCompileLocation || 'server';
+  const localDistros = (helperStatus?.distributionsAvailable || []).map((d) => ({
+    year: d.year, version: `TeX Live ${d.year}`,
+  }));
+  const visible = (localCompileFeatureOn && effectiveLocation === 'local')
+    ? localDistros
+    : distributions;
+  // Newest-first regardless of source so the dropdown ordering stays
+  // stable when the user flips compile-location.
+  const sortedVisible = [...visible].sort((a, b) => (a.year < b.year ? 1 : -1));
 
   return (
     <>
@@ -199,27 +194,38 @@ function CompilerSection({
         </select>
       </div>
       <div className="settings-group">
-        <label className="settings-label">TeX Live Distribution</label>
+        <label className="settings-label">
+          TeX Live Distribution
+          {localCompileFeatureOn && (
+            <span style={{ marginLeft: 6, fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>
+              (installed on the {effectiveLocation === 'local' ? 'helper' : 'server'})
+            </span>
+          )}
+        </label>
         <select
           className="settings-input"
           value={texDistribution || ''}
           onChange={(e) => setTexDistribution(e.target.value || null)}
         >
-          {/* Merged list: newest-first across server + helper. Origin
-              label tells the user where the year is actually
-              installed — useful when their project compile-location
-              flips between server and local. */}
+          {/* List is filtered to the side the project will compile
+              on, so a pick can never silently fail because the year
+              doesn't exist over there. */}
           <option value="">
-            {merged.length > 0
-              ? `Latest available — ${merged[0].year}`
-              : 'Server default'}
+            {sortedVisible.length > 0
+              ? `Latest available — ${sortedVisible[0].year}`
+              : (effectiveLocation === 'local' ? 'Helper default' : 'Server default')}
           </option>
-          {merged.map((d) => (
+          {sortedVisible.map((d) => (
             <option key={d.year} value={d.year}>
-              {d.year} — {d.version} ({originLabel(d)})
+              {d.year} — {d.version}
             </option>
           ))}
         </select>
+        {localCompileFeatureOn && effectiveLocation === 'local' && sortedVisible.length === 0 && (
+          <p className="settings-hint" style={{ marginTop: 6 }}>
+            No TeX Live distributions detected on the helper. Compile will use whatever the helper&apos;s default <code>tex</code> resolves to.
+          </p>
+        )}
       </div>
       {localCompileFeatureOn && (
         <div className="settings-group">
