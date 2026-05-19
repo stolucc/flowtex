@@ -196,7 +196,16 @@ router.get('/stats/top-users', async (req, res) => {
       (SELECT COUNT(*)::int FROM project_members WHERE user_id = u.id) AS project_count,
       (SELECT COUNT(*)::int FROM project_snapshots WHERE author_id = u.id) AS edit_count,
       (SELECT COUNT(*)::int FROM comments WHERE author_id = u.id) AS comment_count,
-      (SELECT MAX(created_at) FROM project_snapshots WHERE author_id = u.id) AS last_edit
+      (SELECT MAX(created_at) FROM project_snapshots WHERE author_id = u.id) AS last_edit,
+      -- "last active" is the most recent signal we have that this user
+      -- did SOMETHING — edits + comments cover collaborative work,
+      -- audit_log catches logins, profile changes, settings tweaks, etc.
+      -- GREATEST ignores NULLs, so a user with no history shows NULL.
+      GREATEST(
+        (SELECT MAX(created_at) FROM project_snapshots WHERE author_id = u.id),
+        (SELECT MAX(created_at) FROM comments WHERE author_id = u.id),
+        (SELECT MAX(created_at) FROM audit_log WHERE user_id = u.id)
+      ) AS last_active
     FROM users u
     ORDER BY edit_count DESC
     LIMIT $1
@@ -214,6 +223,7 @@ router.get('/stats/top-users', async (req, res) => {
       editCount: r.edit_count,
       commentCount: r.comment_count,
       lastEdit: r.last_edit,
+      lastActive: r.last_active,
     })),
   );
 });

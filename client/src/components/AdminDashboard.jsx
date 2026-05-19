@@ -504,6 +504,7 @@ export default function AdminDashboard({ onBack }) {
     { key: 'editCount', label: 'Edits' },
     { key: 'commentCount', label: 'Comments' },
     { key: 'createdAt', label: 'Joined', render: (r) => formatDate(r.createdAt) },
+    { key: 'lastActive', label: 'Last Active', render: (r) => r.lastActive ? formatDateTime(r.lastActive) : '—' },
     {
       key: '__delete',
       label: '',
