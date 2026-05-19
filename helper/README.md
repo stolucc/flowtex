@@ -5,9 +5,28 @@ talks to a FlowTex browser tab over a paired bridge, compiles using
 whatever TeX Live you already have installed. Source files and PDFs
 never leave your machine.
 
-Status: **Phase 1, v0.1.0-dev.** Single binary, mac + linux. Windows
-build is deferred. See `LOCAL_COMPILE_DESIGN.md` at the repo root for
-the full architecture and security model.
+Status: **Phase 2, v0.2.0-dev.** Single binary, mac + linux. On macOS
+the binary is shipped inside a `FlowTex Helper.app` bundle and runs as
+a menu-bar app; on Linux it runs headless (no portable tray story).
+Windows build is deferred. See `LOCAL_COMPILE_DESIGN.md` at the repo
+root for the full architecture and security model.
+
+## macOS: menu-bar app (recommended)
+
+Double-click `FlowTex Helper.dmg`, drag the app to **Applications**,
+launch it. The first launch needs **right-click → Open** so Gatekeeper
+asks once instead of refusing outright (the binary is ad-hoc signed but
+not notarised). After that, look for the **fTx** label in the menu bar
+— click it to:
+
+- Check pairing status (●  Paired  /  ○  Awaiting pairing).
+- **Generate pairing code** — opens a 60-second window; the 6-digit
+  code is displayed as a disabled menu item beneath.
+- **Open FlowTex pairing page** — launches the browser at
+  `https://flowtex.click`.
+- **Quit** — stops the helper.
+
+No terminal required.
 
 ## Prerequisites
 
@@ -37,10 +56,27 @@ ls dist/
 # flowtex-helper-linux-amd64
 ```
 
-## First-run install
+To produce the macOS `.app` bundle + `.dmg` (host-arch only — needs
+to run on a Mac because of `codesign` and `hdiutil`):
+
+```bash
+make dmg-mac-arm64    # or dmg-mac-amd64
+ls dist/
+# FlowTex Helper.app
+# FlowTex Helper-arm64.dmg
+```
+
+## First-run install (CLI / Linux)
 
 ```bash
 ./flowtex-helper
+```
+
+On macOS the menu-bar app does this for you. To force the headless
+path even on macOS (useful for systemd-style services or debugging):
+
+```bash
+./flowtex-helper --no-tray
 ```
 
 On first run the helper creates `~/.flowtex-helper/`:

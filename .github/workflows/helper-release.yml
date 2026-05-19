@@ -51,11 +51,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          # No cache: the helper has zero third-party deps (stdlib only),
-          # so there's nothing to cache. Setting cache: true here would
-          # require a go.sum file to exist, which it doesn't for a
-          # stdlib-only module.
-          cache: false
+          cache-dependency-path: helper/go.sum
 
       - name: Run helper unit tests (host arch)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
@@ -67,7 +63,11 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
+          # CGO is required on darwin (the tray UI calls into Cocoa via
+          # getlantern/systray). Linux still builds with CGO off — the
+          # tray code is excluded by build tags there and the helper
+          # serves headless, the same as it did before the tray work.
+          CGO_ENABLED: ${{ matrix.goos == 'linux' && '0' || '1' }}
         run: |
           VERSION="${GITHUB_REF_NAME#helper-v}"
           if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
@@ -173,11 +173,33 @@ jobs:
           # .pkg / .dmg). Notarization status is verified online on
           # first run; from then on Gatekeeper caches the result.
 
+      # ── macOS .app bundle + .dmg ────────────────────────────────
+      # Wraps the freshly-built Mach-O in a minimal app bundle with
+      # LSUIElement=true so it launches as a menu-bar-only app. Users
+      # who just want the raw binary still get it; users who want the
+      # click-to-install experience get a .dmg they can double-click.
+      - name: Build .app + .dmg (macOS)
+        if: matrix.goos == 'darwin'
+        working-directory: helper
+        run: |
+          scripts/build-app.sh \
+            "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" \
+            "../dist/FlowTex Helper-${{ matrix.goarch }}.app" \
+            "${{ matrix.goarch }}"
+          hdiutil create \
+            -volname "FlowTex Helper" \
+            -srcfolder "../dist/FlowTex Helper-${{ matrix.goarch }}.app" \
+            -ov -format UDZO \
+            "../dist/FlowTex-Helper-${{ matrix.goarch }}.dmg"
+
       - uses: actions/upload-artifact@v4
         with:
           name: helper-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+            dist/FlowTex-Helper-${{ matrix.goarch }}.dmg
           retention-days: 7
+          if-no-files-found: ignore
 
   release:
     name: publish release
@@ -202,7 +224,7 @@ jobs:
       - name: Compute SHA-256 checksums
         working-directory: dist
         run: |
-          sha256sum flowtex-helper-* install.sh > SHA256SUMS
+          sha256sum flowtex-helper-* FlowTex-Helper-*.dmg install.sh > SHA256SUMS
 
       - name: Create release
         env:
@@ -211,9 +233,11 @@ jobs:
           VERSION="${GITHUB_REF_NAME#helper-v}"
           gh release create "$GITHUB_REF_NAME" \
             --title "flowtex-helper v$VERSION" \
-            --notes "Pre-built flowtex-helper binaries for the FlowTex local-compile feature. See helper/README.md in this repo for install + pair instructions.
+            --notes "Pre-built flowtex-helper for the FlowTex local-compile feature. See helper/README.md for install + pair instructions.
 
-          Install (Mac/Linux):
+          **macOS (recommended)** — double-click the .dmg, drag the app to /Applications, launch it once. The menu-bar icon (\"fTx\") is the helper.
+
+          **Linux / scripted install** — one-liner installs the headless binary on PATH:
 
               curl -sSL https://github.com/stolucc/flowtex/releases/download/$GITHUB_REF_NAME/install.sh | bash
 
@@ -221,5 +245,7 @@ jobs:
             dist/flowtex-helper-darwin-arm64 \
             dist/flowtex-helper-darwin-amd64 \
             dist/flowtex-helper-linux-amd64 \
+            dist/FlowTex-Helper-arm64.dmg \
+            dist/FlowTex-Helper-amd64.dmg \
             dist/install.sh \
             dist/SHA256SUMS

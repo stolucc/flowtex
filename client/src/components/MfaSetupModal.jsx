@@ -5,7 +5,7 @@ import {
   getHelperToken,
   clearHelperToken,
 } from '../utils/helperBridge.js';
-import { detectPlatform, helperAssetName, helperDownloadURL, helperReleasesURL } from '../utils/platformDetect.js';
+import { detectPlatform, helperAssetName, helperDownloadURL, helperDmgURL, helperReleasesURL } from '../utils/platformDetect.js';
 import { useHelperStatusContext } from '../contexts/HelperStatusContext.jsx';
 import HelperStatusBadge from './HelperStatusBadge.jsx';
 
@@ -17,6 +17,7 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
   const [showBuildFromSource, setShowBuildFromSource] = useState(false);
   const plat = detectPlatform();
   const downloadUrl = helperDownloadURL(plat);
+  const dmgUrl = helperDmgURL(plat);
   const assetName = helperAssetName(plat);
 
   return (
@@ -25,11 +26,51 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
         Install once, then run it whenever you want to compile locally.
       </div>
 
-      {/* ── Recommended: one-line installer ───────────────────────── */}
-      {downloadUrl && (
+      {/* ── macOS: lead with the .dmg / drag-to-install path ─────── */}
+      {dmgUrl && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Detected: <strong>macOS ({plat.arch})</strong>. No terminal required:
+          </div>
+          <ol style={{ margin: '0 0 8px 18px', padding: 0, fontSize: 13, lineHeight: 1.6 }}>
+            <li>
+              <a href={dmgUrl} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 500 }}>
+                Download FlowTex Helper.dmg ({plat.arch})
+              </a>
+            </li>
+            <li>Open the .dmg, drag <strong>FlowTex Helper</strong> to <strong>Applications</strong>.</li>
+            <li>Launch it from Applications (right-click → Open the first time so Gatekeeper doesn't block it).</li>
+            <li>Look for the <strong>fTx</strong> icon in the menu bar — click it, then "Generate pairing code".</li>
+          </ol>
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+              Prefer the command-line install instead?
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <CommandBlock
+                label="Installs the headless binary on your PATH as flowtex-helper:"
+                command="curl -sSL https://github.com/stolucc/flowtex/releases/latest/download/install.sh | bash"
+                copyKey="install-sh-mac"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+              <CommandBlock
+                label="Then run it (leave this terminal open):"
+                command="flowtex-helper"
+                copyKey="run-installed-mac"
+                copiedCommand={copiedCommand}
+                onCopy={onCopy}
+              />
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Non-macOS: shell-installer-first flow ────────────────── */}
+      {!dmgUrl && downloadUrl && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-            Detected: <strong>{plat.os === 'darwin' ? `macOS (${plat.arch})` : 'Linux (amd64)'}</strong>. Recommended install:
+            Detected: <strong>Linux (amd64)</strong>. Recommended install:
           </div>
           <CommandBlock
             label="Paste this in a terminal. It downloads the matching binary, verifies the checksum, and installs it on your PATH as flowtex-helper."

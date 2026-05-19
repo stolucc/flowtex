@@ -73,6 +73,17 @@ export function helperDownloadURL(plat, repo = 'stolucc/flowtex') {
   return `https://github.com/${repo}/releases/latest/download/${asset}`;
 }
 
+/**
+ * URL to the latest macOS .dmg installer. The .dmg wraps the same Mach-O
+ * the raw download offers, plus an Info.plist that turns it into a
+ * menu-bar app — the recommended path for non-CLI users.
+ */
+export function helperDmgURL(plat, repo = 'stolucc/flowtex') {
+  if (plat.os !== 'darwin') return null;
+  const arch = plat.arch || 'arm64';
+  return `https://github.com/${repo}/releases/latest/download/FlowTex-Helper-${arch}.dmg`;
+}
+
 /** Repo URL — used for "all releases" fallback links. */
 export function helperReleasesURL(repo = 'stolucc/flowtex') {
   return `https://github.com/${repo}/releases`;

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -75,6 +76,11 @@ func main() {
 	// who actively want it.
 	var portFlag = flag.Int("port", 0, "override the configured port (default reads from config)")
 	var tlsFlag = flag.Bool("tls", false, "serve HTTPS with a self-signed cert instead of HTTP")
+	// Tray UI defaults to ON for macOS / Windows (where the menu-bar /
+	// system-tray story is solid), OFF for Linux and everything else.
+	// --no-tray forces headless even on platforms that would otherwise
+	// boot the tray; useful for systemd services, CI, debugging.
+	var noTrayFlag = flag.Bool("no-tray", false, "run headless even on platforms that default to the tray UI")
 	flag.CommandLine.Parse(os.Args[1:])
 
 	cfg, err := loadConfig()
@@ -121,7 +127,17 @@ func main() {
 	logger.Printf("flowtex-helper %s listening on %s://127.0.0.1:%d (config: %s)",
 		helperVersion, scheme, cfg.Port, cfg.Path)
 	logger.Printf("allowed origins: %v", cfg.AllowedOrigins)
-	logger.Printf("first-time pairing? run: flowtex-helper pair")
+	logger.Printf("first-time pairing? click the menu-bar icon or run: flowtex-helper pair")
+
+	// trayDefault is true on the platforms where runWithTray is the real
+	// tray implementation (build tags handle the OS split). On Linux the
+	// stub is invoked but immediately falls back to headless, so the
+	// branching here is purely about WHICH log line we want to print.
+	if !*noTrayFlag && trayDefault() {
+		runWithTray(cfg, srv, srv.HTTP, logger, cancel)
+		logger.Print("shutdown complete")
+		return
+	}
 
 	var listenErr error
 	if cfg.UseTLS {
@@ -133,6 +149,19 @@ func main() {
 		logger.Fatalf("listen: %v", listenErr)
 	}
 	logger.Print("shutdown complete")
+}
+
+// trayDefault reports whether the tray UI is the expected default on
+// the current OS. macOS and Windows both have stable tray primitives;
+// Linux's tray story is fragmented and we instead expect the helper to
+// run as a systemd user service.
+func trayDefault() bool {
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		return true
+	default:
+		return false
+	}
 }
 
 func printHelp() {
