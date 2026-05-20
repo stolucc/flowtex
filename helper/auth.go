@@ -65,6 +65,17 @@ func withAuth(cfg *config, requireBearer bool, h http.HandlerFunc) http.HandlerF
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 				w.Header().Set("Access-Control-Max-Age", "600")
+				// Chrome's Private Network Access (PNA): a public-network
+				// page (e.g. https://flowtex.click) fetching a loopback
+				// resource (127.0.0.1) gets a preflight carrying
+				// `Access-Control-Request-Private-Network: true`. The
+				// helper has to explicitly opt in by echoing
+				// `Access-Control-Allow-Private-Network: true`. Without
+				// this, Chrome blocks the actual request even though
+				// origin + Host pin would have let it through.
+				if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+					w.Header().Set("Access-Control-Allow-Private-Network", "true")
+				}
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
