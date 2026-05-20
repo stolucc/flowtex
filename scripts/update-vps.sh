@@ -121,7 +121,14 @@ NEEDS_SERVER_RESTART=0
 NEEDS_NPM_CI_SERVER=0
 NEEDS_NPM_CI_CLIENT=0
 
-if echo "$CHANGED_FILES" | grep -q '^client/'; then
+# Rebuild on every HEAD move — not just `client/` changes. The build
+# bakes VITE_BUILD_SHA = `git rev-parse --short HEAD` into the bundle,
+# so a commit that touches only server/ or scripts/ still changes the
+# value the About modal will display. Skipping the rebuild leaves the
+# bundle pointing at the previous SHA, which looks like a broken
+# deploy to anyone reading the About modal. The build is ~10-30s on
+# the VPS — cheap enough to run unconditionally for any update.
+if [ -n "$CHANGED_FILES" ] || [ "$FORCE_REBUILD" = "1" ]; then
   NEEDS_CLIENT_BUILD=1
 fi
 if echo "$CHANGED_FILES" | grep -qE '^(server/|shared/)'; then
@@ -169,7 +176,7 @@ if [ $NEEDS_CLIENT_BUILD -eq 1 ]; then
   BUNDLE=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' "$APP_DIR/client/dist/index.html" | head -1 || echo "(unknown)")
   ok "New bundle: $BUNDLE"
 else
-  warn "No client/ changes — skipping rebuild."
+  warn "Nothing to build — skipping rebuild."
 fi
 
 # ── 6. Restart server ───────────────────────────────────────────────
