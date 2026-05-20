@@ -6,7 +6,9 @@
 
 BINARY := flowtex-helper
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
-LDFLAGS := -s -w -X main.helperVersion=$(VERSION)
+BUILD_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+BUILD_TIME := $(shell date -u +%FT%TZ)
+LDFLAGS := -s -w -X main.helperVersion=$(VERSION) -X main.helperBuildSHA=$(BUILD_SHA) -X main.helperBuildTime=$(BUILD_TIME)
 
 # Reproducible builds: trim local paths from the binary, strip debug
 # symbols, no DWARF.

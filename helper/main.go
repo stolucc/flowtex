@@ -209,7 +209,15 @@ first:
 `)
 }
 
-const helperVersion = "0.1.0-dev"
+// Version + build metadata. Set via -ldflags at build time (see
+// Makefile / .github/workflows/helper-release.yml). The defaults are
+// useful for `go run .` during development so the About dialog still
+// shows something meaningful.
+var (
+	helperVersion   = "0.1.0-dev"
+	helperBuildSHA  = "dev"
+	helperBuildTime = ""
+)
 
 func runPair(logger *log.Logger) {
 	cfg, err := loadConfig()

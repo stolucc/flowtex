@@ -88,6 +88,7 @@ func onTrayReady() {
 
 	pairMI := systray.AddMenuItem("Generate pairing code…", "Print a 6-digit code, valid for 60s")
 	openMI := systray.AddMenuItem("Open FlowTex pairing page", "Opens https://flowtex.click in your browser")
+	aboutMI := systray.AddMenuItem("About FlowTex Helper", "Show version + build SHA")
 
 	// Default TeX Live submenu — one entry per /usr/local/texlive/YYYY
 	// the helper can find. Picking one writes the year into config
@@ -131,9 +132,47 @@ func onTrayReady() {
 			go handleGeneratePair()
 		case <-openMI.ClickedCh:
 			go openBrowser("https://flowtex.click")
+		case <-aboutMI.ClickedCh:
+			go showAboutDialog()
 		case <-quitMI.ClickedCh:
 			systray.Quit()
 			return
+		}
+	}
+}
+
+// showAboutDialog presents a native modal with the helper's version,
+// build SHA, and build time — same shape as the FlowTex client's
+// About modal so a user can paste both values into a bug report and
+// know exactly what's running.
+func showAboutDialog() {
+	buildTime := helperBuildTime
+	if buildTime == "" {
+		buildTime = "unknown"
+	}
+	body := fmt.Sprintf(
+		"FlowTex Helper\n\nVersion: %s\nBuild SHA: %s\nBuilt: %s",
+		helperVersion, helperBuildSHA, buildTime,
+	)
+	switch runtime.GOOS {
+	case "darwin":
+		// Use the same osascript pattern as the pair-code dialog —
+		// quotes have to be escaped, but our values are
+		// version-string-shaped so no injection surface in practice.
+		script := fmt.Sprintf(
+			`display dialog "%s" with title "About FlowTex Helper" buttons {"OK"} default button "OK" with icon note`,
+			strings.ReplaceAll(body, "\n", "\\n"),
+		)
+		if err := exec.Command("osascript", "-e", script).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show about dialog: %v", err)
+		}
+	case "windows":
+		ps := fmt.Sprintf(
+			`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('%s', 'About FlowTex Helper') | Out-Null`,
+			strings.ReplaceAll(body, "\n", "`n"),
+		)
+		if err := exec.Command("powershell", "-NoProfile", "-Command", ps).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show about dialog: %v", err)
 		}
 	}
 }

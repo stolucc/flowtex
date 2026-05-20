@@ -73,7 +73,10 @@ jobs:
           if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
             VERSION="dev-$(git rev-parse --short HEAD)"
           fi
-          go build -trimpath -ldflags "-s -w -X main.helperVersion=$VERSION" \
+          BUILD_SHA="$(git rev-parse --short HEAD)"
+          BUILD_TIME="$(date -u +%FT%TZ)"
+          go build -trimpath \
+            -ldflags "-s -w -X main.helperVersion=$VERSION -X main.helperBuildSHA=$BUILD_SHA -X main.helperBuildTime=$BUILD_TIME" \
             -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
 
       # ── Ad-hoc codesign (macOS, no credentials needed) ──────────
