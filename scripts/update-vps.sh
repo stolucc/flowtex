@@ -201,10 +201,12 @@ fi
 # ── 7. Health check ─────────────────────────────────────────────────
 say "Verifying health"
 HEALTH_URL="http://127.0.0.1:3001/api/health"
-if curl -fsS --max-time 5 "$HEALTH_URL" | grep -q '"ok":true'; then
+# The endpoint returns {"status":"ok"} — match THAT, not "ok":true,
+# which was the old shape and never matched the current handler.
+if curl -fsS --max-time 5 "$HEALTH_URL" | grep -q '"status":"ok"'; then
   ok "Health endpoint reports OK."
 else
-  warn "Health endpoint did not return ok=true. The service may still be initializing; recheck in a few seconds."
+  warn "Health endpoint did not return status=ok. The service may still be initializing; recheck in a few seconds."
   warn "If it stays unhealthy: git reset --hard $PREV_SHA && (cd client && npm run build) && sudo systemctl restart $SERVICE"
 fi
 
