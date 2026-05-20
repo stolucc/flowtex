@@ -175,7 +175,13 @@ fi
 # ── 6. Restart server ───────────────────────────────────────────────
 if [ $NEEDS_SERVER_RESTART -eq 1 ]; then
   say "Restarting $SERVICE"
-  if command -v systemctl >/dev/null && systemctl list-units --type=service --all | grep -q "^${SERVICE}.service"; then
+  # `systemctl cat` is the cheapest "does this unit exist?" probe with
+  # clean exit-code semantics. We previously grepped the output of
+  # `systemctl list-units`, but that output has leading whitespace on
+  # every row — the `^${SERVICE}` anchor never matched, the script
+  # silently skipped the restart, and the health check then failed
+  # because the old code was still running.
+  if command -v systemctl >/dev/null && systemctl cat "$SERVICE" >/dev/null 2>&1; then
     # Running as root already, so no sudo prefix needed.
     systemctl restart "$SERVICE"
     sleep 2
