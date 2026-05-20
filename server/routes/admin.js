@@ -72,6 +72,12 @@ router.get('/stats/timeseries', async (req, res) => {
     users: { table: 'users', col: 'created_at' },
     projects: { table: 'projects', col: 'created_at' },
     snapshots: { table: 'project_snapshots', col: 'created_at' },
+    // The client's overview-tab chart asks for "file_versions" — the per-
+    // file edit table — so accept that key alongside the existing
+    // project-level snapshot one. Both are useful: snapshots is "how
+    // many save points", file_versions is "how many individual file
+    // edits", roughly an order of magnitude different.
+    file_versions: { table: 'file_versions', col: 'created_at' },
     comments: { table: 'comments', col: 'created_at' },
     chat_messages: { table: 'chat_messages', col: 'created_at' },
     logins: { table: 'login_attempts', col: 'created_at', where: 'AND success = TRUE' },
