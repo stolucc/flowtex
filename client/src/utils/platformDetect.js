@@ -16,29 +16,15 @@ export function detectPlatform() {
   const ua = navigator.userAgent || '';
   const platform = navigator.platform || '';
 
-  // High-entropy hints (Chromium-only; Safari/Firefox fall back to UA).
-  // Worth probing because navigator.platform on Apple Silicon Macs still
-  // reports "MacIntel" for backwards compatibility — without the hints
-  // we'd hand an arm64 user the amd64 binary.
-  const uaData = navigator.userAgentData;
-
   if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) {
-    // ARM detection. Three signals; any one is good enough.
-    const isArm =
-      (uaData && Array.isArray(uaData.brands) && /Mac/.test(uaData.platform || '')
-        && uaData.mobile === false && uaData.platform === 'macOS' &&
-        // architecture lives on a hint we have to request — skip and
-        // fall through to UA detection if we don't have it cached
-        false) ||
-      /Mac OS X.*Apple/.test(ua) ||
-      // Last-resort heuristic: try matchMedia on a known-arm-only feature.
-      false;
-    // The reliable check is async (uaData.getHighEntropyValues), but we
-    // need a synchronous answer for the initial render. Default arm64
-    // when on Apple platform — the share of remaining Intel Macs is
-    // small and shrinking, and offering the wrong default just makes
-    // the user pick the other one from the list (which we also show).
-    return { os: 'darwin', arch: isArm ? 'arm64' : 'arm64' };
+    // The only reliable arch signal (userAgentData.getHighEntropyValues
+    // for "architecture") is async, but we need a synchronous answer
+    // for the initial render. navigator.platform on Apple Silicon Macs
+    // still reports "MacIntel" for backward compatibility, so a sync
+    // UA scrape can't distinguish. Default to arm64 — the share of
+    // remaining Intel Macs is small and the dropdown still lists the
+    // other variant for the rare Intel user to pick.
+    return { os: 'darwin', arch: 'arm64' };
   }
   if (/Linux/i.test(platform) || /Linux/i.test(ua)) {
     // We only ship linux-amd64; ARM Linux users will need to build

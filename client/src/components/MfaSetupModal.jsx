@@ -39,8 +39,8 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
               </a>
             </li>
             <li>Open the .dmg, drag <strong>FlowTex Helper</strong> to <strong>Applications</strong>.</li>
-            <li>Launch it from Applications (right-click → Open the first time so Gatekeeper doesn't block it).</li>
-            <li>Look for the <strong>fTx</strong> icon in the menu bar — click it, then "Generate pairing code".</li>
+            <li>Launch it from Applications (right-click → Open the first time so Gatekeeper doesn&apos;t block it).</li>
+            <li>Look for the <strong>fTx</strong> icon in the menu bar — click it, then &ldquo;Generate pairing code&rdquo;.</li>
           </ol>
           <details>
             <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
@@ -217,7 +217,7 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
       })()}
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-        This panel polls every 3 seconds. As soon as the helper is running and trusts this origin, the status flips to yellow and a "Pair helper" button appears.
+        This panel polls every 3 seconds. As soon as the helper is running and trusts this origin, the status flips to yellow and a &ldquo;Pair helper&rdquo; button appears.
       </div>
       <div style={{ marginTop: 8 }}>
         <button

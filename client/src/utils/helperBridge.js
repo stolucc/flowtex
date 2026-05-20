@@ -51,13 +51,11 @@ async function fetchTryBoth(path, opts) {
     rememberBase(first);
     return res;
   } catch {
-    try {
-      const res = await fetch(second + path, opts);
-      rememberBase(second);
-      return res;
-    } catch (err) {
-      throw err;
-    }
+    // First base unreachable — let the second-base fetch throw on its
+    // own if it also fails. No inner try/catch: just propagate.
+    const res = await fetch(second + path, opts);
+    rememberBase(second);
+    return res;
   }
 }
 
