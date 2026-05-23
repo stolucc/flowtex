@@ -44,18 +44,42 @@ function rememberBase(url) {
 // Used by pingHealth / fetchHelperVersion / pairWithHelper. compileLocal
 // uses the cached base directly because by then we know which one works.
 //
-// `targetAddressSpace: 'loopback'` opts into Chrome's Private Network
-// Access / Local Network Access: flowtex.click (public, HTTPS) →
-// 127.0.0.1 is otherwise blocked. Per the current spec the three
-// address spaces are `public`, `private` (RFC1918), and `loopback`
-// (127.0.0.1 / localhost / [::1]). Earlier drafts used `local` for
-// loopback — using that today produces Chrome errors of the form
-// "target IP address space of `local` yet the resource is in
-// address space `loopback`".
+// Chrome's Local Network Access (LNA — renamed from PNA in Chrome 145)
+// blocks public-network pages (https://flowtex.click) from reaching
+// loopback (127.0.0.1) unless the user explicitly grants
+// "Local Network Access" permission for the site. Chrome only
+// surfaces the permission prompt when the page asks via the
+// Permissions API; without that the request is silently rejected
+// at the CORS layer even when the helper's preflight headers are
+// correct (Chrome reports the network response in DevTools but the
+// JS fetch promise still rejects).
+//
+// One-shot per page load — once the user clicks Allow or Block,
+// Chrome remembers their choice for this origin.
+let lnaPermissionRequested = false;
+async function maybeRequestLnaPermission() {
+  if (lnaPermissionRequested) return;
+  lnaPermissionRequested = true;
+  try {
+    if (navigator?.permissions?.request) {
+      await navigator.permissions.request({ name: 'local-network-access' });
+    }
+  } catch {
+    // Browser doesn't implement .request, doesn't know the permission
+    // name, or the user denied — fall through; the fetch will report
+    // its own outcome.
+  }
+}
+
+// `targetAddressSpace: 'local'` keeps the older PNA path working on
+// pre-145 Chrome that hasn't yet seen the LNA rename. Chrome 145+
+// ignores it and relies on the permission grant above; other browsers
+// ignore the option entirely.
 async function fetchTryBoth(path, opts) {
+  await maybeRequestLnaPermission();
   const first = getCachedBase();
   const second = first === HELPER_BASE_HTTPS ? HELPER_BASE_HTTP : HELPER_BASE_HTTPS;
-  const merged = { targetAddressSpace: 'loopback', ...(opts || {}) };
+  const merged = { targetAddressSpace: 'local', ...(opts || {}) };
   try {
     const res = await fetch(first + path, merged);
     rememberBase(first);
