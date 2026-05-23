@@ -429,43 +429,6 @@ html {
   white-space: nowrap;
 }
 
-.new-project-form {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.new-project-form input {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 13px;
-  width: 200px;
-}
-
-.new-project-form input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.new-project-form button {
-  padding: 8px 18px;
-  background: var(--accent);
-  color: var(--bg-primary);
-  border: none;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.new-project-form button:hover {
-  background: var(--accent-hover);
-}
-
 .project-table {
   width: 100%;
   border-collapse: collapse;
@@ -915,19 +878,6 @@ html {
   width: 200px;
   text-align: center;
 }
-
-.toolbar-sync-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 12px;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 2px 8px;
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  white-space: nowrap;
-}
 .toolbar-sync-status.saving {
   color: var(--accent);
 }
@@ -936,12 +886,6 @@ html {
 }
 .toolbar-sync-status.error {
   color: var(--red);
-}
-.toolbar-sync-label {
-  line-height: 1;
-}
-.toolbar-sync-spinner {
-  animation: spin 1s linear infinite;
 }
 @keyframes spin {
   from {
@@ -1026,45 +970,6 @@ html {
   display: flex;
   gap: 6px;
   align-items: center;
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.toolbar-log {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.toolbar-log:hover {
-  color: var(--text-primary);
-}
-
-.toolbar-compile {
-  background: var(--green);
-  color: var(--bg-primary);
-  border: none;
-  padding: 6px 20px;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.toolbar-compile:hover {
-  opacity: 0.9;
-}
-
-.toolbar-compile:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Main Layout */
@@ -2729,14 +2634,6 @@ html {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.editor-autosave-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-left: 4px;
-}
 .editor-autosave-status.saving {
   color: var(--accent);
 }
@@ -2764,15 +2661,6 @@ html {
   color: var(--text-primary);
 }
 
-.editor-header-path {
-  flex: 1;
-  font-size: 13px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .editor-zoom-controls {
   display: inline-flex;
   align-items: center;
@@ -2784,25 +2672,6 @@ html {
   color: var(--text-secondary);
   min-width: 32px;
   text-align: center;
-}
-
-.editor-spell-lang {
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 2px 4px;
-  font-size: 11px;
-  cursor: pointer;
-  outline: none;
-}
-
-.editor-spell-lang:hover {
-  border-color: var(--accent);
-}
-
-.editor-spell-lang:focus {
-  border-color: var(--accent);
 }
 
 .editor-header-btn-active {
@@ -2876,16 +2745,6 @@ html {
   cursor: not-allowed;
 }
 
-.table-builder-editing {
-  font-size: 10px;
-  color: var(--accent);
-  font-weight: 500;
-  padding: 2px 8px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-pill);
-  margin-top: 2px;
-}
-
 .table-builder-opts {
   flex: 1;
   display: flex;
@@ -2917,11 +2776,6 @@ html {
   color: var(--text);
   cursor: pointer;
   max-width: 110px;
-}
-
-.table-opt-btns {
-  display: flex;
-  gap: 2px;
 }
 
 .table-opt-btn {
@@ -2969,12 +2823,6 @@ html {
 .table-opts-right .table-opt-toggle {
   justify-content: space-between;
   min-width: 110px;
-}
-
-.table-opt-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
 }
 
 .table-opt-toggle {
@@ -3037,29 +2885,6 @@ html {
   border-top: 1px solid var(--border);
   padding-top: 6px;
   margin-top: 2px;
-}
-
-.table-opt-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-}
-
-.table-opt-check {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.table-opt-check input[type='checkbox'] {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: var(--accent);
 }
 
 .table-opt-input {
@@ -3663,40 +3488,6 @@ html {
   border-color: var(--green);
 }
 
-.editor-header-lint {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.editor-lint-item {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  white-space: nowrap;
-  font-weight: 600;
-}
-
-.editor-lint-error {
-  color: var(--red);
-  background: rgba(243, 139, 168, 0.15);
-}
-
-.editor-lint-error:hover {
-  background: rgba(243, 139, 168, 0.25);
-}
-
-.editor-lint-warning {
-  color: var(--yellow);
-  background: rgba(249, 226, 175, 0.15);
-}
-
-.editor-lint-warning:hover {
-  background: rgba(249, 226, 175, 0.25);
-}
-
 .editor-container .cm-editor {
   height: 100%;
 }
@@ -3738,22 +3529,6 @@ html {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-}
-
-.compile-log {
-  max-height: 200px;
-  overflow-y: auto;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  padding: 12px;
-}
-
-.compile-log pre {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: var(--yellow);
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 /* PDF Viewer */
@@ -4864,19 +4639,6 @@ html {
   padding-top: 6px;
 }
 
-.comment-reply-toggle {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-.comment-reply-toggle:hover {
-  color: var(--accent);
-}
-
 .comment-reply-area textarea {
   width: 100%;
   padding: 6px;
@@ -5222,71 +4984,7 @@ html {
 }
 
 /* ── Visual Mode Style Picker (in main toolbar) ── */
-.toolbar-separator {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-.toolbar-style-picker {
-  position: relative;
-}
-.toolbar-style-btn {
-  min-width: 110px;
-  text-align: left;
-  padding: 2px 8px !important;
-  font-size: 12px !important;
-}
-.toolbar-style-menu {
-  min-width: 180px;
-}
-.toolbar-style-option {
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-.toolbar-style-active {
-  background: rgba(91, 156, 245, 0.12) !important;
-  color: var(--accent) !important;
-}
-.toolbar-style-preview { font-size: 13px; }
-.toolbar-style-preview-part { font-size: 18px; font-weight: bold; }
-.toolbar-style-preview-chapter { font-size: 16px; font-weight: bold; }
-.toolbar-style-preview-section { font-size: 15px; font-weight: bold; }
-.toolbar-style-preview-subsection { font-size: 14px; font-weight: 600; }
-.toolbar-style-preview-subsubsection { font-size: 13px; font-weight: 600; font-style: italic; }
-.toolbar-style-preview-paragraph { font-size: 13px; font-weight: bold; }
-
-.toolbar-fmt-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: Georgia, 'Times New Roman', serif;
-  padding: 0;
-  flex-shrink: 0;
-}
-.toolbar-fmt-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border);
-}
-.toolbar-fmt-active {
-  background: rgba(91, 156, 245, 0.15);
-  color: #5b9cf5;
-  border-color: rgba(91, 156, 245, 0.3);
-}
 /* Bold B, Italic I, Underline U styling */
-.toolbar-fmt-btn:nth-child(1 of .toolbar-fmt-btn) { font-weight: bold; }
-.toolbar-fmt-btn:nth-child(2 of .toolbar-fmt-btn) { font-style: italic; }
-.toolbar-fmt-btn:nth-child(3 of .toolbar-fmt-btn) { text-decoration: underline; }
 
 /* ── Visual Mode Formatting Toolbar ── */
 .vm-toolbar {
@@ -5340,19 +5038,6 @@ html {
   background: rgba(91, 156, 245, 0.15);
   color: #5b9cf5;
   border-color: rgba(91, 156, 245, 0.3);
-}
-.vm-toolbar-block-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  margin-left: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--accent);
-  background: rgba(91, 156, 245, 0.1);
-  border: 1px solid rgba(91, 156, 245, 0.25);
-  border-radius: 10px;
-  white-space: nowrap;
 }
 
 .vm-toolbar-color-wrap {
@@ -5648,11 +5333,6 @@ html {
 .cm-vm-ref-tooltip-missing {
   color: #b00020;
   font-style: italic;
-}
-
-.toolbar-user-name {
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 
 /* Project list user */
@@ -6453,9 +6133,6 @@ kbd {
 }
 
 /* MFA setup modal */
-.mfa-modal {
-  max-width: 420px;
-}
 
 .mfa-description {
   font-size: 13px;
@@ -7079,13 +6756,6 @@ kbd {
   margin: 0 0 10px;
 }
 
-.github-sync-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
 .github-sync-status-dot {
   display: inline-block;
   width: 10px;
@@ -7100,16 +6770,6 @@ kbd {
 }
 .github-sync-status-dot.red {
   background: var(--red, #f38ba8);
-}
-
-.editor-autosave-dot {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  min-width: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-right: 4px;
 }
 .editor-autosave-dot.on {
   background: var(--green);
@@ -7167,12 +6827,6 @@ kbd {
 
 .github-sync-link-btn.danger {
   color: var(--red, #e06c75);
-}
-
-.github-sync-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .github-sync-push {
@@ -7263,22 +6917,6 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.github-sync-private-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.github-sync-private-label input[type='checkbox'] {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .github-sync-repo-search {
@@ -7944,36 +7582,8 @@ kbd {
 }
 
 /* Toolbar button active state for track changes */
-.toolbar-btn-tc-active {
-  background: rgba(166, 227, 161, 0.2) !important;
-  color: var(--green) !important;
-  border-color: var(--green) !important;
-}
 
 /* Track changes review bar below editor */
-.tc-review-bar {
-  border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  overflow-x: auto;
-}
-
-.tc-review-count {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  font-weight: 600;
-}
-
-.tc-review-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
 
 .tc-btn {
   border: none;
@@ -7984,285 +7594,9 @@ kbd {
   font-weight: 500;
 }
 
-.tc-btn-accept,
-.tc-btn-accept-all {
-  background: rgba(166, 227, 161, 0.2);
-  color: var(--green);
-}
-
-.tc-btn-accept:hover,
-.tc-btn-accept-all:hover {
-  background: rgba(166, 227, 161, 0.35);
-}
-
-.tc-btn-reject,
-.tc-btn-reject-all {
-  background: rgba(243, 139, 168, 0.2);
-  color: var(--red);
-}
-
-.tc-btn-reject:hover,
-.tc-btn-reject-all:hover {
-  background: rgba(243, 139, 168, 0.35);
-}
-
-.tc-review-list {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  flex: 1;
-  min-width: 0;
-}
-
-.tc-review-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-surface);
-  border-radius: var(--radius);
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.tc-review-item:hover {
-  background: var(--bg-hover);
-}
-
-.tc-review-author {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.tc-review-insert {
-  color: var(--green);
-  font-family: monospace;
-  font-size: 10px;
-}
-
-.tc-review-delete {
-  color: var(--red);
-  text-decoration: line-through;
-  font-family: monospace;
-  font-size: 10px;
-}
-
 /* Review walkthrough mode */
-.tc-review-walkthrough {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
-  border-top: 2px solid var(--accent);
-}
-
-.tc-walkthrough-nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.tc-walkthrough-close {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-}
-
-.tc-walkthrough-close:hover {
-  color: var(--text);
-}
-
-.tc-walkthrough-arrow {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 1px 8px;
-  line-height: 1;
-}
-
-.tc-walkthrough-arrow:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-}
-
-.tc-walkthrough-arrow:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.tc-walkthrough-counter {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  min-width: 40px;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.tc-walkthrough-detail {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.tc-walkthrough-author {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.tc-walkthrough-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.tc-walkthrough-sep {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-  margin: 0 2px;
-}
-
-.tc-btn-review {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
-}
-
-.tc-btn-review:hover {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-}
 
 /* Review toolbar (below editor header) */
-.tc-review-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 10px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.tc-review-toolbar-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.tc-review-toolbar-arrow {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: var(--radius-pill);
-  display: flex;
-  align-items: center;
-}
-
-.tc-review-toolbar-arrow:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.tc-review-toolbar-arrow:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.tc-review-toolbar-counter {
-  color: var(--text-secondary);
-  font-size: 11px;
-  min-width: 36px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.tc-review-toolbar-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  min-width: 0;
-  flex: 1;
-}
-
-.tc-review-toolbar-author {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.tc-review-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.tc-review-toolbar-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.tc-review-toolbar-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.tc-review-toolbar-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.tc-review-toolbar-accept {
-  color: var(--green);
-  border-color: var(--green);
-}
-
-.tc-review-toolbar-accept:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--green) 15%, transparent);
-  color: var(--green);
-}
-
-.tc-review-toolbar-reject {
-  color: var(--red);
-  border-color: var(--red);
-}
-
-.tc-review-toolbar-reject:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--red) 15%, transparent);
-  color: var(--red);
-}
-
-.tc-review-toolbar-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 4px;
-}
 
 /* Review highlight in editor — pulsing outline around current change */
 .cm-tc-review-active {
@@ -8273,68 +7607,6 @@ kbd {
 }
 
 /* Track changes inline popup */
-.tc-popup {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  padding: 8px 10px;
-  min-width: 180px;
-  max-width: 320px;
-  font-size: 12px;
-}
-
-.tc-popup-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.tc-popup-author {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.tc-popup-close {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-.tc-popup-close:hover {
-  color: var(--text-primary);
-}
-
-.tc-popup-detail {
-  font-family: monospace;
-  font-size: 11px;
-  padding: 3px 6px;
-  border-radius: 3px;
-  margin-bottom: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.tc-popup-insert {
-  background: rgba(68, 138, 255, 0.12);
-  color: #448aff;
-}
-
-.tc-popup-delete {
-  background: rgba(183, 28, 28, 0.1);
-  color: #b71c1c;
-  text-decoration: line-through;
-}
-
-.tc-popup-buttons {
-  display: flex;
-  gap: 6px;
-}
 
 .tc-popup-buttons .tc-btn {
   flex: 1;
@@ -8421,20 +7693,6 @@ kbd {
 .chat-message.own {
   align-self: flex-end;
   align-items: flex-end;
-}
-
-.chat-message-author {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-  margin-left: 4px;
-}
-
-.chat-message-name {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 600;
 }
 
 .chat-bubble {
