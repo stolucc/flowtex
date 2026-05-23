@@ -35,18 +35,6 @@ export function setSetting(key, value) {
 }
 
 /**
- * Remove a setting.
- * @param {string} key - Un-prefixed setting key.
- */
-export function removeSetting(key) {
-  try {
-    localStorage.removeItem(PREFIX + key);
-  } catch {
-    // ignore
-  }
-}
-
-/**
  * Read and JSON-parse a setting. Returns `fallback` on missing key or parse error.
  * @param {string} key - Un-prefixed setting key.
  * @param {*} [fallback] - Value to return if missing or invalid (default: null).

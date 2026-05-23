@@ -109,7 +109,7 @@ export const latexFoldService = foldService.of((state, lineStart) => {
  * @param {number} docLength - Current document length
  * @returns {DecorationSet}
  */
-export function buildCommentDecorations(comments, docLength) {
+function buildCommentDecorations(comments, docLength) {
   const widgets = [];
   for (const c of comments || []) {
     if (c.resolved) continue;
@@ -201,7 +201,7 @@ export const errorHighlightField = StateField.define({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-export const CURSOR_COLORS = ['#e06c75', '#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#be5046'];
+const CURSOR_COLORS = ['#e06c75', '#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#be5046'];
 /**
  * Deterministically pick a cursor color for a user ID.
  * @param {string} userId
@@ -232,7 +232,7 @@ export const searchHighlightField = StateField.define({
 });
 
 // Spellcheck decoration
-export const setSpellcheckEffect = StateEffect.define();
+const setSpellcheckEffect = StateEffect.define();
 
 export const spellcheckField = StateField.define({
   create() {
@@ -248,7 +248,7 @@ export const spellcheckField = StateField.define({
 });
 
 // Lint decoration
-export const setLintEffect = StateEffect.define();
+const setLintEffect = StateEffect.define();
 
 export const lintField = StateField.define({
   create() {
@@ -264,7 +264,7 @@ export const lintField = StateField.define({
 });
 
 // Lint gutter markers — shown in a narrow gutter next to line numbers
-export class LintErrorMarker extends GutterMarker {
+class LintErrorMarker extends GutterMarker {
   constructor(msg) {
     super();
     this.msg = msg;
@@ -277,7 +277,7 @@ export class LintErrorMarker extends GutterMarker {
   }
 }
 
-export class LintWarningMarker extends GutterMarker {
+class LintWarningMarker extends GutterMarker {
   constructor(msg) {
     super();
     this.msg = msg;
@@ -290,7 +290,7 @@ export class LintWarningMarker extends GutterMarker {
   }
 }
 
-export class SpellGutterMarker extends GutterMarker {
+class SpellGutterMarker extends GutterMarker {
   constructor(count) {
     super();
     this.count = count;
@@ -303,8 +303,8 @@ export class SpellGutterMarker extends GutterMarker {
   }
 }
 
-export const setLintGutterEffect = StateEffect.define();
-export const setSpellGutterEffect = StateEffect.define();
+const setLintGutterEffect = StateEffect.define();
+const setSpellGutterEffect = StateEffect.define();
 
 export const lintGutterField = StateField.define({
   create() {
@@ -411,15 +411,15 @@ export function applySpellcheck(view, misspelled) {
 }
 
 // Citation key highlighter — decorates keys inside \cite{}, \citep{}, \citet{}, etc.
-export const citeKeyMark = Decoration.mark({ class: 'cm-cite-key' });
-export const citeKeyPattern = /\\cite[tp]?\*?\{([^}]+)\}/g;
+const citeKeyMark = Decoration.mark({ class: 'cm-cite-key' });
+const citeKeyPattern = /\\cite[tp]?\*?\{([^}]+)\}/g;
 
 /**
  * Build decorations that highlight citation keys inside \\cite{} commands.
  * @param {EditorView} view
  * @returns {DecorationSet}
  */
-export function buildCiteDecorations(view) {
+function buildCiteDecorations(view) {
   const decos = [];
   for (const { from, to } of view.visibleRanges) {
     const text = view.state.sliceDoc(from, to);
@@ -482,9 +482,9 @@ class FloatGutterMarker extends GutterMarker {
   }
 }
 
-export const setFloatGutterEffect = StateEffect.define();
+const setFloatGutterEffect = StateEffect.define();
 
-export const floatGutterField = StateField.define({
+const floatGutterField = StateField.define({
   create() {
     return RangeSet.empty;
   },
@@ -496,7 +496,7 @@ export const floatGutterField = StateField.define({
   },
 });
 
-export const floatGutterExtension = gutter({
+const floatGutterExtension = gutter({
   class: 'cm-float-gutter',
   markers: (view) => view.state.field(floatGutterField),
   domEventHandlers: {
@@ -520,7 +520,7 @@ export const floatGutterExtension = gutter({
  * Scan the document for table and figure environments and update gutter markers.
  * @param {EditorView} view
  */
-export function updateFloatGutterMarkers(view) {
+function updateFloatGutterMarkers(view) {
   const doc = view.state.doc.toString();
   const markers = [];
   const seenLines = new Set();

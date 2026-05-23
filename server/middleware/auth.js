@@ -43,24 +43,6 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-/** Express middleware: verify the user is a member of the project in req.params. */
-export async function requireProjectAccess(req, res, next) {
-  const projectId = req.params.id || req.params.projectId;
-  if (!projectId) return next();
-  if (!UUID_RE.test(projectId)) {
-    return res.status(400).json({ error: 'Invalid project ID' });
-  }
-
-  const member = await isProjectMember(projectId, req.session.userId);
-
-  if (!member) {
-    return res.status(403).json({ error: 'No access to this project' });
-  }
-
-  req.projectRole = member.role;
-  next();
-}
-
 /** Express middleware: reject unless the session user has is_admin=true. */
 export async function requireAdmin(req, res, next) {
   const user = await db.get('SELECT is_admin FROM users WHERE id = $1', [req.session.userId]);

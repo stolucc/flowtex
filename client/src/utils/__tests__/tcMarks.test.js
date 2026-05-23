@@ -5,7 +5,7 @@
 //
 // ★ items are mandatory before V1 code review (see spec §11).
 import { describe, it, expect } from 'vitest';
-import { ChangeSet, EditorState, Transaction } from '@codemirror/state';
+import { EditorState, Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { history, undo as cmUndo } from '@codemirror/commands';
 import {
@@ -14,7 +14,6 @@ import {
   tcMarksExtensions,
   tcMarksInlineDecorations,
   setTcMarks,
-  addTcMarks,
   removeTcMark,
   serializeMarks,
   deserializeMarks,

@@ -23,7 +23,6 @@ import {
   listMarks,
   validateHydration,
   tcMarkSkipAnnotation,
-  shortId,
 } from '../tcMarks.js';
 import { buildTcMarksInputFilter } from '../tcMarksInput.js';
 

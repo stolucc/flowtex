@@ -207,7 +207,7 @@ export default function useProject(user) {
         // Stale save — somebody else (or a different tab) wrote to this
         // file between our load and this PUT. Don't try to merge; surface
         // the conflict so the caller can refetch / warn the user.
-        // eslint-disable-next-line no-console
+         
         console.warn('[useProject] save conflict on', targetId, '— file changed remotely');
         return;
       }

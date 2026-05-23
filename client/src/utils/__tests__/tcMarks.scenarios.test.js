@@ -15,15 +15,12 @@
 //   "0123456789" (10 chars) — short, predictable positions.
 
 import { describe, it, expect } from 'vitest';
-import { ChangeSet, EditorState, Transaction } from '@codemirror/state';
+import { EditorState, Transaction } from '@codemirror/state';
 import { history, undo as cmUndo, redo as cmRedo } from '@codemirror/commands';
 import {
-  tcMark,
   tcMarksField,
   tcMarksExtensions,
-  tcMarksInlineDecorations,
   setTcMarks,
-  addTcMarks,
   removeTcMark,
   serializeMarks,
   deserializeMarks,
@@ -159,7 +156,7 @@ describe('RangeSet.map: ins range under deletions (10-char doc, ins[3,7))', () =
       //   if a < E < b: maps to a
       //   if E == a: side > 0 → stays at a; side < 0 → maps to a (= same)
       //   if E == b: side > 0 → maps to a + 0 (b - len = a); side < 0 → maps to a
-      function mapEdge(E, side) {
+      function mapEdge(E, _side) {
         if (E < delFrom) return E;
         if (E > delTo) return E - delLen;
         if (E === delFrom) return E; // both side=1 (start) and -1 give a here

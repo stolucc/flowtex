@@ -239,7 +239,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
   let data;
   try {
     data = await res.json();
-  } catch (err) {
+  } catch {
     return { ok: false, fatal: true, error: 'Helper returned malformed JSON' };
   }
   if (data.success && typeof data.pdf === 'string' && data.pdf.length > 0) {

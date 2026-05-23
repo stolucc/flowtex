@@ -134,7 +134,6 @@ function AppInner() {
     handleDeleteFolder,
     handleCreateFolder,
     emptyFolders,
-    setEmptyFolders,
     handleSetMainFile,
   } = useProject(user);
 

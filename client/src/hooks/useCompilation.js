@@ -102,7 +102,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   // typical PDF).
   const lastBlobUrlRef = useRef(null);
   const setPdfUrlSmart = useCallback((next) => {
-    setPdfUrl((prev) => {
+    setPdfUrl((_prev) => {
       if (lastBlobUrlRef.current && lastBlobUrlRef.current !== next) {
         URL.revokeObjectURL(lastBlobUrlRef.current);
         lastBlobUrlRef.current = null;
@@ -179,9 +179,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     // so the user still gets a PDF; on a compile-level failure (helper
     // ran latexmk and got no PDF) we surface it as-is, since the server
     // would fail the same way against the same source.
-    let didLocalPath = false;
     if (compileChoice.source === 'local') {
-      didLocalPath = true;
       setConsoleOutput('Compiling locally on your machine…\n');
       const jobId =
         (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')

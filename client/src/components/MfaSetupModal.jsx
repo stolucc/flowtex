@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 import {
   pairWithHelper,
-  getHelperToken,
   clearHelperToken,
 } from '../utils/helperBridge.js';
 import { detectPlatform, helperAssetName, helperDownloadURL, helperDmgURL, helperReleasesURL } from '../utils/platformDetect.js';

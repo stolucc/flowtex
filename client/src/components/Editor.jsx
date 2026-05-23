@@ -100,10 +100,7 @@ import {
   SearchIcon,
   TableIcon,
   FigureIcon,
-  ReviewEyeIcon,
   ContrastIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   SyncIcon,
   HighlightIcon,
 } from './Icons.jsx';

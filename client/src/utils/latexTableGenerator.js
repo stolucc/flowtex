@@ -31,7 +31,7 @@ export function isCoveredByMerge(merges, r, c) {
  * @param {number} c - Column index
  * @returns {Object|null}
  */
-export function getCoveringMerge(merges, r, c) {
+function getCoveringMerge(merges, r, c) {
   if (!merges) return null;
   return (
     merges.find((m) => {
@@ -39,66 +39,6 @@ export function getCoveringMerge(merges, r, c) {
       return r >= m.row && r < m.row + m.rowSpan && c >= m.col && c < m.col + m.colSpan;
     }) || null
   );
-}
-
-/**
- * Parse a LaTeX column spec string into per-column parts (e.g. "l", ">{\centering}p{3cm}").
- * @param {string} spec - Column specification string
- * @param {number} maxCols - Maximum number of columns to extract
- * @returns {string[]}
- */
-export function extractColParts(spec, maxCols) {
-  const parts = [];
-  let i = 0,
-    current = '';
-  function skipBraces() {
-    if (i < spec.length && spec[i] === '{') {
-      let d = 1;
-      current += '{';
-      i++;
-      while (i < spec.length && d > 0) {
-        if (spec[i] === '{') d++;
-        if (spec[i] === '}') d--;
-        current += spec[i];
-        i++;
-      }
-    }
-  }
-  while (i < spec.length && parts.length < maxCols) {
-    const ch = spec[i];
-    if (/\s/.test(ch)) {
-      i++;
-      continue;
-    }
-    if ('><!@'.includes(ch)) {
-      current += ch;
-      i++;
-      skipBraces();
-      continue;
-    }
-    if ('lcrX'.includes(ch)) {
-      current += ch;
-      i++;
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    if ('pmbPMBLRCSW'.includes(ch) && i + 1 < spec.length && spec[i + 1] === '{') {
-      current += ch;
-      i++;
-      skipBraces();
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    // '*' repeat — just treat as raw
-    current += ch;
-    i++;
-  }
-  if (current) {
-    if (parts.length > 0) parts[parts.length - 1] += current;
-  }
-  return parts;
 }
 
 /**

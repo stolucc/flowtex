@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import generateLatexTable, { getMergeAt, isCoveredByMerge } from '../utils/latexTableGenerator.js';
 
 /** Available LaTeX table environment options for the environment selector dropdown. */
-export const TABLE_ENV_OPTIONS = [
+const TABLE_ENV_OPTIONS = [
   { value: 'tabular', label: 'tabular' },
   { value: 'tabularx', label: 'tabularx (full width)' },
   { value: 'longtable', label: 'longtable (multi-page)' },

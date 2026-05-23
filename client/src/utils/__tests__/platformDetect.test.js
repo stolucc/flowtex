@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { detectPlatform, helperAssetName, helperDownloadURL } from '../platformDetect.js';
 
 // Each case mutates navigator.platform / userAgent — restore afterwards.
