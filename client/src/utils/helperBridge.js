@@ -71,15 +71,19 @@ async function maybeRequestLnaPermission() {
   }
 }
 
-// `targetAddressSpace: 'local'` keeps the older PNA path working on
-// pre-145 Chrome that hasn't yet seen the LNA rename. Chrome 145+
-// ignores it and relies on the permission grant above; other browsers
-// ignore the option entirely.
+// Chrome 145+ classifies 127.0.0.1 as `loopback` and refuses to
+// match it against `local` (which is now reserved for mDNS .local
+// hostnames) — the actual observed Chrome 148 error is:
+//   "target IP address space of `local` yet the resource is in
+//    address space `loopback`"
+// So we set `loopback` here. Older Chromes that still treat the
+// value as unknown fall back to the permission-grant path; other
+// browsers ignore the option entirely.
 async function fetchTryBoth(path, opts) {
   await maybeRequestLnaPermission();
   const first = getCachedBase();
   const second = first === HELPER_BASE_HTTPS ? HELPER_BASE_HTTP : HELPER_BASE_HTTPS;
-  const merged = { targetAddressSpace: 'local', ...(opts || {}) };
+  const merged = { targetAddressSpace: 'loopback', ...(opts || {}) };
   try {
     const res = await fetch(first + path, merged);
     rememberBase(first);
