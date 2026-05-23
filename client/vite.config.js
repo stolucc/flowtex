@@ -24,6 +24,13 @@ export default defineConfig({
           if (id.includes('node_modules/codemirror') || id.includes('node_modules/@codemirror/')) {
             return 'codemirror';
           }
+          // pdfjs is huge (~hundreds of KB). Splitting it into its
+          // own chunk means the loader only fetches it when something
+          // that imports pdfjs (PdfViewer / BinaryPreview) actually
+          // renders — those components are now lazy-loaded too.
+          if (id.includes('node_modules/pdfjs-dist')) {
+            return 'pdfjs';
+          }
         },
       },
     },

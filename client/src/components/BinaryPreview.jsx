@@ -4,26 +4,10 @@ import * as pdfjsLib from 'pdfjs-dist';
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp']);
 const PDF_EXTS = new Set(['.pdf']);
 
-/**
- * Returns the MIME type for a file path based on its extension.
- * @param {string} path
- * @returns {string} MIME type string
- */
-export function getMimeType(path) {
-  const ext = (path || '').split('.').pop().toLowerCase();
-  const map = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    bmp: 'image/bmp',
-    svg: 'image/svg+xml',
-    ico: 'image/x-icon',
-    webp: 'image/webp',
-    pdf: 'application/pdf',
-  };
-  return map[ext] || 'application/octet-stream';
-}
+// getMimeType moved to ../utils/mimeType.js so callers that only need
+// the lookup don't pull pdfjs-dist into their bundle. Re-export here for
+// backward compat with any caller still importing from this file.
+export { getMimeType } from '../utils/mimeType.js';
 
 function getFileExt(path) {
   const dot = (path || '').lastIndexOf('.');

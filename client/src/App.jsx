@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import ProjectList from './components/ProjectList.jsx';
-import Editor from './components/Editor.jsx';
-import PdfViewer from './components/PdfViewer.jsx';
+// Editor/PdfViewer/HistoryView/ChatPanel/CommentsSidebar/BinaryPreview
+// only render once a project is loaded. Lazy-loading them keeps the
+// 300+ KB of CodeMirror, pdfjs, and diff/decoration code out of the
+// first paint on the ProjectList / AuthPage screens.
+const Editor = lazy(() => import('./components/Editor.jsx'));
+const PdfViewer = lazy(() => import('./components/PdfViewer.jsx'));
+const HistoryView = lazy(() => import('./components/HistoryView.jsx'));
+const ChatPanel = lazy(() => import('./components/ChatPanel.jsx'));
+const CommentsSidebar = lazy(() => import('./components/CommentsSidebar.jsx'));
+const BinaryPreview = lazy(() => import('./components/BinaryPreview.jsx'));
 import FileTree from './components/FileTree.jsx';
-import CommentsSidebar from './components/CommentsSidebar.jsx';
 import SyncArrows from './components/SyncArrows.jsx';
 import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
 import AuthPage from './components/AuthPage.jsx';
 import SetupWizard from './components/SetupWizard.jsx';
-import ChatPanel from './components/ChatPanel.jsx';
-import BinaryPreview, { getMimeType } from './components/BinaryPreview.jsx';
+import { getMimeType } from './utils/mimeType.js';
 import ModalContainer from './components/ModalContainer.jsx';
-import HistoryView from './components/HistoryView.jsx';
 import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
@@ -798,6 +803,13 @@ function AppInner() {
         </div>
       )}
       <div className="main-layout">
+        {/* One Suspense wraps every lazy editor-side component
+            (Editor, PdfViewer, ChatPanel, CommentsSidebar, HistoryView,
+            BinaryPreview). The fallback is intentionally minimal —
+            chunks are small individually and load quickly; a
+            full-screen spinner would be more disruptive than the brief
+            blank during the swap. */}
+        <Suspense fallback={<div className="main-layout-suspense" />}>
         {ui.showHistory && (
           <HistoryView
             project={project}
@@ -1346,6 +1358,7 @@ function AppInner() {
             )}
           </>
         )}
+        </Suspense>
       </div>
         </div>
       </ProjectProvider>
