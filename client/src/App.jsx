@@ -105,6 +105,20 @@ function InvitationToast({ invitation, onDismiss, onOpen }) {
 function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
+
+  // Once the user is authenticated, prefetch the two largest lazy
+  // chunks (Editor and PdfViewer) in the background. The user is
+  // overwhelmingly likely to open a project from ProjectList; by the
+  // time they click, the chunks are already cached so the first paint
+  // of the editor view doesn't pay the network round-trip. The import
+  // promises are intentionally not awaited — failures here just mean
+  // we fall back to the regular Suspense fetch.
+  useEffect(() => {
+    if (!user) return;
+    import('./components/Editor.jsx').catch(() => {});
+    import('./components/PdfViewer.jsx').catch(() => {});
+  }, [user]);
+
   // In-editor toasts for invitations that arrive while a user is mid-edit.
   // The dashboard's banner is still the canonical surface — these are
   // ephemeral heads-ups so the recipient sees the invite without having
