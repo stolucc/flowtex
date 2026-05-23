@@ -44,16 +44,18 @@ function rememberBase(url) {
 // Used by pingHealth / fetchHelperVersion / pairWithHelper. compileLocal
 // uses the cached base directly because by then we know which one works.
 //
-// `targetAddressSpace: 'private'` opts into Chrome's Private Network
+// `targetAddressSpace: 'local'` opts into Chrome's Private Network
 // Access: flowtex.click (public, HTTPS) → 127.0.0.1 (loopback) is
-// otherwise blocked by the browser. Pairs with the helper sending
-// `Access-Control-Allow-Private-Network: true` on the preflight.
-// Other browsers ignore the option (it's spec'd as a feature-detection-
-// friendly opt-in).
+// otherwise blocked by the browser. Per the PNA spec there are three
+// address spaces: `public`, `private` (RFC1918), and `local`
+// (loopback / 127.0.0.1 / [::1]). The helper binds to loopback, so
+// the right value is `local`; using `private` causes Chrome to
+// reject the request with "target IP address space of `local` yet
+// the resource is in [...]".
 async function fetchTryBoth(path, opts) {
   const first = getCachedBase();
   const second = first === HELPER_BASE_HTTPS ? HELPER_BASE_HTTP : HELPER_BASE_HTTPS;
-  const merged = { targetAddressSpace: 'private', ...(opts || {}) };
+  const merged = { targetAddressSpace: 'local', ...(opts || {}) };
   try {
     const res = await fetch(first + path, merged);
     rememberBase(first);
