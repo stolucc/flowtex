@@ -88,9 +88,14 @@ curl -fSL --retry 3 -o install-tl.tar.gz "$TARBALL_URL"
 # alongside every release; verify both.
 #
 # Requires gpg to be installed and TUG's release key in the keyring.
-# Fingerprint: 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45
-# Import on first run with:
-#   gpg --recv-keys 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45
+# Primary key fingerprint: C78B 82D8 C795 12F7 9CC0  D7C8 0D5E 5D91 06BA B6BC
+#       Signing subkey:    D8F2 F860 57A8 57E4 2A88  106A 4CE1 877E 1943 8C70
+#       UID:               TeX Live Distribution <tex-live@tug.org>
+#
+# Import on first run (the default keys.openpgp.org pool does NOT have
+# this key — use Ubuntu's keyserver instead):
+#   gpg --keyserver hkps://keyserver.ubuntu.com \
+#       --recv-keys 0D5E5D9106BAB6BC
 #
 # Set INSTALL_TEXLIVE_SKIP_GPG=1 to opt out (last-resort only).
 if [ "${INSTALL_TEXLIVE_SKIP_GPG:-0}" = "1" ]; then
@@ -108,8 +113,10 @@ else
   fi
   if ! gpg --verify install-tl.tar.gz.sha512.asc install-tl.tar.gz.sha512 2>/dev/null; then
     echo "ERROR: GPG verification of SHA-512 failed." >&2
-    echo "       Ensure TUG's release key is in your keyring:" >&2
-    echo "         gpg --recv-keys 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45" >&2
+    echo "       Ensure TUG's release key is in your keyring (the default" >&2
+    echo "       keys.openpgp.org pool does not have it; use Ubuntu's):" >&2
+    echo "         gpg --keyserver hkps://keyserver.ubuntu.com \\" >&2
+    echo "             --recv-keys 0D5E5D9106BAB6BC" >&2
     echo "       Re-run with INSTALL_TEXLIVE_SKIP_GPG=1 to override." >&2
     exit 1
   fi
