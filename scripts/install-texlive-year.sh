@@ -79,6 +79,47 @@ trap 'rm -rf "$WORKDIR"' EXIT
 cd "$WORKDIR"
 echo "==> Downloading install-tl"
 curl -fSL --retry 3 -o install-tl.tar.gz "$TARBALL_URL"
+
+# ── Verify signature (GPG over .sha512.asc, then hash match) ─────────
+# install-tl downloads + executes arbitrary Perl as root. HTTPS alone
+# is not sufficient: a compromised CDN edge or any mirror operator
+# can ship a malicious tarball with a perfectly valid TLS cert. TUG
+# publishes a SHA-512 plus a detached GPG signature over that SHA-512
+# alongside every release; verify both.
+#
+# Requires gpg to be installed and TUG's release key in the keyring.
+# Fingerprint: 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45
+# Import on first run with:
+#   gpg --recv-keys 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45
+#
+# Set INSTALL_TEXLIVE_SKIP_GPG=1 to opt out (last-resort only).
+if [ "${INSTALL_TEXLIVE_SKIP_GPG:-0}" = "1" ]; then
+  echo "==> WARNING: INSTALL_TEXLIVE_SKIP_GPG=1 — running install-tl WITHOUT signature verification." >&2
+elif ! command -v gpg >/dev/null 2>&1; then
+  echo "ERROR: gpg is not installed. Install it (apt-get install gnupg) or re-run with INSTALL_TEXLIVE_SKIP_GPG=1." >&2
+  exit 1
+else
+  echo "==> Verifying SHA-512 + GPG signature"
+  if ! curl -fSL --retry 3 -o install-tl.tar.gz.sha512 "$TARBALL_URL.sha512" \
+    || ! curl -fSL --retry 3 -o install-tl.tar.gz.sha512.asc "$TARBALL_URL.sha512.asc"; then
+    echo "ERROR: could not fetch .sha512 / .sha512.asc for $TARBALL_URL." >&2
+    echo "       Re-run with INSTALL_TEXLIVE_SKIP_GPG=1 if you accept the risk." >&2
+    exit 1
+  fi
+  if ! gpg --verify install-tl.tar.gz.sha512.asc install-tl.tar.gz.sha512 2>/dev/null; then
+    echo "ERROR: GPG verification of SHA-512 failed." >&2
+    echo "       Ensure TUG's release key is in your keyring:" >&2
+    echo "         gpg --recv-keys 0D5E5D9106A6B6FA4E0C1E9D60D6A36BC8244F45" >&2
+    echo "       Re-run with INSTALL_TEXLIVE_SKIP_GPG=1 to override." >&2
+    exit 1
+  fi
+  if ! (cd "$WORKDIR" && sha512sum --check install-tl.tar.gz.sha512 >/dev/null 2>&1); then
+    echo "ERROR: install-tl tarball does not match its signed SHA-512." >&2
+    exit 1
+  fi
+  echo "==> Signature OK."
+fi
+
 tar xzf install-tl.tar.gz
 INSTALL_DIR="$(find . -maxdepth 1 -name 'install-tl-*' -type d | head -n1)"
 if [ -z "$INSTALL_DIR" ]; then

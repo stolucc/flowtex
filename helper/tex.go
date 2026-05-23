@@ -37,7 +37,19 @@ type texDistribution struct {
 var (
 	texVersionRE = regexp.MustCompile(`TeX Live (\d{4})`)
 	biberRE      = regexp.MustCompile(`Biber version: (\S+)`)
+	// Any string that's claimed to be a TeX Live "year" — config values,
+	// /usr/local/texlive/<dir> names, browser-supplied texDistribution
+	// fields — passes through this before being used as a filesystem
+	// path component. Rejects "..", "abcd", "20.5", etc. Keeps the
+	// path-traversal defence local to one regex so all callers agree.
+	yearRE = regexp.MustCompile(`^\d{4}$`)
 )
+
+// isValidTexYear is the single source of truth for whether a string
+// is safe to treat as a TeX Live release year. Used by config loading,
+// distribution detection, and per-compile pinning so a malformed value
+// can't slip into a filepath.Join / Glob call.
+func isValidTexYear(s string) bool { return yearRE.MatchString(s) }
 
 func detectTex() texInfo {
 	out := texInfo{}
@@ -96,8 +108,10 @@ func detectAllDistributions() []texDistribution {
 			continue
 		}
 		year := e.Name()
-		// 4-digit year only; skip "texmf-local" and friends.
-		if len(year) != 4 {
+		// 4-digit year only; skip "texmf-local" and friends. Also
+		// rejects 4-char non-digit names (e.g. "abcd") so a hand-
+		// crafted directory can't appear as a tray option.
+		if !isValidTexYear(year) {
 			continue
 		}
 		matches, _ := filepath.Glob(filepath.Join(base, year, "bin", "*"))

@@ -119,6 +119,15 @@ func loadConfig() (*config, error) {
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = defaultAllowedOrigins()
 	}
+	// Defence in depth: DefaultTexYear ends up in a filepath.Join /
+	// Glob call. Anything written legitimately (via the tray) is
+	// already a 4-digit year, but a hand-edited config could put
+	// ".." or worse in here, which filepath.Join would clean into a
+	// directory the attacker controls. Silently drop bad values
+	// rather than trust them.
+	if cfg.DefaultTexYear != "" && !isValidTexYear(cfg.DefaultTexYear) {
+		cfg.DefaultTexYear = ""
+	}
 
 	return cfg, nil
 }

@@ -54,7 +54,24 @@ func portString(p int) string {
 // Pass requireBearer=false for the /health probe and /pair handshake.
 func withAuth(cfg *config, requireBearer bool, h http.HandlerFunc) http.HandlerFunc {
 	hosts := allowedHosts(cfg.Port)
+	hostAllowed := func(h string) bool {
+		for _, a := range hosts {
+			if strings.EqualFold(h, a) {
+				return true
+			}
+		}
+		return false
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Host pin runs BEFORE the OPTIONS preflight branch — otherwise
+		// a DNS-rebinding probe can fingerprint helper presence by
+		// reading the CORS headers we'd otherwise return for any
+		// origin-allowed preflight regardless of its claimed Host.
+		if !hostAllowed(r.Host) {
+			http.Error(w, "host not allowed", http.StatusForbidden)
+			return
+		}
+
 		// CORS preflight: many browsers send OPTIONS before POST. Respond
 		// with the same allowlist + Authorization header so the actual
 		// request goes through.
@@ -78,20 +95,6 @@ func withAuth(cfg *config, requireBearer bool, h http.HandlerFunc) http.HandlerF
 				}
 			}
 			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// Host pin.
-		host := r.Host
-		hostOK := false
-		for _, h := range hosts {
-			if strings.EqualFold(host, h) {
-				hostOK = true
-				break
-			}
-		}
-		if !hostOK {
-			http.Error(w, "host not allowed", http.StatusForbidden)
 			return
 		}
 
