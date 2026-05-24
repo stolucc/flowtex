@@ -32,15 +32,23 @@ export default function ChatPanel({
     }
   }, [messages]);
 
-  // Mark the chat as read whenever the panel is mounted, whenever a
-  // new message arrives while the panel is visible, and whenever we
-  // re-enter the room. Fire-and-forget — the server upserts the
+  // Mark the chat as read whenever the panel is mounted and whenever
+  // a new message arrives while it's visible. The server upserts the
   // cursor and broadcasts to the room, which updates everyone's
   // own-message indicators.
+  //
+  // ⚠ onRead is intentionally NOT in the dep array: the parent passes
+  // it as an inline arrow, so its identity changes every render. Every
+  // chat-read message broadcasts and triggers another render, which
+  // would change the callback identity, which would re-fire the effect
+  // — an infinite loop that floods WS rate-limit and starves real
+  // chat messages. The ref captures the latest callback without
+  // making the effect depend on it.
+  const onReadRef = useRef(onRead);
+  useEffect(() => { onReadRef.current = onRead; }, [onRead]);
   useEffect(() => {
-    if (!onRead) return;
-    onRead();
-  }, [messages, onRead]);
+    onReadRef.current?.();
+  }, [messages]);
 
   // Pre-compute "other members" — recipients whose read cursors we
   // need to consult for the seen-by indicator on own messages. Members
