@@ -7,7 +7,18 @@ import { CloseIcon } from './Icons.jsx';
 const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅', '❌'];
 
 /** Real-time project chat panel with typing indicators and date-grouped messages. */
-export default function ChatPanel({ messages, currentUser, onSend, onReact, onClose, onTyping, typingUsers }) {
+export default function ChatPanel({
+  messages,
+  currentUser,
+  members,
+  readCursors,
+  onSend,
+  onReact,
+  onRead,
+  onClose,
+  onTyping,
+  typingUsers,
+}) {
   const [text, setText] = useState('');
   const [pickerForId, setPickerForId] = useState(null);
   const listRef = useRef(null);
@@ -20,6 +31,35 @@ export default function ChatPanel({ messages, currentUser, onSend, onReact, onCl
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Mark the chat as read whenever the panel is mounted, whenever a
+  // new message arrives while the panel is visible, and whenever we
+  // re-enter the room. Fire-and-forget — the server upserts the
+  // cursor and broadcasts to the room, which updates everyone's
+  // own-message indicators.
+  useEffect(() => {
+    if (!onRead) return;
+    onRead();
+  }, [messages, onRead]);
+
+  // Pre-compute "other members" — recipients whose read cursors we
+  // need to consult for the seen-by indicator on own messages. Members
+  // arrive via the parent's WS-driven hook and may be empty for a
+  // brief moment after project switch; default to [] silently.
+  const otherMemberIds = (members || [])
+    .map((m) => m.id)
+    .filter((id) => id && id !== currentUser?.id);
+
+  const otherReaders = (msg) => {
+    if (!otherMemberIds.length || !readCursors) return 0;
+    const msgTs = new Date(msg.created_at).getTime();
+    let n = 0;
+    for (const uid of otherMemberIds) {
+      const lr = readCursors[uid];
+      if (lr && new Date(lr).getTime() >= msgTs) n++;
+    }
+    return n;
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -117,7 +157,26 @@ export default function ChatPanel({ messages, currentUser, onSend, onReact, onCl
                     </div>
                   )}
                   <span className="chat-bubble-text">{m.text}</span>
-                  <span className="chat-bubble-time">{formatTime(m.created_at)}</span>
+                  <span className="chat-bubble-time">
+                    {formatTime(m.created_at)}
+                    {isOwn && otherMemberIds.length > 0 && (() => {
+                      const seen = otherReaders(m);
+                      const allSeen = seen === otherMemberIds.length;
+                      // Two ticks when everyone has read, one tick when
+                      // some but not all, nothing when zero. The aria
+                      // label spells it out for screen readers.
+                      if (seen === 0) return null;
+                      return (
+                        <span
+                          className={`chat-bubble-read${allSeen ? ' all' : ''}`}
+                          aria-label={allSeen ? 'Read by everyone' : `Read by ${seen} of ${otherMemberIds.length}`}
+                          title={allSeen ? 'Read by everyone' : `Read by ${seen} of ${otherMemberIds.length}`}
+                        >
+                          {allSeen ? '✓✓' : '✓'}
+                        </span>
+                      );
+                    })()}
+                  </span>
                   {onReact && (
                     <button
                       type="button"

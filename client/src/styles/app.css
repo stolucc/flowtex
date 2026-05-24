@@ -7875,6 +7875,23 @@ kbd {
   white-space: nowrap;
   margin-left: auto;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* Read marker: ✓ when some recipients have read, ✓✓ + accent when all
+   have. Tight letter-spacing so the two checks read as a single glyph
+   instead of "tick space tick". */
+.chat-bubble-read {
+  font-size: 11px;
+  letter-spacing: -2px;
+  color: currentColor;
+  opacity: 0.6;
+}
+.chat-bubble-read.all {
+  color: var(--accent, #6aa6e2);
+  opacity: 1;
 }
 
 .chat-typing-indicator {

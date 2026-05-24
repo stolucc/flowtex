@@ -20,6 +20,11 @@ export default function useWebSocket(
   const [activeUsers, setActiveUsers] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState({});
   const [chatMessages, setChatMessages] = useState([]);
+  // Per-member "last read at" timestamp for the active project's chat.
+  // Map of userId -> ISO timestamp (or null if they've never opened it).
+  // Hydrated from the GET /api/chat/:projectId response in App.jsx, then
+  // patched live via 'chat-read' WS messages from the server.
+  const [chatReadCursors, setChatReadCursors] = useState({});
   const [unreadChat, setUnreadChat] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
@@ -124,6 +129,11 @@ export default function useWebSocket(
         setChatMessages((prev) =>
           prev.map((m) => (m.id === msg.messageId ? { ...m, reactions: msg.reactions } : m)),
         );
+      } else if (msg.type === 'chat-read') {
+        // Another member just marked the chat as read up to lastReadAt;
+        // update their cursor so own-message "seen by" indicators update
+        // in real time.
+        setChatReadCursors((prev) => ({ ...prev, [msg.userId]: msg.lastReadAt }));
       } else if (msg.type === 'typing') {
         setTypingUsers((prev) => ({ ...prev, [msg.userId]: { userName: msg.userName, ts: Date.now() } }));
       } else if (msg.type === 'invitation') {
@@ -200,6 +210,7 @@ export default function useWebSocket(
       setTypingUsers({});
       setUnreadChat(0);
       setChatMessages([]);
+      setChatReadCursors({});
     }
   }, [project?.id]);
 
@@ -248,6 +259,8 @@ export default function useWebSocket(
     setRemoteCursors,
     chatMessages,
     setChatMessages,
+    chatReadCursors,
+    setChatReadCursors,
     unreadChat,
     setUnreadChat,
     showChat,

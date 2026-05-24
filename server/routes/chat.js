@@ -43,7 +43,21 @@ router.get('/:projectId', async (req, res) => {
           : [];
       }
     }
-    res.json(messages);
+    // Hydrate read cursors so the client can decide which own-messages
+    // count as "seen by N" and which still need a marker. We include
+    // every project member (not just the ones with a cursor row) so
+    // the client knows the total recipient count up-front; members
+    // who've never opened the panel just have lastReadAt = null.
+    const cursors = await db.all(
+      `SELECT pm.user_id AS "userId", rc.last_read_at AS "lastReadAt"
+       FROM project_members pm
+       LEFT JOIN chat_read_cursors rc
+         ON rc.project_id = pm.project_id AND rc.user_id = pm.user_id
+       WHERE pm.project_id = $1`,
+      [projectId],
+    );
+
+    res.json({ messages, readCursors: cursors });
   } catch (err) {
     sendError(res, err);
   }

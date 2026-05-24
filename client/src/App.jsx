@@ -219,6 +219,8 @@ function AppInner() {
     remoteCursors,
     chatMessages,
     setChatMessages,
+    chatReadCursors,
+    setChatReadCursors,
     unreadChat,
     setUnreadChat,
     showChat,
@@ -439,9 +441,20 @@ function AppInner() {
       .catch((e) => console.warn('Failed to load generated files:', e));
     get(`/api/chat/${loadingId}`)
       .then((r) => r.json())
-      .then((msgs) => { if (stillCurrent()) setChatMessages(msgs || []); })
+      .then((data) => {
+        if (!stillCurrent()) return;
+        // New response shape is { messages, readCursors }. Tolerate the
+        // old shape (plain array) so a stale client briefly running
+        // against a fresh server doesn't crash.
+        const msgs = Array.isArray(data) ? data : data?.messages || [];
+        const cursors = Array.isArray(data) ? [] : data?.readCursors || [];
+        setChatMessages(msgs);
+        const map = {};
+        for (const c of cursors) map[c.userId] = c.lastReadAt;
+        setChatReadCursors(map);
+      })
       .catch((e) => console.warn('Failed to load chat messages:', e));
-  }, [project, needsAutoCompile, setChatMessages, setCompileLog, setGeneratedFiles, setPdfUrl]);
+  }, [project, needsAutoCompile, setChatMessages, setChatReadCursors, setCompileLog, setGeneratedFiles, setPdfUrl]);
 
   useEffect(() => {
     const base = project ? `${project.name} — FlowTex` : 'FlowTex';
@@ -1372,8 +1385,11 @@ function AppInner() {
               <ChatPanel
                 messages={chatMessages}
                 currentUser={user}
+                members={members}
+                readCursors={chatReadCursors}
                 onSend={(text) => sendWsMessage({ type: 'chat', text })}
                 onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
+                onRead={() => sendWsMessage({ type: 'chat-read' })}
                 onClose={() => setShowChat(false)}
                 onTyping={() => sendWsMessage({ type: 'typing' })}
                 typingUsers={typingUsers}

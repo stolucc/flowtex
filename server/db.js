@@ -588,6 +588,19 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_chat_messages_project ON chat_messages(project_id, created_at);
 
+    -- Per-(project, user) "read up to here" cursor for chat. One row
+    -- per member who has ever opened the chat panel. The client emits
+    -- a chat-read WS message when the panel is mounted / scrolled to
+    -- the bottom / receives a new message while visible; the server
+    -- upserts this row and broadcasts the cursor update to the rest of
+    -- the room so own-message indicators (seen by N) update live.
+    CREATE TABLE IF NOT EXISTS chat_read_cursors (
+      project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_read_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY (project_id, user_id)
+    );
+
     -- Migration (2026-05-15): chat_messages.user_id was originally NOT NULL
     -- with ON DELETE CASCADE. We relax both so deleting a user preserves
     -- their chat history across every project they participated in.

@@ -479,6 +479,34 @@ async function handleChat(msg, state) {
   }
 }
 
+/** Update the sender's chat-read cursor for the joined project, then
+ *  broadcast so other clients can flip their own-message "seen by N"
+ *  indicators live. The client typically fires this when the chat
+ *  panel mounts, when it receives a new message while visible, or on
+ *  scroll-to-bottom — coarse-grained so the cursor write rate stays
+ *  manageable.
+ */
+async function handleChatRead(_msg, state) {
+  if (!state.projectId || !state.authenticatedUserId) return;
+  try {
+    const row = await db.get(
+      `INSERT INTO chat_read_cursors (project_id, user_id, last_read_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (project_id, user_id)
+         DO UPDATE SET last_read_at = NOW()
+       RETURNING last_read_at AS "lastReadAt"`,
+      [state.projectId, state.authenticatedUserId],
+    );
+    broadcastToRoom(state.projectId, {
+      type: 'chat-read',
+      userId: state.authenticatedUserId,
+      lastReadAt: row.lastReadAt,
+    });
+  } catch (err) {
+    logger.error({ err }, 'Chat read-cursor update error');
+  }
+}
+
 const writeTypes = new Set([
   'changes',
   'comment',
@@ -518,6 +546,7 @@ const messageHandlers = {
   'reply-react': handleReplyReact,
   chat: handleChat,
   'chat-react': handleChatReact,
+  'chat-read': handleChatRead,
   typing: handleTyping,
 };
 
