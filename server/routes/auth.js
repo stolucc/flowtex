@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
-import { sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailVerificationEmail, sendAccountDeletedEmail } from '../utils/email.js';
+import { sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailVerificationEmail, sendAccountDeletedEmail, sendEmailChangedNotice } from '../utils/email.js';
 import logger from '../logger.js';
 import db from '../db.js';
 import * as authService from '../services/authService.js';
@@ -309,6 +309,18 @@ router.post('/change-email', requireAuth, async (req, res) => {
       oldEmail: result.oldEmail,
       newEmail: result.email,
     });
+    // Notify the OLD address so a stolen-credentials attacker can't
+    // silently move the account email to one they control. Best-
+    // effort: log on failure, don't block the response (the email
+    // change itself already committed).
+    try {
+      await sendEmailChangedNotice(result.oldEmail, {
+        name: result.name,
+        newEmail: result.email,
+      });
+    } catch (noticeErr) {
+      logger.error({ err: noticeErr }, 'Failed to send email-changed notice to old address');
+    }
     // Send verification email to the new address
     try {
       const token = await authService.createEmailVerificationToken(req.session.userId);

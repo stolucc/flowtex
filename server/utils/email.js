@@ -234,6 +234,32 @@ export async function sendAccountDeletedEmail(email, name) {
   });
 }
 
+/** Notify the OLD address that the account email was changed to a new one.
+ *
+ *  This is the security half of the change-email flow: the new address
+ *  receives a verification link (proves ownership), and the old address
+ *  receives this notice so a stolen-credentials attacker swapping the
+ *  email to one they control can't do it silently. The old-address
+ *  email lists the new address so the user can call support and say
+ *  "my account just got moved to X without my consent".
+ */
+export async function sendEmailChangedNotice(oldEmail, { name, newEmail }) {
+  const safeName = escapeHtml(name);
+  const safeNewEmail = escapeHtml(newEmail);
+  return sendEmail({
+    to: oldEmail,
+    subject: 'Your FlowTex email address was changed',
+    text: `Hi ${name},\n\nThe email address on your FlowTex account was just changed to ${newEmail}.\n\nIf this WAS you, no action is needed — the new address will receive a verification link.\n\nIf this was NOT you, your account may be compromised. Reply to this email immediately so we can lock the account and restore access.\n`,
+    html: renderEmailLayout({
+      preheader: `Your FlowTex account email was changed to ${newEmail}.`,
+      greeting: `Hi ${safeName},`,
+      heading: 'Your account email was changed',
+      bodyHtml: `<p style="margin:0 0 10px 0;">The email address on your FlowTex account was just changed to <strong>${safeNewEmail}</strong>.</p><p style="margin:0;">If this <strong>was you</strong>, no action is needed — the new address will receive a verification link.</p>`,
+      footnoteHtml: `If this was <strong>not you</strong>, your account may be compromised. Reply to this email immediately so we can lock the account and restore access.`,
+    }),
+  });
+}
+
 /** Notify the user that their password was changed. */
 export async function sendPasswordChangedEmail(email, name) {
   const safeName = escapeHtml(name);

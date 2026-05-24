@@ -1676,14 +1676,24 @@ export async function getRawFile(fileId, userId) {
 
 // --- Member management ---
 
-/** List all members of a project with their roles. */
-export async function getProjectMembers(projectId) {
-  return db.all(
+/** List all members of a project with their roles.
+ *
+ *  `includeEmail` defaults to false because a project member's email is
+ *  privacy-sensitive — leaking it to every collaborator would let any
+ *  user added to a project (which is currently anyone the owner
+ *  invites) harvest the emails of every other collaborator. Owners
+ *  legitimately need emails (to remove members, send invites), so the
+ *  route passes `true` when the caller is the owner.
+ */
+export async function getProjectMembers(projectId, { includeEmail = false } = {}) {
+  const rows = await db.all(
     `SELECT u.id, u.email, u.name, pm.role FROM project_members pm
      JOIN users u ON u.id = pm.user_id
      WHERE pm.project_id = $1`,
     [projectId],
   );
+  if (includeEmail) return rows;
+  return rows.map(({ email, ...rest }) => rest);
 }
 
 /** Invite a registered user to a project by email. */

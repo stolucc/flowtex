@@ -488,7 +488,7 @@ export async function changeEmail(userId, password, newEmail) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
     throw Object.assign(new Error('Invalid email address'), { status: 400 });
 
-  const user = await db.get('SELECT id, email, password_hash FROM users WHERE id = $1', [userId]);
+  const user = await db.get('SELECT id, email, name, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
   if (!(await bcrypt.compare(password, user.password_hash)))
     throw Object.assign(new Error('Incorrect password'), { status: 401 });
@@ -499,7 +499,7 @@ export async function changeEmail(userId, password, newEmail) {
   if (existing) throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
 
   await db.run('UPDATE users SET email = $1, email_verified = FALSE WHERE id = $2', [normalizedEmail, user.id]);
-  return { email: normalizedEmail, oldEmail: user.email, needsVerification: true };
+  return { email: normalizedEmail, oldEmail: user.email, name: user.name, needsVerification: true };
 }
 
 /** Change the user's password after verifying the current one. */

@@ -219,10 +219,10 @@ describe('changePassword queries', () => {
 });
 
 describe('changeEmail queries', () => {
-  it('SELECT id, email, password_hash FROM users WHERE id = $1', async () => {
+  it('SELECT id, email, name, password_hash FROM users WHERE id = $1', async () => {
     db.get.mockResolvedValueOnce(null);
     await expect(changeEmail('u', TEST_PW, 'new@x.com')).rejects.toBeDefined();
-    expect(db.get.mock.calls[0][0]).toBe('SELECT id, email, password_hash FROM users WHERE id = $1');
+    expect(db.get.mock.calls[0][0]).toBe('SELECT id, email, name, password_hash FROM users WHERE id = $1');
     expect(db.get.mock.calls[0][1]).toEqual(['u']);
   });
 

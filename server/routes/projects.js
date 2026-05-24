@@ -346,8 +346,14 @@ router.delete('/:id', async (req, res) => {
 
 /** GET /api/projects/:id/members -- List all members of a project. */
 router.get('/:id/members', async (req, res) => {
-  if (!(await requireMembership(req, res))) return;
-  res.json(await projectService.getProjectMembers(req.params.id));
+  const member = await requireMembership(req, res);
+  if (!member) return;
+  // Emails are owner-only. Editors / viewers see names + roles, not
+  // addresses — otherwise any collaborator added to a project can
+  // harvest the emails of every other collaborator.
+  res.json(await projectService.getProjectMembers(req.params.id, {
+    includeEmail: member.role === 'owner',
+  }));
 });
 
 /** POST /api/projects/:id/members -- Invite a user to the project by email. */
