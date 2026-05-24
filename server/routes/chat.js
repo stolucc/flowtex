@@ -48,14 +48,28 @@ router.get('/:projectId', async (req, res) => {
     // every project member (not just the ones with a cursor row) so
     // the client knows the total recipient count up-front; members
     // who've never opened the panel just have lastReadAt = null.
-    const cursors = await db.all(
-      `SELECT pm.user_id AS "userId", rc.last_read_at AS "lastReadAt"
-       FROM project_members pm
-       LEFT JOIN chat_read_cursors rc
-         ON rc.project_id = pm.project_id AND rc.user_id = pm.user_id
-       WHERE pm.project_id = $1`,
-      [projectId],
-    );
+    //
+    // The query is wrapped in its own try/catch and the response
+    // degrades gracefully on failure: a missing table (deploy without
+    // a server restart, so the schema migration hasn't fired yet) or
+    // any other DB hiccup must NOT take chat history down with it.
+    // Receipts are a nice-to-have; messages are load-bearing.
+    let cursors = [];
+    try {
+      cursors = await db.all(
+        `SELECT pm.user_id AS "userId", rc.last_read_at AS "lastReadAt"
+         FROM project_members pm
+         LEFT JOIN chat_read_cursors rc
+           ON rc.project_id = pm.project_id AND rc.user_id = pm.user_id
+         WHERE pm.project_id = $1`,
+        [projectId],
+      );
+    } catch (cursorErr) {
+      // Log + continue. The client treats an empty readCursors array
+      // as "nobody has read anything yet" — receipts disappear,
+      // messages stay visible.
+      console.warn('chat read-cursors query failed:', cursorErr.message);
+    }
 
     res.json({ messages, readCursors: cursors });
   } catch (err) {
