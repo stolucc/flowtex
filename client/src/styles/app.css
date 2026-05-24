@@ -4328,6 +4328,42 @@ html {
   background: var(--bg-hover);
 }
 
+/* Collapsed-comments rail: keeps the same width as the bare toggle
+   button but absolute-positions a small dot at each comment's y in
+   the editor viewport. Per-comment dots are siblings of the static
+   speech-bubble icon (still pinned to the top of the rail).
+   pointer-events:none on dots so the whole rail surface acts as the
+   "open comments" click target. */
+.comments-rail {
+  position: relative;
+  width: 18px;
+  padding: 8px 0 0 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.comments-rail-icon {
+  position: relative;
+  z-index: 1;
+  margin: 0 auto;
+}
+
+.comments-rail-marker {
+  position: absolute;
+  left: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent, #6aa6e2);
+  pointer-events: none;
+  box-shadow: 0 0 0 1px var(--bg-surface);
+  transition: transform 80ms ease-out;
+}
+
+.comments-rail:hover .comments-rail-marker {
+  transform: scale(1.15);
+}
+
 .comments-empty {
   padding: 20px 12px;
   color: var(--text-muted);

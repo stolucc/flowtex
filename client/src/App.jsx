@@ -1035,12 +1035,35 @@ function AppInner() {
                 <ResizeHandle onResize={(d) => ui.setCommentsWidth((w) => Math.max(180, Math.min(450, w + d)))} />
               </>
             ) : (
-              <button className="comments-toggle-btn" onClick={() => ui.setShowComments(true)} title="Show comments">
+              // Collapsed comments rail: a thin vertical strip that
+              // still surfaces WHERE the comments are by rendering a
+              // tiny bubble at each comment's y-position. Clicking any
+              // bubble (or empty space) re-opens the full panel.
+              // commentPositions already filters out resolved comments
+              // and gives a `top` in editor-viewport coordinates, so
+              // the dots line up with the source lines they annotate.
+              <button
+                className="comments-toggle-btn comments-rail"
+                onClick={() => ui.setShowComments(true)}
+                title={commentPositions?.length
+                  ? `Show comments (${commentPositions.length})`
+                  : 'Show comments'}
+                aria-label="Show comments"
+              >
+                {commentPositions?.map((p) => (
+                  <span
+                    key={p.id}
+                    className="comments-rail-marker"
+                    style={{ top: Math.max(0, p.top) }}
+                    aria-hidden="true"
+                  />
+                ))}
                 {/* Speech bubble with inner text lines — reads as "annotation"
                     (i.e., comments tied to specific text in the document), to
                     distinguish from the chat icon which is a multi-bubble
                     conversation glyph. */}
                 <svg
+                  className="comments-rail-icon"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
