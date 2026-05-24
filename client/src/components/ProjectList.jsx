@@ -80,7 +80,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [ghReposLoading, setGhReposLoading] = useState(false);
   const [ghRepoSearch, setGhRepoSearch] = useState('');
 
+  // The fetch + scroll-to-invitation flow is a one-shot mount effect:
+  // pendingInviteId is whatever the URL had at first paint, the code
+  // strips it from history once consumed, and we don't want to re-fire
+  // the entire initial-load sequence if the prop ever changes later.
+  // Snapshot via useRef so the effect can legitimately use [] deps
+  // without ESLint complaining about a stale closure.
+  const initialInviteIdRef = useRef(pendingInviteId);
   useEffect(() => {
+    const initialInviteId = initialInviteIdRef.current;
     get('/api/projects')
       .then((r) => r.json())
       .then(setProjects);
@@ -88,15 +96,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       .then((r) => r.json())
       .then((rows) => {
         setInvitations(rows);
-        if (pendingInviteId) {
-          const match = rows.find((r) => r.id === pendingInviteId);
+        if (initialInviteId) {
+          const match = rows.find((r) => r.id === initialInviteId);
           if (match) {
-            setHighlightInviteId(pendingInviteId);
+            setHighlightInviteId(initialInviteId);
             // Strip the param now so a refresh doesn't re-trigger / leak via referrer.
             window.history.replaceState({}, '', '/');
             // Scroll on next paint, after the cards have rendered.
             requestAnimationFrame(() => {
-              invitationRefs.current[pendingInviteId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              invitationRefs.current[initialInviteId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             });
             // Drop the highlight after a beat so the user doesn't have to manually clear it.
             setTimeout(() => setHighlightInviteId(null), 4000);
