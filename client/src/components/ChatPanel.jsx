@@ -54,19 +54,21 @@ export default function ChatPanel({
   // need to consult for the seen-by indicator on own messages. Members
   // arrive via the parent's WS-driven hook and may be empty for a
   // brief moment after project switch; default to [] silently.
-  const otherMemberIds = (members || [])
-    .map((m) => m.id)
-    .filter((id) => id && id !== currentUser?.id);
+  const otherMembers = (members || []).filter((m) => m.id && m.id !== currentUser?.id);
 
-  const otherReaders = (msg) => {
-    if (!otherMemberIds.length || !readCursors) return 0;
+  // For a given message, return the names of OTHER members who've
+  // read it (cursor timestamp ≥ message timestamp). Used to build
+  // the "Read by Alice, Bob" tooltip — counts alone don't tell the
+  // sender which collaborator has actually seen the message.
+  const readerNames = (msg) => {
+    if (!otherMembers.length || !readCursors) return [];
     const msgTs = new Date(msg.created_at).getTime();
-    let n = 0;
-    for (const uid of otherMemberIds) {
-      const lr = readCursors[uid];
-      if (lr && new Date(lr).getTime() >= msgTs) n++;
+    const names = [];
+    for (const m of otherMembers) {
+      const lr = readCursors[m.id];
+      if (lr && new Date(lr).getTime() >= msgTs) names.push(m.name || 'someone');
     }
-    return n;
+    return names;
   };
 
   const handleSubmit = (e) => {
@@ -167,18 +169,19 @@ export default function ChatPanel({
                   <span className="chat-bubble-text">{m.text}</span>
                   <span className="chat-bubble-time">
                     {formatTime(m.created_at)}
-                    {isOwn && otherMemberIds.length > 0 && (() => {
-                      const seen = otherReaders(m);
-                      const allSeen = seen === otherMemberIds.length;
-                      // Two ticks when everyone has read, one tick when
-                      // some but not all, nothing when zero. The aria
-                      // label spells it out for screen readers.
-                      if (seen === 0) return null;
+                    {isOwn && otherMembers.length > 0 && (() => {
+                      const names = readerNames(m);
+                      if (names.length === 0) return null;
+                      const allSeen = names.length === otherMembers.length;
+                      // List the actual names so the sender knows WHO
+                      // has read it, not just how many. Two ticks when
+                      // everyone has read, one when some have.
+                      const label = `Read by ${names.join(', ')}`;
                       return (
                         <span
                           className={`chat-bubble-read${allSeen ? ' all' : ''}`}
-                          aria-label={allSeen ? 'Read by everyone' : `Read by ${seen} of ${otherMemberIds.length}`}
-                          title={allSeen ? 'Read by everyone' : `Read by ${seen} of ${otherMemberIds.length}`}
+                          aria-label={label}
+                          title={label}
                         >
                           {allSeen ? '✓✓' : '✓'}
                         </span>
