@@ -4350,18 +4350,14 @@ html {
 
 .comments-rail-marker {
   position: absolute;
-  left: 4px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent, #6aa6e2);
+  left: 3px;
+  color: var(--accent, #6aa6e2);
   pointer-events: none;
-  box-shadow: 0 0 0 1px var(--bg-surface);
   transition: transform 80ms ease-out;
 }
 
 .comments-rail:hover .comments-rail-marker {
-  transform: scale(1.15);
+  transform: scale(1.18);
 }
 
 .comments-empty {

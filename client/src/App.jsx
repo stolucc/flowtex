@@ -1051,12 +1051,25 @@ function AppInner() {
                 aria-label="Show comments"
               >
                 {commentPositions?.map((p) => (
-                  <span
+                  <svg
                     key={p.id}
                     className="comments-rail-marker"
                     style={{ top: Math.max(0, p.top) }}
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     aria-hidden="true"
-                  />
+                  >
+                    {/* Same speech-bubble glyph as the rail's top icon
+                        so the dot reads unambiguously as "a comment
+                        sits here" rather than a generic marker. */}
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
                 ))}
                 {/* Speech bubble with inner text lines — reads as "annotation"
                     (i.e., comments tied to specific text in the document), to
