@@ -79,21 +79,44 @@ export async function checkPasswordNotBreached(password) {
   }
 }
 
-/** Check if an account is locked due to too many failed login attempts. */
+/** Check if an account is locked due to too many failed login attempts.
+ *
+ *  Two locks, both per the LOCKOUT_WINDOW_MINUTES window:
+ *
+ *   1. Per-(email, IP) at MAX_FAILED_ATTEMPTS — blocks targeted
+ *      brute-force from a single source against one account. This
+ *      replaces the previous email-only lock, which let any attacker
+ *      who knew a victim's email lock the victim out from logging in
+ *      anywhere by spamming wrong passwords from one IP. With the
+ *      per-(email, IP) variant the legitimate user from a different
+ *      network is unaffected.
+ *
+ *   2. Per-IP at MAX_FAILED_ATTEMPTS * 3 — blocks one IP from
+ *      scanning many accounts (credential-stuffing across the user
+ *      base).
+ *
+ *  Requests without an IP (test fixtures, mis-configured proxies)
+ *  fall back to the email-only lock so we don't ship an "IP missing →
+ *  no lockout" hole.
+ */
 export async function isAccountLocked(email, ip) {
+  if (!ip) {
+    const result = await db.get(
+      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+      [email, LOCKOUT_WINDOW_MINUTES],
+    );
+    return parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS;
+  }
   const result = await db.get(
-    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
-    [email, LOCKOUT_WINDOW_MINUTES],
+    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND ip = $2 AND success = FALSE AND created_at > NOW() - make_interval(mins => $3)`,
+    [email, ip, LOCKOUT_WINDOW_MINUTES],
   );
   if (parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS) return true;
-  // Also lock out by IP to prevent cross-account brute force
-  if (ip) {
-    const ipResult = await db.get(
-      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
-      [ip, LOCKOUT_WINDOW_MINUTES],
-    );
-    if (parseInt(ipResult?.cnt || 0) >= MAX_FAILED_ATTEMPTS * 3) return true;
-  }
+  const ipResult = await db.get(
+    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+    [ip, LOCKOUT_WINDOW_MINUTES],
+  );
+  if (parseInt(ipResult?.cnt || 0) >= MAX_FAILED_ATTEMPTS * 3) return true;
   return false;
 }
 

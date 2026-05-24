@@ -475,12 +475,28 @@ function renderIndexWithNonce(nonce) {
   return tpl.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
 }
 
-// Global error handler — catches unhandled errors in route handlers
+// Global error handler — catches unhandled errors in route handlers.
+//
+// Client errors (4xx) get an accurate, actionable message — most
+// commonly these come from express.json() body-parser failures, where
+// blindly returning "Internal server error" misleads the caller into
+// thinking the bug is server-side. 5xx still get the generic message
+// to avoid leaking implementation details through stack-shaped strings.
 app.use((err, req, res, _next) => {
   logger.error({ err, method: req.method, url: req.url }, 'Unhandled route error');
-  if (!res.headersSent) {
-    res.status(err.status || 500).json({ error: 'Internal server error' });
+  if (res.headersSent) return;
+  const status = err.status || 500;
+  let message = 'Internal server error';
+  if (status < 500) {
+    // Map well-known body-parser error types to clean strings; fall
+    // back to the err's own message when it looks safe to surface.
+    if (err.type === 'entity.too.large') message = 'Payload too large';
+    else if (err.type === 'entity.parse.failed') message = 'Invalid JSON';
+    else if (err.type === 'entity.verify.failed') message = 'Body verification failed';
+    else if (typeof err.message === 'string' && err.message.length < 200) message = err.message;
+    else message = 'Bad request';
   }
+  res.status(status).json({ error: message });
 });
 
 // Block common scanner probes — return 404 instead of SPA fallback
