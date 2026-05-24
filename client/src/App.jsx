@@ -418,9 +418,10 @@ function AppInner() {
     const loadingId = project.id;
     const stillCurrent = () => projectRef.current?.id === loadingId;
 
+    let autoCompileTimer = null;
     if (needsAutoCompile.current) {
       needsAutoCompile.current = false;
-      const autoCompileTimer = setTimeout(() => {
+      autoCompileTimer = setTimeout(() => {
         if (!stillCurrent()) return;
         post(`/api/compile/${loadingId}`)
           .then((r) => r.json())
@@ -430,10 +431,12 @@ function AppInner() {
             if (data.success) setPdfUrl(`/api/compile/${loadingId}/pdf?t=${Date.now()}`);
           });
       }, 100);
-      // If the project changes before the timeout fires, the inner check
-      // already short-circuits, but we still want the timer cleaned up to
-      // avoid leaving a no-op pending.
-      return () => clearTimeout(autoCompileTimer);
+      // Auto-compile is fire-and-forget alongside the other fetches —
+      // it used to early-return here, which had the side effect of
+      // skipping the chat-history and generated-files fetches on every
+      // project-reload (because needsAutoCompile is true on first load
+      // of any URL-deep-linked project). Symptom: hard-refresh on a
+      // project page → chat history empty until next live message.
     }
     get(`/api/compile/${loadingId}/generated-files`)
       .then((r) => r.json())
@@ -454,6 +457,7 @@ function AppInner() {
         setChatReadCursors(map);
       })
       .catch((e) => console.warn('Failed to load chat messages:', e));
+    return () => { if (autoCompileTimer) clearTimeout(autoCompileTimer); };
   }, [project, needsAutoCompile, setChatMessages, setChatReadCursors, setCompileLog, setGeneratedFiles, setPdfUrl]);
 
   useEffect(() => {
