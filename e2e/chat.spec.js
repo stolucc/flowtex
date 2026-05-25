@@ -179,8 +179,9 @@ test('chat: GET /api/chat/:projectId returns history in chronological order', as
       headers: { Cookie: `__session=${alice.cookieValue}` },
     });
     expect(r.ok).toBe(true);
-    const history = await r.json();
-    const ours = history.filter((m) => m.text === m1 || m.text === m2 || m.text === m3);
+    const body = await r.json();
+    const messages = Array.isArray(body) ? body : body.messages;
+    const ours = messages.filter((m) => m.text === m1 || m.text === m2 || m.text === m3);
     expect(ours.map((m) => m.text)).toEqual([m1, m2, m3]);
     expect(ours[0].userName).toBe('Alice Chat');
     expect(ours[1].userName).toBe('Bob Chat');
