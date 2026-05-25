@@ -12,10 +12,11 @@ A self-hosted, open-source real-time collaborative LaTeX editor. Edit LaTeX docu
 - **Tracked changes** — Word-style insert / delete marks with per-user attribution, accept / reject review walkthrough, and `latexdiff`-rendered PDF preview
 - **PDF viewer** — built-in viewer with zoom, page navigation, click-to-source sync, and an icon-based error / warning chip surfacing compile + lint diagnostics
 - **File management** — hierarchical file tree with drag-and-drop ZIP upload, BibTeX pretty-print, and DOCX → LaTeX import with five document-type templates (Book/Thesis, Journal paper, Conference paper, Report, and Generic) emitting clean minimal preambles that compile under either `pdflatex` or `xelatex`
-- **Comments & annotations** — inline comments with threads, replies, @mentions, emoji reactions (on both comments and replies), comment assignment (assignee always receives a notification, including on self-assignment), and resolve/unresolve
+- **Comments & annotations** — inline comments with threads, replies, @mentions, emoji reactions (on both comments and replies), comment assignment (assignee always receives a notification, including on self-assignment), and resolve/unresolve. When the comments panel is collapsed, a thin rail still shows a small speech-bubble icon at each unresolved comment's y-position so you don't lose track of where threads live
 - **In-app notifications** — a bell in the toolbar shows real-time @-mention notifications; clicking an entry deep-links to the comment (switches project, opens the file, scrolls the editor) so the recipient lands on the exact spot. Offline users still receive a 5-minute email digest
 - **Report a bug** — Help → Report a bug opens a modal that emails every admin (rate-limited to 5 reports per hour per user). Tag the report with one or more feature areas; the description and reporter identity are included so admins can follow up
-- **Per-project chat** — sidecar chat panel with typing indicators, date separators, and emoji reactions on messages
+- **Per-project chat** — sidecar chat panel with typing indicators, date separators, emoji reactions, and per-message read receipts (✓ when at least one collaborator has read, ✓✓ when every other member has; hover the tick to see exactly who)
+- **Local LaTeX compile (opt-in)** — install `flowtex-helper` on your own machine (macOS .dmg / Linux binary) and FlowTex offloads compile from the shared server to your laptop's TeX Live. Each project can override the user-level default and pin a specific TeX Live year. Pre-built helper binaries ship from GitHub Releases, ad-hoc-signed on Mac to satisfy Gatekeeper. The fallback is transparent — if the helper is offline or doesn't have the requested TeX Live year, compile silently falls back to the server
 - **Version history** — automatic file versioning with hunk-based diff viewer (cap with show-all toggle for large diffs) and one-click restore
 - **GitHub integration** — link projects to GitHub repos, push/pull with encrypted token storage
 - **Citations & bibliography** — Zotero import, BibTeX field enrichment, citation-key autocomplete, and hover tooltips with full author list and venue
@@ -220,18 +221,26 @@ flowtex/
       errorHandler.js         # Centralized error → JSON formatter
     routes/
       auth.js                 # Registration, login, logout, TOTP, self-delete
-      projects.js             # CRUD, files, members, invitations, copy, ZIP upload
+      projects.js             # CRUD, files, members (email owner-only), invitations, copy, ZIP upload
       compile.js              # Compile, PDF, SyncTeX, lint, diff
       comments.js             # Comments, replies, @mentions
       notifications.js        # In-app mention inbox (list + mark-seen)
       history.js              # File versions & restore
       github.js               # Token, linking, push/pull
       bib.js / zotero.js      # Bibliography import
-      chat.js                 # Per-project chat
+      chat.js                 # Per-project chat + read-cursor hydration
       tags.js                 # User tags for projects
       admin.js                # Admin dashboard + per-user delete + SMTP test
       setup.js                # First-run setup
       bugReports.js           # Help → Report a bug → email admins (5/hour/user)
+helper/                       # Go menu-bar app for local LaTeX compilation
+                              # (macOS .dmg + Linux headless binary).
+                              # See helper/README.md.
+scripts/
+  provision-vps.sh            # One-shot Ubuntu provisioner / upgrader
+  update-vps.sh               # In-place deploy: pull → build → restart
+  install-texlive-year.sh     # Install a TUG release into /usr/local/texlive/YYYY
+                              # (GPG-verified against TeX Live signing key)
     services/
       authService.js          # Account creation, password & MFA
       projectService.js       # File CRUD + main_file tracking
@@ -275,12 +284,14 @@ npm run test:watch    # Watch mode
 - **CSRF protection** — double-submit token on all state-changing API requests. Only minted for authenticated sessions so anonymous traffic doesn't allocate a session row
 - **Helmet** — full Content Security Policy, X-Frame-Options, HSTS
 - **Rate limiting** — auth `30/15min`, generic API `1000/15min`, comment-create `60/min/user`, bug-report `5/hour/user`, upload `100/hour`, compile `15/min/project` (and `30/min/user`). See [SECURITY.md](SECURITY.md) for the full table
-- **LaTeX sandbox** — `latexmk` runs with `--no-shell-escape`, `openin_any=p`, `openout_any=p`, `prlimit` caps (memory, file size, CPU, pids), and (for `lualatex`) the `--safer` flag that locks down `os.execute` / `io.open` / `os.remove` from `\directlua`
-- **Account lockout** — 10 failed login attempts triggers 15-minute lockout
-- **Session security** — httpOnly cookies, secure flag in production, session regeneration on login
+- **LaTeX sandbox** — `latexmk` runs with `--no-shell-escape`, `openin_any=p`, `openout_any=p`, `prlimit` caps (memory, file size, CPU, pids), and (for `lualatex`) the `--safer` flag that locks down `os.execute` / `io.open` / `os.remove` from `\directlua`. The same cage runs in the local helper when local-compile is opted into
+- **Account lockout** — 10 failed login attempts from one `(email, IP)` pair triggers a 15-minute lockout; a single IP hitting 30 failures across any accounts is locked separately. The per-IP scoping means an attacker who knows a victim's email can't lock them out from a different network
+- **Session security** — httpOnly cookies, secure flag in production, session regeneration on login. WebSocket auth checks `expire > NOW()` in-query so a stolen cookie can't survive past the expiry even before `connect-pg-simple`'s pruner runs
+- **Email-change notification** — changing the account email sends a notice to the OLD address ("your email was changed to X — if not you, contact us") in addition to the verification link to the new address. Closes the silent-account-move path
+- **Collaborator-email privacy** — project member emails are only returned to project owners; editors and viewers see name + role only, blocking email harvesting via the `/members` endpoint
 - **Encryption at rest** — GitHub tokens encrypted with AES-256-GCM
 - **Path traversal prevention** — all file operations validated against project directory
-- **SSRF protection** — GitHub repo names validated against strict regex
+- **SSRF protection** — GitHub repo names validated against strict regex; the Zotero proxy asserts the resolved URL stays on `api.zotero.org` before issuing the request
 - **Audit logging** — sensitive actions (login, delete, member removal) logged to `audit_log` table
 - **TLS enforcement** — automatic HTTPS redirect in production
 - **Hardened ImageMagick policy** — the VPS provisioner drops a restrictive `policy.xml` (Ghostscript/PS/EPS/PDF/MVG/MSL/URL coders disabled, resource caps) so user-uploaded media can't trigger coder vulnerabilities

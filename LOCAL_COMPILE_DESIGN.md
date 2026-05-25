@@ -1,9 +1,23 @@
 # Local Compile Helper — Design
 
-Status: draft, pre-implementation. Reviewer: project owner.
+Status: **shipped** (Phases 0–5 complete; phase 6 deferred). All current
+helper releases live under the `helper-v0.2.x` tag series. The
+operator runbook for turning the feature on in production is the
+sister doc [`LOCAL_COMPILE_DEPLOY.md`](LOCAL_COMPILE_DEPLOY.md).
+The end-user walkthrough lives in [`USER_GUIDE.md`](USER_GUIDE.md)
+under "Local LaTeX Compile (opt-in)".
+
 Pre-work rollback anchor: tag `v-pre-local-compile` on commit
-`3effca6`. Any time during implementation, `git reset --hard
-v-pre-local-compile` returns FlowTex to a known-good shipping state.
+`3effca6`. Even though the feature is shipped, the schema additions
+remain reversible — `git reset --hard v-pre-local-compile` plus the
+two `DROP COLUMN`s in §3.2 returns FlowTex to the pre-feature state
+without data loss (the columns hold only user preferences).
+
+This doc was written pre-implementation and is preserved as the
+architecture and security baseline. Notes on what shipped differently
+from the original design are inline below where relevant; major
+post-ship additions are summarized in §15 "What changed during
+implementation".
 
 ## 1. Why
 
@@ -655,3 +669,54 @@ points at a working version.
 The spike is throwaway code whose only purpose is to validate the
 loopback-TLS bridge and measure helper cold-start; nothing in this
 phase touches the main FlowTex codebase.
+
+---
+
+## 15. What changed during implementation (post-ship notes)
+
+The design above was largely implemented as written. Notable
+deltas worth recording for future maintainers:
+
+- **HTTP, not HTTPS, by default.** Phase 0 validated that
+  `http://localhost` is a W3C "potentially trustworthy" origin
+  exempt from mixed-content blocking, so the TLS-on-loopback
+  scaffolding became opt-in (`--tls`) rather than the default. No
+  cert dance, no acceptance UI, no `helper.localhost.flowtex.click`
+  DNS step on the install path.
+- **Menu-bar app on macOS.** Phase 1 was originally a CLI binary.
+  Users found "open a terminal and run `./flowtex-helper`" a hard
+  onboarding ask. The helper now ships as `FlowTex Helper.app`
+  inside a `.dmg` and runs as a menu-bar (LSUIElement) app with
+  a tray icon, Generate-pairing-code dialog, About dialog, and a
+  Default-TeX-Live submenu for multi-install hosts. Built via
+  `helper/scripts/build-app.sh` and ad-hoc codesigned in CI.
+- **Linux stays headless.** GNOME's tray story is fragmented
+  (`StatusNotifierItem` removed from default in 3.26, KDE/XFCE
+  differ), so the helper compiles with a `tray_stub.go` build tag
+  on non-Mac/Win platforms and runs headless. Linux users wire it
+  up via `systemd --user` per `helper/README.md`.
+- **Per-project TeX Live year pinning.** The original design
+  only had per-project `compile_location` (`server` / `local`).
+  Phase 5 added a sibling `tex_distribution` field whose picker
+  filters to whichever side the project will compile on (so you
+  can never pin a year that doesn't exist on the active side).
+  Helper `/version` exposes `distributions_available[]` and
+  `/compile` accepts `texDistribution` to switch `$PATH` per
+  compile.
+- **Chrome Private Network Access / Local Network Access.**
+  Chrome 145+ requires both an explicit `Access-Control-Allow-
+  Private-Network: true` on the helper's CORS preflight AND a
+  `local-network-access` permission grant from the user (the
+  client requests it via `navigator.permissions.request`). Both
+  are wired up.
+- **Multiple TeX Live installs on the server.** A sister
+  `scripts/install-texlive-year.sh` installs additional years
+  into `/usr/local/texlive/YYYY/` on the VPS, GPG-verified
+  against TUG's release key. Lets the server-side picker offer
+  multiple years too.
+- **Helper version metadata.** Build SHA + build time are now
+  baked in via `-X` ldflags and surfaced via the tray's "About
+  FlowTex Helper" dialog — mirrors the FlowTex client's About
+  modal so bug reports always carry a precise version string.
+
+All of these are additive; the rollback contract in §3 is intact.

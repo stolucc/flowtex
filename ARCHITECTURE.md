@@ -2,7 +2,7 @@
 
 ## System Overview
 
-FlowTex is a full-stack web application with a React single-page application frontend, an Express.js backend, PostgreSQL for persistence, and optional Redis for horizontal scaling. LaTeX compilation is delegated to a local TeX Live installation.
+FlowTex is a full-stack web application with a React single-page application frontend, an Express.js backend, PostgreSQL for persistence, and optional Redis for horizontal scaling. LaTeX compilation is delegated to a local TeX Live installation — by default running on the server, or optionally on the user's own machine via the `flowtex-helper` companion app (see `helper/` and `LOCAL_COMPILE_DESIGN.md`). The helper is a single Go binary; on macOS it ships as a `.app` menu-bar app, on Linux it runs headless. The web app and the helper communicate via a loopback HTTPS/HTTP bridge with bearer-token + Origin allowlist + Host pin auth.
 
 ---
 
@@ -388,6 +388,13 @@ Collaboration tables (FKs back to comments / comment_replies / chat_messages):
   chat_messages          — per-project chat history (last 500 returned via /api/chat)
 
   chat_message_reactions — emoji reactions on chat messages (same toggle pattern)
+
+  chat_read_cursors      — one row per (project, user); tracks each member's
+                           "last read at" timestamp for the per-message read
+                           receipts. The GET /api/chat response hydrates a
+                           cursor row per project member (LEFT JOIN) so the
+                           client can derive own-message ✓ / ✓✓ indicators
+                           without re-querying per message
 ```
 
 ---
@@ -492,13 +499,16 @@ main.jsx
                  │    ├─ Lint / log panel (toggle)
                  │    └─ Console output (toggle)
                  │
-                 ├─ ChatPanel (resizable, toggleable)
+                 ├─ ChatPanel (resizable, toggleable, lazy chunk)
                  │
-                 ├─ CommentsSidebar (resizable)
+                 ├─ CommentsSidebar (resizable, lazy chunk)
                  │    ├─ Comment threads
-                 │    └─ Reply forms
+                 │    ├─ Reply forms
+                 │    └─ Collapsed-rail: speech-bubble markers at each
+                 │       unresolved comment's y-position when the panel
+                 │       is closed
                  │
-                 ├─ HistoryView (full-pane, when viewing snapshots)
+                 ├─ HistoryView (full-pane, when viewing snapshots, lazy chunk)
                  │    ├─ Snapshot list
                  │    ├─ File list (with diff status per file)
                  │    └─ Hunk-based diff viewer (line cap with show-all toggle)
@@ -518,6 +528,34 @@ main.jsx
                       ├─ About modal
                       └─ ConfirmDialog
 ```
+
+### Bundle splitting
+
+Vite builds the client into multiple chunks so first-paint doesn't drag
+in code that only matters once a project is open:
+
+- `react-*.js` — React + react-dom/client.
+- `codemirror-*.js` — every `@codemirror/*` package (manual chunk).
+- `pdfjs-*.js` — `pdfjs-dist` (manual chunk).
+- `Editor-*.js`, `PdfViewer-*.js`, `HistoryView-*.js`, `ChatPanel-*.js`,
+  `CommentsSidebar-*.js`, `BinaryPreview-*.js` — `React.lazy()` chunks,
+  loaded only after the user opens a project.
+- `AdminDashboard-*.js`, `ProjectSettingsModal-*.js`, `ShareModal-*.js`,
+  `WordCountModal-*.js`, `BugReportModal-*.js`, `BibEnrichModal-*.js`,
+  `ZoteroModal-*.js`, `CompareFilesModal-*.js`, `GitHubSyncModal-*.js`,
+  `HistoryPanel-*.js` — modal-level lazy chunks.
+- `index-*.js` — the main entry; ~260 KB raw / ~80 KB gzipped after
+  the lazy work (down from ~926 KB before).
+
+`App.jsx` fires `import('./components/Editor.jsx')` and
+`import('./components/PdfViewer.jsx')` from a `useEffect` keyed on
+`user` — once the user is logged in, those chunks pre-warm in the
+background so the click-into-a-project transition resolves from the
+module cache instead of paying a fresh round-trip.
+
+`getMimeType` lives in `client/src/utils/mimeType.js` rather than in
+`BinaryPreview.jsx` so importing the lookup helper doesn't drag
+`pdfjs-dist` into whichever module needs it.
 
 ### Visual Mode (WYSIWYG)
 

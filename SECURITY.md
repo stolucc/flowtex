@@ -224,7 +224,7 @@ salt in `settings`, restart, re-enroll.
 | Bucket | Limit | Keyed by | Why |
 | --- | --- | --- | --- |
 | General API | `1000/15min` | IP | Catch-all DoS floor for everything not listed below |
-| Auth (login, register, forgot/reset, resend-verification) | `30/15min` | IP | Brute-force + spray defence; account-lockout fires separately on 10 failed logins |
+| Auth (login, register, forgot/reset, resend-verification) | `30/15min` | IP | Brute-force + spray defence; account-lockout fires separately (see "Login lockout" below) |
 | File uploads (`from-zip`, `upload-zip`, `upload-file`) | `100/hour` | IP | ZIP bombs / disk-fill defence |
 | Compile (per project) | `15/min` | project | Per-project burst protection |
 | Compile (per user) | `30/min` | session.userId | Cross-project compile spam from one account |
@@ -234,6 +234,29 @@ salt in `settings`, restart, re-enroll.
 All buckets honour `DISABLE_RATE_LIMIT=1` only when `NODE_ENV !== 'production'`. The IPv6 fallback uses `express-rate-limit`'s `ipKeyGenerator` helper so two callers behind the same `/64` don't share a bucket (otherwise one tenant could silence a neighbour). The comment-create and bug-report limiters key by `session.userId` first and only fall back to IP for the rare unauthenticated edge case.
 
 The `POST /api/comments/:fileId` limiter is mounted **method-specifically** so resolve / edit / delete / reply on existing comments stay under the generic `apiLimiter` — only fresh comment creation triggers the fan-out the cap is defending against.
+
+## Login lockout
+
+Two independent counters, both over a 15-minute sliding window:
+
+| Counter | Threshold | Scope | What it catches |
+| --- | --- | --- | --- |
+| `failed(email, ip)` | 10 | one (account, source IP) pair | Targeted brute-force against one account from one machine. Locks that pair only — the legitimate user from a different network is unaffected, closing the silent-DoS path where any attacker who knew a victim's email could lock the victim out from anywhere |
+| `failed(ip)` | 30 | one source IP across any account | Credential-stuffing / spraying — one IP hammering many accounts |
+
+Both reset on a successful login for the same `email`. Both require `req.ip` to be the real client IP, which depends on `app.set('trust proxy', 1)` (already in place) plus Caddy being the only public-facing entry. If you ever expose port 3001 directly, `X-Forwarded-For` becomes attacker-controlled and the lockout becomes spoofable — keep the FlowTex Node process bound behind the proxy.
+
+## Email change notification
+
+`POST /api/auth/change-email` requires the user's current password (a session cookie alone is not enough). On successful change, the **old** address receives a notice ("your account email was changed to X — if not you, contact us"), in addition to the verification link sent to the new address. Closes the silent-account-move attack chain: even if an attacker phishes the password, the victim sees the change happen.
+
+## Collaborator-email privacy
+
+`GET /api/projects/:id/members` strips the `email` field unless the requester is the project owner. Editors and viewers see `id`, `name`, and `role` only. Closes the email-harvesting vector where any user added to any project could scrape every other collaborator's address.
+
+## Global error handler
+
+Server-side 5xx errors return `{"error":"Internal server error"}` to avoid leaking stack-shaped strings. 4xx errors with explicit `status` (deliberately surfaced by route handlers and body-parser failures) return a clean message — `Payload too large`, `Invalid JSON`, `Body verification failed`, or `err.message` capped at 200 chars. Lets clients see what's actually wrong on 4xx without exposing internals on 5xx.
 
 ## LaTeX compile sandbox
 

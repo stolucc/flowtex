@@ -129,18 +129,24 @@ to pre-feature behaviour.
 1. Open **Account Settings → Compile** (new tab, visible only when
    `serverFeatures.localCompile === true`).
 2. See the helper-status row. Initially red: "Helper not detected."
-3. Click **Download flowtex-helper for macOS** (or Linux). The
-   button auto-picks the right binary for their platform from
-   GitHub Releases.
-4. On macOS, run the unquarantine + chmod + run sequence shown in
-   the "After download" details (Gatekeeper would otherwise block
-   the unsigned binary; the in-app instructions include
-   `xattr -d com.apple.quarantine flowtex-helper-darwin-arm64`).
-5. The badge auto-flips to yellow ("running but not paired") within
-   ~3s. They click **Pair helper**, run `./flowtex-helper pair` in a
-   second terminal to get a 6-digit code, paste it, click Pair.
+3. The Compile tab now leads with the **macOS .dmg path** (no terminal
+   required): download → drag to Applications → right-click → Open
+   the first time. Linux users get the one-liner `install.sh` that
+   downloads the binary, verifies the SHA256 against the release's
+   signed `SHA256SUMS`, fails closed if the checksum file is
+   unreachable, and installs to `/usr/local/bin/flowtex-helper`.
+4. macOS users launch the app and see the **fTx** label in the menu
+   bar. Click → **Generate pairing code** — a native dialog shows
+   the 6-digit code AND auto-copies it to the clipboard. Linux
+   users run `flowtex-helper pair`.
+5. Paste the code into FlowTex's Pair helper input. Badge flips
+   green: "Paired. TeX Live YYYY".
 6. Set their default to "My local TeX Live", or override per project
-   from the PDF dropdown.
+   from **Project Settings → Compiler → Compile location for this
+   project**. The TeX-Live-year picker right above it auto-filters
+   to whichever side the project will compile on (server-installed
+   years when set to server, helper-detected years when set to
+   local), so a pick can never reference a year that isn't there.
 
 From the FlowTex page's point of view, the only network traffic
 change is the `fetch` to `http://localhost:9876/*` when local compile
@@ -272,20 +278,51 @@ ALTER TABLE users    DROP COLUMN compile_location;
 ALTER TABLE projects DROP COLUMN compile_location;
 ```
 
+## Operator-side TeX Live installs
+
+If the deployed server has more than one `/usr/local/texlive/YYYY`
+release installed, FlowTex's distribution picker offers each as an
+option. To add a second release on the VPS for the picker to surface,
+use [`scripts/install-texlive-year.sh`](scripts/install-texlive-year.sh):
+
+```bash
+sudo INSTALL_TEXLIVE_SKIP_GPG=0 \
+  bash /opt/flowtex/scripts/install-texlive-year.sh 2024
+```
+
+The script downloads `install-tl-unx.tar.gz` from TUG over HTTPS,
+fetches the matching `.sha512.asc`, **verifies the GPG signature
+against TeX Live's release key** before executing any of TUG's Perl,
+and then runs `install-tl` with `selected_scheme scheme-basic` (the
+minimum that gives you `pdflatex` + a usable LaTeX install — the
+operator can override with the 2nd arg to pick `small`, `medium`,
+or `full`). Fails closed if `gpg` isn't installed or TUG's key isn't
+in the keyring; the error message tells you how to import:
+
+```bash
+gpg --keyserver hkps://keyserver.ubuntu.com \
+    --recv-keys 0D5E5D9106BAB6BC
+```
+
+`INSTALL_TEXLIVE_SKIP_GPG=1` is an explicit opt-out for air-gapped
+environments — don't use it casually, since `install-tl` runs as
+root and executes arbitrary Perl.
+
 ## Open questions / TODOs
 
 These are deliberately not blockers, but worth picking up at some
 point:
 
-1. **macOS code signing.** The pre-built mac binaries are unsigned.
-   Users get a Gatekeeper warning the first time; the in-app
-   instructions tell them how to allow it (`xattr -d
-   com.apple.quarantine`). Joining the Apple Developer Program
-   ($99/y) lets us sign + notarize, removing the warning entirely.
-2. **In-UI allowed-origin management.** Self-hosters currently
-   hand-edit `~/.flowtex-helper/config.json`. A "Trust this server"
-   button in the Compile tab that calls a new `/origin` helper
-   endpoint would close that gap.
+1. **macOS code signing.** The pre-built mac binaries are
+   **ad-hoc signed** in CI (free, fixes "Killed: 9" on Apple Silicon)
+   but not notarized — users see a Gatekeeper warning the first time
+   and have to right-click → Open. Joining the Apple Developer
+   Program ($99/y) and adding notarization to the helper-release
+   workflow would remove the warning entirely.
+2. **In-UI allowed-origin management.** Self-hosters can already
+   use `flowtex-helper allow-origin <url>` from the terminal; a
+   "Trust this server" button in the Compile tab that drives the
+   same code path would close the last terminal step.
 3. **Cert distribution for `helper.localhost.flowtex.click`.** Not
    needed for the HTTP default; only relevant if `--tls` adoption
    suggests we should also drop the self-signed warning for

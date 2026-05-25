@@ -30,8 +30,17 @@ client/src/
 server/
   index.js         — Express server, WebSocket handler, session auth
   db.js            — PostgreSQL connection pool
-  routes/          — auth, projects, compile, github, bib, zotero
+  routes/          — auth, projects, compile, github, bib, zotero, chat, comments, ...
   utils/           — crypto, email, gitSync, latexDiff
+
+helper/            — Go menu-bar app for opt-in local LaTeX compile
+                     (macOS .dmg + Linux headless binary; see helper/README.md)
+
+scripts/
+  provision-vps.sh         — one-shot VPS provisioner/upgrader
+  update-vps.sh            — in-place pull → build → restart
+  install-texlive-year.sh  — install a TUG TeX Live release into
+                             /usr/local/texlive/YYYY (GPG-verified)
 ```
 
 ## Key Patterns
@@ -46,18 +55,21 @@ server/
 ## Building & Running
 
 ```bash
-# Build client (from project root)
-cd client && npx vite build
+# Build client (from project root). ALWAYS use the npm script — it sets
+# VITE_BUILD_SHA / VITE_BUILD_TIME from git so the About modal shows
+# which commit is live. `npx vite build` skips the wrapper and stamps
+# the bundle with `dev`.
+cd client && npm run build
 
 # Start server (loads .env automatically)
 node --env-file=.env server/index.js
 
 # Or use npm scripts
 npm run dev          # concurrent dev server + vite
-npm run build        # production client build
+npm run build        # production client build (sets VITE_BUILD_SHA)
 ```
 
-Build output goes to `client/dist/` which is copied to `server/public/` by the build.
+Build output goes to `client/dist/` and is served by the Node server.
 
 ## Database
 

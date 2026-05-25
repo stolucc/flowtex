@@ -133,6 +133,7 @@ Visual mode is purely visual — toggling it off restores the exact same source.
 - **Assign a comment**: When you @-mention someone, an "Assign to" checkbox appears — tick it to mark the comment as assigned to that person; their name shows in a banner above the comment. The assignee always receives both the bell notification and an entry in the next digest email **even when you assign the comment to yourself** (useful when you're tracking your own to-do items on a manuscript).
 - **React with emoji**: Hover any comment or reply and click the ☺ trigger that appears in the bottom-right; pick from the palette (👍 ❤️ 😄 🎉 🤔 👀 ✅ ❌). Reactions appear as pills under the comment; click a pill you've placed to remove it. All collaborators see the same reaction set in real time.
 - Comments are positioned alongside the relevant lines in the editor.
+- **Collapsed rail**: Close the comments panel (its close button) and the thin remaining strip on the right edge keeps showing a small speech-bubble icon at each unresolved comment's y-position, so you can see where threads live without re-opening the panel. Click the strip to re-open.
 
 ### Notifications (Bell)
 
@@ -215,6 +216,7 @@ Open the chat panel from View → Chat. Messages are scoped to the current proje
 - A live typing indicator while others are composing
 - Emoji reactions (same palette as comments — click the ☺ trigger on hover)
 - An unread badge in the toolbar when new messages arrive while the panel is closed
+- **Read receipts** on your own messages — `✓` (grey) when at least one other collaborator has read it, `✓✓` (accent colour) when every other member has. Hover the tick to see who specifically has read ("Read by Alice, Bob"). The receipt updates live as others open their chat panel; opening the chat panel marks it read for you (server tracks one "last read" cursor per (project, user))
 
 ---
 
@@ -301,6 +303,52 @@ Link your project to a GitHub repository for backup and version control.
 
 ---
 
+## Local LaTeX Compile (opt-in)
+
+By default every compile runs on the FlowTex server. If the server has `FEATURE_LOCAL_COMPILE=1` you can install a small helper on your own machine and have FlowTex compile there instead — faster turnaround, your source never leaves your laptop, and you can pick which TeX Live release runs.
+
+### Install (macOS)
+
+1. **Account Settings → Compile** — the panel walks you through it. Click **Download FlowTex Helper.dmg (arm64 or amd64)**.
+2. Open the `.dmg`, drag **FlowTex Helper** to **Applications**.
+3. Right-click → **Open** the first time so Gatekeeper asks (the binary is ad-hoc signed but not notarised).
+4. Look for the **fTx** label in the menu bar — it's the helper. Click → **Generate pairing code**: a native dialog shows a 6-digit code AND copies it to the clipboard.
+5. Back in Account Settings → Compile, paste the code.
+
+That's it. The badge turns green ("Paired. TeX Live YYYY") and your subsequent compiles run on your laptop.
+
+The menu bar also has:
+
+- **Open FlowTex pairing page** — opens `flowtex.click` in your browser.
+- **About FlowTex Helper** — shows the helper's version and build SHA so you know what's running.
+- **Default TeX Live** — if you have multiple `/usr/local/texlive/YYYY` installs, pick which year is the default for compiles that don't pin a year.
+- **Quit** — stops the helper.
+
+### Install (Linux)
+
+The same one-liner from the in-app instructions installs the headless binary on your `$PATH`:
+
+```bash
+curl -sSL https://github.com/stolucc/flowtex/releases/latest/download/install.sh | bash
+```
+
+Then run `flowtex-helper` and follow the same pair flow. The install script verifies the GitHub Release's SHA256SUMS before installing; if the checksum file is unreachable it refuses to proceed (override with `FLOWTEX_HELPER_SKIP_CHECKSUM=1`).
+
+To keep the helper running across reboots, register a `systemd --user` unit — see `helper/README.md`.
+
+### Pick where each project compiles
+
+Under **Project Settings → Compiler tab**:
+
+- **Compile location for this project** — radio: "Use my default", "Always FlowTex server", or "Always my local TeX Live".
+- **TeX Live Distribution** — picks the year. The list filters to whichever side will actually compile (server vs. local) so you can't pin a year that's only on the other side. The "Latest available — YYYY" entry shows you exactly which year the default will resolve to.
+
+### When the helper isn't there
+
+If you set "local" but the helper is offline, busy, or doesn't have the requested TeX Live year, FlowTex transparently falls back to the server. You'll see a brief "Compiling on the FlowTex server" line in the console. No manual switch needed.
+
+---
+
 ## Two-Factor Authentication (MFA)
 
 Protect your account with TOTP-based two-factor authentication.
@@ -357,7 +405,7 @@ If your account has the admin flag, the user menu shows an **Admin Dashboard** e
 
 - **Overview** — total users / projects / files / versions / comments, with 7-day and 30-day deltas
 - **Most Active Projects** — top 20 by recent edits, with an **Owner** column so you can see at a glance who runs each one
-- **Active Users** — top 20 by edit count; click any row to drill into their projects, recent edits, comments, chat, audit entries, and login history
+- **Active Users** — top 20 by edit count; each row shows a **Last Active** column (most recent of: edit, comment, or any audit-log entry such as a login) so you can tell engaged users from dormant accounts at a glance. Click any row to drill into their projects, recent edits, comments, chat, audit entries, and login history
 - **Audit log** — every security-relevant event (logins, password / MFA changes, snapshot restores, GitHub-token issuance, admin actions); exportable as CSV
 - **SMTP settings** — test mail sending and rotate the admin SMTP password
 - **Delete user** — each user row has a Delete button that opens a triple-check modal: acknowledge, type the target's exact email, enter *your* admin password, only then is the destructive button enabled. The flow cleans up the user's authorship on comments / replies / versions, drops any project they alone own, and sends a goodbye email. Admins cannot delete *themselves* through this flow — use the regular self-delete instead.

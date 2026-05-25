@@ -5,11 +5,12 @@ talks to a FlowTex browser tab over a paired bridge, compiles using
 whatever TeX Live you already have installed. Source files and PDFs
 never leave your machine.
 
-Status: **Phase 2, v0.2.0-dev.** Single binary, mac + linux. On macOS
-the binary is shipped inside a `FlowTex Helper.app` bundle and runs as
-a menu-bar app; on Linux it runs headless (no portable tray story).
-Windows build is deferred. See `LOCAL_COMPILE_DESIGN.md` at the repo
-root for the full architecture and security model.
+Status: **Shipped, current tag tracks `helper-v0.2.x`.** Single binary,
+mac + linux. On macOS the binary is shipped inside a
+`FlowTex Helper.app` bundle and runs as a menu-bar app; on Linux it
+runs headless (no portable tray story). Windows build is deferred.
+See `LOCAL_COMPILE_DESIGN.md` at the repo root for the full
+architecture and security model.
 
 ## macOS: menu-bar app (recommended)
 
@@ -20,10 +21,21 @@ not notarised). After that, look for the **fTx** label in the menu bar
 — click it to:
 
 - Check pairing status (●  Paired  /  ○  Awaiting pairing).
-- **Generate pairing code** — opens a 60-second window; the 6-digit
-  code is displayed as a disabled menu item beneath.
+- **Generate pairing code** — opens a 60-second window. The code
+  pops up in a native dialog AND auto-copies to the clipboard, so
+  you can paste straight into FlowTex without retyping. The code
+  also stays visible as a disabled menu item until it expires.
 - **Open FlowTex pairing page** — launches the browser at
   `https://flowtex.click`.
+- **About FlowTex Helper** — native dialog showing the version,
+  build SHA, and build timestamp. Useful when filing a bug report
+  so you know exactly which build is running.
+- **Default TeX Live** (submenu) — when multiple `/usr/local/texlive/YYYY`
+  installs are present, pick which year compile requests use when
+  the project doesn't pin one. Selecting a year writes
+  `default_tex_year` to `~/.flowtex-helper/config.json` and
+  rebuilds `$PATH` so subsequent compiles see the chosen binaries
+  first. Project Settings pins still override per-project.
 - **Quit** — stops the helper.
 
 No terminal required.
@@ -228,10 +240,17 @@ auth + origin allowlist + Host pin enforced on everything except
 | Method | Path | Auth | Purpose |
 | ------ | ---- | ---- | ------- |
 | GET    | /health         | none   | Liveness probe. Returns `{"ok":true}`. |
-| GET    | /version        | bearer | TeX Live year, engines available, biber. |
+| GET    | /version        | bearer | TeX Live year, engines, biber, **plus `distributions_available[]`** — every `/usr/local/texlive/YYYY` install the helper can see, used by FlowTex's TeX Live picker. |
 | POST   | /pair?code=…    | code   | Single-use 6-digit handshake → fresh bearer token. |
-| POST   | /compile        | bearer | Run a compile. Body: `compileRequest`. Returns `{success, log, pdf}` (PDF is base64). |
+| POST   | /compile        | bearer | Run a compile. Body: `compileRequest`. Returns `{success, log, pdf}` (PDF is base64). Body capped at 64 MiB via `http.MaxBytesReader`. |
 | POST   | /cancel/:jobId  | bearer | Abort a running compile. |
+
+CORS preflights respond with `Access-Control-Allow-Private-Network: true`
+when Chrome's PNA preflight asks for it, so a `https://flowtex.click`
+page (public address space) is allowed to reach `127.0.0.1:9876`
+(loopback). The Host pin runs **before** the OPTIONS branch so a
+DNS-rebinding probe can't fingerprint helper presence via the CORS
+headers.
 
 `compileRequest` shape:
 
@@ -241,12 +260,20 @@ auth + origin allowlist + Host pin enforced on everything except
   "mainFile": "main.tex",
   "compiler": "pdflatex",          // | "xelatex" | "lualatex"
   "showTrackedChanges": false,
+  "texDistribution": "2025",       // optional, "" = use default-on-PATH
   "files": [
     { "path": "main.tex", "content": "\\documentclass…", "isBinary": false },
     { "path": "fig/diagram.pdf", "content": "<base64>", "isBinary": true }
   ]
 }
 ```
+
+When `texDistribution` is a year that's listed in
+`distributions_available`, the helper prepends that year's
+`bin/<arch>` to `$PATH` and switches `latexmk` to the pinned binary
+for the duration of the compile. An unknown year fails fast with a
+clear "TeX Live X is not installed (available: …)" error rather
+than silently falling back.
 
 ## Compile cage
 
