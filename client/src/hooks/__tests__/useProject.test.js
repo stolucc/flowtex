@@ -22,7 +22,7 @@ describe('useProject', () => {
     pushStateSpy = vi.spyOn(window.history, 'pushState');
     vi.spyOn(window.history, 'replaceState');
     // Default: no projects to load from URL
-    get.mockResolvedValue({ json: () => Promise.resolve([]) });
+    get.mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
   });
 
   it('has correct initial state', () => {
@@ -49,9 +49,9 @@ describe('useProject', () => {
   it('goBack clears project, files, activeFile, and navigates to /', async () => {
     const files = [{ id: 'f1', path: 'main.tex', content: '' }];
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve(files) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve(files) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -80,9 +80,9 @@ describe('useProject', () => {
 
     const files = [file];
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve(files) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve(files) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -113,9 +113,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     const f1 = { id: 'f1', path: 'ref.bib', content: 'old bib' };
     const f2 = { id: 'f2', path: 'main.tex', content: 'old tex' };
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([f1, f2]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([f1, f2]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -137,12 +137,12 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
 
   it('handleCreateFile calls post, adds file, switches to new file', async () => {
     const newFile = { id: 'f2', path: 'chapter.tex', content: 'hello' };
-    post.mockResolvedValue({ json: () => Promise.resolve(newFile) });
+    post.mockResolvedValue({ ok: true, json: () => Promise.resolve(newFile) });
     get.mockImplementation((url) => {
       if (url.includes('/files'))
-        return Promise.resolve({ json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -165,9 +165,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     const f1 = { id: 'f1', path: 'main.tex', content: '' };
     const f2 = { id: 'f2', path: 'other.tex', content: '' };
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([f1, f2]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([f1, f2]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -194,9 +194,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     patch.mockResolvedValue({});
     const f1 = { id: 'f1', path: 'old.tex', content: '' };
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([f1]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([f1]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -217,9 +217,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     patch.mockResolvedValue({ ok: true });
     get.mockImplementation((url) => {
       if (url.includes('/files'))
-        return Promise.resolve({ json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -243,9 +243,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     });
     get.mockImplementation((url) => {
       if (url.includes('/files'))
-        return Promise.resolve({ json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'f1', path: 'main.tex', content: '' }]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -267,14 +267,15 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     get.mockImplementation((url) => {
       if (url.includes('/files'))
         return Promise.resolve({
+          ok: true,
           json: () =>
             Promise.resolve([
               { id: 'f1', path: 'main.tex', content: '' },
               { id: 'f2', path: 'other.tex', content: '' },
             ]),
         });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
@@ -298,9 +299,9 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     const f2 = { id: 'f2', path: 'chapters/ch1.tex', content: '' };
     const f3 = { id: 'f3', path: 'chapters/ch2.tex', content: '' };
     get.mockImplementation((url) => {
-      if (url.includes('/files')) return Promise.resolve({ json: () => Promise.resolve([f1, f2, f3]) });
-      if (url.includes('/members')) return Promise.resolve({ json: () => Promise.resolve([]) });
-      return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([f1, f2, f3]) });
+      if (url.includes('/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
 
     const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));

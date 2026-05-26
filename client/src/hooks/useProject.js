@@ -31,6 +31,10 @@ export default function useProject(user) {
   // through handleSave → handleCompile every time the user types.
   const filesRef = useRef(files);
   filesRef.current = files;
+  // Mirror of `project` for async resolvers — lets late-arriving fetches
+  // detect a project switch and drop their result instead of overwriting
+  // the new project's state.
+  const projectRef = useRef(null);
   const [emptyFolders, setEmptyFolders] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [members, setMembers] = useState([]);
@@ -102,12 +106,30 @@ export default function useProject(user) {
     return () => window.removeEventListener('popstate', onPopState);
   }, [project]);
 
+  // Keep projectRef synced with current project so the async file-load
+  // resolver (and any future late-arriving fetcher) can compare against
+  // the latest value rather than the value captured when the effect
+  // started.
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
   // Load project files
   useEffect(() => {
     if (!project) return;
+    // Capture the project id we're loading for so a late response from a
+    // previous project doesn't overwrite the new one (the user can switch
+    // projects faster than the HTTP call resolves).
+    const loadingProjectId = project.id;
     get(`/api/projects/${project.id}/files`)
-      .then((r) => r.json())
-      .then((loadedFiles) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status} loading files for ${loadingProjectId}`);
+        const loadedFiles = await r.json();
+        if (!Array.isArray(loadedFiles)) {
+          throw new Error('files response was not an array');
+        }
+        // Drop the result if the user has since switched projects.
+        if (projectRef.current?.id !== loadingProjectId) return;
         setFiles(loadedFiles);
         setFilesLoaded(true);
         if (loadedFiles.length > 0 && !activeFile) {
@@ -120,6 +142,15 @@ export default function useProject(user) {
             const mainFile = loadedFiles.find((f) => f.path === mainName);
             setActiveFile(mainFile || loadedFiles[0]);
           }
+        }
+      })
+      .catch((err) => {
+        // Visible error: log with context so a future "files are gone"
+        // report has something to attach. Also flip filesLoaded so the
+        // UI doesn't sit forever in the suppress-banner load state.
+        console.error('Failed to load files for project', loadingProjectId, err);
+        if (projectRef.current?.id === loadingProjectId) {
+          setFilesLoaded(true);
         }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps

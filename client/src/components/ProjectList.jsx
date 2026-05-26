@@ -24,6 +24,11 @@ const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba
 /** Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations. */
 export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin, pendingInviteId }) {
   const [projects, setProjects] = useState([]);
+  // null = not yet attempted, '' = loaded successfully, otherwise an error
+  // message. Drives the visible error banner that replaces the silent
+  // empty-list state — historically a failed /api/projects request just
+  // left projects at [] and the user saw "no projects" with no clue why.
+  const [projectsError, setProjectsError] = useState(null);
   const [invitations, setInvitations] = useState([]);
   // True after /invitations/mine has resolved AND the pendingInviteId is
   // not among the returned ids — i.e. the link in the email was for a
@@ -90,8 +95,17 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   useEffect(() => {
     const initialInviteId = initialInviteIdRef.current;
     get('/api/projects')
-      .then((r) => r.json())
-      .then(setProjects);
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const body = await r.json();
+        if (!Array.isArray(body)) throw new Error('Response was not an array');
+        setProjects(body);
+        setProjectsError('');
+      })
+      .catch((e) => {
+        console.warn('Failed to load projects:', e);
+        setProjectsError(e.message || 'Unknown error');
+      });
     get('/api/projects/invitations/mine')
       .then((r) => r.json())
       .then((rows) => {
@@ -1080,7 +1094,19 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           </div>
         )}
 
-        {sortedProjects.length === 0 ? (
+        {projectsError ? (
+          <div className="project-table-empty" style={{ color: 'var(--accent)' }}>
+            Couldn&apos;t load projects ({projectsError}).{' '}
+            <button
+              type="button"
+              className="project-tag-clickable"
+              onClick={() => window.location.reload()}
+              style={{ marginLeft: 8 }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : sortedProjects.length === 0 ? (
           <div className="project-table-empty">No projects in this view.</div>
         ) : (
           <table className="project-table">
