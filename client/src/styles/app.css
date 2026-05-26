@@ -7826,32 +7826,32 @@ kbd {
   z-index: 1;
 }
 .chat-message.own .chat-reactions { justify-content: flex-end; }
-/* Pills want clear contrast against both incoming (var(--bg-surface)
-   ~#252536) and own (var(--accent) blue) bubbles. Using var(--bg-hover)
-   (slightly lighter than the bubble surface) plus a brighter border and
-   stronger shadow makes them read as "raised chips" rather than
-   blending into the bubble. */
+/* Reactions render as bare emoji + count, no chip background. The
+   emoji itself is the visual marker; "mine" gets a subtle accent on
+   the count so the user can still see which reactions they've added. */
 .chat-reaction-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 60%, transparent);
-  background: var(--bg-hover);
-  border-radius: 11px;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-primary);
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
-.chat-reaction-pill:hover { background: var(--bg-hover); }
-.chat-reaction-pill.mine {
-  /* Highlight when the current user has applied this emoji. */
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-color: var(--accent);
+.chat-reaction-pill:hover { opacity: 0.8; }
+.chat-reaction-pill.mine .chat-reaction-count {
+  color: var(--accent);
+  font-weight: 600;
 }
-.chat-reaction-emoji { font-size: 13px; }
+.chat-message.own .chat-reaction-pill.mine .chat-reaction-count {
+  /* Own bubble background is var(--accent); flip to the bubble text
+     colour so the count stays readable. */
+  color: var(--bg-primary);
+}
+.chat-reaction-emoji { font-size: 14px; }
 .chat-reaction-count { font-variant-numeric: tabular-nums; }
 
 .chat-bubble-author {
