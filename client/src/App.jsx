@@ -133,6 +133,7 @@ function AppInner() {
     setProject,
     files,
     setFiles,
+    filesLoaded,
     activeFile,
     setActiveFile,
     members,
@@ -1383,7 +1384,7 @@ function AppInner() {
                 setShowBoxWarnings(newVal);
                 setSetting(`show-box-warnings-${project?.id}`, newVal);
               }}
-              mainFileExists={files.some((f) => f.path === mainFilePath)}
+              mainFileExists={!filesLoaded || files.some((f) => f.path === mainFilePath)}
               mainFileChanged={mainFileChanged}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);

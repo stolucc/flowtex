@@ -20,6 +20,12 @@ function getFileIdFromUrl() {
 export default function useProject(user) {
   const [project, setProject] = useState(null);
   const [files, setFiles] = useState([]);
+  // Tracks whether the files HTTP response for the current project has
+  // arrived. Used by the PDF viewer to avoid flashing "No main file
+  // found" during the brief render where project is set but files is
+  // still []. Set false on every project change, true once setFiles
+  // runs from the load effect.
+  const [filesLoaded, setFilesLoaded] = useState(false);
   // Mirror of `files` for handleSave's cross-file baseVersion lookup —
   // keeping the read-only handle in a ref avoids cascading dep updates
   // through handleSave → handleCompile every time the user types.
@@ -43,6 +49,7 @@ export default function useProject(user) {
 
   const selectProject = useCallback((p) => {
     setProject(p);
+    setFilesLoaded(false);
     needsAutoCompile.current = true;
     window.history.pushState(null, '', `/project/${p.id}`);
   }, []);
@@ -51,6 +58,7 @@ export default function useProject(user) {
     setProject(null);
     setActiveFile(null);
     setFiles([]);
+    setFilesLoaded(false);
     setMembers([]);
     window.history.pushState(null, '', '/');
   }, []);
@@ -79,7 +87,9 @@ export default function useProject(user) {
         setProject(null);
         setActiveFile(null);
         setFiles([]);
+        setFilesLoaded(false);
       } else if (project?.id !== id) {
+        setFilesLoaded(false);
         get('/api/projects')
           .then((r) => r.json())
           .then((projects) => {
@@ -99,6 +109,7 @@ export default function useProject(user) {
       .then((r) => r.json())
       .then((loadedFiles) => {
         setFiles(loadedFiles);
+        setFilesLoaded(true);
         if (loadedFiles.length > 0 && !activeFile) {
           const fileId = getFileIdFromUrl();
           const target = fileId && loadedFiles.find((f) => f.id === fileId);
@@ -400,6 +411,7 @@ export default function useProject(user) {
     setProject,
     files,
     setFiles,
+    filesLoaded,
     activeFile,
     setActiveFile,
     members,
