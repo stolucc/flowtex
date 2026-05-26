@@ -4784,6 +4784,17 @@ html {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Tiny keyboard-shortcut hint at the bottom of the picker — keeps the
+   "Tab to pick" discoverability without a separate tooltip. */
+.mention-autocomplete-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 3px 10px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+  user-select: none;
+}
+
 .mention-highlight {
   color: var(--accent);
   font-weight: 600;

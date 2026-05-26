@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getColor } from './Avatar.jsx';
 
 /** Render text with @mentions highlighted. Shared by comments and chat. */
@@ -31,55 +31,16 @@ export function extractMentions(text, members) {
   return [...new Set(found)];
 }
 
-/** Autocomplete popup for @mentions in a textarea / input. */
-function MentionAutocomplete({ text, cursorPos, members, currentUserId, onSelect }) {
-  const [candidates, setCandidates] = useState([]);
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const popupRef = useRef(null);
-
-  useEffect(() => {
-    const before = text.slice(0, cursorPos);
-    const match = before.match(/@(\S*)$/);
-    if (!match) {
-      setCandidates([]);
-      return;
-    }
-    const query = match[1].toLowerCase();
-    const eligible = members.filter((m) => m.name.toLowerCase().startsWith(query));
-    setCandidates(eligible.slice(0, 6));
-    setSelectedIdx(0);
-  }, [text, cursorPos, members, currentUserId]);
-
-  if (candidates.length === 0) return null;
-
-  const handlePick = (member) => {
-    const before = text.slice(0, cursorPos);
-    const match = before.match(/@(\S*)$/);
-    if (!match) return;
-    const start = cursorPos - match[0].length;
-    const nameStr = member.name.includes(' ') ? `@"${member.name}"` : `@${member.name}`;
-    onSelect(start, cursorPos, nameStr + ' ');
-  };
-
-  return (
-    <div ref={popupRef} className="mention-autocomplete">
-      {candidates.map((m, i) => (
-        <button
-          key={m.id}
-          className={`mention-option${i === selectedIdx ? ' selected' : ''}`}
-          onMouseDown={(e) => { e.preventDefault(); handlePick(m); }}
-        >
-          <span className="mention-option-swatch" style={{ backgroundColor: getColor(m.name) }} />
-          {m.name}
-          {m.role === 'owner' && <span className="mention-option-role">owner</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Textarea / input wrapper with @mention autocomplete. When `singleLine`
- *  is true, renders an <input> instead of <textarea> — used by chat. */
+ *  is true, renders an <input> instead of <textarea> — used by chat.
+ *
+ *  Keyboard inside the picker:
+ *    ↓ / ↑           — move selection
+ *    Tab / Enter     — accept highlighted candidate
+ *  Hitting space (or any char that breaks the @\S* run) hides the
+ *  picker naturally. When closed, all keystrokes pass through to the
+ *  caller's onKeyDown (so chat's Enter-to-send keeps working).
+ */
 export function MentionInput({
   value,
   onChange,
@@ -94,8 +55,28 @@ export function MentionInput({
   className,
 }) {
   const [cursorPos, setCursorPos] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState(0);
   const localRef = useRef(null);
   const ref = innerRef || localRef;
+
+  // Candidate list is derived from value + cursor + members. Computed
+  // synchronously every render so the picker shows up as soon as the
+  // user types '@', without an extra effect tick.
+  const candidates = useMemo(() => {
+    const before = (value || '').slice(0, cursorPos);
+    const match = before.match(/@(\S*)$/);
+    if (!match) return [];
+    const query = match[1].toLowerCase();
+    return (members || [])
+      .filter((m) => m.name.toLowerCase().startsWith(query))
+      .slice(0, 6);
+  }, [value, cursorPos, members]);
+
+  // Clamp selectedIdx whenever the candidate list shrinks so the
+  // highlight never points past the end.
+  useEffect(() => {
+    if (selectedIdx >= candidates.length) setSelectedIdx(0);
+  }, [candidates.length, selectedIdx]);
 
   const handleChange = (e) => {
     onChange(e);
@@ -106,15 +87,43 @@ export function MentionInput({
     setCursorPos(e.target.selectionStart ?? 0);
   };
 
-  const handleMentionSelect = (start, end, replacement) => {
-    const newText = value.slice(0, start) + replacement + value.slice(end);
+  const applyPick = (member) => {
+    const before = (value || '').slice(0, cursorPos);
+    const match = before.match(/@(\S*)$/);
+    if (!match) return;
+    const start = cursorPos - match[0].length;
+    const nameStr = member.name.includes(' ') ? `@"${member.name}"` : `@${member.name}`;
+    const replacement = nameStr + ' ';
+    const newText = (value || '').slice(0, start) + replacement + (value || '').slice(cursorPos);
     onChange({ target: { value: newText } });
     const newCursor = start + replacement.length;
     setCursorPos(newCursor);
+    setSelectedIdx(0);
     requestAnimationFrame(() => {
       ref.current?.setSelectionRange(newCursor, newCursor);
       ref.current?.focus();
     });
+  };
+
+  const handleKeyDown = (e) => {
+    if (candidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIdx((i) => (i + 1) % candidates.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIdx((i) => (i - 1 + candidates.length) % candidates.length);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        applyPick(candidates[selectedIdx]);
+        return;
+      }
+    }
+    onKeyDown?.(e);
   };
 
   const commonProps = {
@@ -124,22 +133,35 @@ export function MentionInput({
     value,
     onChange: handleChange,
     onSelect: handleSelect,
-    onKeyDown,
+    onKeyDown: handleKeyDown,
     className,
   };
+
+  const showPicker = candidates.length > 0;
 
   return (
     <div className="mention-textarea-wrap">
       {singleLine
         ? <input type="text" {...commonProps} />
         : <textarea {...commonProps} rows={rows} />}
-      <MentionAutocomplete
-        text={value}
-        cursorPos={cursorPos}
-        members={members || []}
-        currentUserId={currentUserId}
-        onSelect={handleMentionSelect}
-      />
+      {showPicker && (
+        <div className="mention-autocomplete">
+          {candidates.map((m, i) => (
+            <button
+              key={m.id}
+              type="button"
+              className={`mention-option${i === selectedIdx ? ' selected' : ''}`}
+              onMouseEnter={() => setSelectedIdx(i)}
+              onMouseDown={(e) => { e.preventDefault(); applyPick(m); }}
+            >
+              <span className="mention-option-swatch" style={{ backgroundColor: getColor(m.name) }} />
+              {m.name}
+              {m.role === 'owner' && <span className="mention-option-role">owner</span>}
+            </button>
+          ))}
+          <div className="mention-autocomplete-hint">↑↓ navigate · Tab/Enter pick · Esc cancel</div>
+        </div>
+      )}
     </div>
   );
 }

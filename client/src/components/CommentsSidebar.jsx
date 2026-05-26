@@ -2,147 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { getColor } from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatFullDate as formatDate } from '../utils/dateFormat.js';
-
-/** Render comment text with @mentions highlighted. */
-function renderMentionText(text) {
-  if (!text) return text;
-  const parts = [];
-  const re = /@"([^"]+)"|@(\S+)/g;
-  let last = 0;
-  let m;
-  while ((m = re.exec(text))) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    const name = m[1] || m[2];
-    parts.push(<span key={m.index} className="mention-highlight">@{name}</span>);
-    last = re.lastIndex;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts.length > 1 ? parts : text;
-}
-
-/** Extract mentioned member names from text. Returns array of lowercase names. */
-function extractMentions(text, members) {
-  if (!text || !members?.length) return [];
-  const re = /@"([^"]+)"|@(\S+)/g;
-  const found = [];
-  let m;
-  while ((m = re.exec(text))) {
-    const name = (m[1] || m[2]).toLowerCase();
-    if (members.some((mb) => mb.name.toLowerCase() === name)) found.push(name);
-  }
-  return [...new Set(found)];
-}
-
-/** Autocomplete popup for @mentions in a textarea. */
-function MentionAutocomplete({ text, cursorPos, members, currentUserId, onSelect }) {
-  const [candidates, setCandidates] = useState([]);
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const popupRef = useRef(null);
-
-  useEffect(() => {
-    // Find if cursor is inside an @mention being typed
-    const before = text.slice(0, cursorPos);
-    const match = before.match(/@(\S*)$/);
-    if (!match) {
-      setCandidates([]);
-      return;
-    }
-    const query = match[1].toLowerCase();
-    const eligible = members.filter((m) => {
-      return m.name.toLowerCase().startsWith(query);
-    });
-    setCandidates(eligible.slice(0, 6));
-    setSelectedIdx(0);
-  }, [text, cursorPos, members, currentUserId]);
-
-  if (candidates.length === 0) return null;
-
-  const handlePick = (member) => {
-    // Replace the partial @query with @"Name" or @Name
-    const before = text.slice(0, cursorPos);
-    const match = before.match(/@(\S*)$/);
-    if (!match) return;
-    const start = cursorPos - match[0].length;
-    const nameStr = member.name.includes(' ') ? `@"${member.name}"` : `@${member.name}`;
-    onSelect(start, cursorPos, nameStr + ' ');
-  };
-
-  return (
-    <div ref={popupRef} className="mention-autocomplete">
-      {candidates.map((m, i) => (
-        <button
-          key={m.id}
-          className={`mention-option${i === selectedIdx ? ' selected' : ''}`}
-          onMouseDown={(e) => { e.preventDefault(); handlePick(m); }}
-        >
-          <span className="mention-option-swatch" style={{ backgroundColor: getColor(m.name) }} />
-          {m.name}
-          {m.role === 'owner' && <span className="mention-option-role">owner</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Textarea with @mention autocomplete support. */
-function MentionTextarea({ value, onChange, onKeyDown, members, currentUserId, placeholder, rows, autoFocus, innerRef }) {
-  const [cursorPos, setCursorPos] = useState(0);
-  const localRef = useRef(null);
-  const ref = innerRef || localRef;
-
-  const handleChange = (e) => {
-    onChange(e);
-    setCursorPos(e.target.selectionStart);
-  };
-
-  const handleSelect = (e) => {
-    setCursorPos(e.target.selectionStart);
-  };
-
-  const handleMentionSelect = (start, end, replacement) => {
-    const newText = value.slice(0, start) + replacement + value.slice(end);
-    onChange({ target: { value: newText } });
-    const newCursor = start + replacement.length;
-    setCursorPos(newCursor);
-    requestAnimationFrame(() => {
-      ref.current?.setSelectionRange(newCursor, newCursor);
-      ref.current?.focus();
-    });
-  };
-
-  const handleKeyDown = (e) => {
-    // Check if autocomplete is open — if so, let arrow keys and Enter interact with it
-    const before = value.slice(0, cursorPos);
-    const inMention = /@(\S*)$/.test(before);
-    if (inMention && members?.length) {
-      // We'll let the default onKeyDown handle Enter/Escape
-    }
-    onKeyDown?.(e);
-  };
-
-  return (
-    <div className="mention-textarea-wrap">
-      <textarea
-        ref={ref}
-        autoFocus={autoFocus}
-        placeholder={placeholder}
-        value={value}
-        onChange={handleChange}
-        onSelect={handleSelect}
-        onKeyDown={handleKeyDown}
-        rows={rows}
-      />
-      <MentionAutocomplete
-        text={value}
-        cursorPos={cursorPos}
-        members={members || []}
-        currentUserId={currentUserId}
-        onSelect={handleMentionSelect}
-        textareaEl={ref.current}
-      />
-    </div>
-  );
-}
+import { MentionInput, renderMentionText, extractMentions } from './MentionInput.jsx';
 
 // Same fixed palette as chat reactions — keeps the picker tight.
 const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅', '❌'];
@@ -360,7 +220,7 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
       )}
       {!comment.resolved && (
         <div className="comment-reply-area">
-          <MentionTextarea
+          <MentionInput
             placeholder="Reply..."
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
@@ -545,7 +405,7 @@ export default function CommentsSidebar({
         <div ref={listRef} className={`comments-list ${isPositioned ? 'positioned' : ''}`}>
           {selection && (
             <div ref={formRef} className="comment-form">
-              <MentionTextarea
+              <MentionInput
                 innerRef={textareaRef}
                 autoFocus
                 placeholder="Write a comment..."
