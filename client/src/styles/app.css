@@ -7866,6 +7866,22 @@ kbd {
   border-radius: 12px 12px 4px 12px;
 }
 
+/* Mentions inside chat bubbles render as small pills so they read
+   on either bubble background — the default accent-on-text style
+   collides with the own-bubble background (also var(--accent)) and
+   becomes invisible. Pills also help mentions stand out in incoming
+   bubbles where the surface colour is low-contrast. */
+.chat-bubble .mention-highlight {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: inherit;
+}
+.chat-message.own .chat-bubble .mention-highlight {
+  background: color-mix(in srgb, var(--bg-primary) 30%, transparent);
+}
+
 .chat-bubble-text {
 }
 
