@@ -106,17 +106,21 @@ function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
 
-  // Once the user is authenticated, prefetch the two largest lazy
-  // chunks (Editor and PdfViewer) in the background. The user is
-  // overwhelmingly likely to open a project from ProjectList; by the
-  // time they click, the chunks are already cached so the first paint
-  // of the editor view doesn't pay the network round-trip. The import
-  // promises are intentionally not awaited — failures here just mean
-  // we fall back to the regular Suspense fetch.
+  // Once the user is authenticated, prefetch the lazy chunks the user
+  // is likely to need shortly. Editor/PdfViewer always paint on project
+  // open; ChatPanel/CommentsSidebar load on first toggle and otherwise
+  // make the layout blink because the outer Suspense (kept for Editor +
+  // PdfViewer) would unmount everything during the chunk fetch — even
+  // though we now wrap each panel in its own inner Suspense, prefetching
+  // means the inner fallback never actually paints. The import promises
+  // are intentionally not awaited; failures fall back to the regular
+  // Suspense fetch on click.
   useEffect(() => {
     if (!user) return;
     import('./components/Editor.jsx').catch(() => {});
     import('./components/PdfViewer.jsx').catch(() => {});
+    import('./components/ChatPanel.jsx').catch(() => {});
+    import('./components/CommentsSidebar.jsx').catch(() => {});
   }, [user]);
 
   // In-editor toasts for invitations that arrive while a user is mid-edit.
@@ -842,26 +846,28 @@ function AppInner() {
         </div>
       )}
       <div className="main-layout">
-        {/* One Suspense wraps every lazy editor-side component
-            (Editor, PdfViewer, ChatPanel, CommentsSidebar, HistoryView,
-            BinaryPreview). The fallback is intentionally minimal —
-            chunks are small individually and load quickly; a
-            full-screen spinner would be more disruptive than the brief
-            blank during the swap. */}
+        {/* Outer Suspense catches Editor and PdfViewer (loaded together
+            on project open). Each side-panel below has its own inner
+            Suspense with fallback={null} so first-time-toggle chunk
+            loads don't unmount the editor/PDF — keeps the layout from
+            blinking. The two outer chunks are prefetched on auth, so
+            this fallback rarely paints in practice. */}
         <Suspense fallback={<div className="main-layout-suspense" />}>
         {ui.showHistory && (
-          <HistoryView
-            project={project}
-            files={files}
-            activeFile={activeFile}
-            user={user}
-            ui={ui}
-            historyVersion={historyVersion}
-            setProject={setProject}
-            setFiles={setFiles}
-            setActiveFile={setActiveFile}
-            editorRef={editorRef}
-          />
+          <Suspense fallback={null}>
+            <HistoryView
+              project={project}
+              files={files}
+              activeFile={activeFile}
+              user={user}
+              ui={ui}
+              historyVersion={historyVersion}
+              setProject={setProject}
+              setFiles={setFiles}
+              setActiveFile={setActiveFile}
+              editorRef={editorRef}
+            />
+          </Suspense>
         )}
         {!ui.showHistory && (
           <>
@@ -1036,7 +1042,7 @@ function AppInner() {
               </button>
             )}
             {ui.showComments ? (
-              <>
+              <Suspense fallback={null}>
                 <CommentsSidebar
                   currentUserName={user?.name}
                   currentUserId={user?.id}
@@ -1058,7 +1064,7 @@ function AppInner() {
                   style={{ width: ui.commentsWidth }}
                 />
                 <ResizeHandle onResize={(d) => ui.setCommentsWidth((w) => Math.max(180, Math.min(450, w + d)))} />
-              </>
+              </Suspense>
             ) : (
               // Collapsed comments rail: a thin vertical strip that
               // still surfaces WHERE the comments are by rendering a
@@ -1189,7 +1195,9 @@ function AppInner() {
                   <pre className="generated-file-content">{activeGenFile.content}</pre>
                 </div>
               ) : activeFile?.is_binary ? (
-                <BinaryPreview file={activeFile} />
+                <Suspense fallback={null}>
+                  <BinaryPreview file={activeFile} />
+                </Suspense>
               ) : (
                 <>
                   <Editor
@@ -1394,18 +1402,20 @@ function AppInner() {
               onToggleTrackedChangesInPdf={() => setShowTrackedChangesInPdf((v) => !v)}
             />
             {showChat ? (
-              <ChatPanel
-                messages={chatMessages}
-                currentUser={user}
-                members={members}
-                readCursors={chatReadCursors}
-                onSend={(text) => sendWsMessage({ type: 'chat', text })}
-                onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
-                onRead={() => sendWsMessage({ type: 'chat-read' })}
-                onClose={() => setShowChat(false)}
-                onTyping={() => sendWsMessage({ type: 'typing' })}
-                typingUsers={typingUsers}
-              />
+              <Suspense fallback={null}>
+                <ChatPanel
+                  messages={chatMessages}
+                  currentUser={user}
+                  members={members}
+                  readCursors={chatReadCursors}
+                  onSend={(text) => sendWsMessage({ type: 'chat', text })}
+                  onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
+                  onRead={() => sendWsMessage({ type: 'chat-read' })}
+                  onClose={() => setShowChat(false)}
+                  onTyping={() => sendWsMessage({ type: 'typing' })}
+                  typingUsers={typingUsers}
+                />
+              </Suspense>
             ) : (
               <button
                 className="chat-toggle-btn"
