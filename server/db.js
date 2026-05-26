@@ -337,6 +337,9 @@ async function initSchema() {
       id TEXT PRIMARY KEY,
       comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
       reply_id TEXT REFERENCES comment_replies(id) ON DELETE CASCADE,
+      -- chat_message_id is added below as an ALTER (so existing installs pick
+      -- it up on next boot) and is the source row when the mention came from
+      -- a chat message instead of a comment/reply.
       mentioned_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       -- mentioner_user_id is SET NULL on user delete: when the mentioner is
       -- gone, the recipient still wants to see "(deleted user) mentioned you
@@ -609,6 +612,18 @@ async function initSchema() {
     ALTER TABLE chat_messages
       ADD CONSTRAINT chat_messages_user_id_fkey
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+    -- Chat @-mentions reuse the existing comment_mentions inbox so the
+    -- notification bell has a single source of truth. chat_message_id is
+    -- nullable + FK to chat_messages (cascade so deleting a chat message
+    -- clears its mention rows). Defined here because chat_messages is
+    -- created further down the schema than comment_mentions; doing the
+    -- ALTER beside chat_messages keeps the FK target defined.
+    ALTER TABLE comment_mentions ADD COLUMN IF NOT EXISTS chat_message_id TEXT;
+    ALTER TABLE comment_mentions DROP CONSTRAINT IF EXISTS comment_mentions_chat_message_id_fkey;
+    ALTER TABLE comment_mentions
+      ADD CONSTRAINT comment_mentions_chat_message_id_fkey
+      FOREIGN KEY (chat_message_id) REFERENCES chat_messages(id) ON DELETE CASCADE;
 
     -- Emoji reactions on chat messages. The UNIQUE constraint is what enforces
     -- the toggle: each user can hold at most one of each emoji on each message,

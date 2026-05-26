@@ -680,17 +680,24 @@ function AppInner() {
               onMarkSeen={notifMarkSeen}
               onMarkAllSeen={notifMarkAllSeen}
               onNavigate={async (m) => {
-                // Record the deep-link target. The effect below executes the
-                // remaining steps as state catches up: switch file → wait for
-                // comments to load → scroll editor to the comments from_pos.
-                pendingMentionNavRef.current = {
-                  projectId: m.project_id,
-                  fileId: m.file_id,
-                  filePath: m.file_path,
-                  commentId: m.comment_id,
-                };
-                setPendingMentionNavTick((t) => t + 1);
-                ui.setShowComments(true);
+                // Chat mentions open the chat panel; comment mentions open
+                // the comments sidebar and deep-link to the comment. Branch
+                // on chat_message_id since both share the same inbox.
+                if (m.chat_message_id) {
+                  setShowChat(true);
+                } else {
+                  // Record the deep-link target. The effect below executes the
+                  // remaining steps as state catches up: switch file → wait
+                  // for comments to load → scroll editor to the from_pos.
+                  pendingMentionNavRef.current = {
+                    projectId: m.project_id,
+                    fileId: m.file_id,
+                    filePath: m.file_path,
+                    commentId: m.comment_id,
+                  };
+                  setPendingMentionNavTick((t) => t + 1);
+                  ui.setShowComments(true);
+                }
                 if (m.project_id && m.project_id !== project?.id) {
                   try {
                     const r = await get('/api/projects');

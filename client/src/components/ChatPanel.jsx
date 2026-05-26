@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getColor } from './Avatar.jsx';
 import { CloseIcon } from './Icons.jsx';
+import { MentionInput, renderMentionText } from './MentionInput.jsx';
 
 // Small fixed palette — keeps the picker tight and avoids a full unicode
 // emoji widget. If users want more, swap for a real picker later.
@@ -166,7 +167,7 @@ export default function ChatPanel({
                       {isOwn ? 'You' : m.userName}
                     </div>
                   )}
-                  <span className="chat-bubble-text">{m.text}</span>
+                  <span className="chat-bubble-text">{renderMentionText(m.text)}</span>
                   <span className="chat-bubble-time">
                     {formatTime(m.created_at)}
                     {isOwn && otherMembers.length > 0 && (() => {
@@ -257,13 +258,21 @@ export default function ChatPanel({
         </div>
       )}
       <form className="chat-input-bar" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
+        <MentionInput
+          innerRef={inputRef}
+          singleLine
           className="chat-input"
-          placeholder="Type a message..."
+          placeholder="Type a message... (@ to mention)"
           value={text}
           onChange={handleInput}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e);
+            }
+          }}
+          members={members}
+          currentUserId={currentUser?.id}
           autoFocus
         />
         <button type="submit" className="chat-send-btn">

@@ -12,7 +12,8 @@ router.get('/mentions', async (req, res) => {
     // still shows the mention with a NULL mentioner_name — the client
     // renders a "(deleted user)" tombstone in that case.
     const rows = await db.all(
-      `SELECT cm.id, cm.comment_id, cm.reply_id, cm.project_id, cm.snippet,
+      `SELECT cm.id, cm.comment_id, cm.reply_id, cm.chat_message_id,
+              cm.project_id, cm.snippet,
               cm.created_at, cm.seen_at,
               u.name AS mentioner_name,
               p.name AS project_name,

@@ -6,6 +6,14 @@ import signature from 'cookie-signature';
 import logger from './logger.js';
 import db from './db.js';
 import { UUID_RE } from './middleware/auth.js';
+import { recordMentions } from './utils/mentions.js';
+
+// sendToUser is a closure inside createWebSocketServer; the chat handler
+// (module-scoped) needs to push @mention notifications to specific users
+// across all their connections, including connections currently joined
+// to a different project. Capture a module-scoped reference once the WS
+// server initialises so handleChat can call it.
+let sendToUserFn = null;
 
 // ── Redis pub/sub for horizontal scaling (optional) ─────────────────────
 let redisPub = null;
@@ -452,7 +460,10 @@ async function handleChatReact(msg, state) {
   broadcastToRoom(state.projectId, { type: 'chat-reaction-update', messageId, reactions });
 }
 
-/** Persist a chat message to DB and broadcast it to the project room. */
+/** Persist a chat message to DB and broadcast it to the project room.
+ *  Also extracts any @-mentions and records them in the comment_mentions
+ *  inbox (chat_message_id non-null), then pushes a live `mention` WS event
+ *  to each mentioned user so the bell badge updates without a refresh. */
 async function handleChat(msg, state) {
   const id = crypto.randomUUID();
   const text = (msg.text || '').trim().slice(0, 5000);
@@ -474,6 +485,34 @@ async function handleChat(msg, state) {
       created_at: new Date().toISOString(),
     };
     broadcastToRoom(state.projectId, chatMsg);
+
+    // @-mention recording is best-effort — failures must not affect the
+    // chat message itself (already persisted + broadcast above).
+    try {
+      const recorded = await recordMentions({
+        text,
+        chatMessageId: id,
+        mentionerUserId: state.authenticatedUserId,
+        projectId: state.projectId,
+      });
+      if (recorded.length && sendToUserFn) {
+        for (const r of recorded) {
+          sendToUserFn(r.mentionedUserId, {
+            type: 'mention',
+            mention: {
+              id: r.id,
+              projectId: r.projectId,
+              chatMessageId: r.chatMessageId,
+              snippet: r.snippet,
+              mentionerName: state.authenticatedUserName,
+              createdAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+    } catch (mentionErr) {
+      logger.warn({ err: mentionErr }, 'Chat mention recording failed');
+    }
   } catch (err) {
     logger.error({ err }, 'Chat insert error');
   }
@@ -652,6 +691,8 @@ export function initWebSocket(server, app, sessionSecret) {
   app.locals.broadcastToRoom = broadcastToRoom;
   app.locals.disconnectUserFromProject = disconnectUserFromProject;
   app.locals.sendToUser = sendToUser;
+  // Capture for module-scoped use (handleChat pushes mention notifications).
+  sendToUserFn = sendToUser;
 
   // Expose live stats — only the aggregate counts are needed by the admin
   // dashboard. The per-user wsConnectionCounts map is intentionally NOT

@@ -12,7 +12,7 @@ import db from '../db.js';
  * The recorded list is deduplicated by user id so an assignee who is also
  * @-mentioned only gets one notification + one email.
  */
-export async function recordMentions({ text, commentId, replyId, mentionerUserId, projectId, assignedToUserId }) {
+export async function recordMentions({ text, commentId, replyId, chatMessageId, mentionerUserId, projectId, assignedToUserId }) {
   // Extract raw mention strings: @Word or @"Multiple Words".
   // The leading lookbehind requires the @ to start the string or follow
   // whitespace / a small set of punctuation — so emails (alice@example.com),
@@ -49,14 +49,15 @@ export async function recordMentions({ text, commentId, replyId, mentionerUserId
     if (seenUserIds.has(member.id)) continue;
     seenUserIds.add(member.id);
     recorded.push(await insertMentionRow({
-      mentionedUserId: member.id, mentionerUserId, commentId, replyId, projectId, snippet,
+      mentionedUserId: member.id, mentionerUserId, commentId, replyId, chatMessageId, projectId, snippet,
     }));
   }
 
   // Path 2: explicit assignment — always record, even when the assignee IS
   // the mentioner. The assignee_picker in the UI is only populated from
   // @-mentioned names, so this path mostly fires alongside path 1; the
-  // dedupe above keeps it to one row per user.
+  // dedupe above keeps it to one row per user. Not applicable to chat —
+  // chat messages have no assignee concept.
   if (assignedToUserId && !seenUserIds.has(assignedToUserId)) {
     // Confirm the assignee is actually a project member (defence against
     // tampered request bodies and stale client state).
@@ -64,7 +65,7 @@ export async function recordMentions({ text, commentId, replyId, mentionerUserId
     if (assignee) {
       seenUserIds.add(assignedToUserId);
       recorded.push(await insertMentionRow({
-        mentionedUserId: assignedToUserId, mentionerUserId, commentId, replyId, projectId, snippet,
+        mentionedUserId: assignedToUserId, mentionerUserId, commentId, replyId, chatMessageId, projectId, snippet,
       }));
     }
   }
@@ -72,18 +73,19 @@ export async function recordMentions({ text, commentId, replyId, mentionerUserId
   return recorded;
 }
 
-async function insertMentionRow({ mentionedUserId, mentionerUserId, commentId, replyId, projectId, snippet }) {
+async function insertMentionRow({ mentionedUserId, mentionerUserId, commentId, replyId, chatMessageId, projectId, snippet }) {
   const id = uuid();
   await db.run(
-    `INSERT INTO comment_mentions (id, comment_id, reply_id, mentioned_user_id, mentioner_user_id, project_id, snippet)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, commentId || null, replyId || null, mentionedUserId, mentionerUserId, projectId, snippet],
+    `INSERT INTO comment_mentions (id, comment_id, reply_id, chat_message_id, mentioned_user_id, mentioner_user_id, project_id, snippet)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, commentId || null, replyId || null, chatMessageId || null, mentionedUserId, mentionerUserId, projectId, snippet],
   );
   return {
     id,
     mentionedUserId,
     commentId: commentId || null,
     replyId: replyId || null,
+    chatMessageId: chatMessageId || null,
     projectId,
     snippet,
   };

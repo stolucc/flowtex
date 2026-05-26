@@ -7951,8 +7951,13 @@ kbd {
   flex-shrink: 0;
 }
 
+.chat-input-bar .mention-textarea-wrap {
+  flex: 1;
+}
+
 .chat-input {
   flex: 1;
+  width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);

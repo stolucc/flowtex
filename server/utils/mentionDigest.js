@@ -11,7 +11,13 @@ const DIGEST_INTERVAL = 5 * 60 * 1000; // 5 minutes
 export function startMentionDigestJob() {
   async function flush() {
     try {
-      // Fetch all pending mentions grouped by recipient
+      // Fetch all pending mentions grouped by recipient. Skip chat-mention
+      // rows (chat_message_id IS NOT NULL) — chat @-mentions are bell-only by
+      // design; mark them notified so they don't accumulate in this queue.
+      await db.run(
+        `UPDATE comment_mentions SET notified_at = NOW()
+         WHERE chat_message_id IS NOT NULL AND notified_at IS NULL`,
+      );
       const pending = await db.all(`
         SELECT cm.id, cm.snippet, cm.mentioned_user_id, cm.mentioner_user_id, cm.project_id,
                u_to.email AS recipient_email, u_to.name AS recipient_name,
@@ -21,7 +27,7 @@ export function startMentionDigestJob() {
         JOIN users u_to ON cm.mentioned_user_id = u_to.id
         JOIN users u_from ON cm.mentioner_user_id = u_from.id
         JOIN projects p ON cm.project_id = p.id
-        WHERE cm.notified_at IS NULL
+        WHERE cm.notified_at IS NULL AND cm.chat_message_id IS NULL
         ORDER BY cm.created_at
       `);
 

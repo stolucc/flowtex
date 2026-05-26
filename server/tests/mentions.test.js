@@ -41,6 +41,7 @@ describe('recordMentions', () => {
       mentionedUserId: 'alice-id',
       commentId: 'c1',
       replyId: null,
+      chatMessageId: null,
       projectId: 'p1',
       snippet: 'hi @Alice take a look',
     }]);
@@ -51,6 +52,7 @@ describe('recordMentions', () => {
       'uuid-1',           // id
       'c1',               // comment_id
       null,               // reply_id
+      null,               // chat_message_id
       'alice-id',         // mentioned_user_id
       'me',               // mentioner_user_id
       'p1',               // project_id
@@ -119,6 +121,19 @@ describe('recordMentions', () => {
     const [, params] = db.run.mock.calls[0];
     expect(params[1]).toBeNull();      // comment_id
     expect(params[2]).toBe('r1');      // reply_id
+    expect(params[3]).toBeNull();      // chat_message_id
+  });
+
+  it('uses chatMessageId column when commentId and replyId are absent', async () => {
+    db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
+    await recordMentions({
+      text: '@Alice heads up',
+      chatMessageId: 'cm1', mentionerUserId: 'me', projectId: 'p1',
+    });
+    const [, params] = db.run.mock.calls[0];
+    expect(params[1]).toBeNull();      // comment_id
+    expect(params[2]).toBeNull();      // reply_id
+    expect(params[3]).toBe('cm1');     // chat_message_id
   });
 
   it('passes commentId and a null replyId when both are typically not set together', async () => {
@@ -137,7 +152,7 @@ describe('recordMentions', () => {
     await recordMentions({
       text: long, commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    const snippet = db.run.mock.calls[0][1][6];
+    const snippet = db.run.mock.calls[0][1][7];
     expect(snippet.length).toBe(200);
     expect(snippet.endsWith('…')).toBe(true);
   });
@@ -149,7 +164,7 @@ describe('recordMentions', () => {
     await recordMentions({
       text: exact, commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
     });
-    const snippet = db.run.mock.calls[0][1][6];
+    const snippet = db.run.mock.calls[0][1][7];
     expect(snippet).toBe(exact);
     expect(snippet.endsWith('…')).toBe(false);
   });

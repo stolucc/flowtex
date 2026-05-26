@@ -57,6 +57,7 @@ export default function useNotifications(user) {
           id: m.id,
           comment_id: m.commentId,
           reply_id: m.replyId,
+          chat_message_id: m.chatMessageId,
           project_id: m.projectId,
           snippet: m.snippet,
           mentioner_name: m.mentionerName,
