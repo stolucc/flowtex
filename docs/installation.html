@@ -146,7 +146,7 @@ redis-cli ping  <span class="comment"># expect: PONG</span></code></pre>
 
 <p><strong>Production checklist:</strong></p>
 <ul>
-  <li><strong>Bind to localhost or the docker network</strong>; never expose Redis publicly. The default config does this; verify with <code>ss -tlnp | grep 6379</code>.</li>
+  <li><strong>Bind to localhost</strong>; never expose Redis publicly. The default config does this; verify with <code>ss -tlnp | grep 6379</code>.</li>
   <li><strong>Set a password</strong> if Redis is shared across services. Use the <code>requirepass</code> directive, then point FlowTex at <code>REDIS_URL=redis://:&lt;password&gt;@localhost:6379</code>.</li>
   <li><strong>Persistence is unnecessary.</strong> FlowTex uses Redis purely as a pub/sub bus — no state is stored there, so you can disable RDB/AOF (<code>save ""</code> in <code>redis.conf</code>) for slightly less disk I/O.</li>
   <li><strong>Memory cap:</strong> set <code>maxmemory 64mb</code> with <code>maxmemory-policy allkeys-lru</code>. The pub/sub channel itself uses no persistent memory; this just bounds the worst case if a stuck subscriber causes a backlog.</li>
@@ -197,7 +197,7 @@ www.flowtex.example.com {
 
 <div class="note"><strong>WebSocket support:</strong> The <code>Upgrade</code> and <code>Connection</code> headers are essential &mdash; FlowTex uses WebSockets for real-time collaboration.</div>
 
-<div class="note"><strong>Multiple instances:</strong> the single-upstream examples above are for one app instance. To run several behind this proxy, see §4.8 &mdash; the <code>reverse_proxy</code> block takes a space-separated list of upstreams plus a load-balancing policy and health checks.</div>
+<div class="note"><strong>Multiple instances:</strong> the single-upstream examples above are for one app instance. To run several behind this proxy, see §4.7 &mdash; the <code>reverse_proxy</code> block takes a space-separated list of upstreams plus a load-balancing policy and health checks.</div>
 
 <h3>3.3 tex-fmt <span class="tag tag-opt">Optional</span></h3>
 <p>An alternative LaTeX formatter (faster than latexindent). Not available via apt; install from <a href="https://github.com/WGUNDERWOOD/tex-fmt/releases">GitHub releases</a>.</p>
@@ -276,13 +276,13 @@ LOG_LEVEL=info
 <span class="comment"># based on X-Forwarded-Proto. Set to 1 when a reverse proxy terminates TLS</span>
 <span class="comment"># upstream — otherwise the proxy's loopback health probe (which carries no</span>
 <span class="comment"># X-Forwarded-Proto) gets 301'd and the instance is marked unhealthy.</span>
-<span class="comment"># Required for any load-balanced deployment (see §4.8).</span>
+<span class="comment"># Required for any load-balanced deployment (see §4.7).</span>
 <span class="comment"># DISABLE_TLS_REDIRECT=1</span>
 
 <span class="comment"># Instance label — when running multiple instances behind a load balancer,</span>
 <span class="comment"># set a unique value per process. It's added to every log line as</span>
 <span class="comment"># "instance", so aggregated logs stay attributable. Optional; unset on a</span>
-<span class="comment"># single-instance deploy. See §4.8.</span>
+<span class="comment"># single-instance deploy. See §4.7.</span>
 <span class="comment"># INSTANCE_ID=flowtex-1</span></code></pre>
 
 <div class="warn"><strong>Security:</strong> Generate unique values for <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code>. Never reuse these across environments. Set file permissions: <code>chmod 600 .env</code>. Ownership: the user that runs the FlowTex process should own <code>.env</code>; nothing else should be able to read it.</div>
@@ -362,35 +362,12 @@ sudo -u flowtex cp -r client/dist/* server/public/
 sudo systemctl restart flowtex</code></pre>
 <p>If a release adds database migrations, the server runs them automatically on start (you'll see the migration list in <code>journalctl -u flowtex</code>). Take a database backup <em>before</em> upgrading on any schema-bumping release.</p>
 
-<h2>4.7 Containerized Deployment (Docker Compose)</h2>
-<p>An alternative to bare-metal install. The repo ships a two-image build (a slow-changing base with Node + TeX Live, and a fast-rebuild app image) plus a hardened <code>docker-compose.yml</code> with Caddy + Postgres.</p>
-
-<pre><code><span class="comment"># One-command build (handles both images in order)</span>
-./scripts/docker-build.sh
-
-<span class="comment"># Configure</span>
-cp .env.example .env
-<span class="comment"># Generate SESSION_SECRET, set PGPASSWORD, DOMAIN, etc.</span>
-$EDITOR .env
-
-<span class="comment"># Start</span>
-docker compose up -d
-
-<span class="comment"># Logs</span>
-docker compose logs -f app</code></pre>
-
-<p>The compose file enables container hardening that mirrors the bare-metal systemd setup: <code>read_only: true</code>, <code>cap_drop: [ALL]</code>, <code>no-new-privileges</code>, memory and PID caps, <code>tmpfs</code> for <code>/tmp</code>, and the runtime container drops to UID 10001 (<code>flowtex</code>) per the Dockerfile's <code>USER</code> directive.</p>
-
-<div class="note"><strong>DOCX image conversion in containers:</strong> the default base image does not include <code>rsvg-convert</code> / <code>imagemagick</code> / <code>libreoffice</code>. The compose file therefore sets <code>DISABLE_IMAGE_CONVERSION=1</code> and DOCX images appear as placeholders. To enable, build a custom base that installs those packages plus <code>docs/imagemagick-policy.xml</code> and unset the env var.</div>
-
-<div class="note"><strong>Scaling out with Redis (compose):</strong> the bundled <code>docker-compose.yml</code> has a commented-out <code>redis</code> service. To run multiple <code>app</code> replicas, uncomment the redis block, set <code>REDIS_URL: redis://redis:6379</code> on the <code>app</code> service, and bring up multiple replicas with <code>docker compose up -d --scale app=3</code>. Caddy will round-robin across them; cross-instance broadcasts cross via Redis. See §3.1 for the same details on bare metal.</div>
-
-<h2>4.8 Horizontal Scaling (multiple instances)</h2>
-<p>A single instance handles ~1500 concurrent connections (§3.1), so most deployments never need this. When you do outgrow one box's worth of CPU, FlowTex scales horizontally with no application changes: sessions live in PostgreSQL (any instance can serve any request) and real-time WebSocket broadcasts fan out through Redis. This section is the bare-metal equivalent of the Docker <code>--scale</code> note in §4.7.</p>
+<h2>4.7 Horizontal Scaling (multiple instances)</h2>
+<p>A single instance handles ~1500 concurrent connections (§3.1), so most deployments never need this. When you do outgrow one box's worth of CPU, FlowTex scales horizontally with no application changes: sessions live in PostgreSQL (any instance can serve any request) and real-time WebSocket broadcasts fan out through Redis.</p>
 
 <p><strong>Prerequisites:</strong> Redis running and reachable (§3.1), and <code>REDIS_URL</code> set in <code>.env</code> — without it each instance is an island and users on different instances won't see each other's edits.</p>
 
-<h3>4.8.1 Templated systemd unit</h3>
+<h3>4.7.1 Templated systemd unit</h3>
 <p>Replace the single <code>flowtex.service</code> from §4.3 with a template unit, <code>/etc/systemd/system/flowtex@.service</code>. The <code>%i</code> instance specifier becomes the listen port:</p>
 <pre><code>[Unit]
 Description=FlowTex instance on port %i
@@ -436,7 +413,7 @@ journalctl -u 'flowtex@*' -f</code></pre>
 
 <div class="note"><strong>Plain HTTP upstreams:</strong> in a load-balanced setup the app instances should <em>not</em> have <code>server/certs/cert.pem</code> &mdash; with no certs present each instance serves plain HTTP, and Caddy is the single TLS terminator. If you keep certs in place the instances serve HTTPS and the <code>reverse_proxy</code> block below must use <code>https://</code> upstreams plus <code>transport http { tls_insecure_skip_verify }</code>.</div>
 
-<h3>4.8.2 Load-balancer block</h3>
+<h3>4.7.2 Load-balancer block</h3>
 <p>Point Caddy (§3.2) at every instance. Sessions are in Postgres and broadcasts cross via Redis, so <strong>sticky sessions are not required</strong> &mdash; any client can land on any instance:</p>
 <pre><code>flowtex.example.com {
     reverse_proxy localhost:3001 localhost:3002 {
@@ -454,7 +431,7 @@ journalctl -u 'flowtex@*' -f</code></pre>
 }</code></pre>
 <p>Reload with <code>sudo systemctl reload caddy</code>. Adding or removing an instance is then: <code>systemctl enable --now flowtex@3003</code>, add <code>localhost:3003</code> to the <code>reverse_proxy</code> line, reload Caddy.</p>
 
-<h3>4.8.3 Verify</h3>
+<h3>4.7.3 Verify</h3>
 <pre><code><span class="comment"># Both instances subscribed to the broadcast channel (expect: 2)</span>
 redis-cli pubsub numsub flowtex:ws
 

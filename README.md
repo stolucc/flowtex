@@ -157,7 +157,7 @@ If `SMTP_HOST` is omitted, the section in `.env` stays commented and the post-in
 
 Re-running the same command pulls the latest commit, rebuilds, and restarts — so it doubles as the upgrade path. The existing `.env` is left untouched. WS clients reconnect within ~5–15 s on a single-instance redeploy; multi-instance behind a load balancer reconnects through Redis without a visible gap.
 
-See [docs/installation.html](docs/installation.html) for full operator documentation including Docker Compose, multi-instance load balancing, backups, and email setup.
+See [docs/installation.html](docs/installation.html) for full operator documentation including multi-instance load balancing, backups, and email setup.
 
 ---
 
