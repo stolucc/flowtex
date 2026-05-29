@@ -39,3 +39,7 @@ playwright-report/
 # Stryker mutation-testing artefacts
 .stryker-tmp/
 server/reports/mutation/
+
+# Local cache from the Understand-Anything plugin (knowledge graph,
+# fingerprints, file-analysis artefacts). Regenerable; not source.
+.understand-anything/
