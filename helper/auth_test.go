@@ -119,10 +119,30 @@ func TestWithAuth_AllowsHealthWithoutBearer(t *testing.T) {
 	h := withAuth(cfg, false, okHandler) // requireBearer=false
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Host = "127.0.0.1:9876"
+	// Origin is still required even when bearer is not — see L1 fix.
+	req.Header.Set("Origin", "https://flowtex.click")
 	w := httptest.NewRecorder()
 	h(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestWithAuth_RejectsMissingOriginEvenWithoutBearer(t *testing.T) {
+	// L1: closes the no-Origin fingerprinting hole. A no-cors image-load
+	// (or any cross-origin request that strips Origin) MUST be rejected
+	// — even on /health, even though /health is the public liveness
+	// probe. The cost is direct browser-bar visits to https://localhost:9876
+	// returning 403; that's fine, /health isn't a user-facing endpoint.
+	cfg := newTestCfg(t)
+	h := withAuth(cfg, false, okHandler) // requireBearer=false (i.e. /health)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Host = "127.0.0.1:9876"
+	// Deliberately no Origin header.
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing Origin, got %d", w.Code)
 	}
 }
 

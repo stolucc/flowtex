@@ -292,8 +292,14 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
 export async function pairWithHelper(code) {
   if (!/^\d{6}$/.test(String(code || ''))) return { ok: false, error: 'Code must be 6 digits' };
   try {
-    const res = await fetchTryBoth(`/pair?code=${encodeURIComponent(code)}`, {
+    // Send the code in the JSON body, not the URL — keeps it out of
+    // Referer / browser DevTools / any verbose access log. The helper
+    // still accepts the legacy ?code= query for backwards-compat, but
+    // the body is the preferred channel.
+    const res = await fetchTryBoth(`/pair`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: String(code) }),
     });
     if (!res.ok) return { ok: false, error: `Helper returned ${res.status}` };
     const data = await res.json();

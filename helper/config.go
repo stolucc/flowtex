@@ -21,7 +21,6 @@ type config struct {
 	Port           int      `json:"port"`
 	BearerToken    string   `json:"bearer_token"`
 	AllowedOrigins []string `json:"allowed_origins"`
-	ShellEscape    bool     `json:"shell_escape"`
 	Telemetry      bool     `json:"telemetry"`
 	// DefaultTexYear, when set, picks which installed TeX Live year
 	// the helper prefers on PATH. Used for compile requests that
@@ -93,7 +92,6 @@ func loadConfig() (*config, error) {
 		cfg.Port = defaultPort
 		cfg.BearerToken = generateToken()
 		cfg.AllowedOrigins = defaultAllowedOrigins()
-		cfg.ShellEscape = false
 		cfg.Telemetry = false
 		if err := saveConfig(cfg); err != nil {
 			return nil, fmt.Errorf("write initial config: %w", err)

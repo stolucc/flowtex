@@ -18,7 +18,6 @@ func TestSaveAndLoadConfig_RoundTrip(t *testing.T) {
 		Port:           9876,
 		BearerToken:    "deadbeef",
 		AllowedOrigins: []string{"https://flowtex.click"},
-		ShellEscape:    false,
 		Path:           filepath.Join(dir, "config.json"),
 		CertFile:       filepath.Join(dir, "helper.crt"),
 		KeyFile:        filepath.Join(dir, "helper.key"),

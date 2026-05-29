@@ -150,6 +150,13 @@ func runCompile(ctx context.Context, cfg *config, req *compileRequest) compileRe
 	// no prlimit — Go's exec on macOS / Linux with a context timeout
 	// is the equivalent for the timeout dimension; resource caps are
 	// deferred (most users on their own machines don't need them).
+	//
+	// `--no-shell-escape` at the latexmk level was added in latexmk 4.74
+	// (TeX Live 2020). On older latexmks it's an unknown flag — latexmk
+	// warns and proceeds WITHOUT shell-escape blocking. Belt-and-
+	// suspenders: also pin the per-engine command lines via -e so the
+	// cage survives a too-old latexmk. openin_any=p / openout_any=p
+	// still cover the I/O dimension separately.
 	args := []string{
 		engineFlag(req.Compiler),
 		"-synctex=1",
@@ -157,11 +164,22 @@ func runCompile(ctx context.Context, cfg *config, req *compileRequest) compileRe
 		"-f",
 		"--no-shell-escape",
 		"-e", "$max_repeat=4",
+		// Force --no-shell-escape on every engine latexmk might invoke.
+		// Identical to the server-side compiler.js cage. These are no-ops
+		// for engines not used by the current request, but cheap.
+		"-e", `$pdflatex = q(pdflatex --no-shell-escape %O %S)`,
+		"-e", `$xelatex  = q(xelatex  --no-shell-escape %O %S)`,
 	}
 	if req.Compiler == "lualatex" {
 		// --safer sandboxes the Lua os/io libraries so \directlua{}
-		// can't os.remove etc.
-		args = append(args, "-e", `$lualatex = q(lualatex --safer %O %S)`)
+		// can't os.remove etc. The --no-shell-escape there too is the
+		// I3 belt-and-suspenders fix from the helper security audit.
+		args = append(args, "-e", `$lualatex = q(lualatex --no-shell-escape --safer %O %S)`)
+	} else {
+		// Even when the project isn't on lualatex, a sub-call might
+		// resolve to it (rare but possible). Pin --no-shell-escape +
+		// --safer there too so the cage holds.
+		args = append(args, "-e", `$lualatex = q(lualatex --no-shell-escape --safer %O %S)`)
 	}
 	mainBase := strings.TrimSuffix(req.MainFile, ".tex")
 	args = append(args,

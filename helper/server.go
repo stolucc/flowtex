@@ -24,14 +24,29 @@ type server struct {
 	logger *log.Logger
 	pair   *pairStore
 	jobs   *jobRegistry
+	// compileLimiter caps both the burst rate AND the peak number of
+	// concurrent compiles. Defense against a stolen-bearer attacker
+	// pinning the user's CPU / filling /tmp with parallel latexmk
+	// processes. Sized for a single-user dev tool — see compileSlots /
+	// compileRateBurst constants.
+	compileLimiter *compileLimiter
 }
+
+// Concurrency + rate-limit budget for /compile. The helper is single-user;
+// a paired browser tab in normal use compiles at most ~1/s and never has
+// more than 1-2 in flight. These bounds give legit usage plenty of room
+// while a runaway attacker hits the wall fast.
+const compileSlots = 2     // hard cap on parallel latexmk processes
+const compileRateBurst = 3 // burst tolerance (e.g. user clicks Compile twice)
+const compileRatePerMin = 60
 
 func newServer(cfg *config, logger *log.Logger) (*server, error) {
 	s := &server{
-		cfg:    cfg,
-		logger: logger,
-		pair:   newPairStore(),
-		jobs:   newJobRegistry(),
+		cfg:            cfg,
+		logger:         logger,
+		pair:           newPairStore(),
+		jobs:           newJobRegistry(),
+		compileLimiter: newCompileLimiter(compileSlots, compileRateBurst, compileRatePerMin),
 	}
 
 	mux := http.NewServeMux()
@@ -92,20 +107,45 @@ func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(info)
 }
 
-// /pair?code=NNNNNN — unauthenticated POST. Validates the 6-digit code
-// against an active pairing window (opened by `flowtex-helper pair`),
-// and on success returns the current bearer token. The token is also
-// rotated here so a previously-paired browser is implicitly de-auth'd
-// — pairing a new browser invalidates the old one, which is the
-// conservative default.
+// /pair — unauthenticated POST with JSON body `{"code":"NNNNNN"}`.
+// (Legacy ?code= query param still accepted for backwards-compat with
+// older browser clients; will be dropped in a future release.) Validates
+// the 6-digit code against an active pairing window (opened by
+// `flowtex-helper pair`), and on success returns the current bearer
+// token. The token is also rotated here so a previously-paired browser
+// is implicitly de-auth'd — pairing a new browser invalidates the old
+// one, which is the conservative default.
+//
+// Why prefer the body over the query: codes in URLs leak into Referer
+// headers, browser DevTools history, and any verbose logging — the
+// window is 60s + single-use so the practical risk is small, but a
+// request body is the right channel for a credential-like value.
 func (s *server) handlePair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	code := r.URL.Query().Get("code")
+	// Prefer the body. Fall through to the legacy query string only if
+	// the body is empty or missing — minimises surprise during the
+	// deprecation window.
+	code := ""
+	if r.Body != nil {
+		// Tiny body cap — a 6-digit code is 32 bytes wrapped; 256 is
+		// plenty to absorb whitespace / Content-Type quirks.
+		r.Body = http.MaxBytesReader(w, r.Body, 256)
+		defer r.Body.Close()
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			code = body.Code
+		}
+	}
 	if code == "" {
-		http.Error(w, "code query param required", http.StatusBadRequest)
+		code = r.URL.Query().Get("code")
+	}
+	if code == "" {
+		http.Error(w, "code required (POST body {\"code\":\"NNNNNN\"})", http.StatusBadRequest)
 		return
 	}
 	if !s.pair.consume(code) {
@@ -136,11 +176,40 @@ const compileMaxBodyBytes = 64 << 20 // 64 MiB
 // until the compile finishes, then returns compileResponse (with
 // base64-encoded PDF). Cancellation: a sibling POST to /cancel/:jobId
 // signals the running compile via context.
+//
+// Rate-limit + concurrency-cap defence: see compileLimiter. M2 fix
+// from the helper security audit. If the user is over budget the
+// response is 429 with a Retry-After header.
 func (s *server) handleCompile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if wait, ok := s.compileLimiter.allow(); !ok {
+		// Tell the caller how long to wait before retrying — Retry-After
+		// is in seconds, rounded up so we never tell them to retry
+		// before the bucket actually has a token.
+		secs := int((wait + time.Second - 1) / time.Second)
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
+	// Acquire a concurrency slot, blocking up to a short timeout. If
+	// none free up, reject — better to fast-fail than queue indefinitely
+	// while the request body sits in memory.
+	acqCtx, acqCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer acqCancel()
+	if !s.compileLimiter.acquireSlot(acqCtx) {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, "too many concurrent compiles", http.StatusTooManyRequests)
+		return
+	}
+	defer s.compileLimiter.releaseSlot()
+
 	r.Body = http.MaxBytesReader(w, r.Body, compileMaxBodyBytes)
 	defer r.Body.Close()
 	var req compileRequest
@@ -219,4 +288,76 @@ func (j *jobRegistry) cancel(id string) bool {
 	c()
 	delete(j.jobs, id)
 	return true
+}
+
+// compileLimiter combines a token-bucket rate limiter with a
+// concurrency semaphore. Both have to admit a request for it to run.
+//
+// Why both: the rate limit prevents a burst (1000 /compile in a second
+// even if each finishes fast), and the slot semaphore prevents pile-up
+// of slow compiles (each takes up to 90s and runs latexmk).
+type compileLimiter struct {
+	// Slots: simple buffered channel as semaphore.
+	slots chan struct{}
+
+	// Bucket: token-bucket state. refilledAt is the last time we
+	// refilled the bucket; tokens is the current count, capped at
+	// burst. ratePerMin is the steady-state replenishment rate. Lock
+	// guards all three.
+	mu         sync.Mutex
+	tokens     float64
+	burst      float64
+	ratePerMin float64
+	refilledAt time.Time
+}
+
+func newCompileLimiter(slots, burst, ratePerMin int) *compileLimiter {
+	c := &compileLimiter{
+		slots:      make(chan struct{}, slots),
+		tokens:     float64(burst),
+		burst:      float64(burst),
+		ratePerMin: float64(ratePerMin),
+		refilledAt: time.Now(),
+	}
+	return c
+}
+
+// allow consumes a token from the rate bucket if one is available,
+// returning (0, true) on admit and (waitDuration, false) on reject.
+// waitDuration is how long the caller should wait before retrying for
+// guaranteed admission.
+func (c *compileLimiter) allow() (time.Duration, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	elapsed := now.Sub(c.refilledAt).Seconds()
+	c.tokens += elapsed * c.ratePerMin / 60.0
+	if c.tokens > c.burst {
+		c.tokens = c.burst
+	}
+	c.refilledAt = now
+	if c.tokens >= 1 {
+		c.tokens--
+		return 0, true
+	}
+	// Need (1 - tokens) more tokens; rate is tokens/sec.
+	needed := 1.0 - c.tokens
+	secs := needed * 60.0 / c.ratePerMin
+	return time.Duration(secs * float64(time.Second)), false
+}
+
+// acquireSlot blocks up to the context deadline waiting for a free
+// concurrency slot. Returns true on acquisition; false if the context
+// expired first.
+func (c *compileLimiter) acquireSlot(ctx context.Context) bool {
+	select {
+	case c.slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (c *compileLimiter) releaseSlot() {
+	<-c.slots
 }

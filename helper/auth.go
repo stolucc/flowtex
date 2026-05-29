@@ -98,18 +98,24 @@ func withAuth(cfg *config, requireBearer bool, h http.HandlerFunc) http.HandlerF
 			return
 		}
 
-		// Origin allowlist (skip when there is no Origin header, e.g.
-		// direct browser-bar navigation to /health).
+		// Origin allowlist. The Origin header is REQUIRED on every
+		// request, even unauthenticated ones (/health, /pair). Without
+		// this, a hostile page could fingerprint helper presence via a
+		// no-cors image-load against /health — Chrome omits the Origin
+		// header on such requests, so an "if origin != ''" gate would
+		// silently pass them. Empty Origin = reject.
+		//
+		// Browser-bar navigation also has no Origin, so direct visits
+		// to https://localhost:9876/health get a 403 — that's fine for
+		// a non-user-facing daemon endpoint.
 		origin := r.Header.Get("Origin")
-		if origin != "" {
-			if !originAllowed(cfg, origin) {
-				http.Error(w, "origin not allowed", http.StatusForbidden)
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "false")
-			w.Header().Set("Vary", "Origin")
+		if origin == "" || !originAllowed(cfg, origin) {
+			http.Error(w, "origin not allowed", http.StatusForbidden)
+			return
 		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "false")
+		w.Header().Set("Vary", "Origin")
 
 		// Bearer token (when required).
 		if requireBearer {

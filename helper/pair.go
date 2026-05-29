@@ -20,12 +20,14 @@
 // invokes when they want to register a new browser, regardless of how
 // the helper is running.
 //
-// Brute-force defence: 6 digits = 10^6 codes. Window is 60s. At one
-// guess per second (the per-IP rate limit), expected guesses is 5*10^5.
-// At a 100ms guess (1 OS-level connection per 100ms is generous on
-// loopback) that drops to ~50k guesses, still acceptable for a
-// hands-on workflow. Hardening (per-attempt delay / lockout) is a
-// post-Phase-1 improvement.
+// Brute-force defence: 6 digits = 10^6 codes. Window is 60s. The helper
+// has no per-IP rate limit (loopback) so an attacker tab can hammer
+// /pair as fast as the OS will let it — easily >10k attempts/s. To stop
+// that the pairStore counts wrong attempts inside an active window and
+// slams the window shut after `maxPairAttempts` failures. The pairing
+// terminal command can re-open a fresh window if a legit user hit the
+// limit by typo, so the user-visible cost is a re-run of
+// `flowtex-helper pair`.
 
 package main
 
@@ -44,6 +46,12 @@ import (
 
 const pairLockFileName = "pairing.lock"
 const pairingWindowSeconds = 60
+
+// maxPairAttempts caps wrong-code submissions during one window. Five
+// is enough that a fumbling user can correct a typo or two without
+// re-running `pair`, but small enough that 1 in 200,000 odds on a
+// random guess fall to effectively zero (5 * 1/10^6).
+const maxPairAttempts = 5
 
 type pairingState struct {
 	Code    string `json:"code"`
@@ -83,9 +91,10 @@ func startPairingWindow(_ *config) string {
 // detection it loads state into the store. /pair handler consults the
 // store.
 type pairStore struct {
-	mu    sync.Mutex
-	code  string
-	until time.Time
+	mu       sync.Mutex
+	code     string
+	until    time.Time
+	attempts int // count of wrong-code submissions inside the current window
 }
 
 func newPairStore() *pairStore { return &pairStore{} }
@@ -111,13 +120,20 @@ func (p *pairStore) loadFromFile() {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Reset attempts whenever we load a (new) window. Without this a
+	// previous window's failures would carry into a fresh `pair` and
+	// instantly slam the new window shut.
+	if p.code != st.Code {
+		p.attempts = 0
+	}
 	p.code = st.Code
 	p.until = time.Unix(st.Expires, 0)
 }
 
-// consume returns (true) if `code` matches the active window. On any
-// match (right or wrong) the lock file is removed, and on a right match
-// the window is closed so the same code can't be reused.
+// consume returns (true) if `code` matches the active window. After
+// `maxPairAttempts` wrong submissions inside the same window we close
+// the window entirely — the user has to re-run `flowtex-helper pair`.
+// Successful consume also closes the window so the code can't be reused.
 func (p *pairStore) consume(code string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -135,11 +151,25 @@ func (p *pairStore) consume(code string) bool {
 		// honour the same code twice.
 		p.code = ""
 		p.until = time.Time{}
+		p.attempts = 0
+		if path, err := pairLockPath(); err == nil {
+			_ = os.Remove(path)
+		}
+		return true
+	}
+	// Wrong code. Bump the attempt counter and, if we've hit the
+	// brute-force cap, slam the window shut so the attacker can't keep
+	// hammering. The user can re-open with another `flowtex-helper pair`.
+	p.attempts++
+	if p.attempts >= maxPairAttempts {
+		p.code = ""
+		p.until = time.Time{}
+		p.attempts = 0
 		if path, err := pairLockPath(); err == nil {
 			_ = os.Remove(path)
 		}
 	}
-	return ok
+	return false
 }
 
 // generatePairCode produces a 6-digit code (zero-padded) drawn from

@@ -308,6 +308,21 @@ gpg --keyserver hkps://keyserver.ubuntu.com \
 environments — don't use it casually, since `install-tl` runs as
 root and executes arbitrary Perl.
 
+### Ownership of `/usr/local/texlive/`
+
+Both the FlowTex server and the local-compile helper prepend
+`/usr/local/texlive/YYYY/bin/<arch>` to PATH so the engines + biber are
+found. **Make sure that tree is owned by root and not world-writable.**
+A non-root user who can drop a hostile `latexmk` (or `pdflatex` etc.)
+into a year directory would have that binary preferred over the real
+one on the next compile. `install-texlive-year.sh` runs as root and
+inherits root ownership by default; verify after install with:
+
+```bash
+ls -ld /usr/local/texlive /usr/local/texlive/*/bin/*
+# All entries should be `root root` and lack `w` for `o` (others).
+```
+
 ## Open questions / TODOs
 
 These are deliberately not blockers, but worth picking up at some
