@@ -103,6 +103,47 @@ export function stripLlmPreamble(raw) {
   return text;
 }
 
+/** Translate an /llm/status `error` string (returned by the helper when
+ *  it can't reach Ollama) into something actionable. The raw Go errors
+ *  ("dial tcp 127.0.0.1:11434: connect: connection refused", "no such
+ *  host", "i/o timeout") are accurate but unhelpful to a normal user.
+ *  Match the common shapes and rewrite each into a concrete next step.
+ *
+ *  Conservative: anything we don't recognise is passed through with a
+ *  generic preface so the original Go error still helps power users.
+ */
+export function translateOllamaError(raw) {
+  const msg = String(raw || '');
+  if (!msg) {
+    return 'No local LLM detected. Make sure Ollama is running on your machine.';
+  }
+  if (/connection refused|no connection could be made|actively refused/i.test(msg)) {
+    return (
+      'Ollama is not running on this machine.\n\n' +
+      'macOS: open the Ollama app from /Applications.\n' +
+      'Linux / terminal: run `ollama serve` (and `ollama pull llama3.2:3b` if you haven\'t pulled a model yet).\n\n' +
+      'The helper expected Ollama at http://127.0.0.1:11434.'
+    );
+  }
+  if (/no such host|nodename nor servname/i.test(msg)) {
+    return (
+      'The configured LLM URL doesn\'t resolve. Check `llm_base_url` in ~/.flowtex-helper/config.json.\n' +
+      '(Default and recommended: http://127.0.0.1:11434)'
+    );
+  }
+  if (/timeout|deadline exceeded/i.test(msg)) {
+    return (
+      'Ollama didn\'t respond in time. It may be busy loading a model — wait a few seconds and re-open this dialog.'
+    );
+  }
+  if (/ollama returned 4\d\d|ollama returned 5\d\d/i.test(msg)) {
+    return 'Ollama returned an HTTP error:\n\n' + msg;
+  }
+  // Unknown shape — show the raw error but prefaced so it doesn't
+  // look like FlowTex is what's broken.
+  return 'Couldn\'t reach the local LLM (Ollama). Raw error:\n\n' + msg;
+}
+
 /** Translate an /llm/complete error into something actionable. The
  *  most common confusing case is "unknown task" — the running helper
  *  binary is older than the client and doesn't have this task wired
@@ -178,7 +219,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
       }
       const s = r.status || {};
       if (!s.available) {
-        setStatusError(s.error || 'No local LLM detected. Make sure Ollama is running on your machine.');
+        setStatusError(translateOllamaError(s.error));
         return;
       }
       const list = Array.isArray(s.models) ? s.models : [];
