@@ -264,7 +264,9 @@ func (s *server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer cancel()
-	status := llmStatus{}
+	status := llmStatus{
+		SupportedTasks: listSupportedTasks(),
+	}
 	base, err := llmBaseURL(s.cfg)
 	if err != nil {
 		status.Error = "invalid LLM base URL in config: " + err.Error()

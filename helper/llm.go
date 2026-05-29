@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -106,7 +107,24 @@ type llmStatus struct {
 	BaseURL      string   `json:"baseUrl"`
 	Models       []string `json:"models"`
 	DefaultModel string   `json:"defaultModel,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	// SupportedTasks lets the client menu show only tasks the running
+	// helper actually understands. Older helpers that don't carry this
+	// field still work (the client falls back to showing everything),
+	// but a freshly upgraded helper hides stale menu entries client-side.
+	SupportedTasks []string `json:"supportedTasks"`
+	Error          string   `json:"error,omitempty"`
+}
+
+// listSupportedTasks returns the validTasks keys as a stable, sorted
+// slice for transport. Sorting keeps the JSON deterministic — useful
+// when the client diffs against a cached value.
+func listSupportedTasks() []string {
+	out := make([]string, 0, len(validTasks))
+	for t := range validTasks {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type llmCompleteRequest struct {

@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, u
 // menu can enumerate items without dragging the dialog chunk in.
 const LlmActionDialog = lazy(() => import('./LlmActionDialog.jsx'));
 import { LLM_TASKS } from '../utils/llmTasks.js';
+import { fetchLlmStatus } from '../utils/helperBridge.js';
 import useClickOutside from '../hooks/useClickOutside.js';
 import {
   EditorView,
@@ -184,6 +185,21 @@ const Editor = forwardRef(function Editor(
   const [llmMenu, setLlmMenu] = useState(null); // { x, y, from, to, text }
   const llmMenuRef = useRef(null);
   const [llmDialog, setLlmDialog] = useState(null); // { from, to, text, task }
+  // Tasks the running helper actually supports. Probed once via
+  // /llm/status. null = not probed yet (show everything — old client
+  // contract); array = filter the menu. Older helpers without the
+  // supportedTasks field also leave this null so they keep showing
+  // all menu items as before.
+  const [llmSupportedTasks, setLlmSupportedTasks] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchLlmStatus().then((r) => {
+      if (cancelled) return;
+      const arr = r?.status?.supportedTasks;
+      if (Array.isArray(arr)) setLlmSupportedTasks(arr);
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [inverted, setInverted] = useState(() => getSetting('editor-inverted') === 'true');
   const [spellcheckEnabled, setSpellcheckEnabled] = useState(
     () => getSetting('spellcheck-enabled') !== 'false', // default ON
@@ -2099,20 +2115,22 @@ const Editor = forwardRef(function Editor(
           <div className="cite-context-header">
             <span className="cite-context-cmd">Local LLM</span>
           </div>
-          {Object.entries(LLM_TASKS).map(([taskKey, spec]) => (
-            <button
-              key={taskKey}
-              className="cite-context-item"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text, task: taskKey });
-                setLlmMenu(null);
-              }}
-            >
-              <span className="cite-context-item-label">{spec.label}</span>
-              <span className="cite-context-item-hint">{spec.hint}</span>
-            </button>
-          ))}
+          {Object.entries(LLM_TASKS)
+            .filter(([taskKey]) => !llmSupportedTasks || llmSupportedTasks.includes(taskKey))
+            .map(([taskKey, spec]) => (
+              <button
+                key={taskKey}
+                className="cite-context-item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text, task: taskKey });
+                  setLlmMenu(null);
+                }}
+              >
+                <span className="cite-context-item-label">{spec.label}</span>
+                <span className="cite-context-item-hint">{spec.hint}</span>
+              </button>
+            ))}
         </div>
       )}
       {llmDialog && (

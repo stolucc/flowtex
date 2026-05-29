@@ -31,6 +31,30 @@ function translateStatusError(raw) {
   return msg || 'Helper unavailable';
 }
 
+/** Translate an /llm/complete error into something actionable. The
+ *  most common confusing case is "unknown task" — the running helper
+ *  binary is older than the client and doesn't have this task wired
+ *  up yet. The /llm/status supportedTasks check usually hides those
+ *  menu items, but if the user gets here anyway (cached client state,
+ *  helper restarted between menu open and click, etc.), surface the
+ *  rebuild step instead of the bare server message.
+ */
+function translateGenerateError(raw) {
+  const msg = String(raw || '');
+  if (/unknown task/i.test(msg)) {
+    return (
+      'This action isn\'t supported by the running helper binary. ' +
+      'You probably have an older flowtex-helper installed. Rebuild ' +
+      'and restart:\n' +
+      '    cd flowtex/helper\n' +
+      '    go build -o flowtex-helper\n' +
+      'then quit the menu-bar helper and re-open it (or Ctrl-C and ' +
+      're-run the headless process).'
+    );
+  }
+  return msg || 'Generation failed';
+}
+
 /** Local-LLM action modal. One component services all four tasks —
  *  the only per-task difference is the title + whether we show a
  *  target-words input. Lifecycle:
@@ -134,7 +158,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     );
     setGenerating(false);
     if (r.aborted) return;
-    if (!r.ok) setStreamError(r.error || 'Generation failed');
+    if (!r.ok) setStreamError(translateGenerateError(r.error));
   }, [initialText, targetWords, model, task, taskSpec.needsTargetWords, showAlert]);
 
   const handleStop = () => {
@@ -210,7 +234,9 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
                   Suggested {generating && <span className="llm-dialog-spinner">…</span>}
                 </div>
                 <div className="llm-dialog-output-text">{output || (generating ? '…' : '')}</div>
-                {streamError && <div className="llm-dialog-error">{streamError}</div>}
+                {streamError && (
+                  <pre className="llm-dialog-error llm-dialog-error-block">{streamError}</pre>
+                )}
               </div>
             )}
             <div className="llm-dialog-actions">
