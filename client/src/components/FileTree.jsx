@@ -3,6 +3,7 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { CloseIcon, FolderIcon } from './Icons.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
+import { useAlert } from '../contexts/AlertContext.jsx';
 
 /**
  * Builds a nested directory tree structure from a flat file list and empty folder paths.
@@ -132,6 +133,7 @@ export default function FileTree({
   emptyFolders: emptyFoldersProp,
   onCreateFolder,
 }) {
+  const { alert: showAlert } = useAlert();
   const [groupByType, setGroupByType] = useState(() => {
     if (groupByTypeProp !== undefined) return groupByTypeProp;
     const stored = getSetting('group-files');
@@ -194,7 +196,7 @@ export default function FileTree({
       const newPath = targetPath ? `${targetPath}/${fileName}` : fileName;
       if (newPath === src.path) return;
       if (files.some((f) => f.path === newPath && f.id !== src.id)) {
-        window.alert(`A file already exists at ${newPath}.`);
+        showAlert(`A file already exists at ${newPath}.`, { title: 'Move blocked' });
         return;
       }
       onRename?.(src.id, newPath);
@@ -213,7 +215,7 @@ export default function FileTree({
           !(f.path === src.path || f.path.startsWith(movingPrefix)),
       );
       if (conflict) {
-        window.alert(`A file or folder already exists at ${newPrefix}.`);
+        showAlert(`A file or folder already exists at ${newPrefix}.`, { title: 'Move blocked' });
         return;
       }
       onRenameFolder?.(src.path, newPrefix);

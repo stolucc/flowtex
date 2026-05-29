@@ -27,6 +27,7 @@ import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
+import { AlertProvider, useAlert } from './contexts/AlertContext.jsx';
 import { EditorRefProvider } from './contexts/EditorRefContext.jsx';
 import { ProjectProvider } from './contexts/ProjectContext.jsx';
 import useProject from './hooks/useProject.js';
@@ -104,6 +105,7 @@ function InvitationToast({ invitation, onDismiss, onOpen }) {
 /** Main application shell: wires together all hooks and renders the editor layout. */
 function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
+  const { alert: showAlert } = useAlert();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
 
   // Once the user is authenticated, prefetch the lazy chunks the user
@@ -400,7 +402,7 @@ function AppInner() {
       );
     };
     const removedHandler = () => {
-      alert('You have been removed from this project.');
+      showAlert('You have been removed from this project.', { title: 'Project access removed' });
       goBack();
     };
     window.addEventListener('ws:changes', changesHandler);
@@ -898,7 +900,7 @@ function AppInner() {
                       try {
                         await handleSetMainFile(path);
                       } catch (err) {
-                        alert(err.message || 'Could not set main file');
+                        showAlert(err.message || 'Could not set main file', { title: 'Set main file failed' });
                         return;
                       }
                       setPdfUrl(null);
@@ -1335,7 +1337,7 @@ function AppInner() {
                   });
                   if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    alert(data.error || 'Could not change compile location');
+                    showAlert(data.error || 'Could not change compile location', { title: 'Compile location' });
                     return;
                   }
                   // Updated project echoes the new value; mirror it into
@@ -1344,7 +1346,7 @@ function AppInner() {
                   const updated = await res.json();
                   setProject((p) => (p ? { ...p, ...updated } : p));
                 } catch (err) {
-                  alert(err?.message || 'Could not change compile location');
+                  showAlert(err?.message || 'Could not change compile location', { title: 'Compile location' });
                 }
               }}
               onCompile={() => {
@@ -1458,8 +1460,10 @@ function AppInner() {
 /** Top-level App component that wraps AppInner with the AuthProvider. */
 export default function App() {
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    <AlertProvider>
+      <AuthProvider>
+        <AppInner />
+      </AuthProvider>
+    </AlertProvider>
   );
 }

@@ -10,6 +10,13 @@ vi.mock('../../api.js', () => ({
   del: vi.fn(),
 }));
 
+// useProject now calls useAlert() — stub it out for unit tests so
+// renderHook doesn't need an AlertProvider wrapper. The hook just
+// surfaces error messages via this; tests don't assert on the dialog.
+vi.mock('../../contexts/AlertContext.jsx', () => ({
+  useAlert: () => ({ alert: vi.fn(), confirm: vi.fn() }),
+}));
+
 import { get, post, put, patch, del } from '../../api.js';
 
 describe('useProject', () => {

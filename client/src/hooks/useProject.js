@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
+import { useAlert } from '../contexts/AlertContext.jsx';
 
 /** Extracts the project ID from the current URL pathname. */
 function getProjectIdFromUrl() {
@@ -18,6 +19,7 @@ function getFileIdFromUrl() {
  * @param {object|null} user - The authenticated user.
  */
 export default function useProject(user) {
+  const { alert: showAlert } = useAlert();
   const [project, setProject] = useState(null);
   const [files, setFiles] = useState([]);
   // Tracks whether the files HTTP response for the current project has
@@ -341,7 +343,7 @@ export default function useProject(user) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        window.alert(data.error || 'Rename failed');
+        showAlert(data.error || 'Rename failed', { title: 'Rename folder' });
         return;
       }
       setFiles((fs) =>
@@ -373,7 +375,7 @@ export default function useProject(user) {
         setProject((p) => (p ? { ...p, main_file: newMain } : p));
       }
     },
-    [project],
+    [project, showAlert],
   );
 
   const handleDeleteFolder = useCallback(

@@ -5,6 +5,7 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import MfaSetupModal from './MfaSetupModal.jsx';
 import TemplateGallery from './TemplateGallery.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
+import { useAlert } from '../contexts/AlertContext.jsx';
 import { formatRelativeTime } from '../utils/dateFormat.js';
 import {
   SearchIcon,
@@ -23,6 +24,7 @@ const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba
 
 /** Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations. */
 export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin, pendingInviteId }) {
+  const { alert: showAlert } = useAlert();
   const [projects, setProjects] = useState([]);
   // null = not yet attempted, '' = loaded successfully, otherwise an error
   // message. Drives the visible error banner that replaces the silent
@@ -260,7 +262,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               return;
             } else if (evt.type === 'error') {
               setDocxImporting(false);
-              alert(evt.error || 'Failed to import .docx file');
+              showAlert(evt.error || 'Failed to import .docx file', { title: 'DOCX import failed' });
               return;
             }
           } catch { /* ignore parse errors */ }
@@ -268,12 +270,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       }
       // If we get here without a result event, something went wrong
       setDocxImporting(false);
-      alert('Import failed — no response from server');
+      showAlert('Import failed — no response from server', { title: 'DOCX import failed' });
     } catch (err) {
       setDocxImporting(false);
       docxAbortRef.current = null;
       if (err.name === 'AbortError') return; // user cancelled
-      alert(err.message || 'Failed to import .docx file');
+      showAlert(err.message || 'Failed to import .docx file', { title: 'DOCX import failed' });
     }
   };
 
@@ -396,10 +398,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         setProjects(await projRes.json());
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to accept invitation');
+        showAlert(data.error || 'Failed to accept invitation', { title: 'Accept invitation' });
       }
     } catch {
-      alert('Failed to accept invitation');
+      showAlert('Failed to accept invitation', { title: 'Accept invitation' });
     }
   };
 
@@ -410,10 +412,10 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to decline invitation');
+        showAlert(data.error || 'Failed to decline invitation', { title: 'Decline invitation' });
       }
     } catch {
-      alert('Failed to decline invitation');
+      showAlert('Failed to decline invitation', { title: 'Decline invitation' });
     }
   };
 

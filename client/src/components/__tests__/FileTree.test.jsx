@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import FileTree from '../FileTree.jsx';
+import { AlertProvider } from '../../contexts/AlertContext.jsx';
 
 afterEach(cleanup);
 
@@ -29,7 +30,14 @@ function renderFileTree(overrides = {}) {
     onOverwrite: vi.fn(),
     ...overrides,
   };
-  return { ...render(<FileTree {...defaultProps} />), props: defaultProps };
+  return {
+    ...render(
+      <AlertProvider>
+        <FileTree {...defaultProps} />
+      </AlertProvider>,
+    ),
+    props: defaultProps,
+  };
 }
 
 describe('FileTree', () => {
