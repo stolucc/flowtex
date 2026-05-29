@@ -2,6 +2,34 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchLlmStatus, streamLlmComplete } from '../utils/helperBridge.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
 
+/** Map a raw error string into something the user can act on.
+ *
+ *  The browser's bare "Failed to fetch" usually means the helper is
+ *  unreachable — but the common cause right now is an outdated helper
+ *  binary that lacks /llm/* routes: the browser fires a CORS preflight
+ *  for the Authorization header, the old helper 404s the OPTIONS
+ *  without CORS headers, and the browser surfaces the rejection as
+ *  TypeError: Failed to fetch. Tell the user to rebuild + restart.
+ */
+function translateStatusError(raw) {
+  const msg = String(raw || '');
+  if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+    return (
+      "Couldn't reach the helper for LLM features. " +
+      'If you upgraded recently, the helper binary on your machine ' +
+      'needs to be rebuilt and restarted so it picks up the new ' +
+      "/llm/* endpoints. From the helper source dir:\n" +
+      '    go build -o flowtex-helper\n' +
+      'then restart the helper (Quit from the menu-bar icon and re-open, ' +
+      'or Ctrl-C the headless process and re-run it).'
+    );
+  }
+  if (/Helper not paired/i.test(msg)) {
+    return 'Helper not paired. Open Account Settings → Compile, run `flowtex-helper pair`, and paste the 6-digit code.';
+  }
+  return msg || 'Helper unavailable';
+}
+
 /** "Write to length" modal — rewrites the selected text to a target
  *  word count via the local LLM. Modal lifecycle:
  *
@@ -31,13 +59,21 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
 
   // Fetch helper LLM status on mount. If the helper isn't paired, or
   // Ollama isn't running, the user sees a one-line explanation.
+  // Three distinct sad paths get tailored messages so the user always
+  // has a concrete next step:
+  //   1. "Failed to fetch"  → helper unreachable; likely an old binary
+  //                           that doesn't have /llm/* endpoints yet
+  //                           and is failing the CORS preflight.
+  //   2. available=false    → helper reached but can't talk to Ollama.
+  //   3. available=true,
+  //      models=[]          → Ollama reached but no models pulled.
   useEffect(() => {
     let cancelled = false;
     fetchLlmStatus().then((r) => {
       if (cancelled) return;
       setLoading(false);
       if (!r.ok) {
-        setStatusError(r.error || 'Helper unavailable');
+        setStatusError(translateStatusError(r.error));
         return;
       }
       const s = r.status || {};
@@ -46,6 +82,14 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
         return;
       }
       const list = Array.isArray(s.models) ? s.models : [];
+      if (list.length === 0) {
+        setStatusError(
+          'Ollama is running but no models are installed. Pull one in a terminal:\n' +
+            '    ollama pull llama3.2:3b\n' +
+            'then re-open this dialog.',
+        );
+        return;
+      }
       setModels(list);
       // Pick the helper's default model if it's installed; otherwise
       // fall back to the first installed model.
@@ -110,11 +154,10 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
           <div className="llm-dialog-body"><p>Checking local LLM…</p></div>
         ) : statusError ? (
           <div className="llm-dialog-body">
-            <p className="llm-dialog-error">{statusError}</p>
+            <pre className="llm-dialog-error llm-dialog-error-block">{statusError}</pre>
             <p className="llm-dialog-hint">
-              This feature uses a local LLM via the flowtex-helper. Install Ollama
-              (<a href="https://ollama.com/" target="_blank" rel="noreferrer">ollama.com</a>)
-              and pull a model, then re-open this dialog.
+              Don&apos;t have Ollama yet? Get it at{' '}
+              <a href="https://ollama.com/" target="_blank" rel="noreferrer">ollama.com</a>.
             </p>
             <div className="llm-dialog-actions">
               <button type="button" onClick={onClose}>Close</button>
