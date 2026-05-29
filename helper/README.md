@@ -95,7 +95,9 @@ On first run the helper creates `~/.flowtex-helper/`:
 
 ```
 ~/.flowtex-helper/
-  config.json       # bearer token, port (9876), allowed origins
+  config.json       # bearer token, port (9876), allowed origins,
+                    # optional default_tex_year, optional llm_base_url
+                    # (loopback only) + llm_default_model
   certs/            # only populated if you ran with --tls
 ```
 
@@ -241,9 +243,11 @@ auth + origin allowlist + Host pin enforced on everything except
 | ------ | ---- | ---- | ------- |
 | GET    | /health         | none   | Liveness probe. Returns `{"ok":true}`. |
 | GET    | /version        | bearer | TeX Live year, engines, biber, **plus `distributions_available[]`** — every `/usr/local/texlive/YYYY` install the helper can see, used by FlowTex's TeX Live picker. |
-| POST   | /pair?code=…    | code   | Single-use 6-digit handshake → fresh bearer token. |
-| POST   | /compile        | bearer | Run a compile. Body: `compileRequest`. Returns `{success, log, pdf}` (PDF is base64). Body capped at 64 MiB via `http.MaxBytesReader`. |
+| POST   | /pair           | code   | Single-use 6-digit handshake → fresh bearer token. Code goes in JSON body `{"code":"NNNNNN"}` (legacy `?code=` query still accepted for backwards-compat). |
+| POST   | /compile        | bearer | Run a compile. Body: `compileRequest`. Returns `{success, log, pdf}` (PDF is base64). Body capped at 64 MiB via `http.MaxBytesReader`. Rate-limited: 60/min, burst 3, max 2 concurrent — over-budget returns 429 + Retry-After. |
 | POST   | /cancel/:jobId  | bearer | Abort a running compile. |
+| GET    | /llm/status     | bearer | Probes the local Ollama instance. Returns `{available, baseUrl, models[], defaultModel?, error?}`. Drives the in-editor LLM menu (enabled when `available=true`). |
+| POST   | /llm/complete   | bearer | SSE-streamed writing-assistant completion. Body: `{model, task, input, targetWords?}` where `task` is one of a server-side allowlist (`write-to-length` for now). Frames are `data: {"delta":"text"}` until `data: {"done":true}` (or `data: {"error":"..."}`). Rate-limited tighter than compile: 30/min, burst 2, max 1 concurrent. |
 
 CORS preflights respond with `Access-Control-Allow-Private-Network: true`
 when Chrome's PNA preflight asks for it, so a `https://flowtex.click`

@@ -1,4 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle, lazy, Suspense } from 'react';
+
+// Lazy — the dialog pulls in the helperBridge LLM functions and isn't
+// needed until the user right-clicks a selection.
+const LlmWriteToLengthDialog = lazy(() => import('./LlmWriteToLengthDialog.jsx'));
 import useClickOutside from '../hooks/useClickOutside.js';
 import {
   EditorView,
@@ -171,6 +175,12 @@ const Editor = forwardRef(function Editor(
   const spellMenuRef = useRef(null);
   const [citeMenu, setCiteMenu] = useState(null); // { x, y, from, to, name, opt, key }
   const citeMenuRef = useRef(null);
+  // LLM context menu shown when the user right-clicks INSIDE a non-empty
+  // selection. Click "Write to length…" → opens LlmWriteToLengthDialog
+  // with the selected text; Accept replaces the selection in place.
+  const [llmMenu, setLlmMenu] = useState(null); // { x, y, from, to, text }
+  const llmMenuRef = useRef(null);
+  const [llmDialog, setLlmDialog] = useState(null); // { from, to, text }
   const [inverted, setInverted] = useState(() => getSetting('editor-inverted') === 'true');
   const [spellcheckEnabled, setSpellcheckEnabled] = useState(
     () => getSetting('spellcheck-enabled') !== 'false', // default ON
@@ -855,6 +865,28 @@ const Editor = forwardRef(function Editor(
           contextmenu(event, view) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos == null) return false;
+            // LLM menu wins precedence when the right-click is INSIDE a
+            // non-empty selection. Reasoning: if the user has selected
+            // text and right-clicks on it, they almost certainly mean
+            // "do something to this selection" — not the in-place
+            // tracked-change / spell / cite-variant menus that target
+            // the click point alone. Other menus still fire when the
+            // click is outside the selection (or there is no selection).
+            const sel = view.state.selection.main;
+            if (!sel.empty && pos >= sel.from && pos <= sel.to) {
+              const text = view.state.sliceDoc(sel.from, sel.to);
+              if (text.trim().length > 0) {
+                event.preventDefault();
+                setLlmMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  from: sel.from,
+                  to: sel.to,
+                  text,
+                });
+                return true;
+              }
+            }
             // Cite-family command at this position → offer a variant-swap menu.
             // Scan a 200-char window around `pos` for `\name[opt]{key}` where
             // `name` is one of the cite-family commands. Includes optional [arg]
@@ -1670,6 +1702,12 @@ const Editor = forwardRef(function Editor(
     !!citeMenu,
   );
 
+  useClickOutside(
+    llmMenuRef,
+    useCallback(() => setLlmMenu(null), []),
+    !!llmMenu,
+  );
+
   const swapCiteVariant = useCallback((newName) => {
     const v = viewRef.current;
     if (!v || !citeMenu) return;
@@ -2048,6 +2086,46 @@ const Editor = forwardRef(function Editor(
         >
           + Comment
         </button>
+      )}
+      {llmMenu && (
+        <div
+          ref={llmMenuRef}
+          className="cite-context-menu"
+          style={{ position: 'fixed', left: llmMenu.x, top: llmMenu.y, zIndex: 1000 }}
+        >
+          <div className="cite-context-header">
+            <span className="cite-context-cmd">Selection</span>
+          </div>
+          <button
+            className="cite-context-item"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text });
+              setLlmMenu(null);
+            }}
+          >
+            <span className="cite-context-item-label">Write to length…</span>
+            <span className="cite-context-item-hint">rewrite via local LLM</span>
+          </button>
+        </div>
+      )}
+      {llmDialog && (
+        <Suspense fallback={null}>
+          <LlmWriteToLengthDialog
+            initialText={llmDialog.text}
+            onClose={() => setLlmDialog(null)}
+            onAccept={(replacement) => {
+              const v = viewRef.current;
+              if (v) {
+                v.dispatch({
+                  changes: { from: llmDialog.from, to: llmDialog.to, insert: replacement },
+                  selection: { anchor: llmDialog.from + replacement.length },
+                });
+                v.focus();
+              }
+            }}
+          />
+        </Suspense>
       )}
       {citeMenu && (
         <div

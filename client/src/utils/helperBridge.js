@@ -312,3 +312,104 @@ export async function pairWithHelper(code) {
     return { ok: false, error: err?.message || 'Could not reach helper' };
   }
 }
+
+/**
+ * Fetch /llm/status — { available, baseUrl, models[], defaultModel?, error? }.
+ * Returns { ok: false, error } if the helper is unreachable or unauthed;
+ * returns { ok: true, status } on success (where status may still report
+ * available=false if Ollama isn't running on the user's machine).
+ */
+export async function fetchLlmStatus() {
+  const token = getHelperToken();
+  if (!token) return { ok: false, error: 'Helper not paired' };
+  try {
+    const res = await fetchTryBoth('/llm/status', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { ok: false, error: `Helper returned ${res.status}` };
+    const status = await res.json();
+    return { ok: true, status };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Could not reach helper' };
+  }
+}
+
+/**
+ * Stream an LLM completion from the helper.
+ *
+ * Returns a Promise that resolves to { ok, error?, aborted? } once the
+ * stream finishes. While running, calls `onDelta(text)` for each token
+ * chunk. The `abortSignal` (an AbortSignal) cancels the in-flight
+ * request — the helper's context propagates the cancel down to Ollama
+ * and the model stops generating.
+ *
+ * Note: we use fetch+ReadableStream rather than EventSource because
+ *   (a) EventSource doesn't support POST or custom auth headers, and
+ *   (b) we already have the bearer + Authorization header dance, so a
+ *   tiny manual SSE parser is the right cost.
+ */
+export async function streamLlmComplete({ task, input, targetWords, model }, onDelta, abortSignal) {
+  const token = getHelperToken();
+  if (!token) return { ok: false, error: 'Helper not paired' };
+  let res;
+  try {
+    res = await fetchTryBoth('/llm/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ task, input, targetWords, model }),
+      signal: abortSignal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') return { ok: false, aborted: true };
+    return { ok: false, error: err?.message || 'Could not reach helper' };
+  }
+  if (!res.ok) {
+    let bodyHint = '';
+    try { bodyHint = (await res.text()).slice(0, 200); } catch { /* ignore */ }
+    return { ok: false, error: `Helper returned ${res.status}${bodyHint ? `: ${bodyHint}` : ''}` };
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return { ok: false, error: 'No streaming reader available' };
+  const decoder = new TextDecoder('utf-8');
+  let buf = '';
+  let serverError = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE framing: `\n\n` separates events; each event has one or
+      // more `field: value` lines. We only emit `data:` lines.
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        // Walk the lines and concat any `data:` payloads (one event can
+        // have multiple data: lines per spec; helper currently uses one).
+        let payload = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('data: ')) payload += line.slice(6);
+          else if (line.startsWith('data:')) payload += line.slice(5);
+        }
+        if (!payload) continue;
+        let msg;
+        try { msg = JSON.parse(payload); } catch { continue; }
+        if (msg.delta) {
+          onDelta(msg.delta);
+        } else if (msg.done) {
+          return { ok: true };
+        } else if (msg.error) {
+          serverError = msg.error;
+        }
+      }
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return { ok: false, aborted: true };
+    return { ok: false, error: err?.message || 'Stream read failed' };
+  } finally {
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+  if (serverError) return { ok: false, error: serverError };
+  return { ok: true };
+}
