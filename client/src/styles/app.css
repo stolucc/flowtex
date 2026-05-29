@@ -10085,11 +10085,29 @@ kbd {
 
 /* ── LLM "Write to length" dialog ────────────────────────────────── */
 .llm-dialog {
+  /* There's no shared `.modal` background rule — each modal sets its
+     own surface so themes can vary per-modal. Without these three the
+     dialog renders transparent over the dim overlay. */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
   width: 560px;
   max-width: calc(100vw - 32px);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
+}
+.llm-dialog .modal-header {
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.llm-dialog .modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 .llm-dialog-body {
   padding: 16px 20px 18px;
