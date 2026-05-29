@@ -27,6 +27,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 )
@@ -72,7 +73,17 @@ func main() {
 			printHelp()
 			return
 		case "version":
-			fmt.Println("flowtex-helper", helperVersion)
+			// Print all three so the user can verify the binary is the
+			// commit they think it is. Previously only `version` was
+			// shown — which made debugging "is this the new binary?"
+			// harder than it needed to be.
+			fmt.Printf("flowtex-helper %s\n", helperVersion)
+			fmt.Printf("build sha:  %s\n", helperBuildSHA)
+			if helperBuildTime != "" {
+				fmt.Printf("build time: %s\n", helperBuildTime)
+			} else {
+				fmt.Println("build time: unknown")
+			}
 			return
 		}
 	}
@@ -209,15 +220,58 @@ first:
 `)
 }
 
-// Version + build metadata. Set via -ldflags at build time (see
-// Makefile / .github/workflows/helper-release.yml). The defaults are
-// useful for `go run .` during development so the About dialog still
-// shows something meaningful.
+// Version + build metadata. Preferred path is -ldflags injection at
+// build time (see Makefile / .github/workflows/helper-release.yml).
+// When those are missing — i.e. someone ran `go build` directly
+// instead of `make build` — we fall back to Go's auto-embedded VCS
+// info (commit revision + time), which `go build` 1.18+ bakes into
+// every binary built inside a git tree. End result: the About dialog
+// shows a real SHA whether the user built with `make` or `go build`.
 var (
 	helperVersion   = "0.1.0-dev"
 	helperBuildSHA  = "dev"
 	helperBuildTime = ""
 )
+
+func init() {
+	if helperBuildSHA != "dev" && helperBuildTime != "" {
+		return // LDFLAGS already populated both; nothing to fill in.
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if helperBuildSHA == "dev" && s.Value != "" {
+				// Match the Makefile's short-SHA format (7 chars) so
+				// the About dialog reads consistently regardless of
+				// which build path the user took.
+				if len(s.Value) >= 7 {
+					helperBuildSHA = s.Value[:7]
+				} else {
+					helperBuildSHA = s.Value
+				}
+			}
+		case "vcs.time":
+			if helperBuildTime == "" {
+				helperBuildTime = s.Value
+			}
+		case "vcs.modified":
+			// Mark dirty trees so the user can tell the binary doesn't
+			// match the commit (e.g. local uncommitted edits).
+			if s.Value == "true" && helperBuildSHA != "dev" && !endsWithDirty(helperBuildSHA) {
+				helperBuildSHA = helperBuildSHA + "-dirty"
+			}
+		}
+	}
+}
+
+func endsWithDirty(s string) bool {
+	const suffix = "-dirty"
+	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
+}
 
 func runPair(logger *log.Logger) {
 	cfg, err := loadConfig()

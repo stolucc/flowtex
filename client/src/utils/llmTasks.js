@@ -35,4 +35,11 @@ export const LLM_TASKS = {
     title: 'Write it out',
     needsTargetWords: false,
   },
+  custom: {
+    label: 'Other…',
+    hint: 'free-form instruction',
+    title: 'Custom instruction',
+    needsTargetWords: false,
+    needsInstruction: true,
+  },
 };

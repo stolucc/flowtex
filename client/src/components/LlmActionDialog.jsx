@@ -75,6 +75,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
   const { alert: showAlert } = useAlert();
   const initialWordCount = (initialText.match(/\S+/g) || []).length || 1;
   const [targetWords, setTargetWords] = useState(initialWordCount);
+  const [instruction, setInstruction] = useState('');
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [statusError, setStatusError] = useState(''); // empty = no error
@@ -146,6 +147,21 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
       }
       payload.targetWords = n;
     }
+    if (taskSpec.needsInstruction) {
+      const trimmed = (instruction || '').trim();
+      if (!trimmed) {
+        showAlert(
+          'Tell the LLM what to do with the selected text (e.g. "translate to French", "make this sound more formal").',
+          { title: 'Instruction needed' },
+        );
+        return;
+      }
+      if (trimmed.length > 1000) {
+        showAlert('Instruction is too long (max 1000 characters).', { title: 'Instruction too long' });
+        return;
+      }
+      payload.instruction = trimmed;
+    }
     setGenerating(true);
     setOutput('');
     setStreamError('');
@@ -159,7 +175,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     setGenerating(false);
     if (r.aborted) return;
     if (!r.ok) setStreamError(translateGenerateError(r.error));
-  }, [initialText, targetWords, model, task, taskSpec.needsTargetWords, showAlert]);
+  }, [initialText, targetWords, instruction, model, task, taskSpec.needsTargetWords, taskSpec.needsInstruction, showAlert]);
 
   const handleStop = () => {
     abortRef.current?.abort();
@@ -209,6 +225,28 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
                   disabled={generating}
                 />
                 <span className="llm-dialog-row-suffix">words</span>
+              </div>
+            )}
+            {taskSpec.needsInstruction && (
+              <div className="llm-dialog-instruction">
+                <label htmlFor="llm-instruction" className="llm-dialog-source-label">
+                  Instruction
+                </label>
+                <textarea
+                  id="llm-instruction"
+                  rows={3}
+                  maxLength={1000}
+                  placeholder='e.g. "translate to French", "make this sound more formal", "rewrite as a single sentence"'
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  disabled={generating}
+                />
+                <p className="llm-dialog-hint">
+                  The assistant is constrained to textual transformations of
+                  your selection only — instructions like &ldquo;delete files&rdquo; or
+                  &ldquo;run a command&rdquo; will be refused. Output replaces your
+                  selection only after you click <strong>Accept</strong>.
+                </p>
               </div>
             )}
             {models.length > 1 && (

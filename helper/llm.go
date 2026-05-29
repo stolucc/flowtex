@@ -85,6 +85,12 @@ const llmInputMaxChars = 20_000
 // gigabytes through the SSE channel.
 const llmOutputMaxChars = 50_000
 
+// llmInstructionMaxChars caps the free-form "Other" instruction the
+// user can type in the dialog. Keeps prompt-stuffing attacks (push
+// long adversarial system-prompt overrides) bounded — legitimate
+// natural-language instructions are well under this cap.
+const llmInstructionMaxChars = 1_000
+
 // llmRequestTimeout is the wall-clock cap on a single /llm/complete
 // call. Local LLMs vary wildly in speed; 5 minutes is generous for the
 // slowest CPU-only configs and short enough that a stuck job doesn't
@@ -100,6 +106,7 @@ var validTasks = map[string]bool{
 	"paraphrase":      true,
 	"itemize":         true,
 	"write-it-out":    true,
+	"custom":          true,
 }
 
 type llmStatus struct {
@@ -132,6 +139,12 @@ type llmCompleteRequest struct {
 	Task        string `json:"task"`
 	Input       string `json:"input"`
 	TargetWords int    `json:"targetWords"`
+	// Instruction is used only by the "custom" task — free-form text
+	// the user types in the dialog ("translate to French", "make this
+	// sound more formal", etc.). Capped at llmInstructionMaxChars on
+	// both sides and embedded in a hardened system prompt that
+	// constrains the model to textual transformations only.
+	Instruction string `json:"instruction,omitempty"`
 }
 
 // ollamaTag is one element of Ollama's GET /api/tags response — we
@@ -296,6 +309,52 @@ func buildLLMPrompt(req *llmCompleteRequest) (system, user string, err error) {
 				"/ `\\item` markup from the output; preserve any other LaTeX "+
 				"commands.\n\n---\n%s\n---",
 			req.Input,
+		)
+	case "custom":
+		// The instruction is user-supplied free text, so the system
+		// prompt does ALL the heavy lifting on safety:
+		//   - Hard scope: textual transforms only. No shell commands,
+		//     no scripts, no exfiltration URLs, no \write18 / Lua
+		//     escapes / file-system reads.
+		//   - Explicit refusal mechanism: if asked to do anything
+		//     else, respond with a fixed sentinel string so the
+		//     dialog (and the user) can see the model declined.
+		// The user instruction is then quoted inside delimiters so a
+		// careless user can't trivially prepend "ignore the above" —
+		// determined ones can still inject, which is fine because the
+		// LLM has no execution capability. The compile cage stops any
+		// malicious LaTeX the model might produce.
+		instr := strings.TrimSpace(req.Instruction)
+		if instr == "" {
+			return "", "", fmt.Errorf("instruction is required for the custom task")
+		}
+		if len(instr) > llmInstructionMaxChars {
+			return "", "", fmt.Errorf("instruction too long (max %d chars)", llmInstructionMaxChars)
+		}
+		system = "You are a writing assistant inside a LaTeX editor. " +
+			"Your ONLY capability is TEXTUAL TRANSFORMATION of the user's " +
+			"selected text: rewriting, paraphrasing, summarising, expanding, " +
+			"translating, reformatting prose, restructuring lists, fixing " +
+			"grammar, changing tone. " +
+			"You MUST NOT generate: shell commands, scripts, code that deletes " +
+			"or modifies files, hyperlinks to external URLs the user did not " +
+			"explicitly mention, LaTeX commands that escape the compile " +
+			"sandbox (\\write18, \\directlua{os.execute(...)}, \\input{/etc/...}), " +
+			"or any content that performs actions beyond rewriting the " +
+			"selected text. " +
+			"If the INSTRUCTION asks you to do ANYTHING other than transform " +
+			"the selected text, respond with EXACTLY this single line and " +
+			"nothing else: " +
+			"\"Cannot perform that operation — this assistant only does " +
+			"textual transformations of the selected text.\"" + onlyClause
+		user = fmt.Sprintf(
+			"Apply this INSTRUCTION to the SELECTED TEXT, returning ONLY "+
+				"the transformed text. If the instruction asks for anything "+
+				"other than a textual transformation, follow the refusal "+
+				"rule from the system prompt.\n\n"+
+				"INSTRUCTION:\n---\n%s\n---\n\n"+
+				"SELECTED TEXT:\n---\n%s\n---",
+			instr, req.Input,
 		)
 	}
 	return system, user, nil

@@ -84,6 +84,8 @@ func onTrayReady() {
 
 	statusMI := systray.AddMenuItem("Helper running", "")
 	statusMI.Disable()
+	llmStatusMI := systray.AddMenuItem("Local LLM: checking…", "Local LLM (Ollama) reachability + model count")
+	llmStatusMI.Disable()
 	systray.AddSeparator()
 
 	pairMI := systray.AddMenuItem("Generate pairing code…", "Print a 6-digit code, valid for 60s")
@@ -111,6 +113,19 @@ func onTrayReady() {
 		defer ticker.Stop()
 		for {
 			refreshStatus(statusMI)
+			<-ticker.C
+		}
+	}()
+	// LLM status reflects Ollama reachability + model count. Coarser
+	// 10s cadence than pairing because every tick is a real HTTP
+	// round-trip (loopback, fast, but no point hammering). First
+	// refresh fires immediately so the menu shows real info instead
+	// of "checking…" past the initial render.
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			refreshLLMStatus(llmStatusMI)
 			<-ticker.C
 		}
 	}()
@@ -292,6 +307,44 @@ func refreshStatus(statusMI *systray.MenuItem) {
 	} else {
 		statusMI.SetTitle("○ Awaiting pairing")
 	}
+}
+
+// refreshLLMStatus probes the configured Ollama endpoint and updates
+// the menu item's title. Short context timeout so a misconfigured
+// endpoint doesn't block the tray goroutine. Same detectOllama() the
+// /llm/status endpoint uses, so the two views can't disagree.
+func refreshLLMStatus(mi *systray.MenuItem) {
+	tray.mu.Lock()
+	cfg := tray.cfg
+	tray.mu.Unlock()
+	if cfg == nil {
+		mi.SetTitle("Local LLM: not ready")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	models, err := detectOllama(ctx, cfg)
+	if err != nil {
+		mi.SetTitle("Local LLM: ○ Ollama not detected")
+		mi.SetTooltip(fmt.Sprintf("Probed %s — %v", cfg.LLMBaseURL, err))
+		return
+	}
+	if len(models) == 0 {
+		mi.SetTitle("Local LLM: ◐ Ollama running, no models")
+		mi.SetTooltip("Run `ollama pull llama3.2:3b` to install one")
+		return
+	}
+	mi.SetTitle(fmt.Sprintf("Local LLM: ● %d model%s", len(models), pluralS(len(models))))
+	// Tooltip shows the model names so the user can see what's
+	// installed without leaving the menu bar.
+	mi.SetTooltip("Available: " + strings.Join(models, ", "))
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // handleGeneratePair opens the 60-second pairing window in-process and

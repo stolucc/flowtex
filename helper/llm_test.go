@@ -168,10 +168,15 @@ func TestBuildLLMPrompt_AllTasksHaveTemplates(t *testing.T) {
 	// buildLLMPrompt — otherwise the switch falls through and we
 	// return ("", "", nil), which would send an EMPTY prompt to
 	// Ollama. Walk the map and ensure each one produces non-empty
-	// strings.
+	// strings. Some tasks need extra fields (write-to-length wants
+	// TargetWords, custom wants Instruction); supply both so this
+	// check is purely about template presence, not validation.
 	for task := range validTasks {
 		req := &llmCompleteRequest{
-			Task: task, Input: "Sample text.", TargetWords: 50,
+			Task:        task,
+			Input:       "Sample text.",
+			TargetWords: 50,
+			Instruction: "Translate this to formal English.",
 		}
 		system, user, err := buildLLMPrompt(req)
 		if err != nil {
@@ -189,6 +194,57 @@ func TestBuildLLMPrompt_AllTasksHaveTemplates(t *testing.T) {
 		if !strings.Contains(system, "ONLY") {
 			t.Errorf("task %q: system prompt missing 'ONLY' guard", task)
 		}
+	}
+}
+
+func TestBuildLLMPrompt_Custom_RejectsEmptyInstruction(t *testing.T) {
+	_, _, err := buildLLMPrompt(&llmCompleteRequest{
+		Task: "custom", Input: "hi", Instruction: "",
+	})
+	if err == nil {
+		t.Fatal("empty instruction should produce an error")
+	}
+}
+
+func TestBuildLLMPrompt_Custom_RejectsOversizedInstruction(t *testing.T) {
+	_, _, err := buildLLMPrompt(&llmCompleteRequest{
+		Task:        "custom",
+		Input:       "hi",
+		Instruction: strings.Repeat("x", llmInstructionMaxChars+1),
+	})
+	if err == nil {
+		t.Fatal("oversized instruction should produce an error")
+	}
+}
+
+func TestBuildLLMPrompt_Custom_HardenedSystemPrompt(t *testing.T) {
+	// The custom task is the only one where the user controls part of
+	// the prompt directly. The system prompt MUST carry the textual-
+	// only constraint and the refusal sentinel so future edits don't
+	// accidentally weaken it.
+	system, user, err := buildLLMPrompt(&llmCompleteRequest{
+		Task: "custom", Input: "Sample.", Instruction: "Make it shorter.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSystem := []string{
+		"TEXTUAL TRANSFORMATION",
+		"MUST NOT generate",
+		"\\write18",
+		"\\directlua",
+		"Cannot perform that operation",
+	}
+	for _, s := range wantSystem {
+		if !strings.Contains(system, s) {
+			t.Errorf("custom system prompt missing %q", s)
+		}
+	}
+	if !strings.Contains(user, "INSTRUCTION") || !strings.Contains(user, "SELECTED TEXT") {
+		t.Errorf("custom user prompt missing INSTRUCTION/SELECTED TEXT sections: %s", user)
+	}
+	if !strings.Contains(user, "Make it shorter.") {
+		t.Errorf("custom user prompt didn't include the user's instruction")
 	}
 }
 

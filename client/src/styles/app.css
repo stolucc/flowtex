@@ -10150,10 +10150,27 @@ kbd {
   font-size: 12px;
 }
 .llm-dialog-source,
-.llm-dialog-output {
+.llm-dialog-output,
+.llm-dialog-instruction {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.llm-dialog-instruction textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+.llm-dialog-instruction textarea:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .llm-dialog-source-label,
 .llm-dialog-output-label {
