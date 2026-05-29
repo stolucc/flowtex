@@ -31,6 +31,78 @@ function translateStatusError(raw) {
   return msg || 'Helper unavailable';
 }
 
+/** Strip the conversational fluff that local LLMs add despite a
+ *  "respond ONLY with the rewritten text" system prompt. Catches the
+ *  common preamble shapes ("Here is...", "Sure! ...", "Of course! ...")
+ *  and the trailing "let me know..." sign-offs, plus markdown code
+ *  fences. Run AFTER streaming completes — mid-stream stripping is
+ *  too fragile because partial chunks can't be confidently classified.
+ *
+ *  Intentionally conservative: anything we don't recognise is passed
+ *  through untouched. Better to leave a preamble than to chew a
+ *  legitimate first sentence the user wanted to keep.
+ */
+export function stripLlmPreamble(raw) {
+  if (!raw) return raw;
+  let text = raw.trim();
+
+  // Markdown code fence wrappers — drop fully wrapping ones. Inner
+  // code-fenced blocks (e.g. a code-quoted LaTeX example WITHIN
+  // prose) are intentionally not stripped.
+  const fenceMatch = text.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
+  if (fenceMatch) {
+    text = fenceMatch[1].trim();
+  }
+
+  // Single quote-wrapping that some models add: leading and trailing
+  // matching double-quote OR backtick. Only strip if the open/close
+  // are at the very ends — otherwise we'd eat legitimate quotes
+  // inside the text.
+  for (const q of ['"', '`', "'", '“']) {
+    const close = q === '“' ? '”' : q;
+    if (text.startsWith(q) && text.endsWith(close) && text.length > 2) {
+      text = text.slice(1, -1).trim();
+    }
+  }
+
+  // Conversational preambles. Each pattern matches the start of the
+  // text, optionally a blank line, then the real content begins. The
+  // anchored regex ensures we only strip when the preamble is at the
+  // very start.
+  const preambles = [
+    // "Here is the rewritten/paraphrased/translated/etc text:"
+    /^(here\s+(?:is|are)|here(?:'|’)s)[^\n.!?]{0,120}[:\-—]\s*\n+/i,
+    // "Sure! Here's..." / "Of course! ..." / "Certainly! ..."
+    /^(sure|of course|certainly|absolutely|got it|okay|ok)[!,.]?\s*[^\n]{0,200}[:\-—]\s*\n+/i,
+    // "I rewrote/paraphrased/translated... as follows:"
+    /^I\s+(?:have\s+)?(?:rewrote|rewritten|paraphrased|translated|reformat|summarised|summarized|expanded|shortened|edited)[^\n]{0,200}[:\-—]\s*\n+/i,
+    // "Below is..."
+    /^below\s+is[^\n.!?]{0,120}[:\-—]\s*\n+/i,
+  ];
+  for (const re of preambles) {
+    const m = text.match(re);
+    if (m) {
+      text = text.slice(m[0].length).trim();
+      break; // one preamble at most; don't recursively strip prose
+    }
+  }
+
+  // Trailing sign-offs.
+  const signoffs = [
+    /\n+(?:let me know|i hope this helps|feel free to|please let me know|hope (?:this|that) helps)[^\n]*\.?\s*$/i,
+    /\n+(?:if you(?:'|’)d like|would you like)[^\n]{0,200}[?.!]\s*$/i,
+  ];
+  for (const re of signoffs) {
+    const m = text.match(re);
+    if (m) {
+      text = text.slice(0, m.index).trimEnd();
+      break;
+    }
+  }
+
+  return text;
+}
+
 /** Translate an /llm/complete error into something actionable. The
  *  most common confusing case is "unknown task" — the running helper
  *  binary is older than the client and doesn't have this task wired
@@ -174,7 +246,17 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     );
     setGenerating(false);
     if (r.aborted) return;
-    if (!r.ok) setStreamError(translateGenerateError(r.error));
+    if (!r.ok) {
+      setStreamError(translateGenerateError(r.error));
+      return;
+    }
+    // Local LLMs frequently add "Here is the rewritten text:" preambles
+    // despite the system prompt forbidding it. Strip them now, AFTER
+    // the stream is complete, so the preview pane and the Accept
+    // button operate on the cleaned text (what you see is what gets
+    // inserted). Stripper is intentionally conservative — it leaves
+    // anything it doesn't recognise alone.
+    setOutput((cur) => stripLlmPreamble(cur));
   }, [initialText, targetWords, instruction, model, task, taskSpec.needsTargetWords, taskSpec.needsInstruction, showAlert]);
 
   const handleStop = () => {
