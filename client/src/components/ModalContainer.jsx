@@ -17,6 +17,7 @@ const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
 const BugReportModal = lazy(() => import('./BugReportModal.jsx'));
+const HelperGuideModal = lazy(() => import('./HelperGuideModal.jsx'));
 
 /** Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.). */
 export default function ModalContainer({
@@ -233,6 +234,11 @@ export default function ModalContainer({
       {ui.showBugReport && (
         <Suspense fallback={null}>
           <BugReportModal onClose={() => ui.setShowBugReport(false)} />
+        </Suspense>
+      )}
+      {ui.showHelperGuide && (
+        <Suspense fallback={null}>
+          <HelperGuideModal onClose={() => ui.setShowHelperGuide(false)} />
         </Suspense>
       )}
       {ui.showGitHubSync && (

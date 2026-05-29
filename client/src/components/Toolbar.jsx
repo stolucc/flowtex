@@ -241,6 +241,8 @@ export default function Toolbar({
   const helpMenuItems = [
     { label: 'Keyboard Shortcuts', action: () => onHelp?.('shortcuts') },
     { label: 'separator' },
+    { label: 'Helper setup guide…', action: () => onHelp?.('helper-guide') },
+    { label: 'separator' },
     { label: 'Report a bug…', action: () => onHelp?.('bug-report') },
     { label: 'separator' },
     { label: 'About FlowTex', action: () => onHelp?.('about') },

@@ -52,6 +52,68 @@ func TestValidateLLMBaseURL_RejectsRemote(t *testing.T) {
 	}
 }
 
+func TestValidateOllamaModelName_AcceptsRealOllamaTags(t *testing.T) {
+	good := []string{
+		"llama3.2:3b",
+		"qwen2.5:7b",
+		"library/llama3.1:8b-instruct-q4_K_M",
+		"nomic-embed-text:latest",
+		"phi3",
+		"mxbai-embed-large:335m",
+	}
+	for _, n := range good {
+		if err := validateOllamaModelName(n); err != nil {
+			t.Errorf("expected %q to be accepted, got %v", n, err)
+		}
+	}
+}
+
+func TestValidateOllamaModelName_RejectsPathological(t *testing.T) {
+	bad := []string{
+		"",
+		"contains space",
+		"emoji-😀",
+		"new\nline",
+		"semi;colon",
+		"$(injection)",
+		strings.Repeat("x", 129), // over 128-byte cap
+	}
+	for _, n := range bad {
+		if err := validateOllamaModelName(n); err == nil {
+			t.Errorf("expected %q to be REJECTED, got nil", n)
+		}
+	}
+}
+
+func TestLoopbackClient_RefusesToFollowRedirects(t *testing.T) {
+	// M-NEW-1: a process posing as Ollama could 302 → http://evil.com
+	// and exfiltrate the user's selected text BEFORE we check status.
+	// The CheckRedirect override returns ErrUseLastResponse so the
+	// 30x response is surfaced to the caller as-is.
+	var hits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, "http://example.invalid/should-not-be-followed", http.StatusFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := loopbackClient(2 * time.Second)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/generate", strings.NewReader(`{}`))
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("expected response, not error: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 to surface, got %d (redirect was followed)", res.StatusCode)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("expected exactly 1 hit (no follow-up to evil URL), got %d", got)
+	}
+}
+
 func TestBuildLLMPrompt_RejectsUnknownTask(t *testing.T) {
 	// Task allowlist is the gate against prompt injection from the
 	// browser. Only tasks with a hardcoded template in this file run.
@@ -99,6 +161,62 @@ func TestBuildLLMPrompt_WriteToLength_Shape(t *testing.T) {
 	if !strings.Contains(user, "Hello world.") {
 		t.Errorf("user prompt missing input text: %s", user)
 	}
+}
+
+func TestBuildLLMPrompt_AllTasksHaveTemplates(t *testing.T) {
+	// Every task in validTasks MUST have a template branch in
+	// buildLLMPrompt — otherwise the switch falls through and we
+	// return ("", "", nil), which would send an EMPTY prompt to
+	// Ollama. Walk the map and ensure each one produces non-empty
+	// strings.
+	for task := range validTasks {
+		req := &llmCompleteRequest{
+			Task: task, Input: "Sample text.", TargetWords: 50,
+		}
+		system, user, err := buildLLMPrompt(req)
+		if err != nil {
+			t.Errorf("task %q: unexpected error: %v", task, err)
+			continue
+		}
+		if system == "" {
+			t.Errorf("task %q: empty system prompt", task)
+		}
+		if user == "" {
+			t.Errorf("task %q: empty user prompt", task)
+		}
+		// Every task should refuse preambles so the preview pane
+		// shows only the output.
+		if !strings.Contains(system, "ONLY") {
+			t.Errorf("task %q: system prompt missing 'ONLY' guard", task)
+		}
+	}
+}
+
+func TestBuildLLMPrompt_NewTasksMentionItemize(t *testing.T) {
+	// itemize must produce a LaTeX itemize environment; write-it-out
+	// must strip the itemize/\\item markup. These prompt-shape
+	// regressions are easy to introduce silently; pin them.
+	system, user, err := buildLLMPrompt(&llmCompleteRequest{
+		Task: "itemize", Input: "Three things happened.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(user, "itemize") || !strings.Contains(user, "\\item") {
+		t.Errorf("itemize prompt should reference itemize + \\item: %s", user)
+	}
+	_ = system
+
+	system, user, err = buildLLMPrompt(&llmCompleteRequest{
+		Task: "write-it-out", Input: "\\begin{itemize}\\item A\\end{itemize}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(user, "prose paragraph") {
+		t.Errorf("write-it-out prompt should ask for a prose paragraph: %s", user)
+	}
+	_ = system
 }
 
 // fakeOllama spins up an httptest.Server that mimics the Ollama API

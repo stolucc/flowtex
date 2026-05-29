@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle, lazy, Suspense } from 'react';
 
-// Lazy — the dialog pulls in the helperBridge LLM functions and isn't
-// needed until the user right-clicks a selection.
-const LlmWriteToLengthDialog = lazy(() => import('./LlmWriteToLengthDialog.jsx'));
+// Lazy — the dialog pulls in helperBridge + SSE wiring and isn't
+// needed until the user actually picks a menu item. The catalog of
+// available tasks lives in its own tiny module so the right-click
+// menu can enumerate items without dragging the dialog chunk in.
+const LlmActionDialog = lazy(() => import('./LlmActionDialog.jsx'));
+import { LLM_TASKS } from '../utils/llmTasks.js';
 import useClickOutside from '../hooks/useClickOutside.js';
 import {
   EditorView,
@@ -176,11 +179,11 @@ const Editor = forwardRef(function Editor(
   const [citeMenu, setCiteMenu] = useState(null); // { x, y, from, to, name, opt, key }
   const citeMenuRef = useRef(null);
   // LLM context menu shown when the user right-clicks INSIDE a non-empty
-  // selection. Click "Write to length…" → opens LlmWriteToLengthDialog
-  // with the selected text; Accept replaces the selection in place.
+  // selection. Each menu item dispatches one of the LLM_TASKS — Accept
+  // in the resulting dialog replaces the selection in place.
   const [llmMenu, setLlmMenu] = useState(null); // { x, y, from, to, text }
   const llmMenuRef = useRef(null);
-  const [llmDialog, setLlmDialog] = useState(null); // { from, to, text }
+  const [llmDialog, setLlmDialog] = useState(null); // { from, to, text, task }
   const [inverted, setInverted] = useState(() => getSetting('editor-inverted') === 'true');
   const [spellcheckEnabled, setSpellcheckEnabled] = useState(
     () => getSetting('spellcheck-enabled') !== 'false', // default ON
@@ -2094,24 +2097,28 @@ const Editor = forwardRef(function Editor(
           style={{ position: 'fixed', left: llmMenu.x, top: llmMenu.y, zIndex: 1000 }}
         >
           <div className="cite-context-header">
-            <span className="cite-context-cmd">Selection</span>
+            <span className="cite-context-cmd">Local LLM</span>
           </div>
-          <button
-            className="cite-context-item"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text });
-              setLlmMenu(null);
-            }}
-          >
-            <span className="cite-context-item-label">Write to length…</span>
-            <span className="cite-context-item-hint">rewrite via local LLM</span>
-          </button>
+          {Object.entries(LLM_TASKS).map(([taskKey, spec]) => (
+            <button
+              key={taskKey}
+              className="cite-context-item"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text, task: taskKey });
+                setLlmMenu(null);
+              }}
+            >
+              <span className="cite-context-item-label">{spec.label}</span>
+              <span className="cite-context-item-hint">{spec.hint}</span>
+            </button>
+          ))}
         </div>
       )}
       {llmDialog && (
         <Suspense fallback={null}>
-          <LlmWriteToLengthDialog
+          <LlmActionDialog
+            task={llmDialog.task}
             initialText={llmDialog.text}
             onClose={() => setLlmDialog(null)}
             onAccept={(replacement) => {

@@ -724,6 +724,7 @@ function AppInner() {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);
             else if (topic === 'bug-report') ui.setShowBugReport(true);
+            else if (topic === 'helper-guide') ui.setShowHelperGuide(true);
           }}
           onCompareFiles={() => ui.setShowCompareFiles(true)}
           onGitHubSync={() => ui.setShowGitHubSync(true)}

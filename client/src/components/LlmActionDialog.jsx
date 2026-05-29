@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchLlmStatus, streamLlmComplete } from '../utils/helperBridge.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
+import { LLM_TASKS } from '../utils/llmTasks.js';
 
 /** Map a raw error string into something the user can act on.
  *
@@ -30,13 +31,14 @@ function translateStatusError(raw) {
   return msg || 'Helper unavailable';
 }
 
-/** "Write to length" modal — rewrites the selected text to a target
- *  word count via the local LLM. Modal lifecycle:
+/** Local-LLM action modal. One component services all four tasks —
+ *  the only per-task difference is the title + whether we show a
+ *  target-words input. Lifecycle:
  *
  *   1. Mount: fetch /llm/status, pick a default model. If no LLM is
  *      available, show a helpful explanation instead of the form.
- *   2. Form: word-count input (defaults to selection's word count),
- *      model picker (if more than one available).
+ *   2. Form: optional word-count input (write-to-length only),
+ *      model picker (when more than one available).
  *   3. Generate: stream LLM output into a read-only preview.
  *   4. Done: [Accept] (replace selection in editor) / [Discard] (no-op).
  *
@@ -44,7 +46,8 @@ function translateStatusError(raw) {
  *  helper is loopback-only and the helper validates that on every
  *  request.
  */
-export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept }) {
+export default function LlmActionDialog({ task, initialText, onClose, onAccept }) {
+  const taskSpec = LLM_TASKS[task] || LLM_TASKS['write-to-length'];
   const { alert: showAlert } = useAlert();
   const initialWordCount = (initialText.match(/\S+/g) || []).length || 1;
   const [targetWords, setTargetWords] = useState(initialWordCount);
@@ -110,10 +113,14 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
       showAlert('Pick a model first.', { title: 'No model selected' });
       return;
     }
-    const n = parseInt(targetWords, 10);
-    if (!Number.isFinite(n) || n < 1 || n > 2000) {
-      showAlert('Word count must be between 1 and 2000.', { title: 'Invalid length' });
-      return;
+    const payload = { task, input: initialText, model };
+    if (taskSpec.needsTargetWords) {
+      const n = parseInt(targetWords, 10);
+      if (!Number.isFinite(n) || n < 1 || n > 2000) {
+        showAlert('Word count must be between 1 and 2000.', { title: 'Invalid length' });
+        return;
+      }
+      payload.targetWords = n;
     }
     setGenerating(true);
     setOutput('');
@@ -121,14 +128,14 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
     const ctl = new AbortController();
     abortRef.current = ctl;
     const r = await streamLlmComplete(
-      { task: 'write-to-length', input: initialText, targetWords: n, model },
+      payload,
       (delta) => setOutput((prev) => prev + delta),
       ctl.signal,
     );
     setGenerating(false);
     if (r.aborted) return;
     if (!r.ok) setStreamError(r.error || 'Generation failed');
-  }, [initialText, targetWords, model, showAlert]);
+  }, [initialText, targetWords, model, task, taskSpec.needsTargetWords, showAlert]);
 
   const handleStop = () => {
     abortRef.current?.abort();
@@ -148,7 +155,7 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
     <div className="modal-overlay" onClick={overlayClick}>
       <div className="modal llm-dialog" role="dialog" aria-modal="true" aria-labelledby="llm-dialog-title">
         <div className="modal-header">
-          <h2 id="llm-dialog-title">Write to length</h2>
+          <h2 id="llm-dialog-title">{taskSpec.title}</h2>
         </div>
         {loading ? (
           <div className="llm-dialog-body"><p>Checking local LLM…</p></div>
@@ -165,19 +172,21 @@ export default function LlmWriteToLengthDialog({ initialText, onClose, onAccept 
           </div>
         ) : (
           <div className="llm-dialog-body">
-            <div className="llm-dialog-row">
-              <label htmlFor="llm-words">Target length</label>
-              <input
-                id="llm-words"
-                type="number"
-                min={1}
-                max={2000}
-                value={targetWords}
-                onChange={(e) => setTargetWords(e.target.value)}
-                disabled={generating}
-              />
-              <span className="llm-dialog-row-suffix">words</span>
-            </div>
+            {taskSpec.needsTargetWords && (
+              <div className="llm-dialog-row">
+                <label htmlFor="llm-words">Target length</label>
+                <input
+                  id="llm-words"
+                  type="number"
+                  min={1}
+                  max={2000}
+                  value={targetWords}
+                  onChange={(e) => setTargetWords(e.target.value)}
+                  disabled={generating}
+                />
+                <span className="llm-dialog-row-suffix">words</span>
+              </div>
+            )}
             {models.length > 1 && (
               <div className="llm-dialog-row">
                 <label htmlFor="llm-model">Model</label>

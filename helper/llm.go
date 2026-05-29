@@ -32,9 +32,45 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// loopbackClient returns an http.Client that REFUSES to follow redirects.
+// Without this, a process listening on 127.0.0.1:11434 could redirect
+// the helper's outbound request to a remote endpoint and exfiltrate
+// the user's selected text BEFORE we check the response status — the
+// "loopback only" promise of validateLLMBaseURL relies on this gate
+// to actually hold across the redirect boundary.
+func loopbackClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// ollamaModelNameRE is the format we accept for the `model` field on
+// /llm/complete. Covers tags Ollama produces (`llama3.2:3b`,
+// `library/qwen2.5:7b`, `nomic-embed-text:latest`) — letters, digits,
+// underscore, dash, dot, colon, slash. Capped at 128 bytes so a
+// runaway client can't push pathological strings into Ollama.
+var ollamaModelNameRE = regexp.MustCompile(`^[A-Za-z0-9_.:/\-]{1,128}$`)
+
+// validateOllamaModelName is the single gate for client-supplied model
+// names. Ollama itself rejects unknown names, but defence in depth
+// keeps us from forwarding arbitrary text bodies to a third party.
+func validateOllamaModelName(name string) error {
+	if name == "" {
+		return fmt.Errorf("model is required")
+	}
+	if !ollamaModelNameRE.MatchString(name) {
+		return fmt.Errorf("model name must match %s (got %q)", ollamaModelNameRE.String(), name)
+	}
+	return nil
+}
 
 // llmInputMaxChars caps the selected-text input that gets sent to the
 // model. Larger selections almost certainly aren't legitimate
@@ -60,6 +96,9 @@ const llmRequestTimeout = 5 * time.Minute
 // allowlist via the request body.
 var validTasks = map[string]bool{
 	"write-to-length": true,
+	"paraphrase":      true,
+	"itemize":         true,
+	"write-it-out":    true,
 }
 
 type llmStatus struct {
@@ -157,7 +196,7 @@ func detectOllama(ctx context.Context, cfg *config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := loopbackClient(3 * time.Second)
 	res, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -186,6 +225,13 @@ func buildLLMPrompt(req *llmCompleteRequest) (system, user string, err error) {
 	if !validTasks[req.Task] {
 		return "", "", fmt.Errorf("unsupported task %q", req.Task)
 	}
+	// Every task shares the same "respond ONLY with the rewritten text"
+	// closer because local models are very fond of preambles like
+	// "Sure! Here's your rewritten text:". Stripping those server-side
+	// is brittle; tightening the system prompt is the right gate.
+	const onlyClause = " Respond ONLY with the rewritten text — no preamble, " +
+		"no quotes, no explanations, no markdown fences."
+
 	switch req.Task {
 	case "write-to-length":
 		if req.TargetWords < 1 || req.TargetWords > 2000 {
@@ -193,13 +239,45 @@ func buildLLMPrompt(req *llmCompleteRequest) (system, user string, err error) {
 		}
 		system = "You are a writing assistant inside a LaTeX editor. " +
 			"You rewrite the user's selected text to match a target word count " +
-			"while preserving meaning, tone, and any LaTeX commands. " +
-			"Respond ONLY with the rewritten text — no preamble, no quotes, " +
-			"no explanations, no markdown fences."
+			"while preserving meaning, tone, and any LaTeX commands." + onlyClause
 		user = fmt.Sprintf(
 			"Rewrite the following text to be approximately %d words. "+
 				"Keep the meaning and any LaTeX markup intact.\n\n---\n%s\n---",
 			req.TargetWords, req.Input,
+		)
+	case "paraphrase":
+		system = "You are a writing assistant inside a LaTeX editor. " +
+			"You paraphrase the user's selected text — same ideas, different " +
+			"wording, similar length, same tone, same LaTeX markup." + onlyClause
+		user = fmt.Sprintf(
+			"Paraphrase the following text. Keep approximately the same length, "+
+				"and preserve any LaTeX commands exactly.\n\n---\n%s\n---",
+			req.Input,
+		)
+	case "itemize":
+		system = "You are a writing assistant inside a LaTeX editor. " +
+			"You convert the user's selected prose into a LaTeX `itemize` " +
+			"environment whose bullet points capture the distinct ideas in " +
+			"the source text. Each bullet is one self-contained thought." + onlyClause
+		user = fmt.Sprintf(
+			"Convert the following prose into a LaTeX `itemize` environment. "+
+				"Wrap the bullets with \\begin{itemize} ... \\end{itemize}; "+
+				"each bullet on its own line starting with \\item. Preserve " +
+				"any LaTeX commands inside the bullets. Do not add bullets " +
+				"that aren't supported by the source.\n\n---\n%s\n---",
+			req.Input,
+		)
+	case "write-it-out":
+		system = "You are a writing assistant inside a LaTeX editor. " +
+			"You take a list of bullet points (typically a LaTeX `itemize` " +
+			"environment) and write a flowing prose paragraph that verbalises " +
+			"those points in order, preserving any LaTeX commands." + onlyClause
+		user = fmt.Sprintf(
+			"Rewrite the following bullet points as a single flowing prose "+
+				"paragraph. Verbalise each bullet in order. Strip the `itemize` "+
+				"/ `\\item` markup from the output; preserve any other LaTeX "+
+				"commands.\n\n---\n%s\n---",
+			req.Input,
 		)
 	}
 	return system, user, nil
@@ -233,7 +311,11 @@ func streamOllamaComplete(ctx context.Context, cfg *config, req *llmCompleteRequ
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	// No timeout on the underlying client — context governs the deadline.
-	client := &http.Client{}
+	// Redirects refused: a process posing as Ollama that returned
+	// 302 → http://evil.com would otherwise see this request's body
+	// (the user's selected text) BEFORE we got the chance to reject
+	// on status. See loopbackClient.
+	client := loopbackClient(0)
 	res, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("ollama request: %w", err)

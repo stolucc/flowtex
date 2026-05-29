@@ -344,6 +344,10 @@ func (s *server) handleLLMComplete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model is required (no default configured)", http.StatusBadRequest)
 		return
 	}
+	if err := validateOllamaModelName(req.Model); err != nil {
+		http.Error(w, "invalid model name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// SSE headers. Disable any intermediate buffering — we want the
 	// client to see each chunk as it lands.
