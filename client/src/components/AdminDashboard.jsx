@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { get, put, post, del, patch } from '../api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 
 /** Displays a single metric card with a value, label, and optional subtitle. */
 function StatCard({ label, value, sub }) {
@@ -148,19 +149,14 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
   const [toggling, setToggling] = useState(false);
   const [toggleError, setToggleError] = useState('');
+  // When set, a themed ConfirmDialog is shown to confirm revocation.
+  // Promotions skip the dialog (low-risk direction).
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
 
   const isSelf = user.id === currentAdminId;
-  const handleToggle = async () => {
-    if (isSelf || toggling) return;
-    const desired = !user.isAdmin;
-    // Demotion warrants a confirm — promotion does not (revoking is the
-    // higher-blast-radius direction; a misclick can lock you out if the
-    // demoted account turns out to be the only other admin).
-    if (!desired) {
-      const ok = window.confirm(`Revoke admin from ${user.name}?`);
-      if (!ok) return;
-    }
+
+  const performToggle = async (desired) => {
     setToggling(true);
     setToggleError('');
     try {
@@ -174,6 +170,19 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
       setToggleError(err.message || 'Failed');
     } finally {
       setToggling(false);
+    }
+  };
+
+  const handleToggle = () => {
+    if (isSelf || toggling) return;
+    const desired = !user.isAdmin;
+    // Demotion gets a confirm dialog — promotion does not (revoking is
+    // the higher-blast-radius direction; a misclick can lock you out if
+    // the demoted account turns out to be the only other admin).
+    if (!desired) {
+      setShowRevokeConfirm(true);
+    } else {
+      performToggle(true);
     }
   };
 
@@ -351,6 +360,19 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
           )}
         </div>
       </div>
+
+      {showRevokeConfirm && (
+        <ConfirmDialog
+          message={`Revoke admin from ${user.name} (${user.email})? They will lose access to the admin dashboard immediately.`}
+          confirmLabel="Revoke admin"
+          confirmClass="confirm-dialog-delete"
+          onCancel={() => setShowRevokeConfirm(false)}
+          onConfirm={() => {
+            setShowRevokeConfirm(false);
+            performToggle(false);
+          }}
+        />
+      )}
     </div>
   );
 }
