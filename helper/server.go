@@ -48,11 +48,17 @@ const compileRatePerMin = 60
 
 // LLM budget: tighter than compile. One in-flight is the right number
 // because the model is single-GPU/CPU-bound — extra concurrency just
-// queues. Rate is per-minute so a runaway client (stuck retry loop)
-// hits a wall fast.
+// queues. Rate covers iterative editing flows (tweak the prompt, try
+// again, compare results) while still bounding a runaway-retry loop.
+//
+// History: originally 30/min, burst 2. That fired after just two
+// quick clicks during an "Other…" iteration ("hmm, change the
+// instruction, try again") — too tight for the actual workflow.
+// Bumped to 60/min (one steady token per second) with a 5-call
+// burst so a fast user can chain a few tries without hitting 429.
 const llmSlots = 1
-const llmRateBurst = 2
-const llmRatePerMin = 30
+const llmRateBurst = 5
+const llmRatePerMin = 60
 
 func newServer(cfg *config, logger *log.Logger) (*server, error) {
 	s := &server{

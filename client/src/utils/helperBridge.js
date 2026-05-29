@@ -349,15 +349,22 @@ export async function fetchLlmStatus() {
  *   (b) we already have the bearer + Authorization header dance, so a
  *   tiny manual SSE parser is the right cost.
  */
-export async function streamLlmComplete({ task, input, targetWords, model }, onDelta, abortSignal) {
+export async function streamLlmComplete({ task, input, targetWords, model, instruction }, onDelta, abortSignal) {
   const token = getHelperToken();
   if (!token) return { ok: false, error: 'Helper not paired' };
+  // Build the body explicitly so a future field added on the caller
+  // side but missed here can't be silently dropped. (Previous bug:
+  // `instruction` for the custom task never reached the helper
+  // because the body literal didn't list it.)
+  const body = { task, input, model };
+  if (typeof targetWords === 'number') body.targetWords = targetWords;
+  if (typeof instruction === 'string' && instruction.length > 0) body.instruction = instruction;
   let res;
   try {
     res = await fetchTryBoth('/llm/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ task, input, targetWords, model }),
+      body: JSON.stringify(body),
       signal: abortSignal,
     });
   } catch (err) {
