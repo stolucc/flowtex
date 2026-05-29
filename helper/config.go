@@ -29,6 +29,14 @@ type config struct {
 	// the PATH glob orders first.
 	DefaultTexYear string `json:"default_tex_year,omitempty"`
 
+	// LLM (local-only). All optional; defaults pick up a stock
+	// Ollama install at http://127.0.0.1:11434.
+	//   LLMBaseURL    — must be loopback (validated on load + per request).
+	//   LLMDefaultModel — used when /llm/complete is called without
+	//                     an explicit model.
+	LLMBaseURL      string `json:"llm_base_url,omitempty"`
+	LLMDefaultModel string `json:"llm_default_model,omitempty"`
+
 	// File paths derived from the config location. Not persisted.
 	Path     string `json:"-"`
 	CertFile string `json:"-"`
@@ -125,6 +133,13 @@ func loadConfig() (*config, error) {
 	// rather than trust them.
 	if cfg.DefaultTexYear != "" && !isValidTexYear(cfg.DefaultTexYear) {
 		cfg.DefaultTexYear = ""
+	}
+	// Defence in depth: a hand-edited config can't accidentally point
+	// the LLM at a non-loopback endpoint that would exfiltrate the
+	// user's selected text. Silently drop a bad value rather than fail
+	// to start — the LLM endpoints will return a useful error.
+	if cfg.LLMBaseURL != "" && validateLLMBaseURL(cfg.LLMBaseURL) != nil {
+		cfg.LLMBaseURL = ""
 	}
 
 	return cfg, nil

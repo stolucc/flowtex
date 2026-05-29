@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -30,6 +31,11 @@ type server struct {
 	// processes. Sized for a single-user dev tool — see compileSlots /
 	// compileRateBurst constants.
 	compileLimiter *compileLimiter
+	// llmLimiter has tighter caps than compile — local LLM inference
+	// is single-GPU-bound; parallel requests don't go faster, they
+	// just queue. Limit to 1 in-flight with a modest rate cap to
+	// blunt accidental-spam from a stuck client retry loop.
+	llmLimiter *compileLimiter
 }
 
 // Concurrency + rate-limit budget for /compile. The helper is single-user;
@@ -40,6 +46,14 @@ const compileSlots = 2     // hard cap on parallel latexmk processes
 const compileRateBurst = 3 // burst tolerance (e.g. user clicks Compile twice)
 const compileRatePerMin = 60
 
+// LLM budget: tighter than compile. One in-flight is the right number
+// because the model is single-GPU/CPU-bound — extra concurrency just
+// queues. Rate is per-minute so a runaway client (stuck retry loop)
+// hits a wall fast.
+const llmSlots = 1
+const llmRateBurst = 2
+const llmRatePerMin = 30
+
 func newServer(cfg *config, logger *log.Logger) (*server, error) {
 	s := &server{
 		cfg:            cfg,
@@ -47,6 +61,7 @@ func newServer(cfg *config, logger *log.Logger) (*server, error) {
 		pair:           newPairStore(),
 		jobs:           newJobRegistry(),
 		compileLimiter: newCompileLimiter(compileSlots, compileRateBurst, compileRatePerMin),
+		llmLimiter:     newCompileLimiter(llmSlots, llmRateBurst, llmRatePerMin),
 	}
 
 	mux := http.NewServeMux()
@@ -55,6 +70,8 @@ func newServer(cfg *config, logger *log.Logger) (*server, error) {
 	mux.HandleFunc("/pair", withAuth(cfg, false, s.handlePair))
 	mux.HandleFunc("/compile", withAuth(cfg, true, s.handleCompile))
 	mux.HandleFunc("/cancel/", withAuth(cfg, true, s.handleCancel))
+	mux.HandleFunc("/llm/status", withAuth(cfg, true, s.handleLLMStatus))
+	mux.HandleFunc("/llm/complete", withAuth(cfg, true, s.handleLLMComplete))
 
 	// Bind to 127.0.0.1 ONLY. The lifecycle of the listener is owned by
 	// the http.Server, not the listener config, so the Addr field is
@@ -234,6 +251,141 @@ func (s *server) handleCompile(w http.ResponseWriter, r *http.Request) {
 	resp := runCompile(ctx, s.cfg, &req)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// /llm/status — authenticated GET. Probes the configured local LLM
+// runtime (Ollama) and reports availability + model list. Does NOT
+// return any user-text data. Used by the client to decide whether to
+// enable LLM-driven menu items and to populate the model picker.
+func (s *server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
+	status := llmStatus{}
+	base, err := llmBaseURL(s.cfg)
+	if err != nil {
+		status.Error = "invalid LLM base URL in config: " + err.Error()
+		writeJSON(w, status)
+		return
+	}
+	status.BaseURL = base
+	status.DefaultModel = s.cfg.LLMDefaultModel
+	models, err := detectOllama(ctx, s.cfg)
+	if err != nil {
+		status.Error = err.Error()
+		writeJSON(w, status)
+		return
+	}
+	status.Available = true
+	status.Models = models
+	writeJSON(w, status)
+}
+
+// /llm/complete — authenticated POST. Streams a single LLM completion
+// for one of the predefined writing tasks. SSE response: each `data:`
+// frame is a JSON object {"delta":"text"}; the final frame is
+// {"done":true} or {"error":"..."}.
+//
+// Why SSE: local LLMs are slow (5-30s typical), and the UX is
+// dramatically better when the user sees tokens stream in. SSE plays
+// nicely with the EventSource API and survives any reverse proxy /
+// loopback bridge plumbing without HTTP/2 specifics.
+func (s *server) handleLLMComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if wait, ok := s.llmLimiter.allow(); !ok {
+		secs := int((wait + time.Second - 1) / time.Second)
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	acqCtx, acqCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer acqCancel()
+	if !s.llmLimiter.acquireSlot(acqCtx) {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, "too many concurrent LLM requests", http.StatusTooManyRequests)
+		return
+	}
+	defer s.llmLimiter.releaseSlot()
+
+	r.Body = http.MaxBytesReader(w, r.Body, llmInputMaxChars+1024)
+	defer r.Body.Close()
+	var req llmCompleteRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, "bad request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.Input) == 0 {
+		http.Error(w, "input is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Input) > llmInputMaxChars {
+		http.Error(w, "input too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if !validTasks[req.Task] {
+		http.Error(w, "unknown task", http.StatusBadRequest)
+		return
+	}
+	if req.Model == "" {
+		req.Model = s.cfg.LLMDefaultModel
+	}
+	if req.Model == "" {
+		http.Error(w, "model is required (no default configured)", http.StatusBadRequest)
+		return
+	}
+
+	// SSE headers. Disable any intermediate buffering — we want the
+	// client to see each chunk as it lands.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+	if flusher == nil {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+
+	ctx, cancel := context.WithTimeout(r.Context(), llmRequestTimeout)
+	defer cancel()
+
+	emit := func(payload map[string]any) {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	err := streamOllamaComplete(ctx, s.cfg, &req, func(delta string) error {
+		emit(map[string]any{"delta": delta})
+		return nil
+	})
+	if err != nil {
+		// Don't leak prompt/response data — error string is the
+		// runtime error class only.
+		emit(map[string]any{"error": err.Error()})
+		return
+	}
+	emit(map[string]any{"done": true})
+}
+
+// writeJSON is a tiny convenience for the status endpoint.
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // /cancel/:jobId — authenticated POST. Trips the in-flight compile.
