@@ -387,6 +387,63 @@ router.delete('/users/:userId', async (req, res) => {
   }
 });
 
+/** PATCH /api/admin/users/:userId/admin  body: { isAdmin: boolean }
+ *
+ *  Promote a user to admin, or revoke admin from one. Guarded so that:
+ *   - The acting admin cannot toggle their own row (avoids the foot-gun
+ *     of demoting yourself; if you truly want to step down, another
+ *     admin has to do it, or you fall back to the SQL escape hatch).
+ *   - We never leave the system with zero admins — a demotion that
+ *     would drop the count to 0 is refused.
+ *  Both rules are checked inside a SERIALIZABLE-equivalent read (count
+ *  + update in a single transaction) so two simultaneous demotions can't
+ *  race past each other and leave the system orphaned. */
+router.patch('/users/:userId/admin', async (req, res) => {
+  const userId = req.params.userId;
+  if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  if (typeof req.body?.isAdmin !== 'boolean') {
+    return res.status(400).json({ error: 'isAdmin must be a boolean' });
+  }
+  if (userId === req.session.userId) {
+    return res.status(400).json({ error: 'You cannot change your own admin status' });
+  }
+  const desired = req.body.isAdmin;
+  try {
+    const result = await db.transaction(async (tx) => {
+      const target = await tx.get('SELECT id, email, name, is_admin FROM users WHERE id = $1', [userId]);
+      if (!target) return { error: 'User not found', status: 404 };
+      if (!!target.is_admin === desired) {
+        // No-op — return current state so the client can resync without an error.
+        return { ok: true, noop: true, target };
+      }
+      if (!desired) {
+        // Demotion: refuse if this would leave zero admins.
+        const countRow = await tx.get('SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE');
+        if ((countRow?.n || 0) <= 1) {
+          return { error: 'Cannot remove the last admin', status: 409 };
+        }
+      }
+      await tx.run('UPDATE users SET is_admin = $1 WHERE id = $2', [desired, userId]);
+      return { ok: true, target };
+    });
+    if (result.error) return res.status(result.status).json({ error: result.error });
+
+    // Audit only real changes — a no-op toggle isn't worth a row, but
+    // do return ok so the client UI stays in sync.
+    if (!result.noop) {
+      await auditLog(req.session.userId, desired ? 'admin_granted' : 'admin_revoked', {
+        targetType: 'user',
+        targetId: userId,
+        detail: JSON.stringify({ email: result.target.email, name: result.target.name }),
+        ip: req.ip,
+      }).catch((e) => logger.warn({ err: e }, 'Audit log failed for admin toggle'));
+    }
+    res.json({ ok: true, isAdmin: desired });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 /** GET /api/admin/audit-log -- Paginated audit log with user details. */
 router.get('/audit-log', async (req, res) => {
   const page = Math.max(parseInt(req.query.page) || 1, 1);

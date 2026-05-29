@@ -46,7 +46,10 @@ export function MentionInput({
   onChange,
   onKeyDown,
   members,
-  currentUserId,
+  // Accepted but unused — callers historically supplied it; kept on the
+  // surface so a future "filter self out of @-candidates" change has a
+  // place to land without touching every caller.
+  currentUserId: _currentUserId,
   placeholder,
   rows,
   autoFocus,

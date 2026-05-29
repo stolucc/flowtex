@@ -8479,6 +8479,28 @@ kbd {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
+}
+.admin-user-detail-admin-toggle {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.admin-user-detail-admin-toggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.admin-user-detail-admin-toggle:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.admin-user-detail-error {
+  margin: 6px 0;
+  color: var(--accent);
+  font-size: 12px;
 }
 .admin-badge {
   font-size: 11px;

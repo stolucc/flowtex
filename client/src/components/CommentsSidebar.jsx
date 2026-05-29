@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { getColor } from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatFullDate as formatDate } from '../utils/dateFormat.js';
 import { MentionInput, renderMentionText, extractMentions } from './MentionInput.jsx';

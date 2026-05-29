@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { get, put, post, del } from '../api.js';
+import { get, put, post, del, patch } from '../api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
 
@@ -144,9 +144,39 @@ function formatDateTime(d) {
 }
 
 /** Expanded detail panel showing a single user's projects, edits, comments, chat, logins, and audit log. */
-function UserActivityDetail({ activity }) {
+function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
+  const [toggling, setToggling] = useState(false);
+  const [toggleError, setToggleError] = useState('');
   if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
+
+  const isSelf = user.id === currentAdminId;
+  const handleToggle = async () => {
+    if (isSelf || toggling) return;
+    const desired = !user.isAdmin;
+    // Demotion warrants a confirm — promotion does not (revoking is the
+    // higher-blast-radius direction; a misclick can lock you out if the
+    // demoted account turns out to be the only other admin).
+    if (!desired) {
+      const ok = window.confirm(`Revoke admin from ${user.name}?`);
+      if (!ok) return;
+    }
+    setToggling(true);
+    setToggleError('');
+    try {
+      const res = await patch(`/api/admin/users/${user.id}/admin`, { isAdmin: desired });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      onToggleAdmin?.(user.id, desired);
+    } catch (err) {
+      setToggleError(err.message || 'Failed');
+    } finally {
+      setToggling(false);
+    }
+  };
+
   return (
     <div className="admin-user-detail">
       <div className="admin-user-detail-header">
@@ -162,8 +192,23 @@ function UserActivityDetail({ activity }) {
           )}
           {user.totpEnabled && <span className="admin-badge admin-badge-ok">2FA enabled</span>}
           <span className="admin-badge">Joined {formatDate(user.createdAt)}</span>
+          {!isSelf && (
+            <button
+              type="button"
+              className="admin-user-detail-admin-toggle"
+              onClick={handleToggle}
+              disabled={toggling}
+              title={user.isAdmin ? 'Remove admin privileges' : 'Grant admin privileges'}
+            >
+              {toggling ? '…' : user.isAdmin ? 'Revoke admin' : 'Make admin'}
+            </button>
+          )}
+          {isSelf && (
+            <span className="admin-badge" title="Use SQL or have another admin do it">(that&apos;s you)</span>
+          )}
         </div>
       </div>
+      {toggleError && <div className="admin-user-detail-error">{toggleError}</div>}
 
       <div className="admin-user-detail-grid">
         {/* Projects */}
@@ -778,7 +823,18 @@ export default function AdminDashboard({ onBack }) {
                 {userActivityLoading ? (
                   <div className="admin-user-detail-loading">Loading activity…</div>
                 ) : userActivity ? (
-                  <UserActivityDetail activity={userActivity} />
+                  <UserActivityDetail
+                    activity={userActivity}
+                    currentAdminId={currentAdmin?.id}
+                    onToggleAdmin={(_id, isAdmin) => {
+                      // Optimistically flip the badge in the open
+                      // panel. The outer top-users table doesn't show
+                      // admin status, so no list refresh is needed.
+                      setUserActivity((prev) =>
+                        prev ? { ...prev, user: { ...prev.user, isAdmin } } : prev,
+                      );
+                    }}
+                  />
                 ) : (
                   <div className="admin-user-detail-loading">Failed to load activity</div>
                 )}
