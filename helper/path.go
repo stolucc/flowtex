@@ -27,6 +27,7 @@ import (
 	"strings"
 )
 
+
 // augmentPathForTeX prepends standard TeX + Homebrew locations to
 // $PATH so the helper finds latexmk / pdflatex / tex / biber whether
 // it was launched from a terminal or from a Launch Agent / .app.
@@ -104,13 +105,31 @@ func texLikeDirs() []string {
 			"/usr/local/bin",
 			"/usr/bin",
 		)
+	case "windows":
+		// MiKTeX defaults to %LocalAppData%\Programs\MiKTeX\miktex\bin\x64
+		// when installed for the current user, or
+		// C:\Program Files\MiKTeX\miktex\bin\x64 system-wide. TeX Live
+		// year installs are picked up by the glob below. Probe both
+		// MiKTeX locations defensively — first match wins.
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			dirs = append(dirs, filepath.Join(local, "Programs", "MiKTeX", "miktex", "bin", "x64"))
+		}
+		dirs = append(dirs,
+			`C:\Program Files\MiKTeX\miktex\bin\x64`,
+			`C:\Program Files (x86)\MiKTeX\miktex\bin`,
+		)
 	}
 
-	// /usr/local/texlive/<year>/bin/<arch> — same shape across macOS
-	// and Linux. Glob for whichever years are present, then pick the
-	// bin/<arch> subdir that exists for our host.
+	// TeX Live year installs:
+	//   Unix:    /usr/local/texlive/<year>/bin/<arch>/   (existing)
+	//   Windows: C:\texlive\<year>\bin\windows\          (new)
+	// Glob both — non-matching ones return nil and append harmlessly.
 	matches, _ := filepath.Glob("/usr/local/texlive/*/bin/*")
 	dirs = append(dirs, matches...)
+	if runtime.GOOS == "windows" {
+		winMatches, _ := filepath.Glob(`C:\texlive\*\bin\windows`)
+		dirs = append(dirs, winMatches...)
+	}
 
 	return dirs
 }

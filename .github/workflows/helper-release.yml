@@ -45,6 +45,14 @@ jobs:
           - goos: linux
             goarch: amd64
             runs-on: ubuntu-latest
+          # Windows build runs on a real windows-latest runner. The
+          # systray dependency uses CGO + the Windows shell APIs;
+          # cross-compiling from Linux is fragile, so a real runner is
+          # the safer default. -H=windowsgui suppresses the console
+          # window when the user double-clicks the .exe.
+          - goos: windows
+            goarch: amd64
+            runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -58,7 +66,8 @@ jobs:
         working-directory: helper
         run: go test ./...
 
-      - name: Build
+      - name: Build (unix)
+        if: matrix.goos != 'windows'
         working-directory: helper
         env:
           GOOS: ${{ matrix.goos }}
@@ -78,6 +87,29 @@ jobs:
           go build -trimpath \
             -ldflags "-s -w -X main.helperVersion=$VERSION -X main.helperBuildSHA=$BUILD_SHA -X main.helperBuildTime=$BUILD_TIME" \
             -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
+
+      # Windows build runs on windows-latest. PowerShell quoting is
+      # not bash, so we keep this in its own step rather than juggle
+      # cross-shell escaping. -H=windowsgui makes the .exe launch with
+      # no console window — the tray app is purely background.
+      - name: Build (windows)
+        if: matrix.goos == 'windows'
+        working-directory: helper
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '1'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^helper-v',''
+          if ($version -eq $env:GITHUB_REF_NAME) {
+            $sha = git rev-parse --short HEAD
+            $version = "dev-$sha"
+          }
+          $buildSha = git rev-parse --short HEAD
+          $buildTime = (Get-Date -AsUTC).ToString('yyyy-MM-ddTHH:mm:ssZ')
+          $ldflags = "-s -w -X main.helperVersion=$version -X main.helperBuildSHA=$buildSha -X main.helperBuildTime=$buildTime -H=windowsgui"
+          go build -trimpath -ldflags $ldflags -o "../dist/flowtex-helper-windows-amd64.exe" .
 
       # ── Ad-hoc codesign (macOS, no credentials needed) ──────────
       # An entirely unsigned Mach-O on Apple Silicon is killed with
@@ -200,6 +232,7 @@ jobs:
           name: helper-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
             dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}
+            dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}.exe
             dist/FlowTex-Helper-${{ matrix.goarch }}.dmg
           retention-days: 7
           if-no-files-found: ignore
@@ -236,9 +269,11 @@ jobs:
           VERSION="${GITHUB_REF_NAME#helper-v}"
           gh release create "$GITHUB_REF_NAME" \
             --title "flowtex-helper v$VERSION" \
-            --notes "Pre-built flowtex-helper for the FlowTex local-compile feature. See helper/README.md for install + pair instructions.
+            --notes "Pre-built flowtex-helper for the FlowTex local-compile + local-LLM features. See helper/README.md for install + pair instructions.
 
-          **macOS (recommended)** — double-click the .dmg, drag the app to /Applications, launch it once. The menu-bar icon (\"fTx\") is the helper.
+          **macOS** — double-click the .dmg, drag the app to /Applications, launch it once. The menu-bar icon (\"fTx\") is the helper.
+
+          **Windows** — download \`flowtex-helper-windows-amd64.exe\`, double-click. The fTx icon appears in the system tray. SmartScreen will warn once (the binary is not code-signed); click \"More info\" → \"Run anyway\".
 
           **Linux / scripted install** — one-liner installs the headless binary on PATH:
 
@@ -248,6 +283,7 @@ jobs:
             dist/flowtex-helper-darwin-arm64 \
             dist/flowtex-helper-darwin-amd64 \
             dist/flowtex-helper-linux-amd64 \
+            dist/flowtex-helper-windows-amd64.exe \
             dist/FlowTex-Helper-arm64.dmg \
             dist/FlowTex-Helper-amd64.dmg \
             dist/install.sh \

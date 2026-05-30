@@ -70,7 +70,7 @@ export default function HelperGuideModal({ onClose }) {
 
           <section className="helper-guide-section">
             <h3>1 · Install the helper</h3>
-            <p><strong>macOS (recommended):</strong></p>
+            <p><strong>macOS:</strong></p>
             <ol>
               <li>Download <code>FlowTexHelper.dmg</code> from
                 <a href="https://github.com/stolucc/flowtex/releases" target="_blank" rel="noreferrer">github.com/stolucc/flowtex/releases</a>
@@ -78,6 +78,17 @@ export default function HelperGuideModal({ onClose }) {
               <li>Open the .dmg and drag <strong>FlowTexHelper.app</strong> to <code>/Applications</code>.</li>
               <li>Right-click the app and choose <strong>Open</strong> the first time (the binary is ad-hoc signed, not notarised — Gatekeeper warns once).</li>
               <li>An <strong>fTx</strong> icon appears in your menu bar; the helper is now running.</li>
+            </ol>
+            <p><strong>Windows:</strong></p>
+            <ol>
+              <li>Download <code>flowtex-helper-windows-amd64.exe</code> from the same
+                <a href="https://github.com/stolucc/flowtex/releases" target="_blank" rel="noreferrer">GitHub Releases</a> page.</li>
+              <li>Move it somewhere stable (e.g. <code>C:\Program Files\FlowTex\flowtex-helper.exe</code> or a folder in your user profile).</li>
+              <li>Double-click to run. SmartScreen will warn the first time
+                because the binary is not code-signed; click <strong>More info</strong> → <strong>Run anyway</strong>.</li>
+              <li>The <strong>fTx</strong> icon appears in your system tray (bottom-right notification area).</li>
+              <li>(Optional) for auto-start at login, drop a shortcut to the .exe into
+                <code>%AppData%\Microsoft\Windows\Start Menu\Programs\Startup</code>.</li>
             </ol>
             <p><strong>Linux:</strong></p>
             <pre className="helper-guide-code">curl -fsSL https://github.com/stolucc/flowtex/releases/latest/download/install.sh | bash</pre>
@@ -96,7 +107,7 @@ export default function HelperGuideModal({ onClose }) {
             <ol>
               <li>In FlowTex, open <strong>Account Settings → Compile</strong>.</li>
               <li>
-                <strong>macOS</strong>: click the <strong>fTx</strong> menu-bar icon → <strong>Generate pairing code</strong>. A native dialog shows the 6-digit code and auto-copies it to the clipboard.<br />
+                <strong>macOS / Windows</strong>: click the <strong>fTx</strong> tray icon → <strong>Generate pairing code</strong>. A native dialog shows the 6-digit code and auto-copies it to the clipboard.<br />
                 <strong>Linux</strong>: run <code>flowtex-helper pair</code> in a terminal — it prints a 6-digit code.
               </li>
               <li>Paste the code into the <strong>Pair helper</strong> input in FlowTex.</li>
@@ -142,7 +153,7 @@ ollama pull qwen2.5:7b      # ~5 GB, better at writing</pre>
             <h3>5 · Troubleshooting</h3>
             <dl className="helper-guide-faq">
               <dt>The status panel says &quot;helper not reachable&quot;.</dt>
-              <dd>Make sure the helper is running. macOS: check the menu bar for fTx. Linux: <code>ps aux | grep flowtex-helper</code>. If it&apos;s not, start it.</dd>
+              <dd>Make sure the helper is running. macOS: check the menu bar for fTx. Windows: check the system tray (bottom-right). Linux: <code>ps aux | grep flowtex-helper</code>. If it&apos;s not, start it.</dd>
 
               <dt>I just upgraded FlowTex and LLM features show &quot;Failed to fetch&quot;.</dt>
               <dd>Your helper binary is older than the new endpoints. Rebuild + restart:
@@ -158,7 +169,7 @@ go build -o flowtex-helper
               <dd>Pull at least one model: <code>ollama pull llama3.2:3b</code>, then re-open the dialog.</dd>
 
               <dt>Ollama runs on a non-default port.</dt>
-              <dd>Edit <code>~/.flowtex-helper/config.json</code> and set <code>&quot;llm_base_url&quot;: &quot;http://127.0.0.1:PORT&quot;</code>. The helper rejects non-loopback URLs at load time, so the value MUST be 127.0.0.1, ::1, or localhost.</dd>
+              <dd>Edit <code>~/.flowtex-helper/config.json</code> (Windows: <code>%USERPROFILE%\.flowtex-helper\config.json</code>) and set <code>&quot;llm_base_url&quot;: &quot;http://127.0.0.1:PORT&quot;</code>. The helper rejects non-loopback URLs at load time, so the value MUST be 127.0.0.1, ::1, or localhost.</dd>
 
               <dt>Self-hosting FlowTex on a different domain.</dt>
               <dd>The helper rejects requests from unknown origins. Add your domain: <code>flowtex-helper allow-origin https://your-flowtex.example.edu</code> and restart the helper.</dd>

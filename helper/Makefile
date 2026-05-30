@@ -33,7 +33,7 @@ clean:
 	rm -f $(BINARY)
 	rm -rf dist
 
-dist: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64
+dist: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-windows-amd64
 
 dist-mac-arm64:
 	@mkdir -p dist
@@ -46,6 +46,14 @@ dist-mac-amd64:
 dist-linux-amd64:
 	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BINARY)-linux-amd64 .
+
+# Windows: -H=windowsgui suppresses the console window that would
+# otherwise pop up when the user double-clicks the .exe (tray apps
+# have no need for a foreground console). The flag is layered ON TOP
+# of the existing LDFLAGS so VCS metadata still injects.
+dist-windows-amd64:
+	@mkdir -p dist
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS) -H=windowsgui" -o dist/$(BINARY)-windows-amd64.exe .
 
 # ── macOS .app bundle + .dmg ────────────────────────────────────────────
 # The .app bundle uses LSUIElement=true so the helper appears in the

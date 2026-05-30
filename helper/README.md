@@ -40,6 +40,36 @@ not notarised). After that, look for the **fTx** label in the menu bar
 
 No terminal required.
 
+## Windows: system-tray app
+
+Download `flowtex-helper-windows-amd64.exe` from the latest
+[GitHub Release](https://github.com/stolucc/flowtex/releases) and
+double-click it. The binary is built with `-H=windowsgui`, so no
+console window pops up — the **fTx** icon goes straight into the
+system tray (bottom-right notification area). All tray menu items
+match the macOS list above (pairing code, About, Default TeX Live,
+Quit, plus the **Local LLM:** status row).
+
+The binary is not code-signed, so **Windows SmartScreen will warn the
+first time you run it**: click _More info_ → _Run anyway_. Subsequent
+launches go straight through. Authenticode signing is a Phase-2
+nice-to-have (it would silence SmartScreen entirely) but needs a
+code-signing certificate — see the CODESIGN.md follow-ups list.
+
+For auto-start at login, drop a shortcut to the .exe into:
+
+```text
+%AppData%\Microsoft\Windows\Start Menu\Programs\Startup
+```
+
+Config lives at `%USERPROFILE%\.flowtex-helper\config.json` (same
+shape as the macOS / Linux config at `~/.flowtex-helper/config.json`).
+TeX Live year installs at `C:\texlive\YYYY\bin\windows\` are
+auto-discovered for the year-picker submenu; MiKTeX installs at
+the standard `%LocalAppData%\Programs\MiKTeX\miktex\bin\x64` and
+`C:\Program Files\MiKTeX\miktex\bin\x64` paths are added to `$PATH`
+at startup so `latexmk` / `pdflatex` resolve without manual config.
+
 ## Prerequisites
 
 - **Go 1.22+** to build (just for the build — the binary itself has no

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -92,16 +93,23 @@ func detectTex() texInfo {
 	return out
 }
 
-// detectAllDistributions scans /usr/local/texlive/<year>/bin/<arch>/
-// for every installed annual release. Mirrors the server-side
-// detector in server/compiler.js so the FlowTex picker UI presents
-// a coherent superset across server + helper. Sorted newest-first.
+// detectAllDistributions scans the per-OS TeX Live install root for
+// every installed annual release. Layout differs by platform:
+//   Unix:    /usr/local/texlive/<year>/bin/<arch>/
+//   Windows: C:\texlive\<year>\bin\windows\
+// Mirrors the server-side detector in server/compiler.js so the
+// FlowTex picker UI presents a coherent superset across server +
+// helper. Sorted newest-first.
 func detectAllDistributions() []texDistribution {
 	var out []texDistribution
-	base := "/usr/local/texlive"
+	base := texLiveRoot()
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return out
+	}
+	pdflatex := "pdflatex"
+	if runtime.GOOS == "windows" {
+		pdflatex = "pdflatex.exe"
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -116,7 +124,7 @@ func detectAllDistributions() []texDistribution {
 		}
 		matches, _ := filepath.Glob(filepath.Join(base, year, "bin", "*"))
 		for _, m := range matches {
-			if _, err := os.Stat(filepath.Join(m, "pdflatex")); err == nil {
+			if _, err := os.Stat(filepath.Join(m, pdflatex)); err == nil {
 				out = append(out, texDistribution{Year: year, Path: m})
 				break // one arch per year is enough
 			}
@@ -124,6 +132,16 @@ func detectAllDistributions() []texDistribution {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Year > out[j].Year })
 	return out
+}
+
+// texLiveRoot returns the per-OS install root for TeX Live year
+// distributions. Single source of truth so detectAllDistributions
+// and any future tlmgr-related code can't drift.
+func texLiveRoot() string {
+	if runtime.GOOS == "windows" {
+		return `C:\texlive`
+	}
+	return "/usr/local/texlive"
 }
 
 func parseYearFromCmd(name string, args ...string) string {

@@ -129,16 +129,20 @@ to pre-feature behaviour.
 1. Open **Account Settings → Compile** (new tab, visible only when
    `serverFeatures.localCompile === true`).
 2. See the helper-status row. Initially red: "Helper not detected."
-3. The Compile tab now leads with the **macOS .dmg path** (no terminal
-   required): download → drag to Applications → right-click → Open
-   the first time. Linux users get the one-liner `install.sh` that
-   downloads the binary, verifies the SHA256 against the release's
-   signed `SHA256SUMS`, fails closed if the checksum file is
-   unreachable, and installs to `/usr/local/bin/flowtex-helper`.
-4. macOS users launch the app and see the **fTx** label in the menu
-   bar. Click → **Generate pairing code** — a native dialog shows
-   the 6-digit code AND auto-copies it to the clipboard. Linux
-   users run `flowtex-helper pair`.
+3. The Compile tab covers all three install paths:
+   - **macOS .dmg** (no terminal required): download → drag to
+     Applications → right-click → Open the first time.
+   - **Windows .exe**: download `flowtex-helper-windows-amd64.exe`,
+     double-click. SmartScreen warns once because the binary is not
+     code-signed — click "More info" → "Run anyway". Tray icon appears.
+   - **Linux** one-liner `install.sh` that downloads the binary,
+     verifies the SHA256 against the release's signed `SHA256SUMS`,
+     fails closed if the checksum file is unreachable, and installs
+     to `/usr/local/bin/flowtex-helper`.
+4. macOS / Windows users click the **fTx** tray icon → **Generate
+   pairing code** — a native dialog shows the 6-digit code AND
+   auto-copies it to the clipboard. Linux users run
+   `flowtex-helper pair`.
 5. Paste the code into FlowTex's Pair helper input. Badge flips
    green: "Paired. TeX Live YYYY".
 6. Set their default to "My local TeX Live", or override per project
