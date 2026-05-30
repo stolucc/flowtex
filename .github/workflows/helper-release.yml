@@ -61,8 +61,12 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: helper/go.sum
 
-      - name: Run helper unit tests (host arch)
-        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+      # Each matrix entry's runs-on matches its goos (darwin builds on
+      # macos-latest, linux on ubuntu-latest, windows on windows-latest),
+      # so the runner can execute the test binary natively. Drop the
+      # previous linux-only gate — a Windows-only test failure on tag
+      # day should block the release, not slip through silently.
+      - name: Run helper unit tests
         working-directory: helper
         run: go test ./...
 
