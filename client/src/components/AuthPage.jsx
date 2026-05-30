@@ -6,7 +6,27 @@ export default function AuthPage({ onAuth }) {
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('token');
   const verifyToken = urlParams.get('verify');
-  const [mode, setMode] = useState(resetToken ? 'reset' : verifyToken ? 'verifying' : 'login');
+  // Two invitation flows can land here unauthenticated:
+  //   ?invite=<uuid>           → unregistered invitee clicked the
+  //                              "Create account & accept" CTA. Look
+  //                              up the invitation, prefill the
+  //                              register form, show a banner.
+  //   ?invite-decline=<token>  → unregistered invitee clicked the
+  //                              "Decline" link. POST the token,
+  //                              show confirmation, no account
+  //                              creation needed.
+  const inviteId = urlParams.get('invite');
+  const declineToken = urlParams.get('invite-decline');
+  const initialMode = resetToken
+    ? 'reset'
+    : verifyToken
+      ? 'verifying'
+      : declineToken
+        ? 'invite-decline'
+        : inviteId
+          ? 'register'
+          : 'login';
+  const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -19,6 +39,13 @@ export default function AuthPage({ onAuth }) {
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const [resending, setResending] = useState(false);
+  // Context for the unregistered-invitee flow (loaded async on mount
+  // when ?invite=<id> is present). null = not loaded yet; an object
+  // with { projectName, inviterName, hasAccount } once fetched.
+  const [inviteInfo, setInviteInfo] = useState(null);
+  // Outcome of POSTing ?invite-decline=<token>: null = in-flight,
+  // 'ok' = declined successfully, an error string on failure.
+  const [declineResult, setDeclineResult] = useState(null);
 
   // Handle email verification token from URL
   useEffect(() => {
@@ -41,6 +68,59 @@ export default function AuthPage({ onAuth }) {
       window.history.replaceState({}, '', '/');
     })();
   }, [verifyToken]);
+
+  // Load the public invitation context when ?invite=<id> is on the URL.
+  // Prefills the email and lets the register banner show "<Inviter>
+  // invited you to <Project>".
+  useEffect(() => {
+    if (!inviteId) return;
+    (async () => {
+      try {
+        const res = await get(`/api/invitations/public/${encodeURIComponent(inviteId)}`);
+        if (!res.ok) {
+          setInviteInfo({ error: 'This invitation link is no longer valid.' });
+          return;
+        }
+        const info = await res.json();
+        setInviteInfo(info);
+        // Prefill the email field so the recipient registers under
+        // the address the invitation was sent to. They CAN edit it
+        // (they might prefer a different address), but then the
+        // invitation won't auto-attach to their new account.
+        if (info.email && !email) setEmail(info.email);
+        // If they ALREADY have an account, the right next step is
+        // login, not register — flip the mode.
+        if (info.hasAccount) setMode('login');
+      } catch {
+        setInviteInfo({ error: 'Failed to load invitation details.' });
+      }
+    })();
+    // Intentionally not cleaning up the URL — we want the inviter
+    // context to survive a tab refresh during the register flow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteId]);
+
+  // Handle the one-shot decline link from the unregistered-invitee
+  // email (?invite-decline=<token>). POST the token, show outcome.
+  useEffect(() => {
+    if (!declineToken) return;
+    (async () => {
+      try {
+        const res = await post('/api/invitations/by-token/decline', { token: declineToken });
+        if (res.ok) setDeclineResult('ok');
+        else {
+          const data = await res.json().catch(() => ({}));
+          setDeclineResult(data.error || 'Failed to decline the invitation.');
+        }
+      } catch {
+        setDeclineResult('Failed to decline the invitation.');
+      }
+      // Strip the token from the URL so a refresh or share doesn't
+      // resurface it. The server marked the token null on success
+      // anyway, but defence in depth.
+      window.history.replaceState({}, '', '/');
+    })();
+  }, [declineToken]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -168,7 +248,27 @@ export default function AuthPage({ onAuth }) {
       <div className="auth-card">
         <h1 className="auth-title">FlowTex</h1>
 
-        {mode === 'verifying' ? (
+        {mode === 'invite-decline' ? (
+          <>
+            <p className="auth-subtitle">Invitation declined</p>
+            <div style={{ textAlign: 'center', padding: '8px 0 16px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+              {declineResult === null && <p>Processing…</p>}
+              {declineResult === 'ok' && (
+                <>
+                  <p style={{ marginBottom: 8 }}>
+                    Thanks &mdash; the inviter has been notified that you declined.
+                  </p>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    No account has been created. You can close this tab.
+                  </p>
+                </>
+              )}
+              {declineResult && declineResult !== 'ok' && (
+                <p className="auth-error">{declineResult}</p>
+              )}
+            </div>
+          </>
+        ) : mode === 'verifying' ? (
           <p className="auth-subtitle">Verifying your email...</p>
         ) : mode === 'check-email' ? (
           <>
@@ -294,6 +394,17 @@ export default function AuthPage({ onAuth }) {
         ) : (
           <>
             <p className="auth-subtitle">{mode === 'login' ? 'Sign in to your account' : 'Create a new account'}</p>
+            {mode === 'register' && inviteInfo && !inviteInfo.error && (
+              <div className="auth-invite-banner">
+                <strong>{inviteInfo.inviterName}</strong> invited you to collaborate on
+                {' '}<strong>{inviteInfo.projectName}</strong>.
+                {' '}Register with this email to accept &mdash; the invitation will
+                appear on your dashboard right after you verify your email.
+              </div>
+            )}
+            {mode === 'register' && inviteInfo?.error && (
+              <div className="auth-error" style={{ marginBottom: 12 }}>{inviteInfo.error}</div>
+            )}
             <form onSubmit={handleSubmit} className="auth-form">
               {mode === 'register' && (
                 <input

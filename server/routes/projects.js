@@ -4,7 +4,7 @@ import multer from 'multer';
 import db from '../db.js';
 import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
-import { sendProjectInvitationEmail } from '../utils/email.js';
+import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import * as projectService from '../services/projectService.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -378,12 +378,31 @@ router.post('/:id/members', async (req, res) => {
     // a forged Host: can't redirect the invite link to an attacker domain.
     const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     try {
-      await sendProjectInvitationEmail(email, {
-        inviterName,
-        projectName,
-        baseUrl,
-        inviteUrl: `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
-      });
+      if (invitation.recipientHasAccount) {
+        // Existing user — they'll see the invitation on their dashboard
+        // after sign-in. The link is just a deep entry point.
+        await sendProjectInvitationEmail(email, {
+          inviterName,
+          projectName,
+          baseUrl,
+          inviteUrl: `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
+        });
+      } else {
+        // Unregistered email — different template. The recipient needs
+        // to create an account first. ?invite=<id> on the landing page
+        // switches the AuthPage to register mode with the email
+        // prefilled + a "you've been invited" banner. The decline link
+        // is token-gated and lets them refuse without ever registering;
+        // it routes through /api/projects/invitations/by-token/decline.
+        const registerUrl = `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`;
+        const declineUrl = `${baseUrl}/?invite-decline=${encodeURIComponent(invitation.declineToken)}`;
+        await sendUnregisteredInvitationEmail(email, {
+          inviterName,
+          projectName,
+          registerUrl,
+          declineUrl,
+        });
+      }
     } catch (err) {
       logger.warn({ err, email, invitationId: invitation.id }, 'Failed to send invitation email; rolling back invitation');
       await db.run('DELETE FROM project_invitations WHERE id = $1', [invitation.id]).catch((dbErr) =>

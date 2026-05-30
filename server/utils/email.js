@@ -199,6 +199,46 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
   });
 }
 
+/** Send an invitation email to someone who does NOT yet have a
+ *  FlowTex account. Differs from sendProjectInvitationEmail by:
+ *  - Explaining the recipient needs to create an account first.
+ *  - The "Accept" link is actually a "Create account & accept" link
+ *    that pre-fills the register form with the invitation context.
+ *  - Includes a "Decline" link backed by a one-shot token so the
+ *    recipient can decline without ever creating an account; the
+ *    inviter sees the invitation move to status=declined. */
+export async function sendUnregisteredInvitationEmail(email, { inviterName, projectName, registerUrl, declineUrl }) {
+  const safeProject = escapeHtml(projectName);
+  const safeInviter = escapeHtml(inviterName);
+  const safeRegisterUrl = escapeHtml(registerUrl);
+  const safeDeclineUrl = escapeHtml(declineUrl);
+  return sendEmail({
+    to: email,
+    subject: `${inviterName} invited you to "${projectName}" on FlowTex — create an account to accept`,
+    text:
+      `${inviterName} has invited you to collaborate on "${projectName}" on FlowTex,\n` +
+      `a self-hosted collaborative LaTeX editor. You don't have a FlowTex account\n` +
+      `yet, so to accept you'll need to register first (with this email address).\n\n` +
+      `Create account & accept:\n${registerUrl}\n\n` +
+      `If you don't want this invitation, you can decline without registering:\n${declineUrl}\n\n` +
+      `If you weren't expecting this invitation, you can safely ignore this email\n` +
+      `— no account will be created.\n`,
+    html: renderEmailLayout({
+      preheader: `${inviterName} invited you to ${projectName}. Create an account to accept.`,
+      heading: `${safeInviter} invited you to &ldquo;${safeProject}&rdquo;`,
+      bodyHtml:
+        `<p style="margin:0 0 12px 0;">You&rsquo;ve been invited to collaborate on a LaTeX project on FlowTex (a self-hosted collaborative LaTeX editor).</p>` +
+        `<p style="margin:0 0 12px 0;">You don&rsquo;t have a FlowTex account yet, so to accept you&rsquo;ll need to <strong>create one with this email address</strong> first.</p>` +
+        `<p style="margin:0;">Prefer not to? You can decline below without creating an account &mdash; ${safeInviter} will see the invitation as declined.</p>`,
+      ctaLabel: 'Create account & accept',
+      ctaUrl: safeRegisterUrl,
+      footnoteHtml:
+        `Not interested? <a href="${safeDeclineUrl}" style="color:#dc2626;">Decline this invitation</a> &mdash; no account will be created. ` +
+        `If you weren&rsquo;t expecting this invitation, you can safely ignore this email.`,
+    }),
+  });
+}
+
 /** Send an email verification link to a new user. */
 export async function sendEmailVerificationEmail(email, verifyUrl) {
   const safeUrl = escapeHtml(verifyUrl);

@@ -19,6 +19,7 @@ vi.mock('../utils/audit.js', () => ({
 
 vi.mock('../utils/email.js', () => ({
   sendProjectInvitationEmail: vi.fn(),
+  sendUnregisteredInvitationEmail: vi.fn(),
 }));
 
 vi.mock('../services/projectService.js', () => ({
@@ -41,7 +42,7 @@ vi.mock('../../shared/texDeps.js', () => ({
 
 import db from '../db.js';
 import * as projectService from '../services/projectService.js';
-import { sendProjectInvitationEmail } from '../utils/email.js';
+import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import router from '../routes/projects.js';
 
 // ── Handler extraction ──────────────────────────────────────────────────
@@ -104,7 +105,7 @@ describe('POST /:id/members — project invitation email', () => {
   });
 
   it('sends an invitation email with correct details', async () => {
-    const invitation = { id: 'inv-1', role: 'editor' };
+    const invitation = { id: 'inv-1', role: 'editor', recipientHasAccount: true };
     projectService.inviteMember.mockResolvedValue(invitation);
     // Session has userName='Alice', so no DB lookup for inviter name
     // db.get calls: project name, then invitee lookup
@@ -129,7 +130,7 @@ describe('POST /:id/members — project invitation email', () => {
   });
 
   it('uses session userName when available instead of DB lookup', async () => {
-    projectService.inviteMember.mockResolvedValue({ id: 'inv-2', role: 'viewer' });
+    projectService.inviteMember.mockResolvedValue({ id: 'inv-2', role: 'viewer', recipientHasAccount: true });
     // Session has userName='SessionAlice', so: project name lookup, then invitee lookup
     db.get
       .mockResolvedValueOnce({ name: 'Research Project' }) // project name
@@ -160,7 +161,7 @@ describe('POST /:id/members — project invitation email', () => {
     // email throws it short-circuits before the invitee lookup, so we
     // intentionally do NOT queue a second mock here (queue leakage to the
     // next test would silently break it).
-    const invitation = { id: 'inv-3', role: 'editor' };
+    const invitation = { id: 'inv-3', role: 'editor', recipientHasAccount: true };
     projectService.inviteMember.mockResolvedValue(invitation);
     sendProjectInvitationEmail.mockRejectedValueOnce(new Error('SMTP connection refused'));
     db.get.mockResolvedValueOnce({ name: 'My Paper' });
@@ -186,7 +187,7 @@ describe('POST /:id/members — project invitation email', () => {
   });
 
   it('pushes invitation via WebSocket to existing users', async () => {
-    const invitation = { id: 'inv-4', role: 'editor' };
+    const invitation = { id: 'inv-4', role: 'editor', recipientHasAccount: true };
     projectService.inviteMember.mockResolvedValue(invitation);
     // Session has userName, so: project name lookup, then invitee lookup
     db.get
@@ -210,6 +211,38 @@ describe('POST /:id/members — project invitation email', () => {
         status: 'pending',
       }),
     }));
+  });
+
+  it('sends the UNREGISTERED-invitee email template when the recipient has no account', async () => {
+    // The route branches on invitation.recipientHasAccount: false →
+    // sendUnregisteredInvitationEmail with a register URL + a
+    // token-gated decline URL. inviteMember returns the raw
+    // declineToken once, which the route splices into the URL.
+    const invitation = {
+      id: 'inv-5',
+      role: 'editor',
+      recipientHasAccount: false,
+      declineToken: 'rawtok-abcdef',
+    };
+    projectService.inviteMember.mockResolvedValue(invitation);
+    db.get
+      .mockResolvedValueOnce({ name: 'New Paper' }) // project name
+      .mockResolvedValueOnce(null);                 // invitee lookup (none)
+
+    const req = mockReq({ id: 'proj-9' }, { email: 'newuser@example.com', role: 'editor' });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(sendProjectInvitationEmail).not.toHaveBeenCalled();
+    expect(sendUnregisteredInvitationEmail).toHaveBeenCalledOnce();
+    expect(sendUnregisteredInvitationEmail).toHaveBeenCalledWith('newuser@example.com', {
+      inviterName: 'Alice',
+      projectName: 'New Paper',
+      registerUrl: 'https://flowtex.example.com/?invite=inv-5',
+      declineUrl: 'https://flowtex.example.com/?invite-decline=rawtok-abcdef',
+    });
   });
 
   it('rejects invalid email addresses', async () => {

@@ -4955,6 +4955,22 @@ html {
   text-align: left;
 }
 
+/* Context banner above the register form when the user landed via
+   ?invite=<id> — names the inviter + project so they know what
+   they're signing up to accept. */
+.auth-invite-banner {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  text-align: left;
+}
+
 /* Inline tip under a registration input — the plus-addressing hint. */
 .auth-tip {
   margin: -6px 0 4px;

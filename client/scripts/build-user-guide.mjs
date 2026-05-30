@@ -1,3 +1,4 @@
+/* global console */
 // Renders ../../USER_GUIDE.md into a styled HTML page at
 // client/public/docs/user-guide.html so it ships inside the Vite
 // dist/ bundle and the running FlowTex server can serve it at

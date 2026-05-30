@@ -417,6 +417,15 @@ async function initSchema() {
       UNIQUE(project_id, email)
     );
 
+    -- Decline-via-email link for invitations sent to addresses without
+    -- a FlowTex account. The raw token is included in the
+    -- "Decline this invitation" link in that email; we store only
+    -- the SHA-256 hash. The /invitations/by-token/decline route
+    -- hashes the supplied token and matches against this column.
+    -- Nullable: invitations to ALREADY-registered users still use
+    -- the in-app accept/decline flow and don't need a token.
+    ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS decline_token_hash TEXT;
+
     CREATE TABLE IF NOT EXISTS tags (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

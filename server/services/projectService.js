@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import crypto from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 import db from '../db.js';
@@ -1699,14 +1700,20 @@ export async function getProjectMembers(projectId, { includeEmail = false } = {}
 /** Invite a registered user to a project by email. */
 export async function inviteMember(projectId, email, role, inviterId) {
   const normalizedEmail = email.toLowerCase().trim();
+  // Unlike before, we DON'T reject when the email has no FlowTex
+  // account. Storing an invitation against an unregistered email is
+  // the whole point of the "invite someone who doesn't have an
+  // account yet" flow — they'll see the invitation on their
+  // dashboard the moment they register + verify with that same email.
   const user = await db.get('SELECT id, email, name FROM users WHERE email = $1', [normalizedEmail]);
-  if (!user) throw Object.assign(new Error('User not found. They must register first.'), { status: 404 });
 
-  const existing = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [
-    projectId,
-    user.id,
-  ]);
-  if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
+  if (user) {
+    const existing = await db.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [
+      projectId,
+      user.id,
+    ]);
+    if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
+  }
 
   const VALID_ROLES = ['editor', 'viewer'];
   const assignedRole = VALID_ROLES.includes(role) ? role : 'editor';
@@ -1717,12 +1724,36 @@ export async function inviteMember(projectId, email, role, inviterId) {
   );
   if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
 
+  // For unregistered users we generate a single-use-style decline
+  // token that the email's "Decline" link carries. Registered users
+  // accept/decline via the in-app dashboard so they don't need it.
+  // Token is 32 bytes hex (~256 bits entropy); we store only the
+  // SHA-256 hash so a DB leak can't be used to forge decline links.
+  let declineTokenRaw = null;
+  let declineTokenHash = null;
+  if (!user) {
+    declineTokenRaw = crypto.randomBytes(32).toString('hex');
+    declineTokenHash = crypto.createHash('sha256').update(declineTokenRaw).digest('hex');
+  }
+
   const id = uuid();
   await db.run(
-    "INSERT INTO project_invitations (id, project_id, email, role, inviter_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (project_id, email) DO UPDATE SET role = $4, inviter_id = $5, status = 'pending'",
-    [id, projectId, normalizedEmail, assignedRole, inviterId],
+    `INSERT INTO project_invitations (id, project_id, email, role, inviter_id, decline_token_hash)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (project_id, email)
+       DO UPDATE SET role = $4, inviter_id = $5, status = 'pending', decline_token_hash = $6`,
+    [id, projectId, normalizedEmail, assignedRole, inviterId, declineTokenHash],
   );
-  return { id, email, role: assignedRole, status: 'pending' };
+  return {
+    id,
+    email,
+    role: assignedRole,
+    status: 'pending',
+    // recipientHasAccount lets the route decide which email template
+    // to send; declineToken is only non-null when there's no account.
+    recipientHasAccount: !!user,
+    declineToken: declineTokenRaw,
+  };
 }
 
 /** Remove a member from a project and invalidate their cached membership. */

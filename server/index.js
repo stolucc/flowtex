@@ -17,6 +17,7 @@ import logger from './logger.js';
 import db from './db.js';
 import { abortAllCompilations } from './compiler.js';
 import projectsRouter from './routes/projects.js';
+import publicInvitationsRouter from './routes/publicInvitations.js';
 import compileRouter from './routes/compile.js';
 import commentsRouter from './routes/comments.js';
 import authRouter from './routes/auth.js';
@@ -401,6 +402,14 @@ app.post('/api/projects/:id/upload-file', uploadLimiter);
 
 // Protected API routes (general rate limit)
 app.use('/api/', apiLimiter);
+
+// Public invitation endpoints (unregistered-invitee flow). Mounted
+// BEFORE the requireAuth wrapper around /api/projects because both
+// recipients of the unregistered-invitation email are by definition
+// not yet logged in. See helper/routes/publicInvitations.js for the
+// security model.
+app.use('/api/invitations', publicInvitationsRouter);
+
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/compile', requireAuth, compileRouter);
 // Per-author comment-create cap (see commentCreateLimiter above). Mounted
