@@ -211,8 +211,16 @@ export async function createEmailVerificationToken(userId) {
 
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  // Window is deliberately short — the verifyEmail() endpoint is now
+  // idempotent (so an email-scanner GET followed by the human's click
+  // both succeed), which made the token reusable within its window.
+  // Tightening the window from 24h → 1h limits exposure if the user's
+  // inbox is ever compromised, archived, or forwarded — without
+  // breaking the scanner-then-human race (which resolves within
+  // seconds) or a normal user clicking from a second device. Users
+  // who let it lapse hit Resend (rate-limited at 3/hour).
   await db.run(
-    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')`,
+    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
     [uuid(), userId, tokenHash],
   );
   return token;

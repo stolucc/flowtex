@@ -188,8 +188,9 @@ export default function AuthPage({ onAuth }) {
               <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
                 The message can take a few minutes to arrive — depending on your
                 mail provider it might also land in <strong>spam</strong> or{' '}
-                <strong>junk</strong>. If it&apos;s still missing after 5–10
-                minutes, use <em>Resend verification email</em> below.
+                <strong>junk</strong>. The link is valid for{' '}
+                <strong>1 hour</strong>; if you need a fresh one, use{' '}
+                <em>Resend verification email</em> below.
               </p>
             </div>
             {success && <div className="auth-success">{success}</div>}

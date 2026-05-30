@@ -258,13 +258,18 @@ describe('createEmailVerificationToken queries', () => {
     expect(params).toEqual(['u']);
   });
 
-  it('insert SQL writes id, user_id, token_hash, expires_at with 24-hour expiry', async () => {
+  it('insert SQL writes id, user_id, token_hash, expires_at with 1-hour expiry', async () => {
+    // Window deliberately tightened from 24h → 1h: the verify endpoint
+    // is now idempotent (mail-scanner GETs don't lock out the human),
+    // so the token is reusable inside its window. Smaller window =
+    // smaller exposure if the user's inbox is ever compromised. Users
+    // who let it lapse hit Resend (rate-limited at 3/hour).
     db.get.mockResolvedValueOnce({ cnt: '0' });
     await createEmailVerificationToken('u');
     const [sql, params] = db.run.mock.calls[0];
     expect(sql).toMatch(/INSERT INTO email_verification_tokens/);
     expect(sql).toContain('(id, user_id, token_hash, expires_at)');
-    expect(sql).toContain("INTERVAL '24 hours'");
+    expect(sql).toContain("INTERVAL '1 hour'");
     // params: [uuid, userId, tokenHash]
     expect(params[1]).toBe('u');
     expect(params).toHaveLength(3);
