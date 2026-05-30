@@ -56,8 +56,15 @@ func TestCompileLimiter_RefillsOverTime(t *testing.T) {
 func TestCompileLimiter_SlotsBlockBeyondCap(t *testing.T) {
 	l := newCompileLimiter(2, 100, 6000) // generous rate, narrow slots
 	ctx := context.Background()
-	if !l.acquireSlot(ctx) || !l.acquireSlot(ctx) {
-		t.Fatal("expected two slot acquisitions")
+	// Split into separate asserts so the linter doesn't flag the two
+	// calls as identical (staticcheck SA4000). Each call mutates the
+	// limiter — that's the whole point — but syntactically the two
+	// `!l.acquireSlot(ctx)` looked redundant.
+	if !l.acquireSlot(ctx) {
+		t.Fatal("first slot acquisition should succeed")
+	}
+	if !l.acquireSlot(ctx) {
+		t.Fatal("second slot acquisition should succeed")
 	}
 	// Third slot must block — try with a short timeout.
 	tctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)

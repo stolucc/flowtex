@@ -254,7 +254,7 @@ func (s *server) handleCompile(w http.ResponseWriter, r *http.Request) {
 	s.jobs.register(req.JobID, cancel)
 	defer s.jobs.deregister(req.JobID)
 
-	resp := runCompile(ctx, s.cfg, &req)
+	resp := runCompile(ctx, &req)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }

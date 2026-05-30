@@ -62,8 +62,10 @@ type compileResponse struct {
 const compileTimeout = 90 * time.Second
 
 // runCompile performs a single compile end-to-end. Caller is responsible
-// for sending the JSON response.
-func runCompile(ctx context.Context, cfg *config, req *compileRequest) compileResponse {
+// for sending the JSON response. (No config is needed — TeX detection
+// + cage flags + jobdir layout are all derived from runtime state, not
+// user-tunable config.)
+func runCompile(ctx context.Context, req *compileRequest) compileResponse {
 	if req.MainFile == "" {
 		return compileResponse{Error: "mainFile is required"}
 	}

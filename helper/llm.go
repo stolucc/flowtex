@@ -268,12 +268,30 @@ func buildLLMPrompt(req *llmCompleteRequest) (system, user string, err error) {
 		if req.TargetWords < 1 || req.TargetWords > 2000 {
 			return "", "", fmt.Errorf("targetWords must be between 1 and 2000")
 		}
+		// Be explicit about WHAT counts as a word — otherwise local
+		// models cheerfully pad the text with extra \cite{}, \textbf{},
+		// \emph{} etc. to hit the target. The user wants the rendered
+		// prose to be N words long; LaTeX markup is invisible to the
+		// reader so it can't be part of the count.
 		system = "You are a writing assistant inside a LaTeX editor. " +
-			"You rewrite the user's selected text to match a target word count " +
-			"while preserving meaning, tone, and any LaTeX commands." + onlyClause
+			"You rewrite the user's selected text to a target word count " +
+			"while preserving meaning, tone, and any LaTeX commands. " +
+			"\"Words\" means ONLY the natural-language words that will " +
+			"appear in the rendered PDF — the words a human reads on " +
+			"the page. LaTeX commands (e.g. \\textbf{...}, \\cite{...}, " +
+			"\\emph{...}), environment markers, comments, and math do NOT " +
+			"count toward the word total. Do not pad the text with extra " +
+			"LaTeX commands to inflate the count, and do not remove " +
+			"existing commands that carry semantic meaning." + onlyClause
 		user = fmt.Sprintf(
-			"Rewrite the following text to be approximately %d words. "+
-				"Keep the meaning and any LaTeX markup intact.\n\n---\n%s\n---",
+			"Rewrite the following text so the rendered prose is "+
+				"approximately %d words long (count words a reader sees, "+
+				"NOT LaTeX commands). Keep the meaning intact and "+
+				"preserve any LaTeX markup that's already there.\n\n"+
+				"For example: \"The result is \\textbf{significant} for "+
+				"\\cite{smith2020} reasons.\" counts as SIX words, not "+
+				"more, because \\textbf{} and \\cite{} are commands not "+
+				"text.\n\n---\n%s\n---",
 			req.TargetWords, req.Input,
 		)
 	case "paraphrase":
