@@ -815,11 +815,19 @@ html {
   align-items: center;
   gap: 4px;
 }
-.toolbar-left { flex: 1 1 auto; }
-.toolbar-right { flex: 0 1 auto; justify-content: flex-end; gap: 8px; }
+/* Equal flex weight on left + right so the center column sits at the
+   actual visual midpoint of the toolbar — not pushed to whichever end
+   has less content. Both grow from a 0 basis (min-width: 0 lets them
+   shrink past their intrinsic width); their internal flex-wrap takes
+   over when they get tight. */
+.toolbar-left  { flex: 1 1 0; min-width: 0; }
+.toolbar-right { flex: 1 1 0; min-width: 0; justify-content: flex-end; gap: 8px; }
 .toolbar-center {
+  display: flex;
+  justify-content: center;
   flex: 0 1 auto;
   min-width: 0;
+  max-width: 40%;
   text-align: center;
 }
 .toolbar-back {
@@ -839,13 +847,13 @@ html {
   background: var(--accent-hover);
 }
 
-/* .toolbar-left / .toolbar-right use `display: contents` (see top-of-toolbar
-   block above), so they have no layout box of their own. Their children
-   are direct flex items of .toolbar and wrap naturally. .toolbar-center
-   likewise gets `display: contents` below. */
-.toolbar-center {
-  display: contents;
-}
+/* .toolbar-center is a real flex box, not `display: contents`. We
+   previously dissolved it with `display: contents` (the children
+   became direct flex items of .toolbar), but that meant the title
+   sat next to whichever section had the most content — pushed all
+   the way to .toolbar-right next to the bell. Keeping it as a real
+   box with `flex: 0 1 auto` (defined above) puts it at the actual
+   visual centre. */
 
 .toolbar-title {
   font-weight: 600;
