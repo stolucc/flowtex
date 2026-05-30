@@ -4947,6 +4947,25 @@ html {
   text-align: left;
 }
 
+/* Inline tip under a registration input — the plus-addressing hint. */
+.auth-tip {
+  margin: -6px 0 4px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.auth-tip code {
+  background: var(--bg-surface);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
 .auth-switch {
   margin-top: 16px;
   color: var(--text-secondary);

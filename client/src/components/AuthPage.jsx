@@ -185,6 +185,12 @@ export default function AuthPage({ onAuth }) {
               <p>We&apos;ve sent a verification link to</p>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{unverifiedEmail}</p>
               <p style={{ marginTop: 12 }}>Click the link in the email to activate your account.</p>
+              <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                The message can take a few minutes to arrive — depending on your
+                mail provider it might also land in <strong>spam</strong> or{' '}
+                <strong>junk</strong>. If it&apos;s still missing after 5–10
+                minutes, use <em>Resend verification email</em> below.
+              </p>
             </div>
             {success && <div className="auth-success">{success}</div>}
             {error && <div className="auth-error">{error}</div>}
@@ -306,6 +312,16 @@ export default function AuthPage({ onAuth }) {
                 required
                 className="auth-input"
               />
+              {mode === 'register' && (
+                <p className="auth-tip">
+                  <strong>Tip:</strong> most mail providers ignore everything after a{' '}
+                  <code>+</code> in the local-part of an address, so you can append
+                  {' '}<code>+flowtex</code> to make a unique alias that still lands
+                  in your inbox — e.g. <code>k.stol+flowtex@ucc.ie</code>. Handy for
+                  filtering, and if a data breach later leaks FlowTex addresses
+                  you&apos;ll know exactly where it came from.
+                </p>
+              )}
               <input
                 type="password"
                 placeholder="Password"

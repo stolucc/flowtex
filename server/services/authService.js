@@ -220,20 +220,49 @@ export async function createEmailVerificationToken(userId) {
 
 /**
  * Verify a user's email address using a verification token.
+ *
+ * Idempotent on purpose: many corporate/consumer mail providers
+ * (Outlook Safe Links, Gmail's malware scanner, Apple Mail preview)
+ * GET the URL in a verification email BEFORE the human clicks, to
+ * sandbox-check it for malware. A strict single-use endpoint would
+ * mark the token used on the scanner's hit and tell the human
+ * "already used / expired" 30s later when they actually click. So:
+ *
+ *   1. Look up the token (regardless of `used` flag) while it's
+ *      still inside its 24h expiry window.
+ *   2. If the associated user is ALREADY verified, return success —
+ *      the work is done, whoever GET'd this URL (scanner or human)
+ *      gets a clean "verified" response.
+ *   3. If not verified yet, flip email_verified=TRUE, mark this
+ *      token AND the user's sibling tokens used in one transaction.
+ *
+ * Security trade-off: the token remains reusable for up to 24h. The
+ * threat would be "attacker with access to the user's mailbox
+ * re-verifying" — they'd already be in the inbox, which is a much
+ * bigger compromise. And re-verifying an already-verified account
+ * is a no-op, so there's no extra power gained.
+ *
  * @returns {string} The verified user's ID.
  */
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const row = await db.get(
-    `UPDATE email_verification_tokens SET used = TRUE
-     WHERE token_hash = $1 AND used = FALSE AND expires_at > NOW()
-     RETURNING user_id`,
+    `SELECT t.user_id, u.email_verified
+     FROM email_verification_tokens t
+     JOIN users u ON u.id = t.user_id
+     WHERE t.token_hash = $1 AND t.expires_at > NOW()`,
     [tokenHash],
   );
   if (!row) throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
 
+  // Idempotent path: already verified (either by a previous click or
+  // by an email-scanner prefetch). Nothing to do — return success.
+  if (row.email_verified) return row.user_id;
+
   await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
-  // Invalidate other tokens for this user
+  // Invalidate all tokens for this user (this one + any siblings)
+  // so a future re-verify can't run against a stale token after the
+  // user changes their email.
   await db.run('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1', [row.user_id]);
   return row.user_id;
 }

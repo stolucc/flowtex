@@ -272,22 +272,25 @@ describe('createEmailVerificationToken queries', () => {
 });
 
 describe('verifyEmail queries', () => {
-  it('UPDATE…SET used=TRUE…RETURNING user_id', async () => {
-    db.get.mockResolvedValueOnce({ user_id: 'u' });
+  it('SELECT joins token + user.email_verified for an idempotency check', async () => {
+    // Updated lookup: a JOIN that surfaces the user's current verified
+    // state. The old UPDATE…RETURNING was single-use, so email-scanner
+    // prefetches (Outlook Safe Links etc.) consumed the token before
+    // the human clicked.
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
     await verifyEmail('rawtoken');
     const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toMatch(/UPDATE email_verification_tokens SET used = TRUE/);
+    expect(sql).toMatch(/SELECT[\s\S]+email_verification_tokens/);
+    expect(sql).toMatch(/JOIN users/);
     expect(sql).toContain('token_hash = $1');
-    expect(sql).toContain('used = FALSE');
     expect(sql).toContain('expires_at > NOW()');
-    expect(sql).toContain('RETURNING user_id');
     // params is the SHA-256 hash of 'rawtoken'
     expect(params).toHaveLength(1);
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('UPDATE users SET email_verified = TRUE WHERE id = $1', async () => {
-    db.get.mockResolvedValueOnce({ user_id: 'u' });
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
     await verifyEmail('rawtoken');
     const usersUpdate = db.run.mock.calls.find((c) => c[0].includes('email_verified = TRUE'));
     expect(usersUpdate[0]).toBe('UPDATE users SET email_verified = TRUE WHERE id = $1');
@@ -295,7 +298,7 @@ describe('verifyEmail queries', () => {
   });
 
   it('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1 (invalidate siblings)', async () => {
-    db.get.mockResolvedValueOnce({ user_id: 'u' });
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
     await verifyEmail('rawtoken');
     const sib = db.run.mock.calls.find(
       (c) => c[0].includes('email_verification_tokens') && c[0].includes('user_id = $1'),

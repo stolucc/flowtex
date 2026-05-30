@@ -352,7 +352,7 @@ describe('createEmailVerificationToken', () => {
 
 describe('verifyEmail', () => {
   it('hashes the supplied token before lookup', async () => {
-    db.get.mockResolvedValueOnce({ user_id: 'u' });
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
     const raw = 'rawtoken';
     await verifyEmail(raw);
     const [, params] = db.get.mock.calls[0];
@@ -367,12 +367,26 @@ describe('verifyEmail', () => {
   });
 
   it('marks the user verified and invalidates other tokens on success', async () => {
-    db.get.mockResolvedValueOnce({ user_id: 'u' });
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
     const userId = await verifyEmail('rawtoken');
     expect(userId).toBe('u');
     const sqls = db.run.mock.calls.map((c) => c[0]);
     expect(sqls.some((s) => s.includes('UPDATE users SET email_verified = TRUE'))).toBe(true);
     expect(sqls.some((s) => s.includes('UPDATE email_verification_tokens SET used = TRUE WHERE user_id'))).toBe(true);
+  });
+
+  it('is idempotent: an already-verified user returns success without writes', async () => {
+    // Real-world trigger: an email scanner (Outlook Safe Links etc.)
+    // GETs the link before the human clicks. First call verifies +
+    // flips email_verified. Second call (the human's click) finds
+    // email_verified=TRUE in the JOIN row and returns the user id
+    // without re-running the UPDATEs. Without this, the human gets
+    // "Invalid or expired verification link" within 30s of registering.
+    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: true });
+    db.run.mockClear();
+    const userId = await verifyEmail('rawtoken');
+    expect(userId).toBe('u');
+    expect(db.run).not.toHaveBeenCalled();
   });
 });
 
