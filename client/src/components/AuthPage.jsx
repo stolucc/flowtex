@@ -396,8 +396,14 @@ export default function AuthPage({ onAuth }) {
             <p className="auth-subtitle">{mode === 'login' ? 'Sign in to your account' : 'Create a new account'}</p>
             {mode === 'register' && inviteInfo && !inviteInfo.error && (
               <div className="auth-invite-banner">
-                <strong>{inviteInfo.inviterName}</strong> invited you to collaborate on
-                {' '}<strong>{inviteInfo.projectName}</strong>.
+                {/* Cap attacker-controllable display strings (L2 from the audit) —
+                    inviterName + projectName are both owner-chosen and rendered
+                    inline next to the words "invited you to". Keeping the
+                    visible portion short means a malicious project name can't
+                    fully bury the "...on FlowTex" framing. Server applies the
+                    same cap in the email subject; this is the in-app mirror. */}
+                <strong>{String(inviteInfo.inviterName || '').slice(0, 60)}</strong> invited you to collaborate on
+                {' '}<strong>{String(inviteInfo.projectName || '').slice(0, 80)}</strong>.
                 {' '}Register with this email to accept &mdash; the invitation will
                 appear on your dashboard right after you verify your email.
               </div>

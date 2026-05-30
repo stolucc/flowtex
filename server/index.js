@@ -383,6 +383,28 @@ const commentCreateLimiter = rateLimit({
   skipFailedRequests: false,
 });
 
+// Per-user invite cap. Until the unregistered-invitee feature landed,
+// invites were 404'd unless the email already had a FlowTex account —
+// so /members couldn't be used as a generic outbound mail gateway.
+// Now any authenticated owner can trigger a real SMTP send to ANY
+// email address. Without this limiter, an attacker who registers
+// once could fan out invitation-style email to thousands of scraped
+// addresses (each rendering attacker-chosen inviter + project text)
+// and torch our sender reputation. 30/hour is well above legitimate
+// "I want to invite my 4 coauthors" usage, and bounds the worst-case
+// burn rate. Failures still count so a victim under attack doesn't
+// regain capacity through repeated 400s.
+const inviteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many invitations sent — please wait before sending more.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req, res) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  skip: () => skipRateLimit,
+});
+
 // Auth routes (public, rate-limited)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -399,6 +421,11 @@ app.use('/api/setup', setupRouter);
 app.use('/api/projects/from-zip', uploadLimiter);
 app.post('/api/projects/:id/upload-zip', uploadLimiter);
 app.post('/api/projects/:id/upload-file', uploadLimiter);
+// Per-user invite cap (see inviteLimiter above). Mounted method-
+// specifically so other writes on /members (DELETE /:userId, role
+// changes) stay under the generic apiLimiter — only the create-an-
+// invite path is the spam-vector.
+app.post('/api/projects/:id/members', inviteLimiter);
 
 // Protected API routes (general rate limit)
 app.use('/api/', apiLimiter);

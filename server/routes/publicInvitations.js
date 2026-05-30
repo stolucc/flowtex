@@ -48,8 +48,15 @@ router.get('/public/:id', async (req, res) => {
     );
     if (!row) return res.status(404).json({ error: 'Invitation not found' });
     const account = await db.get('SELECT 1 FROM users WHERE LOWER(email) = LOWER($1)', [row.email]);
+    // L1 (audit): only return the email when the recipient is
+    // unregistered — i.e. when the AuthPage will use it to prefill
+    // the register form. For an already-registered recipient the
+    // AuthPage flips to login mode (no email prefill needed), so
+    // there's no reason to leak which email an invitation was sent
+    // to. Cuts the (theoretical) email-enumeration value of brute-
+    // forcing invitation UUIDs.
     res.json({
-      email: row.email,
+      email: account ? null : row.email,
       projectName: row.project_name,
       inviterName: row.inviter_name,
       status: row.status,

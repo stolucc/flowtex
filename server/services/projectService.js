@@ -1698,6 +1698,12 @@ export async function getProjectMembers(projectId, { includeEmail = false } = {}
 }
 
 /** Invite a registered user to a project by email. */
+// Hard ceiling on how many members + pending invitations a single
+// project can carry. Generous for any legitimate paper / project but
+// bounds the spam-via-invite case: an attacker who scripts invites
+// can't fan one project out to thousands of addresses.
+const PROJECT_MEMBERSHIP_CAP = 50;
+
 export async function inviteMember(projectId, email, role, inviterId) {
   const normalizedEmail = email.toLowerCase().trim();
   // Unlike before, we DON'T reject when the email has no FlowTex
@@ -1713,6 +1719,25 @@ export async function inviteMember(projectId, email, role, inviterId) {
       user.id,
     ]);
     if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
+  }
+
+  // Per-project membership cap (members + pending invitations). The
+  // per-user invite rate limit caps overall fan-out; this caps the
+  // per-project blast radius so a single attacker-owned project
+  // can't be used to invite thousands of addresses.
+  const sizeRow = await db.get(
+    `SELECT
+       (SELECT COUNT(*) FROM project_members WHERE project_id = $1) +
+       (SELECT COUNT(*) FROM project_invitations
+         WHERE project_id = $1 AND status = 'pending') AS total`,
+    [projectId],
+  );
+  const total = parseInt(sizeRow?.total || 0, 10);
+  if (total >= PROJECT_MEMBERSHIP_CAP) {
+    throw Object.assign(
+      new Error(`Project membership cap reached (${PROJECT_MEMBERSHIP_CAP}). Remove an existing member or cancel a pending invitation first.`),
+      { status: 409 },
+    );
   }
 
   const VALID_ROLES = ['editor', 'viewer'];

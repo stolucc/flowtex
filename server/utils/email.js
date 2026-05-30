@@ -176,7 +176,24 @@ ${preheaderHtml}
 }
 
 /** Send a project collaboration invitation email. */
+// L2 (audit): trim attacker-controllable display strings before they
+// hit email subjects / banners. nodemailer normalises CRLF in headers
+// so injection isn't the worry — the worry is phishing leverage. An
+// attacker who controls inviterName (their own profile name) and
+// projectName (their own project) could stuff "URGENT — DocuSign
+// invoice — click here" into either field and bury "on FlowTex"
+// off the visible line. 80 chars for the project name + 60 for the
+// inviter is generous for real users but caps that lever. CRLF strip
+// is belt-and-suspenders against any underlying lib that doesn't.
+function trimDisplayName(s, n) {
+  return String(s || '').replace(/[\r\n\t]+/g, ' ').slice(0, n).trim();
+}
+const MAX_INVITER_NAME = 60;
+const MAX_PROJECT_NAME = 80;
+
 export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl, inviteUrl }) {
+  inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
+  projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
   const safeProject = escapeHtml(projectName);
   const safeInviter = escapeHtml(inviterName);
   // Prefer the deep link if provided; the recipient still has to log in
@@ -208,6 +225,8 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
  *    recipient can decline without ever creating an account; the
  *    inviter sees the invitation move to status=declined. */
 export async function sendUnregisteredInvitationEmail(email, { inviterName, projectName, registerUrl, declineUrl }) {
+  inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
+  projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
   const safeProject = escapeHtml(projectName);
   const safeInviter = escapeHtml(inviterName);
   const safeRegisterUrl = escapeHtml(registerUrl);
