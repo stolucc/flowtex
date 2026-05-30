@@ -6,11 +6,12 @@ whatever TeX Live you already have installed. Source files and PDFs
 never leave your machine.
 
 Status: **Shipped, current tag tracks `helper-v0.2.x`.** Single binary,
-mac + linux. On macOS the binary is shipped inside a
-`FlowTex Helper.app` bundle and runs as a menu-bar app; on Linux it
-runs headless (no portable tray story). Windows build is deferred.
-See `LOCAL_COMPILE_DESIGN.md` at the repo root for the full
-architecture and security model.
+mac + linux + windows. On macOS the binary is shipped inside a
+`FlowTex Helper.app` bundle and runs as a menu-bar app; on Windows the
+`.exe` (built with `-H=windowsgui`) drops into the system tray; on
+Linux it runs headless (no portable tray story). See
+`LOCAL_COMPILE_DESIGN.md` at the repo root for the full architecture
+and security model.
 
 ## macOS: menu-bar app (recommended)
 
@@ -69,6 +70,46 @@ auto-discovered for the year-picker submenu; MiKTeX installs at
 the standard `%LocalAppData%\Programs\MiKTeX\miktex\bin\x64` and
 `C:\Program Files\MiKTeX\miktex\bin\x64` paths are added to `$PATH`
 at startup so `latexmk` / `pdflatex` resolve without manual config.
+
+### Windows-specific hardening
+
+The helper applies a few Windows-only protections automatically:
+
+- **Explicit NTFS DACL on `config.json` + the `.flowtex-helper` dir.**
+  Go's `os.Chmod(0600)` on Windows only sets the read-only bit, not
+  a proper DACL; without further work, other users on a shared /
+  family / corporate machine could read the bearer token. The
+  helper invokes `icacls.exe` after writing the config to strip
+  inherited ACLs and grant only the current user FullControl.
+  Best-effort: if icacls fails the helper still runs (just less
+  hardened against other local accounts).
+- **Roaming-profile warning.** If `%USERPROFILE%` resolves to a UNC
+  path (e.g. `\\fileserver\users$\alice` — common in AD
+  environments), the helper logs a startup warning. The bearer
+  token would otherwise traverse SMB on every read. Affected
+  users can relocate the config to local storage.
+
+### Windows quirks worth knowing
+
+- **Firewall prompt is over-broad.** On first run Windows may show
+  "Allow flowtex-helper to communicate on public networks?". The
+  helper binds _only_ to 127.0.0.1, which the firewall never
+  gates regardless. Answer No / Cancel — the helper works fine.
+- **Defender / EDR may quarantine the .exe.** Unsigned binaries
+  that bind a TCP socket and exec child processes (latexmk)
+  trip heuristic AV. Restore from quarantine and add an
+  exclusion if needed. Long-term fix is Authenticode signing
+  (see CODESIGN.md follow-ups).
+- **`Unblock-File` for power users.** PowerShell `Unblock-File
+  .\flowtex-helper.exe` removes the Mark-of-the-Web alternate
+  data stream so SmartScreen stops warning on the first run.
+- **Tray icon is currently a placeholder.** Windows' tray expects
+  an .ico, not a text title; until we ship one in a release the
+  tray entry shows a generic icon. TODO: bundle a 16x16 + 32x32
+  ICO and call `systray.SetIcon` on Windows.
+- **systray on Windows 11 22H2+** has the occasional menu-flicker
+  report (upstream `getlantern/systray` bug). Cosmetic, not
+  functional.
 
 ## Prerequisites
 

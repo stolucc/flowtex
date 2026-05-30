@@ -173,6 +173,18 @@ go build -o flowtex-helper
 
               <dt>Self-hosting FlowTex on a different domain.</dt>
               <dd>The helper rejects requests from unknown origins. Add your domain: <code>flowtex-helper allow-origin https://your-flowtex.example.edu</code> and restart the helper.</dd>
+
+              <dt><strong>Windows:</strong> SmartScreen blocks the .exe.</dt>
+              <dd>The binary is not Authenticode-signed. Click <strong>More info</strong> → <strong>Run anyway</strong> on the SmartScreen dialog the first time. To suppress it permanently for this file, run in PowerShell: <code>Unblock-File .\flowtex-helper.exe</code>.</dd>
+
+              <dt><strong>Windows:</strong> Firewall prompts about &quot;Public networks&quot;.</dt>
+              <dd>The helper binds <strong>only</strong> to <code>127.0.0.1</code> (loopback), which Windows Firewall never gates. The first-run prompt is over-broad — answer <strong>No / Cancel</strong> and the helper still works fine. There&apos;s no scenario where the helper needs an external-network firewall rule.</dd>
+
+              <dt><strong>Windows:</strong> Microsoft Defender / EDR quarantines the .exe.</dt>
+              <dd>Unsigned binaries that bind a TCP socket + exec child processes (latexmk) are heuristically suspicious. Restore from quarantine in Defender Settings → Protection history → <em>flowtex-helper.exe</em> → Allow, and add an exclusion if it keeps recurring. Long-term fix on our side is Authenticode signing.</dd>
+
+              <dt><strong>Windows:</strong> Roaming AD profile warning at startup.</dt>
+              <dd>If you see a startup warning about <code>%USERPROFILE%</code> being on a network share, your account uses a roaming profile and the bearer token traverses SMB on every read. Consider relocating the config to local storage by setting an env var or just being aware that local-network read attempts on your profile share could read the token.</dd>
             </dl>
           </section>
 

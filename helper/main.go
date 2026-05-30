@@ -156,6 +156,15 @@ func main() {
 		helperVersion, scheme, cfg.Port, cfg.Path)
 	logger.Printf("allowed origins: %v", cfg.AllowedOrigins)
 	logger.Printf("first-time pairing? click the menu-bar icon or run: flowtex-helper pair")
+	// Roaming-profile warning (Windows AD/enterprise): if %USERPROFILE%
+	// resolves to a UNC share, the bearer token traverses SMB on
+	// every read. Tell the operator so they can move the config to
+	// local storage if that's a concern. No-op on Unix.
+	if warnIfRoamingProfile(filepath.Dir(cfg.Path)) {
+		logger.Printf("WARNING: config dir %s appears to be on a network share (roaming profile). " +
+			"The bearer token will traverse SMB on every read; consider relocating to local storage.",
+			filepath.Dir(cfg.Path))
+	}
 
 	// trayDefault is true on the platforms where runWithTray is the real
 	// tray implementation (build tags handle the OS split). On Linux the

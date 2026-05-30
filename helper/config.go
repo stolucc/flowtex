@@ -74,6 +74,16 @@ func configDir() (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	// Windows: os.MkdirAll only sets the read-only bit, not a proper
+	// NTFS DACL. secureDirACL drops inherited ACEs and grants only the
+	// current user FullControl. No-op on Unix. Best-effort: if icacls
+	// isn't on PATH for some reason the helper still runs; just less
+	// hardened against other local users.
+	if err := secureDirACL(dir); err != nil {
+		// Can't log here cleanly (no logger in scope); the caller's
+		// next saveConfig will surface a similar diagnostic if needed.
+		_ = err
+	}
 	return dir, nil
 }
 
@@ -174,7 +184,23 @@ func saveConfig(cfg *config) error {
 		os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), cfg.Path)
+	if err := os.Rename(tmp.Name(), cfg.Path); err != nil {
+		return err
+	}
+	// Windows: re-apply the explicit DACL after the rename. The
+	// rename inherits the new directory's ACL — secureDirACL has
+	// already locked the dir down so children inherit a sane ACL,
+	// but the explicit per-file lockdown is belt-and-suspenders so
+	// a (hypothetical) future loosening of the dir ACL doesn't
+	// also widen the token file. No-op on Unix.
+	if err := secureFileACL(cfg.Path); err != nil {
+		// Best-effort: file is written, just not extra-locked.
+		// Don't fail saveConfig for this — the read/write op
+		// succeeded; the user-vs-user gap is the only thing we
+		// failed to close.
+		_ = err
+	}
+	return nil
 }
 
 // generateToken returns a 32-byte random hex string (~256 bits of entropy).
