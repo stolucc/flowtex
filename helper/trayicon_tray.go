@@ -30,9 +30,19 @@ import (
 //
 // Total: 1118 bytes. Embedded in every build (negligible size cost).
 func trayIconBytes() []byte {
-	const w, h = 16, 16
+	// All sizes derive from the 16x16 dimensions and are compile-time
+	// constants, so binary.Write gets correctly-typed values and the
+	// linter doesn't flag int→uint32 conversions (gosec G115).
+	const (
+		w, h          = 16, 16
+		pixelBytes    uint32 = w * h * 4         // 1024 — 32bpp BGRA
+		andMaskBytes  uint32 = (w / 8) * h       // 32   — 1bpp opacity mask
+		bmpHeaderSize uint32 = 40
+		dataSize      uint32 = bmpHeaderSize + pixelBytes + andMaskBytes
+		entryOffset   uint32 = 6 + 16            // ICONDIR + one ICONDIRENTRY
+	)
 	pixels := buildTrayPixels(w, h)
-	andMask := make([]byte, (w/8)*h) // all zeros = fully opaque
+	andMask := make([]byte, andMaskBytes) // all zeros = fully opaque
 
 	var buf bytes.Buffer
 	// ICONDIR
@@ -47,18 +57,17 @@ func trayIconBytes() []byte {
 	buf.WriteByte(0) // reserved
 	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))  // planes
 	_ = binary.Write(&buf, binary.LittleEndian, uint16(32)) // bpp
-	dataSize := uint32(40 + len(pixels) + len(andMask))
 	_ = binary.Write(&buf, binary.LittleEndian, dataSize)
-	_ = binary.Write(&buf, binary.LittleEndian, uint32(22)) // offset = 6 + 16
+	_ = binary.Write(&buf, binary.LittleEndian, entryOffset)
 
 	// BITMAPINFOHEADER (note: height is doubled to cover the XOR + AND masks)
-	_ = binary.Write(&buf, binary.LittleEndian, uint32(40))   // header size
-	_ = binary.Write(&buf, binary.LittleEndian, int32(w))     // width
-	_ = binary.Write(&buf, binary.LittleEndian, int32(h*2))   // height (XOR + AND)
-	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))    // planes
-	_ = binary.Write(&buf, binary.LittleEndian, uint16(32))   // bpp
-	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))    // compression (BI_RGB)
-	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(pixels)))
+	_ = binary.Write(&buf, binary.LittleEndian, bmpHeaderSize) // header size
+	_ = binary.Write(&buf, binary.LittleEndian, int32(w))      // width
+	_ = binary.Write(&buf, binary.LittleEndian, int32(h*2))    // height (XOR + AND)
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))     // planes
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(32))    // bpp
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))     // compression (BI_RGB)
+	_ = binary.Write(&buf, binary.LittleEndian, pixelBytes)
 	_ = binary.Write(&buf, binary.LittleEndian, int32(0)) // x ppm
 	_ = binary.Write(&buf, binary.LittleEndian, int32(0)) // y ppm
 	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))

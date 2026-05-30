@@ -75,7 +75,12 @@ func startPairingWindow(_ *config) string {
 		Code:    code,
 		Expires: time.Now().Add(pairingWindowSeconds * time.Second).Unix(),
 	}
-	data, _ := json.Marshal(state)
+	// json.Marshal on a struct of plain string/int64 cannot fail at
+	// runtime, but the linter wants the error path acknowledged.
+	data, err := json.Marshal(state)
+	if err != nil {
+		return code
+	}
 	path, err := pairLockPath()
 	if err != nil {
 		// Fall through — the running helper will just never see a code,

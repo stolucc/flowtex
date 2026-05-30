@@ -56,11 +56,14 @@ func TestTrayIconBytes_IsValidIcoStructure(t *testing.T) {
 	if hdr := binary.LittleEndian.Uint32(b[22:26]); hdr != 40 {
 		t.Errorf("BITMAPINFOHEADER.size = %d, want 40", hdr)
 	}
-	if w := int32(binary.LittleEndian.Uint32(b[26:30])); w != 16 {
+	// width / height are stored as int32 LE in the header. Compare
+	// against uint32 literals to skip the int32 cast — width and
+	// height are both positive in our case so the bit-pattern matches.
+	if w := binary.LittleEndian.Uint32(b[26:30]); w != 16 {
 		t.Errorf("BITMAPINFOHEADER.width = %d, want 16", w)
 	}
 	// height = h*2 = 32
-	if h := int32(binary.LittleEndian.Uint32(b[30:34])); h != 32 {
+	if h := binary.LittleEndian.Uint32(b[30:34]); h != 32 {
 		t.Errorf("BITMAPINFOHEADER.height = %d, want 32 (doubled for AND mask)", h)
 	}
 

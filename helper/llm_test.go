@@ -281,7 +281,7 @@ func TestBuildLLMPrompt_NewTasksMentionItemize(t *testing.T) {
 func fakeOllama(t *testing.T, models []string, generateChunks []string) (*config, func()) {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		out := ollamaTagsResponse{}
 		for _, m := range models {
@@ -289,7 +289,7 @@ func fakeOllama(t *testing.T, models []string, generateChunks []string) (*config
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
-	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, _ *http.Request) {
 		// Ollama framing: one JSON object per line, last has done=true.
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		flusher, _ := w.(http.Flusher)
@@ -356,7 +356,7 @@ func TestStreamOllamaComplete_RespectsContextCancel(t *testing.T) {
 	// A slow-emitting fake: pause between chunks so we can cancel
 	// mid-stream and verify the stream returns promptly.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, _ *http.Request) {
 		flusher, _ := w.(http.Flusher)
 		for i := 0; i < 100; i++ {
 			line := fmt.Sprintf(`{"response":"t","done":false}` + "\n")
@@ -379,7 +379,7 @@ func TestStreamOllamaComplete_RespectsContextCancel(t *testing.T) {
 	}()
 	err := streamOllamaComplete(ctx, cfg, &llmCompleteRequest{
 		Task: "write-to-length", Model: "m", Input: "hi", TargetWords: 5,
-	}, func(d string) error {
+	}, func(_ string) error {
 		atomic.AddInt32(&count, 1)
 		return nil
 	})
@@ -397,7 +397,7 @@ func TestStreamOllamaComplete_EnforcesOutputCap(t *testing.T) {
 	// gets at most llmOutputMaxChars total then the stream aborts.
 	bigPayload := strings.Repeat("x", llmOutputMaxChars+1000)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, _ *http.Request) {
 		line := fmt.Sprintf(`{"response":%q,"done":false}`+"\n", bigPayload)
 		_, _ = w.Write([]byte(line))
 	})

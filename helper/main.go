@@ -109,7 +109,13 @@ func main() {
 	// --no-tray forces headless even on platforms that would otherwise
 	// boot the tray; useful for systemd services, CI, debugging.
 	var noTrayFlag = flag.Bool("no-tray", false, "run headless even on platforms that default to the tray UI")
-	flag.CommandLine.Parse(os.Args[1:])
+	// flag.CommandLine uses ExitOnError by default, so a parse failure
+	// already calls os.Exit(2). The error return is therefore
+	// unreachable in practice — capture-and-ignore to satisfy errcheck
+	// without changing the flag-handling semantics.
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		logger.Fatalf("flag parse: %v", err)
+	}
 
 	cfg, err := loadConfig()
 	if err != nil {

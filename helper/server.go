@@ -111,7 +111,7 @@ func newServer(cfg *config, logger *log.Logger) (*server, error) {
 // /health — unauthenticated, just a liveness probe. Returning version
 // info would help a hostile site fingerprint the install; we keep the
 // body intentionally minimal.
-func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, `{"ok":true}`)

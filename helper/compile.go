@@ -295,10 +295,7 @@ func isSafeRelPath(p string) bool {
 			return false
 		}
 	}
-	if len(p) > 500 {
-		return false
-	}
-	return true
+	return len(p) <= 500
 }
 
 // summariseYears returns a comma-joined string of the years in `ds`,
