@@ -2,7 +2,9 @@
 
 ## System Overview
 
-FlowTex is a full-stack web application with a React single-page application frontend, an Express.js backend, PostgreSQL for persistence, and optional Redis for horizontal scaling. LaTeX compilation is delegated to a local TeX Live installation — by default running on the server, or optionally on the user's own machine via the `flowtex-helper` companion app (see `helper/` and `LOCAL_COMPILE_DESIGN.md`). The helper is a single Go binary; on macOS it ships as a `.app` menu-bar app, on Linux it runs headless. The web app and the helper communicate via a loopback HTTPS/HTTP bridge with bearer-token + Origin allowlist + Host pin auth.
+FlowTex is a full-stack web application with a React single-page application frontend, an Express.js backend, PostgreSQL for persistence, and optional Redis for horizontal scaling. LaTeX compilation is delegated to a local TeX Live installation — by default running on the server, or optionally on the user's own machine via the `flowtex-helper` companion app (see `helper/` and `LOCAL_COMPILE_DESIGN.md`). The helper is a single Go binary; on macOS it ships as a `.app` menu-bar app, on Windows as a `.exe` system-tray app (built with `-H=windowsgui`), on Linux it runs headless. The web app and the helper communicate via a loopback HTTPS/HTTP bridge with bearer-token + Origin allowlist + Host pin auth.
+
+The helper also brokers a **local LLM writing assistant**: it proxies a closed set of writing tasks (`write-to-length`, `paraphrase`, `itemize`, `write-it-out`, `custom`) to a locally-installed [Ollama](https://ollama.com/) instance. The browser sends a `task` name + parameters; the helper builds the system prompt from a server-side template, validates the Ollama URL is loopback-only (127.0.0.1 / ::1 / localhost) on every request, streams the response back via SSE, and the editor's right-click menu replaces the selection on Accept. Selected text and model output never traverse the FlowTex server — the path is `browser → helper (loopback) → Ollama (loopback) → helper → browser`. See `helper/llm.go` for the task catalog and `helper/README.md` for setup.
 
 ---
 

@@ -324,6 +324,16 @@ The menu bar also has:
 - **Default TeX Live** — if you have multiple `/usr/local/texlive/YYYY` installs, pick which year is the default for compiles that don't pin a year.
 - **Quit** — stops the helper.
 
+### Install (Windows)
+
+1. Download **flowtex-helper-windows-amd64.exe** from the latest [GitHub Release](https://github.com/stolucc/flowtex/releases).
+2. Move it somewhere stable (e.g. `C:\Program Files\FlowTex\flowtex-helper.exe`).
+3. Double-click to launch. SmartScreen will warn the first time because the .exe isn't code-signed — click **More info** → **Run anyway**.
+4. The **fTx** icon appears in the system tray (bottom-right notification area). Click it → **Generate pairing code**, then paste the code into Account Settings → Compile.
+5. To auto-start at login, drop a shortcut into `%AppData%\Microsoft\Windows\Start Menu\Programs\Startup`.
+
+The helper applies Windows-specific protections automatically: the config file at `%USERPROFILE%\.flowtex-helper\config.json` (which holds the bearer token) is locked down via `icacls` so other local accounts can't read it. A startup warning fires if `%USERPROFILE%` is on a network share.
+
 ### Install (Linux)
 
 The same one-liner from the in-app instructions installs the headless binary on your `$PATH`:
@@ -346,6 +356,45 @@ Under **Project Settings → Compiler tab**:
 ### When the helper isn't there
 
 If you set "local" but the helper is offline, busy, or doesn't have the requested TeX Live year, FlowTex transparently falls back to the server. You'll see a brief "Compiling on the FlowTex server" line in the console. No manual switch needed.
+
+---
+
+## Local LLM Writing Assistant (opt-in)
+
+Once the helper is paired and a local [Ollama](https://ollama.com/) runtime is running, you can right-click any selected text in the editor for five LLM-driven actions. All inference happens on YOUR machine — selected text and generated output never traverse the FlowTex server.
+
+### LLM setup
+
+1. Install Ollama: download from [ollama.com](https://ollama.com/) and run.
+1. Pull at least one model in a terminal:
+
+   ```bash
+   ollama pull llama3.2:3b      # ~2 GB, fast on most hardware
+   # or
+   ollama pull qwen2.5:7b       # ~5 GB, better at writing
+   ```
+
+1. Hard-refresh FlowTex. The helper's tray icon now shows **Local LLM: ● N models**.
+1. Open **Help → Helper setup guide** if anything's not lighting up; the dialog runs three live probes (`/health`, `/version`, `/llm/status`) and tells you exactly which step is stuck.
+
+### Using LLM actions
+
+Select text in the editor → right-click → pick an action:
+
+- **Write to length…** — rewrite the selection to approximately N words (counts rendered prose, not LaTeX commands like `\cite{}` or `\textbf{}`).
+- **Paraphrase** — reword with similar length, same tone, same LaTeX markup.
+- **Itemize** — convert prose into a LaTeX `\begin{itemize}` environment.
+- **Write it out** — inverse of itemize: bullets back to a flowing prose paragraph.
+- **Other…** — free-form instruction in a textarea ("translate to French", "make this sound more formal"). The model is hard-locked to textual transformations only — instructions like "delete files" or "run a command" are refused. Capped at 1000 characters.
+
+The dialog streams the model output into a preview pane. Click **Accept** to replace the selection (Cmd+Z still works to undo); **Discard / Cancel** leaves it alone.
+
+If something's wrong:
+
+- **Ollama not detected** → start the Ollama app (macOS) or `ollama serve` (Linux/Windows terminal).
+- **No models installed** → `ollama pull llama3.2:3b`.
+- **"Couldn't reach the helper for LLM features"** → your helper binary is older than the client; rebuild + restart (`go build -o flowtex-helper` in `helper/`, then restart).
+- **The dialog mentions a particular task isn't supported** → same fix; the new task was added in a later helper.
 
 ---
 

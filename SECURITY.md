@@ -301,3 +301,61 @@ The server falls back to HTTP if `server/certs/cert.pem` and
 `server/certs/key.pem` aren't present. Always provision certs in production —
 the WebSocket and session cookie depend on `secure`/`SameSite` semantics that
 need TLS to function correctly.
+
+## Local-LLM bridge
+
+The helper proxies the editor's right-click LLM actions
+(`write-to-length`, `paraphrase`, `itemize`, `write-it-out`, `custom`) to
+a locally-installed Ollama runtime. Security boundaries:
+
+- **Loopback-only target.** `llm_base_url` must resolve to `127.0.0.1`,
+  `::1`, or `localhost`. Validated on config load AND on every request,
+  so a hand-edited config can't silently exfiltrate selected text to a
+  remote inference service.
+- **Redirects refused.** The helper's outbound `http.Client` sets
+  `CheckRedirect: ErrUseLastResponse`. Without this a process posing
+  as Ollama could 302 → an external endpoint and the helper would POST
+  the user's selected text body before the status check fired.
+- **Closed task allowlist.** `validTasks` in `helper/llm.go` is the only
+  set of tasks the helper will run. The browser submits a `task` name +
+  parameters; the helper builds the system prompt from a hardcoded
+  template — there is no path for the page to push an arbitrary system
+  prompt to the model.
+- **Hardened "custom" prompt.** For the user-supplied free-form task,
+  the system prompt explicitly limits the model to textual
+  transformations, lists forbidden categories (shell commands, file
+  deletion, exfiltration URLs, `\write18` / `\directlua{os.execute}` /
+  `\input{/etc/...}`), and provides a refusal sentinel. Determined
+  prompt injection still works, but the LLM has no execution
+  capability and any malicious LaTeX output is stopped by the existing
+  compile cage.
+- **Model name validation.** Browser-supplied `model` must match
+  `^[A-Za-z0-9_.:/\-]{1,128}$` — covers every legit Ollama tag and
+  rejects whitespace, control chars, and pathological strings.
+- **Caps.** Input ≤ 20 000 chars, output ≤ 50 000 chars (enforced
+  mid-chunk so a runaway model can't blow past it), 5-min wall-clock,
+  1 in-flight LLM call, 60/min with burst 5.
+
+The path is `browser → helper (loopback) → Ollama (loopback) → helper
+→ browser`. The FlowTex server is never in the LLM path — it neither
+proxies nor sees the selected text.
+
+## Helper (Windows-specific hardening)
+
+The Go standard library's `os.Chmod(path, 0o600)` is a partial no-op
+on Windows — it sets the read-only bit but leaves the NTFS DACL alone.
+Without further work the bearer token in `~/.flowtex-helper/config.json`
+would inherit `%USERPROFILE%`'s default ACL, which on shared / family /
+corporate machines can grant other local accounts read access.
+
+The helper now invokes `icacls.exe` after creating the config file +
+directory to strip inherited ACEs and grant only the current user
+FullControl. Best-effort: if `icacls` fails the helper still runs (just
+less hardened against other local accounts). Implementation lives in
+`helper/config_windows.go`; the equivalent file on Unix
+(`helper/config_other.go`) ships no-op stubs because the existing
+0600 / 0700 modes are correct at the inode level there.
+
+A startup warning fires if `%USERPROFILE%` resolves to a UNC share
+(typical of AD roaming profiles) — the bearer token would otherwise
+traverse SMB on every read.

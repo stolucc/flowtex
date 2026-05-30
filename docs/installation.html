@@ -202,6 +202,14 @@ www.flowtex.example.com {
 <h3>3.3 tex-fmt <span class="tag tag-opt">Optional</span></h3>
 <p>An alternative LaTeX formatter (faster than latexindent). Not available via apt; install from <a href="https://github.com/WGUNDERWOOD/tex-fmt/releases">GitHub releases</a>.</p>
 
+<h3>3.4 Client-side features (operator does nothing) <span class="tag tag-opt">Optional</span></h3>
+<p>Two opt-in features run entirely on the end user's own machine — you (the operator) install nothing for them. Worth knowing about so you can answer user questions:</p>
+<ul>
+  <li><strong>Local LaTeX compile (<code>flowtex-helper</code>).</strong> Users download a small Go binary (.dmg on macOS, .exe on Windows, headless on Linux) from your GitHub Releases. They pair it once with FlowTex via a 6-digit code; from then on their compiles run on their laptop's TeX Live instead of the server. To EXPOSE this option in the UI, set <code>FEATURE_LOCAL_COMPILE=1</code> in <code>.env</code>. Without that flag, the helper is dormant. Pre-built binaries with SHA256SUMS verification ship from the <code>helper-v*</code> release tags in this repo's GitHub Actions.</li>
+  <li><strong>Local LLM writing assistant.</strong> Once the helper is paired, users who also install <a href="https://ollama.com/">Ollama</a> on their machine get a right-click menu in the editor for textual rewriting (paraphrase, itemize, write-to-length, custom instructions). The flow is <code>browser → helper (loopback) → Ollama (loopback)</code>; the FlowTex server is never in the LLM path. No server-side install or configuration needed. Validation that the configured LLM URL is loopback-only is enforced helper-side, so a hand-edited config can't redirect requests to a remote service.</li>
+</ul>
+<p>End-user setup walk-throughs for both live in <code>USER_GUIDE.md</code> and the in-app <strong>Help → Helper setup guide</strong>. The full helper architecture + security model is in <code>LOCAL_COMPILE_DESIGN.md</code> + <code>helper/README.md</code>.</p>
+
 <h2>4. Application Setup</h2>
 
 <h3>4.1 Install application dependencies</h3>

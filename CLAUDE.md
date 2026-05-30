@@ -15,16 +15,24 @@ Self-hosted collaborative LaTeX editor.
 client/src/
   App.jsx          — Main app, routing, state, WebSocket connection
   components/
-    Editor.jsx     — CodeMirror editor, search panel, table builder, symbol picker
+    Editor.jsx     — CodeMirror editor, search panel, table builder, symbol picker,
+                     right-click LLM menu (lazy-loads LlmActionDialog)
     Toolbar.jsx    — Menu bar (File, Edit, Insert, View, Format, Tools, Help)
     PdfViewer.jsx  — PDF preview with SyncTeX support
     FileTree.jsx   — Project file browser
     AuthPage.jsx   — Login/register/2FA
     ChatPanel.jsx  — Real-time chat
+    LlmActionDialog.jsx  — Per-task LLM dialog (write-to-length / paraphrase /
+                           itemize / write-it-out / custom) + preamble stripper
+    HelperGuideModal.jsx — In-app helper setup + LLM troubleshooting
+                           (Help → Helper setup guide)
   utils/
     latexParser.js — LaTeX AST parser (tables, environments)
     spellcheck.js  — Client-side spellcheck with Hunspell dictionaries
     latexLint.js   — LaTeX linting
+    llmTasks.js    — Catalog of right-click LLM tasks (label/hint/needsTargetWords)
+    helperBridge.js — Browser ↔ helper HTTP/SSE client (compile, /llm/status,
+                      streamLlmComplete, pair)
   styles/app.css   — All styles (CSS custom properties for theming)
 
 server/
@@ -33,8 +41,18 @@ server/
   routes/          — auth, projects, compile, github, bib, zotero, chat, comments, ...
   utils/           — crypto, email, gitSync, latexDiff
 
-helper/            — Go menu-bar app for opt-in local LaTeX compile
-                     (macOS .dmg + Linux headless binary; see helper/README.md)
+helper/            — Go companion app for opt-in local LaTeX compile + local LLM.
+                     macOS .dmg (.app menu-bar), Windows .exe (system tray,
+                     -H=windowsgui), Linux headless binary. Key files:
+                     server.go         — HTTP routes + rate limiters
+                     auth.go           — bearer + Origin + Host pin middleware
+                     compile.go        — latexmk invocation + cage flags
+                     llm.go            — Ollama proxy + task allowlist + SSE
+                     config.go         — JSON config + ACL hardening (Windows)
+                     config_windows.go — icacls DACL lockdown (Windows-only)
+                     tray.go           — system-tray UI (darwin + windows)
+                     trayicon_tray.go  — programmatic 16x16 .ico
+                     See helper/README.md for the user-facing install guide.
 
 scripts/
   provision-vps.sh         — one-shot VPS provisioner/upgrader
