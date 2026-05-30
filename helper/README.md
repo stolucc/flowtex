@@ -103,10 +103,12 @@ The helper applies a few Windows-only protections automatically:
 - **`Unblock-File` for power users.** PowerShell `Unblock-File
   .\flowtex-helper.exe` removes the Mark-of-the-Web alternate
   data stream so SmartScreen stops warning on the first run.
-- **Tray icon is currently a placeholder.** Windows' tray expects
-  an .ico, not a text title; until we ship one in a release the
-  tray entry shows a generic icon. TODO: bundle a 16x16 + 32x32
-  ICO and call `systray.SetIcon` on Windows.
+- **Tray icon.** A 16x16 ICO (blue square + white "F" glyph) is
+  generated at startup and passed to `systray.SetIcon`. The
+  bytes are built programmatically so there's no binary asset
+  file in the repo — see `helper/trayicon_tray.go`. A future
+  enhancement would be to embed a higher-resolution 32x32 ICO
+  for HiDPI displays.
 - **systray on Windows 11 22H2+** has the occasional menu-flicker
   report (upstream `getlantern/systray` bug). Cosmetic, not
   functional.

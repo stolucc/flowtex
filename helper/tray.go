@@ -76,11 +76,16 @@ func runWithTray(cfg *config, srv *server, httpServer *http.Server, logger *log.
 }
 
 func onTrayReady() {
-	// Using a text title rather than an icon for v1 — a proper template
-	// icon needs cross-platform PNG/ICO assets and codesign-aware build
-	// plumbing. "fTx" is short enough not to crowd the menu bar.
+	// macOS' menu bar renders the SetTitle text fine, so "fTx" appears
+	// up by the clock. Windows' system tray only renders icons, so we
+	// also call SetIcon with a programmatically-generated 16x16 ICO
+	// (see trayicon_tray.go). The icon doubles as the macOS template
+	// — systray accepts ICO bytes on both OSes.
 	systray.SetTitle("fTx")
 	systray.SetTooltip("flowtex-helper — local LaTeX compile")
+	if icon := trayIconBytes(); len(icon) > 0 {
+		systray.SetIcon(icon)
+	}
 
 	statusMI := systray.AddMenuItem("Helper running", "")
 	statusMI.Disable()
