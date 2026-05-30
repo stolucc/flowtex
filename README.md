@@ -164,7 +164,7 @@ See [docs/installation.html](docs/installation.html) for full operator documenta
 
 ## Project Structure
 
-```
+```text
 flowtex/
   client/                   # React frontend (Vite)
     src/

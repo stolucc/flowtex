@@ -30,9 +30,9 @@ three concrete wins:
 - Server load drops roughly in proportion to the fraction of users who
   opt in. A user on `flowtex.click` with the helper installed never
   spawns a `latexmk` process on the VPS again.
-- Latency on the typical edit-compile loop falls from ~2-4 s (network
-  + queue + compile + stream) to roughly the local compile time alone
-  (~300-800 ms for normal docs).
+- Latency on the typical edit-compile loop falls from ~2-4 s
+  (network plus queue plus compile plus stream) to roughly the local
+  compile time alone (~300-800 ms for normal docs).
 - Source for the compile step never leaves the user's machine, useful
   for institutions with data-residency concerns.
 
@@ -113,7 +113,7 @@ existing routes.
 
 ## 4. Architecture
 
-```
+```text
                           ┌────────────────────────────┐
                           │  Browser (FlowTex client)  │
                           │ ┌────────────────────────┐ │
@@ -145,7 +145,7 @@ arrow is new and only fires when the resolved compile location is
 
 ## 5. Settings resolution
 
-```
+```text
 project.compile_location   user.compile_location   helper status     →  effective
 ───────────────────────────────────────────────────────────────────────────────────
 'server'                   *                       *                 →  server
@@ -188,7 +188,7 @@ export function resolveCompileLocation(project, user, helperStatus) {
 
 ### 6.2 Filesystem layout
 
-```
+```text
 ~/.flowtex-helper/
   config.json           # bearer token, allowed origins, port
   helper.log            # rolling log (10 MB max, 3 files)
@@ -323,6 +323,7 @@ Why this shape:
 
 The page is served from `https://flowtex.click`. Direct `fetch` to
 `http://127.0.0.1:9876` triggers two problems:
+
 - Mixed content (browser blocks HTTP from HTTPS page).
 - CORS preflight noise.
 

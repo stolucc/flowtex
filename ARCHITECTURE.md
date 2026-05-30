@@ -10,7 +10,7 @@ The helper also brokers a **local LLM writing assistant**: it proxies a closed s
 
 ## Architecture Diagram
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                   CLIENTS                                       │
 │                                                                                 │
@@ -122,7 +122,7 @@ The helper also brokers a **local LLM writing assistant**: it proxies a closed s
 
 ### 1. Authentication Flow
 
-```
+```text
 Client                     Server                      PostgreSQL
   │                          │                              │
   │  POST /api/auth/login    │                              │
@@ -148,7 +148,7 @@ Client                     Server                      PostgreSQL
 
 ### 2. Real-Time Editing Flow
 
-```
+```text
 User A (Editor)         Server (WebSocket)        User B (Editor)
   │                          │                          │
   │  join { projectId }      │                          │
@@ -241,7 +241,7 @@ For `lualatex` the wrap goes one step further: `$lualatex` is overridden via `-e
 
 ### 3. Compilation Flow
 
-```
+```text
 Client                Server                TeX Live            Filesystem
   │                     │                      │                    │
   │ GET /compile-stream │                      │                    │
@@ -268,7 +268,7 @@ Client                Server                TeX Live            Filesystem
 
 ### 4. GitHub Sync Flow
 
-```
+```text
 Client              Server              Git (simple-git)         GitHub
   │                   │                      │                      │
   │ POST /push        │                      │                      │
@@ -291,7 +291,7 @@ Client              Server              Git (simple-git)         GitHub
 
 ## Database Schema
 
-```
+```text
 ┌──────────────┐       ┌──────────────────┐       ┌──────────────┐
 │    users     │       │   projects       │       │    tags      │
 ├──────────────┤       ├──────────────────┤       ├──────────────┤
@@ -405,7 +405,7 @@ Collaboration tables (FKs back to comments / comment_replies / chat_messages):
 
 ### Server Layers
 
-```
+```text
                     ┌─────────────────────────────┐
                     │     Middleware Pipeline      │
                     │                             │
@@ -449,7 +449,7 @@ Collaboration tables (FKs back to comments / comment_replies / chat_messages):
 
 ### Client Component Tree
 
-```
+```text
 main.jsx
   └─ ErrorBoundary
        └─ App
@@ -602,7 +602,7 @@ The source document is never modified — every visual effect is a decoration on
 
 ## Security Architecture
 
-```
+```text
                         Internet
                            │
                     ┌──────▼──────┐
@@ -698,7 +698,7 @@ For larger deployments:
 
 ### Recommended Production Stack
 
-```
+```text
                     ┌──────────────┐
                     │   Nginx /    │
                     │   Caddy      │  TLS termination, static file caching

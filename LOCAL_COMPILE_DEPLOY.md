@@ -58,6 +58,7 @@ git pull
 ```
 
 This brings down all four new tables-of-things:
+
 - The shared TC-macros module (server pulls from `shared/`).
 - The two new schema columns (`users.compile_location`,
   `projects.compile_location`). They auto-migrate on next server boot
@@ -79,7 +80,7 @@ for client-only changes).
 
 Add to your `.env` (or wherever you set env vars):
 
-```
+```text
 FEATURE_LOCAL_COMPILE=1
 ```
 
@@ -187,6 +188,7 @@ paired browsers are de-authenticated automatically.
 Risk: a malicious browser extension can read `localStorage` and
 exfiltrate the token, then use it to compile arbitrary `.tex` on
 the user's machine. Mitigations:
+
 - Helper compile cage (`--no-shell-escape`, `--safer` for lualatex,
   `openin_any=p`, `openout_any=p`) — even arbitrary `.tex` can't
   break out.

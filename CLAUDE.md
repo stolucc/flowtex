@@ -11,7 +11,7 @@ Self-hosted collaborative LaTeX editor.
 
 ## Project Structure
 
-```
+```text
 client/src/
   App.jsx          — Main app, routing, state, WebSocket connection
   components/
@@ -113,7 +113,7 @@ When you need information from the internet, follow these strategies in order. M
 
 Always start with `web_search` to find information. The search snippets alone often contain enough to answer the question. Extract what you need from the snippets without fetching full pages.
 
-```
+```python
 # Good: short, specific queries
 web_search("python asyncio gather timeout")
 web_search("nginx reverse proxy websocket config")
@@ -127,6 +127,7 @@ web_search("how do I configure nginx as a reverse proxy for websocket connection
 If you need full page content, use `web_fetch` but expect failures. Many sites will block you or return useless content.
 
 **Sites that typically work well:**
+
 - Raw GitHub files (raw.githubusercontent.com)
 - GitHub READMEs and file views
 - Official documentation sites (docs.python.org, developer.mozilla.org, etc.)
@@ -135,6 +136,7 @@ If you need full page content, use `web_fetch` but expect failures. Many sites w
 - API documentation
 
 **Sites that typically fail or return garbage:**
+
 - News sites (paywalls, JS rendering)
 - Social media (Twitter/X, Reddit, LinkedIn)
 - Sites behind Cloudflare or similar bot protection
@@ -171,4 +173,3 @@ When looking for code examples, library usage, or API docs:
 - **Keep search queries short** — 2-6 words get the best results.
 - **Include the year** in searches when recency matters (e.g., "rust async patterns 2025").
 - **If a user gives you a specific URL**, try to fetch it, but let them know if it fails and suggest alternatives.
-

@@ -1,0 +1,14 @@
+{
+  "_comment_": "Project markdown lint config. Documents in this repo are intentionally paragraph-style — we do NOT hard-wrap at 80 columns because that makes diffs harder to read (a one-word edit reflows the whole paragraph) and GitHub renders them just fine without the wrap. Same reason we don't enforce table-cell whitespace alignment: GitHub renders both compact and aligned table syntax identically, and re-aligning when a column widens is pure churn.",
+
+  "MD013": false,
+  "MD060": false,
+
+  "_MD025_comment_": "CLAUDE.md uses a second H1 to introduce the 'Project Instructions' block — it's a deliberate two-section structure (codebase context above, prompt-engineering rules below). The rule's intent (one H1 per page so screen readers / TOC builders can find the title) is honoured by both H1s being distinct titles. Allowing here.",
+  "MD025": false,
+
+  "_MD034_comment_": "Bare URLs in operator-facing docs (installation walkthroughs) are easier to copy-paste from a terminal than inline links. Allowing.",
+  "MD034": false,
+
+  "_kept_": "MD040 (fence language), MD032 (list spacing), MD012 (multiple blank lines), MD024 (duplicate headings) and the rest of the default set are still enforced — those catch genuine readability issues."
+}

@@ -22,6 +22,7 @@
 **The CM6 doc contains BOTH pending insertions and pending deletions as real characters.** Pending deletions are NOT removed from the doc — they stay in place and are visually marked with a strikethrough decoration. This is the same model MS Word uses for revision tracking: deleted text remains in the document with strikethrough until accepted.
 
 Consequences:
+
 - The cursor naturally traverses pending deletions (right arrow steps across each strikethrough char).
 - Selection, copy, search all see pending deletions as part of the doc — same as Word.
 - "Doc length" includes pending deletions.
@@ -259,7 +260,7 @@ Concretely: typing `abc` as three transactions and pressing Cmd-Z three times le
 
 | # | Rule |
 |---|---|
-| 6.1 | Save fires on ANY user-originated change to either doc text or sidecar (`docChanged || marksChanged`). |
+| 6.1 | Save fires on ANY user-originated change to either doc text or sidecar (`docChanged \|\| marksChanged`). |
 | 6.2 | `marksChanged` ≡ "this update has at least one `addTcMarks` or `removeTcMark` effect". `setTcMarks` (hydration) is INTENTIONALLY excluded — hydration must NOT trigger a re-save. |
 | 6.3 | Save body always includes both `content` and `tcMarks` AND `baseVersion`. V1 server stores `baseVersion` but does not enforce it (last-write-wins). V2: server returns 409 on stale save; client re-fetches and prompts. |
 | 6.4 | File switch / unmount: flush pending debounced save, pinned to the file id at edit time. |

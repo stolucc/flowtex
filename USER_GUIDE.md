@@ -54,7 +54,7 @@ After logging in, you'll see the **Project List** dashboard.
 
 The editor view has four main areas arranged left to right:
 
-```
+```text
 +----------------------------------------------------------+
 |                       Toolbar                             |
 +----------+------------------+----+----------+-------------+

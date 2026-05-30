@@ -166,7 +166,7 @@ path even on macOS (useful for systemd-style services or debugging):
 
 On first run the helper creates `~/.flowtex-helper/`:
 
-```
+```text
 ~/.flowtex-helper/
   config.json       # bearer token, port (9876), allowed origins,
                     # optional default_tex_year, optional llm_base_url
