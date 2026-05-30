@@ -725,6 +725,12 @@ function AppInner() {
             else if (topic === 'about') ui.setShowAbout(true);
             else if (topic === 'bug-report') ui.setShowBugReport(true);
             else if (topic === 'helper-guide') ui.setShowHelperGuide(true);
+            else if (topic === 'user-guide') {
+              // Pre-rendered at build time from USER_GUIDE.md to
+              // public/docs/user-guide.html. New tab keeps the
+              // user's editor session intact.
+              window.open('/docs/user-guide.html', '_blank', 'noopener');
+            }
           }}
           onCompareFiles={() => ui.setShowCompareFiles(true)}
           onGitHubSync={() => ui.setShowGitHubSync(true)}

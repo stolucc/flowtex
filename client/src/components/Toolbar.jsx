@@ -239,6 +239,7 @@ export default function Toolbar({
   ];
 
   const helpMenuItems = [
+    { label: 'User guide', action: () => onHelp?.('user-guide') },
     { label: 'Keyboard Shortcuts', action: () => onHelp?.('shortcuts') },
     { label: 'separator' },
     { label: 'Helper setup guide…', action: () => onHelp?.('helper-guide') },
