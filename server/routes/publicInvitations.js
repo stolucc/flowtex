@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import db from '../db.js';
 import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
+import { sendInvitationDeclinedEmail } from '../utils/email.js';
 import { sendError } from '../middleware/errorHandler.js';
 
 const router = Router();
@@ -122,6 +123,32 @@ router.post('/by-token/decline', async (req, res) => {
         email: row.email,
       });
     }
+    // I3 (audit): email the inviter too. The WS push above only
+    // fires if the inviter happens to be online at the exact moment
+    // the decline lands — usually they aren't. Best-effort: a send
+    // failure does NOT roll back the decline (declining is the
+    // decliner's right, the inviter's notification is courtesy).
+    // Fire-and-forget so the HTTP response isn't blocked on SMTP.
+    (async () => {
+      try {
+        const inviter = await db.get(
+          `SELECT u.email, u.name, p.name AS project_name
+           FROM users u JOIN projects p ON p.id = $2
+           WHERE u.id = $1`,
+          [row.inviter_id, row.project_id],
+        );
+        if (!inviter?.email) return;
+        const baseUrl = process.env.APP_URL || '';
+        await sendInvitationDeclinedEmail(inviter.email, {
+          inviterName: inviter.name,
+          declinedEmail: row.email,
+          projectName: inviter.project_name,
+          projectUrl: baseUrl ? `${baseUrl}/project/${row.project_id}` : '',
+        });
+      } catch (err) {
+        logger.warn({ err, invitationId: row.id }, 'Inviter notification email failed');
+      }
+    })();
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err);

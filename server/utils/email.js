@@ -224,6 +224,44 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
  *  - Includes a "Decline" link backed by a one-shot token so the
  *    recipient can decline without ever creating an account; the
  *    inviter sees the invitation move to status=declined. */
+/** Notify the inviter that an unregistered invitee declined via the
+ *  email link. The inviter only gets a live WS event if they happen
+ *  to be online when the decline lands — this email closes the gap
+ *  for the (common) offline case. Best-effort: a send failure does
+ *  NOT roll back the decline.
+ *
+ *  No CTA — the inviter has nothing to do but acknowledge. The
+ *  project URL is included as a body link in case they want to
+ *  invite a different address. */
+export async function sendInvitationDeclinedEmail(inviterEmail, { inviterName, declinedEmail, projectName, projectUrl }) {
+  inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
+  projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
+  const safeProject = escapeHtml(projectName);
+  const safeDeclined = escapeHtml(declinedEmail);
+  const safeProjectUrl = escapeHtml(projectUrl || '');
+  return sendEmail({
+    to: inviterEmail,
+    subject: `Invitation declined: ${declinedEmail} declined to join "${projectName}"`,
+    text:
+      `Hi ${inviterName || 'there'},\n\n` +
+      `${declinedEmail} declined your invitation to collaborate on "${projectName}".\n\n` +
+      `They were not a FlowTex user and chose to decline via the email link rather\n` +
+      `than create an account. No further action is needed — if you'd like to\n` +
+      `invite them again or invite a different address, open the project in FlowTex.\n\n` +
+      (projectUrl ? `Project: ${projectUrl}\n` : ''),
+    html: renderEmailLayout({
+      preheader: `${declinedEmail} declined your invitation to ${projectName}.`,
+      heading: `Invitation declined`,
+      bodyHtml:
+        `<p style="margin:0 0 12px 0;"><strong>${safeDeclined}</strong> declined your invitation to collaborate on &ldquo;${safeProject}&rdquo;.</p>` +
+        `<p style="margin:0;">They were not a FlowTex user and chose to decline via the email link rather than create an account. No further action is needed.</p>`,
+      ctaLabel: projectUrl ? 'Open project' : undefined,
+      ctaUrl: projectUrl ? safeProjectUrl : undefined,
+      footnoteHtml: `You&rsquo;re receiving this because you sent the invitation.`,
+    }),
+  });
+}
+
 export async function sendUnregisteredInvitationEmail(email, { inviterName, projectName, registerUrl, declineUrl }) {
   inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
   projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
