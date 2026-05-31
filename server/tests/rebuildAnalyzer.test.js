@@ -76,11 +76,51 @@ describe('buildManifest / readManifest / writeManifest', () => {
     expect(readManifest('/no/such/dir', 'x')).toBeNull();
   });
 
+  it('readManifest refuses files larger than the size cap', async () => {
+    const dir = tmpDir();
+    // Pre-create a 12 MB manifest file via truncate to exceed the 10 MB cap.
+    const p = path.join(dir, 'main.flowtex-build-manifest.json');
+    const fh = await fsp.open(p, 'w');
+    try {
+      await fh.truncate(12 * 1024 * 1024);
+    } finally {
+      await fh.close();
+    }
+    expect(readManifest(dir, 'main')).toBeNull();
+  });
+
   it('skips files that cannot be read (treated as removed by diff)', async () => {
     const dir = tmpDir();
     await fsp.writeFile(path.join(dir, 'real.tex'), 'x');
     const m = await buildManifest(dir, ['real.tex', 'ghost.tex']);
     expect(Object.keys(m.files)).toEqual(['real.tex']);
+  });
+
+  it('skips symlinks (defence-in-depth against out-of-tree hash leaks)', async () => {
+    const dir = tmpDir();
+    const secret = fs.mkdtempSync(path.join(os.tmpdir(), 'flowtex-secret-'));
+    await fsp.writeFile(path.join(secret, 'secret.txt'), 'do-not-leak');
+    await fsp.symlink(path.join(secret, 'secret.txt'), path.join(dir, 'shortcut.tex'));
+    // Also a regular file so we know hashing still works for normal entries.
+    await fsp.writeFile(path.join(dir, 'real.tex'), 'x');
+    const m = await buildManifest(dir, ['real.tex', 'shortcut.tex']);
+    expect(Object.keys(m.files)).toEqual(['real.tex']);
+  });
+
+  it('skips oversized files (no half-GB allocations during hashing)', async () => {
+    const dir = tmpDir();
+    // Create a sparse 60 MB file with `truncate` semantics — actual disk
+    // use is one block, but stat().size reports 60 MB so the cap kicks in.
+    const big = path.join(dir, 'huge.pdf');
+    const fh = await fsp.open(big, 'w');
+    try {
+      await fh.truncate(60 * 1024 * 1024);
+    } finally {
+      await fh.close();
+    }
+    await fsp.writeFile(path.join(dir, 'small.tex'), 'x');
+    const m = await buildManifest(dir, ['small.tex', 'huge.pdf']);
+    expect(Object.keys(m.files)).toEqual(['small.tex']);
   });
 });
 

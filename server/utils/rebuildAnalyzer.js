@@ -15,6 +15,21 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import { createHash } from 'crypto';
+import { pipeline } from 'stream/promises';
+
+// Defence-in-depth caps for the rebuild manifest:
+//
+// - HASH_MAX_BYTES: skip files larger than this when building the manifest.
+//   A user could legitimately include a 500 MB .pdf as a graphics asset;
+//   we'd rather treat huge binaries as "always changed" (cache misses) than
+//   stream-hash a half-gig blob on every compile + cache check.
+//
+// - MANIFEST_MAX_BYTES: cap on readManifest. The manifest is server-
+//   written and the file extension is in GENERATED_EXTS so it can't be
+//   smuggled in via the file table, but a disk corruption or process bug
+//   shouldn't be able to OOM a request.
+const HASH_MAX_BYTES = 50 * 1024 * 1024;        // 50 MB
+const MANIFEST_MAX_BYTES = 10 * 1024 * 1024;    // 10 MB
 
 const MANIFEST_SUFFIX = '.flowtex-build-manifest.json';
 
@@ -56,17 +71,32 @@ export function parseFlsInputs(flsContent, projectDir) {
   return out;
 }
 
-/** Hash a file's contents (SHA-256). Returns null if the file can't be
- *  read so the caller can decide whether to treat that as "removed." */
+/** Hash a file's contents (SHA-256), streaming so a 1 GB asset doesn't
+ *  allocate 1 GB. Returns null when the file can't be read, is a symlink
+ *  (defence-in-depth — see parseFlsInputs's bounds check), or exceeds
+ *  HASH_MAX_BYTES. Callers treat null the same way: "file is gone or
+ *  oversized → next compile is a cache miss."
+ *
+ *  Symlink rejection uses lstat (no symlink resolution) so a malicious
+ *  link planted inside the project dir can't leak hashes of arbitrary
+ *  filesystem files into the manifest. */
 export async function hashFile(absPath) {
+  let stat;
   try {
-    const stat = await fsp.stat(absPath);
-    if (!stat.isFile()) return null;
-    const buf = await fsp.readFile(absPath);
+    stat = await fsp.lstat(absPath);
+  } catch {
+    return null;
+  }
+  if (stat.isSymbolicLink()) return null;
+  if (!stat.isFile()) return null;
+  if (stat.size > HASH_MAX_BYTES) return null;
+  try {
+    const hash = createHash('sha256');
+    await pipeline(fs.createReadStream(absPath), hash);
     return {
       size: stat.size,
       mtimeMs: Math.floor(stat.mtimeMs),
-      sha256: createHash('sha256').update(buf).digest('hex'),
+      sha256: hash.digest('hex'),
     };
   } catch {
     return null;
@@ -103,11 +133,17 @@ export function manifestPath(projectDir, jobName) {
 }
 
 /** Read a previously-stored manifest. Returns null on any error
- *  (missing file, corrupt JSON) — the caller treats null as "no
- *  previous build to compare against." */
+ *  (missing file, oversized, corrupt JSON) — the caller treats null as
+ *  "no previous build to compare against." Size cap (MANIFEST_MAX_BYTES)
+ *  is defence in depth against disk corruption or a process bug; the
+ *  manifest is server-written and the extension is in GENERATED_EXTS so
+ *  it can't reach disk via the file-table sync path. */
 export function readManifest(projectDir, jobName) {
   try {
-    const raw = fs.readFileSync(manifestPath(projectDir, jobName), 'utf-8');
+    const p = manifestPath(projectDir, jobName);
+    const stat = fs.statSync(p);
+    if (!stat.isFile() || stat.size > MANIFEST_MAX_BYTES) return null;
+    const raw = fs.readFileSync(p, 'utf-8');
     const parsed = JSON.parse(raw);
     if (parsed?.version !== 1 || !parsed?.files) return null;
     return parsed;
