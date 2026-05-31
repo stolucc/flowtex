@@ -667,12 +667,30 @@ async function purgeUserInTx(tx, user) {
 
 export async function deleteAccount(userId, password) {
   const user = await db.get(
-    'SELECT id, email, name, password_hash, deleted_at FROM users WHERE id = $1',
+    'SELECT id, email, name, password_hash, is_admin, deleted_at FROM users WHERE id = $1',
     [userId],
   );
   if (!user || user.deleted_at) throw Object.assign(new Error('User not found'), { status: 401 });
   if (!(await bcrypt.compare(password, user.password_hash)))
     throw Object.assign(new Error('Invalid password'), { status: 401 });
+
+  // Refuse if this would leave the system with zero alive admins.
+  // "Alive" excludes soft-deleted rows (they can't sign in). Same
+  // invariant the admin-promote/demote route enforces — without this
+  // guard a sole admin could lock the system out by self-deleting,
+  // because the recovery-bin restore endpoint itself requires an admin
+  // session.
+  if (user.is_admin) {
+    const countRow = await db.get(
+      'SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL',
+    );
+    if ((countRow?.n || 0) <= 1) {
+      throw Object.assign(
+        new Error('You are the only admin. Promote another user to admin before deleting your account.'),
+        { status: 409 },
+      );
+    }
+  }
 
   await db.transaction(async (tx) => {
     await softDeleteUserInTx(tx, user);
@@ -699,10 +717,28 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
   if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
     throw Object.assign(new Error('Invalid admin password'), { status: 401 });
   }
-  const target = await db.get('SELECT id, email, name, deleted_at FROM users WHERE id = $1', [targetUserId]);
+  const target = await db.get('SELECT id, email, name, is_admin, deleted_at FROM users WHERE id = $1', [targetUserId]);
   if (!target) throw Object.assign(new Error('Target user not found'), { status: 404 });
   if (target.deleted_at) {
     throw Object.assign(new Error('User is already scheduled for deletion'), { status: 409 });
+  }
+
+  // Symmetric guard with deleteAccount: if removing this admin would
+  // leave zero alive admins, refuse. Otherwise an admin could delete
+  // their only peer admin and then be unable to restore them (restore
+  // requires an admin session, which would still exist — but if the
+  // sole-admin then self-deletes the system is stuck. Block the first
+  // step too so the path can't begin.)
+  if (target.is_admin) {
+    const countRow = await db.get(
+      'SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL',
+    );
+    if ((countRow?.n || 0) <= 1) {
+      throw Object.assign(
+        new Error('Cannot delete the last admin. Promote another user to admin first.'),
+        { status: 409 },
+      );
+    }
   }
 
   await db.transaction(async (tx) => {

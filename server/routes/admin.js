@@ -469,8 +469,9 @@ router.patch('/users/:userId/admin', async (req, res) => {
         return { ok: true, noop: true, target };
       }
       if (!desired) {
-        // Demotion: refuse if this would leave zero admins.
-        const countRow = await tx.get('SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE');
+        // Demotion: refuse if this would leave zero ALIVE admins.
+        // Soft-deleted admins can't sign in so they don't count.
+        const countRow = await tx.get('SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL');
         if ((countRow?.n || 0) <= 1) {
           return { error: 'Cannot remove the last admin', status: 409 };
         }

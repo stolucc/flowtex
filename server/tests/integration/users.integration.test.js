@@ -166,6 +166,44 @@ describe('users — deletion (soft-delete recovery bin)', () => {
     expect(row.deleted_at).not.toBeNull();
   });
 
+  it('deleteAccount refuses when caller is the only alive admin (lockout guard)', async () => {
+    // Wipe any pre-existing admins seeded by other tests so we control the count.
+    await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
+    const u = await registerUser(`it-lastadmin-${Date.now()}@example.test`, 'Sole', 'TestPass123');
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [u.id]);
+
+    await expect(deleteAccount(u.id, 'TestPass123'))
+      .rejects.toMatchObject({ status: 409, message: /only admin/ });
+
+    // Row is intact (no soft-delete happened).
+    const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
+    expect(row.deleted_at).toBeNull();
+  });
+
+  it('deleteAccount succeeds for an admin when another alive admin exists', async () => {
+    await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
+    const a = await registerUser(`it-admin-a-${Date.now()}@example.test`, 'A', 'TestPass123');
+    const b = await registerUser(`it-admin-b-${Date.now()}@example.test`, 'B', 'TestPass123');
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id IN ($1, $2)', [a.id, b.id]);
+
+    await deleteAccount(a.id, 'TestPass123');
+    const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [a.id]);
+    expect(row.deleted_at).not.toBeNull();
+  });
+
+  it('a soft-deleted admin no longer counts toward the alive-admin floor', async () => {
+    await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
+    const a = await registerUser(`it-bin-a-${Date.now()}@example.test`, 'A', 'TestPass123');
+    const b = await registerUser(`it-bin-b-${Date.now()}@example.test`, 'B', 'TestPass123');
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id IN ($1, $2)', [a.id, b.id]);
+
+    // Bin admin A — now B is the only ALIVE admin.
+    await deleteAccount(a.id, 'TestPass123');
+    // B's self-delete must now fail.
+    await expect(deleteAccount(b.id, 'TestPass123'))
+      .rejects.toMatchObject({ status: 409 });
+  });
+
   it('adminRestoreUser refuses to restore a user that is not deleted', async () => {
     const u = await registerUser(`it-active-${Date.now()}@example.test`, 'U', 'TestPass123');
     const admin = await registerUser(`it-adminact-${Date.now()}@example.test`, 'A', 'AdminPass123');

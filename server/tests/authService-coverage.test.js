@@ -653,6 +653,29 @@ describe('deleteAccount', () => {
     await deleteAccount('u', TEST_PW);
     expect(db.transaction).toHaveBeenCalledTimes(1);
   });
+
+  it('refuses when the caller is the only alive admin (409)', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ n: 1 });
+    await expect(deleteAccount('u', TEST_PW))
+      .rejects.toMatchObject({ status: 409, message: /only admin/ });
+  });
+
+  it('proceeds when caller is admin but another alive admin exists', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ n: 2 });
+    await deleteAccount('u', TEST_PW);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not run the admin-count query when caller is not admin', async () => {
+    db.get.mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH, is_admin: false });
+    await deleteAccount('u', TEST_PW);
+    // Only the initial SELECT — no follow-up COUNT.
+    expect(db.get).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─── adminDeleteUser ──────────────────────────────────────────────────
@@ -714,6 +737,25 @@ describe('adminDeleteUser', () => {
     const out = await adminDeleteUser('a', TEST_PW, 't');
     expect(db.transaction).toHaveBeenCalledTimes(1);
     expect(out).toEqual({ email: 'target@example.com', name: 'Target User' });
+  });
+
+  it('refuses to delete the last alive admin via the admin route (409)', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })       // admin lookup
+      .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'T', is_admin: true })         // target is also admin
+      .mockResolvedValueOnce({ n: 1 });                                                    // count = 1 alive admin
+    await expect(adminDeleteUser('a', TEST_PW, 't'))
+      .rejects.toMatchObject({ status: 409, message: /last admin/ });
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when deleting an admin and another alive admin still exists', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'T', is_admin: true })
+      .mockResolvedValueOnce({ n: 2 });
+    await adminDeleteUser('a', TEST_PW, 't');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 });
 
