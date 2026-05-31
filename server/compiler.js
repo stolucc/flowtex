@@ -9,6 +9,84 @@ import logger from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
+const PROFILE_WRAPPER_PATH = path.join(__dirname, 'utils', 'compileProfileWrapper.mjs');
+
+/** Build the latexmk `-e '$tool = q[…]'` overrides that route each phase
+ *  through the profile wrapper. The wrapper exec's the real tool, so
+ *  semantics are unchanged — it just adds a stopwatch + appends a JSON
+ *  line per invocation.
+ *
+ *  Uses Perl's q[…] string delimiter (square brackets) so single quotes
+ *  inside the wrapped command — which we use to shell-quote paths — don't
+ *  need further escaping. The wrapper and profile paths are
+ *  server-controlled and never contain `[`/`]`.
+ */
+function profileLatexmkOverrides({ profilePath, compiler }) {
+  // LuaLaTeX needs --safer to seal the Lua os/io libs against directlua
+  // escapes — the existing pre-profile path appended it via $lualatex
+  // override; we keep that flag here. pdflatex and xelatex have no
+  // embedded scripting language and are sealed by --no-shell-escape alone.
+  const luaExtra = compiler === 'lualatex' ? ' --safer' : '';
+  const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`; // POSIX single-quote
+  const wrapped = (tool, realCmd) =>
+    `${shq(process.execPath)} ${shq(PROFILE_WRAPPER_PATH)} --tool=${tool} --profile=${shq(profilePath)} -- ${realCmd}`;
+
+  const overrides = [
+    ['$pdflatex',  wrapped('pdflatex',  'pdflatex %O %S')],
+    ['$xelatex',   wrapped('xelatex',   'xelatex %O %S')],
+    ['$lualatex',  wrapped('lualatex',  `lualatex${luaExtra} %O %S`)],
+    ['$bibtex',    wrapped('bibtex',    'bibtex %O %S')],
+    ['$biber',     wrapped('biber',     'biber %O %S')],
+    ['$makeindex', wrapped('makeindex', 'makeindex %O %S')],
+  ];
+  const args = [];
+  for (const [varName, cmd] of overrides) {
+    if (cmd.includes('[') || cmd.includes(']')) {
+      // Fail-safe: square brackets would break Perl's q[…] delimiter.
+      // The server-controlled paths never contain them, but assert anyway.
+      throw new Error(`compileProfileWrapper: refusing override containing [ or ] for ${varName}`);
+    }
+    args.push('-e', `${varName} = q[${cmd}]`);
+  }
+  return args;
+}
+
+/** Parse the JSONL profile file produced by compileProfileWrapper.mjs into
+ *  a phase breakdown: total time, per-tool sums + invocation counts. Returns
+ *  null if the file is missing or every line is malformed — callers should
+ *  treat absence as "profiling disabled," not as a compile failure. */
+function readCompileProfile(profilePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(profilePath, 'utf-8');
+  } catch {
+    return null;
+  }
+  const records = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line);
+      if (typeof r.tool === 'string' && typeof r.durationMs === 'number') {
+        records.push(r);
+      }
+    } catch { /* skip malformed lines */ }
+  }
+  if (records.length === 0) return null;
+  const phases = new Map();
+  let totalMs = 0;
+  for (const r of records) {
+    const cur = phases.get(r.tool) || { tool: r.tool, count: 0, durationMs: 0 };
+    cur.count += 1;
+    cur.durationMs += r.durationMs;
+    phases.set(r.tool, cur);
+    totalMs += r.durationMs;
+  }
+  const phaseList = [...phases.values()]
+    .sort((a, b) => b.durationMs - a.durationMs)
+    .map((p) => ({ ...p, percent: totalMs > 0 ? Math.round((p.durationMs / totalMs) * 100) : 0 }));
+  return { totalMs, phases: phaseList };
+}
 
 // Detect prlimit (util-linux) so we can wrap LaTeX compilation in
 // hard resource caps on Linux. The container already enforces caps
@@ -362,18 +440,21 @@ async function _doCompile(
     const compilerEntry = COMPILERS.find((c) => c.id === compiler);
     const engineFlag = compilerEntry ? compilerEntry.flag : '-pdf';
 
+    // Per-phase profile: latexmk's $pdflatex / $bibtex / $biber / $makeindex
+    // / engine command strings are overridden to invoke a wrapper that
+    // stopwatches each phase and appends a JSON line to this file. After
+    // latexmk exits we parse it to produce a phase breakdown. Best-effort
+    // — if any record is malformed or the file is absent the compile
+    // result simply lacks a profile.
+    const profilePath = path.join(projectDir, `${jobName}.profile.jsonl`);
+    try { fs.unlinkSync(profilePath); } catch { /* fine: fresh job */ }
+
     let child;
     try {
-      // LuaLaTeX needs an extra defence beyond --no-shell-escape: \directlua
-      // can still call io.open / os.remove / os.rename on arbitrary paths,
-      // bypassing openin_any/openout_any (which are TeX-level, not Lua-level).
-      // --safer sandboxes the Lua os and io libraries to a safe read-only
-      // subset (no exec, no file removal). We override $lualatex so latexmk
-      // forwards the flag. The other engines (pdflatex, xelatex) have no
-      // embedded scripting language and are already sealed by --no-shell-escape.
-      const luaSaferArgs = compiler === 'lualatex'
-        ? ['-e', '$lualatex = q(lualatex --safer %O %S)']
-        : [];
+      const profileOverrides = profileLatexmkOverrides({
+        profilePath,
+        compiler,
+      });
       const latexmkArgs = [
         engineFlag,
         '-synctex=1',
@@ -381,7 +462,7 @@ async function _doCompile(
         '-f',
         '--no-shell-escape',
         '-e', '$max_repeat=4',
-        ...luaSaferArgs,
+        ...profileOverrides,
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
         mainFile,
@@ -427,6 +508,12 @@ async function _doCompile(
           finalLog = stdout;
         }
 
+        const profile = readCompileProfile(profilePath);
+        // The profile file lives in the project dir alongside .aux/.log;
+        // remove it now so the next compile starts clean and the user's
+        // file listing isn't polluted with build artefacts.
+        try { fs.unlinkSync(profilePath); } catch { /* ignore */ }
+
         if (error?.killed || error?.signal === 'SIGTERM') {
           recordCompile(false, duration);
           if (fatalError) {
@@ -436,7 +523,7 @@ async function _doCompile(
           }
         } else if (fs.existsSync(pdfPath)) {
           recordCompile(true, duration);
-          resolve({ pdfPath, log: finalLog, jobName });
+          resolve({ pdfPath, log: finalLog, jobName, profile });
         } else {
           recordCompile(false, duration);
           reject(new Error(finalLog || stdout || stderr || 'Compilation failed'));

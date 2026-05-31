@@ -30,7 +30,37 @@ const OBSERVER_MARGIN = 1500; // px buffer for pre-rendering pages near viewport
 const DESTROY_PAGES_BEYOND = 5; // destroy canvases beyond this many pages from viewport
 
 /** Scrollable panel displaying raw LaTeX compiler output. */
-function ConsolePanel({ output, compiling }) {
+/** Renders a compact compile-time breakdown captured by the server's
+ *  per-phase profile wrapper. Sums durations across all invocations of
+ *  each tool (pdflatex usually runs 2-3 times). Server returns null when
+ *  the helper compiled (no profiling there) or when no profile records
+ *  landed — in either case we render nothing. */
+function CompileProfileBlock({ profile }) {
+  if (!profile || !profile.phases?.length) return null;
+  const fmt = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
+  return (
+    <div className="pdf-console-profile">
+      <div className="pdf-console-profile-header">
+        Compile time: <strong>{fmt(profile.totalMs)}</strong>
+      </div>
+      <ul className="pdf-console-profile-list">
+        {profile.phases.map((p) => (
+          <li key={p.tool}>
+            <span className="pdf-console-profile-tool">{p.tool}</span>
+            {p.count > 1 && <span className="pdf-console-profile-count">×{p.count}</span>}
+            <span className="pdf-console-profile-bar" aria-hidden="true">
+              <span style={{ width: `${p.percent}%` }} />
+            </span>
+            <span className="pdf-console-profile-ms">{fmt(p.durationMs)}</span>
+            <span className="pdf-console-profile-pct">{p.percent}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ConsolePanel({ output, compiling, profile }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -41,6 +71,7 @@ function ConsolePanel({ output, compiling }) {
 
   return (
     <div className="pdf-console-panel" ref={ref}>
+      <CompileProfileBlock profile={profile} />
       {output ? (
         <pre className="pdf-console-output">{output}</pre>
       ) : (
@@ -248,6 +279,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     onPdfClick,
     onPdfPositionChange,
     compileLog,
+    compileProfile,
     consoleOutput,
     lintDiagnostics,
     style,
@@ -1158,7 +1190,9 @@ const PdfViewer = forwardRef(function PdfViewer(
         lintWarnings.length === 0 &&
         (tapsDiagnostics?.length || 0) === 0 &&
         hiddenBoxCount === 0 && <div className="pdf-log-panel empty">No warnings</div>}
-      {showPanel === 'console' && <ConsolePanel output={consoleOutput} compiling={compiling} />}
+      {showPanel === 'console' && (
+        <ConsolePanel output={consoleOutput} compiling={compiling} profile={compileProfile} />
+      )}
       {!mainFileExists && !url && !compiling && (
         <div className="pdf-no-main-file-banner">
           No main file found. Right-click a <code>.tex</code> file in the file tree and select &quot;Set as Main File&quot; to

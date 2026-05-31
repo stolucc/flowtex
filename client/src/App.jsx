@@ -268,6 +268,7 @@ function AppInner() {
     setPdfUrl,
     compileLog,
     setCompileLog,
+    compileProfile,
     consoleOutput,
     setConsoleOutput,
     lintDiagnostics,
@@ -1400,6 +1401,7 @@ function AppInner() {
               onPdfClick={handleSyncInverse}
               onPdfPositionChange={setPdfClickPos}
               compileLog={compileLog}
+              compileProfile={compileProfile}
               consoleOutput={consoleOutput}
               lintDiagnostics={showLintWarnings ? lintDiagnostics : []}
               style={ui.pdfWidth ? { flex: 'none', width: ui.pdfWidth } : undefined}
