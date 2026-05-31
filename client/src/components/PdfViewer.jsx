@@ -1008,10 +1008,9 @@ const PdfViewer = forwardRef(function PdfViewer(
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
           </svg>
-          {consoleOutput && showPanel !== 'console' && <span className="console-badge" />}
         </button>
         <button
-          className={`pdf-header-btn insights-btn ${showPanel === 'insights' ? 'active' : ''} ${(compileProfile || rebuildReason) ? 'has-insights' : ''}`}
+          className={`pdf-header-btn insights-btn ${showPanel === 'insights' ? 'active' : ''}`}
           onClick={() => togglePanel('insights')}
           title="Build analysis (timing + rebuild reason)"
         >
@@ -1023,7 +1022,6 @@ const PdfViewer = forwardRef(function PdfViewer(
             <line x1="18" y1="20" x2="18" y2="4" />
             <line x1="6" y1="20" x2="6" y2="16" />
           </svg>
-          {(compileProfile || rebuildReason) && showPanel !== 'insights' && <span className="console-badge" />}
         </button>
         {onToggleTrackedChangesInPdf && (
           <button

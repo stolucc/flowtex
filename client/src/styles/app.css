@@ -3769,16 +3769,6 @@ html {
   border-color: var(--accent);
 }
 
-.console-badge {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  margin-left: 5px;
-  vertical-align: middle;
-}
-
 .pdf-header-btn.has-errors {
   color: var(--red);
   border-color: var(--red);
