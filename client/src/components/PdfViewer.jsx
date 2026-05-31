@@ -96,7 +96,7 @@ function RebuildReasonBlock({ reason }) {
   );
 }
 
-function ConsolePanel({ output, compiling, profile, rebuildReason }) {
+function ConsolePanel({ output, compiling }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -107,8 +107,6 @@ function ConsolePanel({ output, compiling, profile, rebuildReason }) {
 
   return (
     <div className="pdf-console-panel" ref={ref}>
-      <CompileProfileBlock profile={profile} />
-      <RebuildReasonBlock reason={rebuildReason} />
       {output ? (
         <pre className="pdf-console-output">{output}</pre>
       ) : (
@@ -117,6 +115,26 @@ function ConsolePanel({ output, compiling, profile, rebuildReason }) {
         </div>
       )}
       {compiling && <div className="pdf-console-spinner">&#9679; Running...</div>}
+    </div>
+  );
+}
+
+/** Toggleable panel for build analysis — per-phase timing profile plus
+ *  the explain-rebuild reason. Lives in its own slot next to the console
+ *  so the two surfaces stay independent: a noisy compile log doesn't
+ *  push the profile out of view, and an analysis-only user doesn't need
+ *  to scroll past stdout. Empty state nudges the user to compile. */
+function AnalysisPanel({ profile, rebuildReason }) {
+  const hasContent = (profile && profile.phases?.length) || rebuildReason;
+  return (
+    <div className="pdf-console-panel pdf-analysis-panel">
+      <CompileProfileBlock profile={profile} />
+      <RebuildReasonBlock reason={rebuildReason} />
+      {!hasContent && (
+        <div className="pdf-console-empty">
+          No build analysis yet. Compile to see per-phase timing and what triggered the rebuild.
+        </div>
+      )}
     </div>
   );
 }
@@ -345,7 +363,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const baseScaleOnPinchRef = useRef(DEFAULT_SCALE); // the committed scale when pinch started
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
-  const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | null
+  const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | 'console' | 'insights' | null
   const [inverted, setInverted] = useState(() => getSetting('pdf-inverted') === 'true');
   useEffect(() => {
     const handler = (e) => {
@@ -992,6 +1010,21 @@ const PdfViewer = forwardRef(function PdfViewer(
           </svg>
           {consoleOutput && showPanel !== 'console' && <span className="console-badge" />}
         </button>
+        <button
+          className={`pdf-header-btn insights-btn ${showPanel === 'insights' ? 'active' : ''} ${(compileProfile || rebuildReason) ? 'has-insights' : ''}`}
+          onClick={() => togglePanel('insights')}
+          title="Build analysis (timing + rebuild reason)"
+        >
+          {/* Bar-chart glyph — distinct from the console terminal-prompt
+              icon so the two adjacent buttons read as different actions
+              at a glance. */}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="20" x2="12" y2="10" />
+            <line x1="18" y1="20" x2="18" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="16" />
+          </svg>
+          {(compileProfile || rebuildReason) && showPanel !== 'insights' && <span className="console-badge" />}
+        </button>
         {onToggleTrackedChangesInPdf && (
           <button
             className={`pdf-zoom-btn pdf-tc-btn ${showTrackedChangesInPdf ? 'active' : ''}`}
@@ -1229,12 +1262,10 @@ const PdfViewer = forwardRef(function PdfViewer(
         (tapsDiagnostics?.length || 0) === 0 &&
         hiddenBoxCount === 0 && <div className="pdf-log-panel empty">No warnings</div>}
       {showPanel === 'console' && (
-        <ConsolePanel
-          output={consoleOutput}
-          compiling={compiling}
-          profile={compileProfile}
-          rebuildReason={rebuildReason}
-        />
+        <ConsolePanel output={consoleOutput} compiling={compiling} />
+      )}
+      {showPanel === 'insights' && (
+        <AnalysisPanel profile={compileProfile} rebuildReason={rebuildReason} />
       )}
       {!mainFileExists && !url && !compiling && (
         <div className="pdf-no-main-file-banner">
