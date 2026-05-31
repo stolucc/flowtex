@@ -305,7 +305,7 @@ export default function Toolbar({
         </button>
         <span ref={menuBarRef} className="toolbar-menu-bar">
           <DropdownMenu
-            label="File"
+            label="Project"
             items={fileMenuItems}
             menuId="file"
             activeMenu={activeMenu}

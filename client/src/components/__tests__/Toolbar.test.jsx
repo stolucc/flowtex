@@ -67,7 +67,7 @@ describe('Toolbar', () => {
 
   it('renders all menu labels', () => {
     renderToolbar();
-    for (const label of ['File', 'Edit', 'Insert', 'View', 'Format', 'Tools', 'Help']) {
+    for (const label of ['Project', 'Edit', 'Insert', 'View', 'Format', 'Tools', 'Help']) {
       expect(screen.getByText(label)).toBeTruthy();
     }
   });
@@ -103,18 +103,18 @@ describe('Toolbar', () => {
     expect(props.onHistory).toHaveBeenCalledTimes(1);
   });
 
-  it('opens File menu and shows menu items on click', () => {
+  it('opens Project menu and shows menu items on click', () => {
     renderToolbar();
-    fireEvent.click(screen.getByText('File'));
+    fireEvent.click(screen.getByText('Project'));
     expect(screen.getByText('New File')).toBeTruthy();
     expect(screen.getByText('New Folder')).toBeTruthy();
     expect(screen.getByText('Upload ZIP')).toBeTruthy();
     expect(screen.getByText('Download as ZIP')).toBeTruthy();
   });
 
-  it('calls onNewFile from File menu', () => {
+  it('calls onNewFile from Project menu', () => {
     const { props } = renderToolbar();
-    fireEvent.click(screen.getByText('File'));
+    fireEvent.click(screen.getByText('Project'));
     fireEvent.click(screen.getByText('New File'));
     expect(props.onNewFile).toHaveBeenCalledTimes(1);
   });
@@ -166,9 +166,9 @@ describe('Toolbar', () => {
 
   it('closes menu when the same menu button is clicked again', () => {
     renderToolbar();
-    fireEvent.click(screen.getByText('File'));
+    fireEvent.click(screen.getByText('Project'));
     expect(screen.getByText('New File')).toBeTruthy();
-    fireEvent.click(screen.getByText('File'));
+    fireEvent.click(screen.getByText('Project'));
     expect(screen.queryByText('New File')).toBeNull();
   });
 
