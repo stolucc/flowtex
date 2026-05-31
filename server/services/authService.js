@@ -674,25 +674,29 @@ export async function deleteAccount(userId, password) {
   if (!(await bcrypt.compare(password, user.password_hash)))
     throw Object.assign(new Error('Invalid password'), { status: 401 });
 
-  // Refuse if this would leave the system with zero alive admins.
-  // "Alive" excludes soft-deleted rows (they can't sign in). Same
-  // invariant the admin-promote/demote route enforces — without this
-  // guard a sole admin could lock the system out by self-deleting,
-  // because the recovery-bin restore endpoint itself requires an admin
-  // session.
-  if (user.is_admin) {
-    const countRow = await db.get(
-      'SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL',
-    );
-    if ((countRow?.n || 0) <= 1) {
-      throw Object.assign(
-        new Error('You are the only admin. Promote another user to admin before deleting your account.'),
-        { status: 409 },
-      );
-    }
-  }
-
   await db.transaction(async (tx) => {
+    // Refuse if this would leave the system with zero alive admins.
+    // "Alive" excludes soft-deleted rows (they can't sign in). Same
+    // invariant the admin-promote/demote route enforces — without this
+    // guard a sole admin could lock the system out by self-deleting,
+    // because the recovery-bin restore endpoint itself requires an admin
+    // session.
+    //
+    // FOR UPDATE locks every admin row in the count, serialising
+    // concurrent admin-self-deletes / admin-demotes / admin-deletes that
+    // would otherwise both observe count=2 and both proceed, leaving
+    // zero admins. The lock is released when this tx commits or rolls back.
+    if (user.is_admin) {
+      const countRow = await tx.get(
+        'SELECT COUNT(*)::int AS n FROM (SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL FOR UPDATE) sub',
+      );
+      if ((countRow?.n || 0) <= 1) {
+        throw Object.assign(
+          new Error('You are the only admin. Promote another user to admin before deleting your account.'),
+          { status: 409 },
+        );
+      }
+    }
     await softDeleteUserInTx(tx, user);
   });
   return { email: user.email, name: user.name };
@@ -723,25 +727,23 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
     throw Object.assign(new Error('User is already scheduled for deletion'), { status: 409 });
   }
 
-  // Symmetric guard with deleteAccount: if removing this admin would
-  // leave zero alive admins, refuse. Otherwise an admin could delete
-  // their only peer admin and then be unable to restore them (restore
-  // requires an admin session, which would still exist — but if the
-  // sole-admin then self-deletes the system is stuck. Block the first
-  // step too so the path can't begin.)
-  if (target.is_admin) {
-    const countRow = await db.get(
-      'SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL',
-    );
-    if ((countRow?.n || 0) <= 1) {
-      throw Object.assign(
-        new Error('Cannot delete the last admin. Promote another user to admin first.'),
-        { status: 409 },
-      );
-    }
-  }
-
   await db.transaction(async (tx) => {
+    // Symmetric guard with deleteAccount: if removing this admin would
+    // leave zero alive admins, refuse. Without the lock, two admins
+    // running adminDeleteUser on each other simultaneously could both
+    // observe count=2 and both proceed. See deleteAccount for the
+    // same FOR UPDATE pattern.
+    if (target.is_admin) {
+      const countRow = await tx.get(
+        'SELECT COUNT(*)::int AS n FROM (SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL FOR UPDATE) sub',
+      );
+      if ((countRow?.n || 0) <= 1) {
+        throw Object.assign(
+          new Error('Cannot delete the last admin. Promote another user to admin first.'),
+          { status: 409 },
+        );
+      }
+    }
     await softDeleteUserInTx(tx, target);
   });
   return { email: target.email, name: target.name };

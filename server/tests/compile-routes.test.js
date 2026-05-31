@@ -20,7 +20,7 @@ vi.mock('../compiler.js', () => ({
   stopCompilation: vi.fn(),
   syncFilesToDisk: vi.fn(),
   invalidateFileCache: vi.fn(),
-  userSuffix: (userId) => (userId ? '_' + userId.slice(0, 8) : ''),
+  userSuffix: (userId, opts = {}) => (userId ? '_' + userId.slice(0, 8) : '') + (opts.tc ? '_tc' : ''),
   GENERATED_EXTS: new Set(['.aux', '.log', '.fls', '.fdb_latexmk', '.synctex.gz', '.synctex', '.bbl', '.blg', '.out', '.toc', '.lof', '.lot', '.nav', '.snm', '.vrb', '.idx', '.ind', '.ilg', '.glo', '.gls', '.glg', '.cb', '.cb2', '.bcf', '.run.xml', '.xdv']),
   TEX_PATHS: '/usr/local/texlive/bin',
   getTexPaths: vi.fn(() => '/usr/local/texlive/bin'),
@@ -111,8 +111,11 @@ function mockRes() {
       res.body = data;
       return res;
     }),
-    sendFile: vi.fn(function (filePath, cb) {
-      if (cb) cb(null); // success by default
+    sendFile: vi.fn(function (...args) {
+      // Express supports both res.sendFile(path, cb) and
+      // res.sendFile(path, options, cb). Find the trailing callback.
+      const cb = args[args.length - 1];
+      if (typeof cb === 'function') cb(null); // success by default
     }),
     set: vi.fn().mockReturnThis(),
     writeHead: vi.fn(),
@@ -242,20 +245,26 @@ describe('POST /:projectId/stop', () => {
 describe('GET /:projectId/pdf', () => {
   const handler = getHandler('get', '/:projectId/pdf');
 
-  it('serves the PDF with user-specific jobname', async () => {
+  it('serves the PDF with a relative path and root option scoped to the project dir', async () => {
     db.get.mockResolvedValueOnce({ main_file: 'main.tex' });
 
     const res = mockRes();
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
-    expect(res.sendFile).toHaveBeenCalledWith(expect.stringContaining('main_user-1.pdf'), expect.any(Function));
+    // Relative filename (no path separators upstream of the project dir)
+    expect(res.sendFile).toHaveBeenCalledWith(
+      'main_user-1.pdf',
+      expect.objectContaining({ root: expect.stringContaining('proj-1') }),
+      expect.any(Function),
+    );
   });
 
   it('returns 404 when PDF does not exist (sendFile error)', async () => {
     db.get.mockResolvedValueOnce({ main_file: 'main.tex' });
 
     const res = mockRes();
-    res.sendFile = vi.fn((filePath, cb) => cb(new Error('ENOENT')));
+    // New signature: (relPath, options, cb) — cb is the third arg.
+    res.sendFile = vi.fn((_relPath, _opts, cb) => cb(new Error('ENOENT')));
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
     expect(res.status).toHaveBeenCalledWith(404);
@@ -268,7 +277,24 @@ describe('GET /:projectId/pdf', () => {
     const res = mockRes();
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
-    expect(res.sendFile).toHaveBeenCalledWith(expect.stringContaining('main_'), expect.any(Function));
+    expect(res.sendFile).toHaveBeenCalledWith(
+      expect.stringContaining('main_'),
+      expect.objectContaining({ root: expect.any(String) }),
+      expect.any(Function),
+    );
+  });
+
+  it('selects the _tc sibling PDF when ?tc=1', async () => {
+    db.get.mockResolvedValueOnce({ main_file: 'main.tex' });
+
+    const res = mockRes();
+    await handler(mockReq({ projectId: 'proj-1' }, {}, { query: { tc: '1' } }), res);
+
+    expect(res.sendFile).toHaveBeenCalledWith(
+      'main_user-1_tc.pdf',
+      expect.objectContaining({ root: expect.any(String) }),
+      expect.any(Function),
+    );
   });
 
   it('returns 403 for non-members', async () => {

@@ -471,7 +471,12 @@ router.patch('/users/:userId/admin', async (req, res) => {
       if (!desired) {
         // Demotion: refuse if this would leave zero ALIVE admins.
         // Soft-deleted admins can't sign in so they don't count.
-        const countRow = await tx.get('SELECT COUNT(*)::int AS n FROM users WHERE is_admin = TRUE AND deleted_at IS NULL');
+        // FOR UPDATE locks the admin set so concurrent demote / self-
+        // delete / admin-delete can't race past each other and leave
+        // the system at zero. See deleteAccount for the same pattern.
+        const countRow = await tx.get(
+          'SELECT COUNT(*)::int AS n FROM (SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL FOR UPDATE) sub',
+        );
         if ((countRow?.n || 0) <= 1) {
           return { error: 'Cannot remove the last admin', status: 409 };
         }

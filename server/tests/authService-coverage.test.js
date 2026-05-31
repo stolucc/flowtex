@@ -743,10 +743,14 @@ describe('adminDeleteUser', () => {
     db.get
       .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })       // admin lookup
       .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'T', is_admin: true })         // target is also admin
-      .mockResolvedValueOnce({ n: 1 });                                                    // count = 1 alive admin
+      .mockResolvedValueOnce({ n: 1 });                                                    // count = 1 alive admin (inside tx)
     await expect(adminDeleteUser('a', TEST_PW, 't'))
       .rejects.toMatchObject({ status: 409, message: /last admin/ });
-    expect(db.transaction).not.toHaveBeenCalled();
+    // db.transaction IS invoked (the count check now runs inside it with
+    // FOR UPDATE locking) and then rolls back via the thrown error.
+    // db.run (the soft-delete writes) must not have been issued.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.run).not.toHaveBeenCalled();
   });
 
   it('proceeds when deleting an admin and another alive admin still exists', async () => {

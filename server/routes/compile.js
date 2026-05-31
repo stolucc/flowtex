@@ -312,10 +312,16 @@ router.get('/:projectId/pdf', async (req, res) => {
   const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');
   const tc = req.query.tc === '1';
   const userSuffix = makeUserSuffix(req.session.userId, { tc });
-  const pdfPath = path.join(PROJECTS_DIR, projectId, baseName + userSuffix + '.pdf');
+  // Defence-in-depth: scope sendFile to the project's own directory so a
+  // future weakening of isValidFilePath (the upstream guard on main_file)
+  // can't turn a malformed baseName into a path-traversal vulnerability.
+  // sendFile rejects paths containing '..' or absolute paths when `root`
+  // is set; if either is present we just 404 like a missing PDF.
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const relPath = baseName + userSuffix + '.pdf';
 
   res.set('Cache-Control', 'no-store');
-  res.sendFile(pdfPath, (err) => {
+  res.sendFile(relPath, { root: projectDir }, (err) => {
     if (err) {
       res.status(404).json({ error: 'PDF not found. Compile first.' });
     }
@@ -638,9 +644,13 @@ router.get('/:projectId/diff-pdf', async (req, res) => {
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
   const userSuffix = makeUserSuffix(req.session.userId);
-  const pdfPath = path.join(PROJECTS_DIR, projectId, '__diff__' + userSuffix + '.pdf');
+  // Same { root } scoping as /pdf — diff jobname is hardcoded so there's
+  // no live traversal vector today, but the defensive pattern stays
+  // consistent across all sendFile call sites.
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const relPath = '__diff__' + userSuffix + '.pdf';
   res.set('Cache-Control', 'no-store');
-  res.sendFile(pdfPath, (err) => {
+  res.sendFile(relPath, { root: projectDir }, (err) => {
     if (err) {
       res.status(404).json({ error: 'Diff PDF not found. Run diff first.' });
     }
