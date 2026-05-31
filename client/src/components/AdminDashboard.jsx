@@ -796,7 +796,7 @@ export default function AdminDashboard({ onBack }) {
 
       {tab === 'users' && (
         <div className="admin-section">
-          <h2>Most Active Users {liveTag}</h2>
+          <h2>Recently Active Users {liveTag}</h2>
           <div className={`admin-users-layout ${expandedUser ? 'has-panel' : ''}`}>
             <div className="admin-users-list">
               {!topUsers?.length ? (

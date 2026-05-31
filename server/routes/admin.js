@@ -227,7 +227,10 @@ router.get('/stats/top-users', async (req, res) => {
     -- can't sign in, and shouldn't appear in any "active users" surface.
     -- Admins manage them via the dedicated "Recovery bin" panel.
     WHERE u.deleted_at IS NULL
-    ORDER BY edit_count DESC
+    -- Most-recently-active first. NULLS LAST sinks users with no
+    -- tracked activity (edits, comments, audit log) to the bottom
+    -- rather than the top (Postgres default).
+    ORDER BY last_active DESC NULLS LAST, u.created_at DESC
     LIMIT $1
   `,
     [limit],
