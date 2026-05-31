@@ -430,6 +430,15 @@ const PdfViewer = forwardRef(function PdfViewer(
     },
     [onPdfClick, onPdfPositionChange, scale],
   );
+  // Pin the page-click callback through a ref so the giant render
+  // effect below can capture it without listing it as a dependency.
+  // Otherwise every debounced editor save bubbles up through
+  // useProject → handleSyncInverse → handlePageClick identity churn,
+  // re-fires that effect, and container.replaceChildren() wipes the
+  // PDF for a visible flicker on every save — even though the URL
+  // and scale haven't changed.
+  const handlePageClickRef = useRef(handlePageClick);
+  useEffect(() => { handlePageClickRef.current = handlePageClick; }, [handlePageClick]);
 
   // Load PDF document when URL changes
   useEffect(() => {
@@ -591,7 +600,7 @@ const PdfViewer = forwardRef(function PdfViewer(
           const vp = viewport;
           wrapper.addEventListener('dblclick', (e) => {
             window.getSelection()?.removeAllRanges();
-            handlePageClick(i, vp, e);
+            handlePageClickRef.current?.(i, vp, e);
           });
           container.appendChild(wrapper);
 
@@ -645,7 +654,11 @@ const PdfViewer = forwardRef(function PdfViewer(
       pageProxyRef.current = [];
       renderPageRef.current = null;
     };
-  }, [url, scale, handlePageClick]);
+  // handlePageClick intentionally not in deps — accessed via
+  // handlePageClickRef.current so identity churn from upstream
+  // (e.g. setFiles on every debounced save) doesn't re-fire this
+  // expensive effect and wipe the PDF container.
+  }, [url, scale]);
 
   // Track current page from scroll position + clean up far-off-screen canvases
   useEffect(() => {
