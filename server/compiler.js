@@ -305,11 +305,18 @@ export async function abortAllCompilations(timeoutMs = 2000) {
  * The suffix flows into latexmk's `-jobname` argument and into filesystem
  * paths, so it is hex-only — anything outside [a-fA-F0-9] is dropped before
  * truncation. Returns `''` when the input is falsy or has no usable chars.
+ *
+ * `opts.tc` (boolean): append a `_tc` tag so the tracked-changes view
+ * keeps its own .pdf / .aux / .log / .flowtex-build-manifest.json
+ * separate from the plain view. Lets the client toggle "show tracked
+ * changes" without invalidating the plain PDF (each mode's skip-rebuild
+ * cache is also per-mode for free).
  */
-export function userSuffix(userId) {
-  if (!userId) return '';
+export function userSuffix(userId, opts = {}) {
+  const tcTag = opts.tc ? '_tc' : '';
+  if (!userId) return tcTag;
   const safe = String(userId).replace(/[^a-fA-F0-9]/g, '').slice(0, 8);
-  return safe ? '_' + safe : '';
+  return (safe ? '_' + safe : '') + tcTag;
 }
 
 // Supported compilers and their latexmk flags
@@ -331,7 +338,7 @@ export async function compileProject(
   projectId,
   mainFile = 'main.tex',
   onOutput,
-  { files, onBeforeCompile, userId, texDistribution, compiler } = {},
+  { files, onBeforeCompile, userId, texDistribution, compiler, tc = false } = {},
 ) {
   // Sync files to disk before compiling
   if (files) {
@@ -353,7 +360,7 @@ export async function compileProject(
   // to milliseconds. Failure inside the check is non-fatal: we fall
   // through to a normal compile.
   const projectDir = path.join(PROJECTS_DIR, projectId);
-  const suffix = userSuffix(userId);
+  const suffix = userSuffix(userId, { tc });
   const jobName = mainFile.replace(/\.tex$/, '') + suffix;
   const pdfPath = path.join(projectDir, `${jobName}.pdf`);
   try {

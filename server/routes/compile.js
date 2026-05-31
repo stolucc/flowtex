@@ -200,6 +200,7 @@ router.post('/:projectId', async (req, res) => {
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
+      tc: showTC,
     });
 
     res.json({ success: true, log, profile, rebuildReason, cached: !!cached });
@@ -276,6 +277,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
         userId: req.session.userId,
         texDistribution: project?.tex_distribution,
         compiler: project?.compiler,
+        tc: showTC,
         onBeforeCompile: async () => {
           const compilerName = project?.compiler || 'pdflatex';
           send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile} with ${compilerName}...\n` });
@@ -299,14 +301,17 @@ router.post('/:projectId/stop', async (req, res) => {
   res.json({ ok: true, stopped: !!stopped });
 });
 
-/** GET /api/compile/:projectId/pdf -- Serve the compiled PDF for the current user. */
+/** GET /api/compile/:projectId/pdf -- Serve the compiled PDF for the current user.
+ *  ?tc=1 selects the tracked-changes-view PDF (separate file on disk so
+ *  toggling the view doesn't invalidate the plain build, and vice-versa). */
 router.get('/:projectId/pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');
-  const userSuffix = makeUserSuffix(req.session.userId);
+  const tc = req.query.tc === '1';
+  const userSuffix = makeUserSuffix(req.session.userId, { tc });
   const pdfPath = path.join(PROJECTS_DIR, projectId, baseName + userSuffix + '.pdf');
 
   res.set('Cache-Control', 'no-store');
@@ -325,7 +330,8 @@ router.get('/:projectId/syncforward', async (req, res) => {
   const { line, column, file } = req.query;
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
-  const userSuffix = makeUserSuffix(req.session.userId);
+  const tc = req.query.tc === '1';
+  const userSuffix = makeUserSuffix(req.session.userId, { tc });
   const result = synctexForward(
     projectId,
     parseInt(line),
@@ -349,7 +355,8 @@ router.get('/:projectId/syncinverse', async (req, res) => {
   const { page, x, y } = req.query;
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
-  const userSuffix = makeUserSuffix(req.session.userId);
+  const tc = req.query.tc === '1';
+  const userSuffix = makeUserSuffix(req.session.userId, { tc });
   const result = synctexInverse(projectId, parseInt(page), parseFloat(x), parseFloat(y), mainFile, userSuffix);
   if (result) {
     res.json(result);
@@ -733,8 +740,12 @@ router.post('/:projectId/clean', async (req, res) => {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   if (!fs.existsSync(projectDir)) return res.json({ deleted: 0 });
 
-  // Only delete files belonging to the requesting user (scoped by user suffix)
+  // Only delete files belonging to the requesting user (scoped by user suffix).
+  // The track-changes view writes to a sibling jobname with a _tc tag
+  // (`main_HASH_tc.pdf` etc.); clean wipes both variants so a forced
+  // recompile starts from a clean slate in either mode.
   const userSuffix = makeUserSuffix(req.session.userId);
+  const userSuffixTc = makeUserSuffix(req.session.userId, { tc: true });
   let deleted = 0;
   const entries = fs.readdirSync(projectDir);
   for (const entry of entries) {
@@ -745,9 +756,9 @@ router.post('/:projectId/clean', async (req, res) => {
       GENERATED_EXTS.has(lowerExt) || lowerExt === '.pdf' || /\.synctex\(busy\)$/i.test(entry);
     if (!isGenerated) continue;
 
-    // Only clean this user's generated files
+    // Only clean this user's generated files (plain OR _tc variant)
     const baseName = entry.split('.')[0];
-    if (!baseName.endsWith(userSuffix)) continue;
+    if (!baseName.endsWith(userSuffix) && !baseName.endsWith(userSuffixTc)) continue;
 
     try {
       fs.unlinkSync(path.join(projectDir, entry));

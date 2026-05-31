@@ -341,6 +341,7 @@ function AppInner() {
     setProject,
     handleCompile,
     handleStopCompile,
+    showTrackedChangesInPdf,
   });
 
   const handleUploadBinary = useCallback(

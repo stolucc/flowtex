@@ -151,7 +151,9 @@ describe('useCompilation', () => {
     });
 
     expect(result.current.compileLog).toBe('Compilation successful');
-    expect(result.current.pdfUrl).toMatch(/^\/api\/compile\/p1\/pdf\?t=\d+$/);
+    // Now includes tc=0|1 because the track-changes-view PDF is a
+    // separate sibling jobname server-side.
+    expect(result.current.pdfUrl).toMatch(/^\/api\/compile\/p1\/pdf\?tc=[01]&t=\d+$/);
     expect(result.current.compiling).toBe(false);
   });
 

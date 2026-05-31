@@ -22,6 +22,7 @@ export default function useEditorActions({
   setProject,
   handleCompile,
   handleStopCompile,
+  showTrackedChangesInPdf = false,
 }) {
   const [editorLine, setEditorLine] = useState(1);
   const [pdfClickPos, setPdfClickPos] = useState(null);
@@ -40,24 +41,29 @@ export default function useEditorActions({
     [files, switchFile, handleCompile, setFiles],
   );
 
+  // tc query selects which sibling .synctex.gz the server reads — the
+  // viewer might be showing the plain or the _tc PDF and forward/inverse
+  // sync must point at the matching one.
+  const tcQuery = showTrackedChangesInPdf ? '&tc=1' : '';
+
   const handleSyncForward = useCallback(async () => {
     if (!project || !activeFile || !pdfUrl) return;
     try {
       const res = await get(
-        `/api/compile/${project.id}/syncforward?line=${editorLine}&column=0&file=${encodeURIComponent(activeFile.path)}`,
+        `/api/compile/${project.id}/syncforward?line=${editorLine}&column=0&file=${encodeURIComponent(activeFile.path)}${tcQuery}`,
       );
       if (res.ok) {
         const data = await res.json();
         pdfRef.current?.scrollToPosition(data.page, data.v);
       }
     } catch {}
-  }, [project, activeFile, pdfUrl, editorLine, pdfRef]);
+  }, [project, activeFile, pdfUrl, editorLine, pdfRef, tcQuery]);
 
   const handleSyncInverse = useCallback(
     async (page, x, y) => {
       if (!project) return;
       try {
-        const res = await get(`/api/compile/${project.id}/syncinverse?page=${page}&x=${x}&y=${y}`);
+        const res = await get(`/api/compile/${project.id}/syncinverse?page=${page}&x=${x}&y=${y}${tcQuery}`);
         if (res.ok) {
           const data = await res.json();
           if (data.file && data.file !== activeFile?.path) {
@@ -72,7 +78,7 @@ export default function useEditorActions({
         }
       } catch {}
     },
-    [project, activeFile, files, switchFile, editorRef],
+    [project, activeFile, files, switchFile, editorRef, tcQuery],
   );
 
   const handleSyncInverseFromArrow = useCallback(async () => {

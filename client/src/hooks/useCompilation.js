@@ -46,14 +46,29 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     compilingRef.current = compiling;
   }, [compiling]);
 
-  // Invalidate cached PDF when tracked-changes toggle changes so user must recompile
+  // Tracked-changes view is compiled to a sibling jobname server-side
+  // (jobname_tc.pdf), so each mode has its own PDF + skip-rebuild cache
+  // on disk. Toggling between modes only needs to swap the URL — if a
+  // previous compile in the target mode exists, the browser fetches its
+  // PDF immediately; if not, the PdfViewer surfaces "PDF not found —
+  // compile first" and the user can hit the Compile button. Previously
+  // we wiped pdfUrl on every toggle, which forced a recompile even when
+  // toggling OFF back to a known-good plain PDF.
   const tcRef = useRef(showTrackedChanges);
   useEffect(() => {
     if (tcRef.current !== showTrackedChanges) {
       tcRef.current = showTrackedChanges;
-      setPdfUrl(null);
+      if (!project) {
+        setPdfUrl(null);
+        return;
+      }
+      // Switch to the new mode's PDF URL. The ?tc=1/0 selects which
+      // sibling file the /pdf endpoint serves; ?t= busts the browser
+      // cache so we re-fetch from disk.
+      const tcParam = showTrackedChanges ? '1' : '0';
+      setPdfUrl(`/api/compile/${project.id}/pdf?tc=${tcParam}&t=${Date.now()}`);
     }
-  }, [showTrackedChanges]);
+  }, [showTrackedChanges, project]);
 
   // Wipe all compile-derived state when the project changes. This hook
   // is mounted once at App level and persists across project switches —
@@ -244,6 +259,12 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           setCompileProfile(data.profile || null);
           setRebuildReason(data.rebuildReason || null);
           if (data.success) {
+            // tc query selects the matching sibling PDF on disk
+            // (jobname.pdf vs jobname_tc.pdf); without it a TC-mode
+            // compile would write to the _tc path but the viewer would
+            // fetch the plain one and 404.
+            const tcParam = showTrackedChanges ? '1' : '0';
+            const pdfUrlForMode = `/api/compile/${project.id}/pdf?tc=${tcParam}&t=${Date.now()}`;
             if (data.cached) {
               // Skip-rebuild cache hit: the PDF on disk is bit-identical
               // to what the viewer already shows. Bumping the ?t= cache-
@@ -251,9 +272,9 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
               // for nothing — a visible flicker on every save-and-compile
               // that didn't change anything build-tracked. Set the URL
               // only if it wasn't set yet (first compile of the session).
-              setPdfUrl((prev) => prev || `/api/compile/${project.id}/pdf?t=${Date.now()}`);
+              setPdfUrl((prev) => prev || pdfUrlForMode);
             } else {
-              setPdfUrlSmart(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
+              setPdfUrlSmart(pdfUrlForMode);
             }
           }
           evtSource.close();
