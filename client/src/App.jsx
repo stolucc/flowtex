@@ -8,7 +8,14 @@ const Editor = lazy(() => import('./components/Editor.jsx'));
 const PdfViewer = lazy(() => import('./components/PdfViewer.jsx'));
 const HistoryView = lazy(() => import('./components/HistoryView.jsx'));
 const ChatPanel = lazy(() => import('./components/ChatPanel.jsx'));
-const CommentsSidebar = lazy(() => import('./components/CommentsSidebar.jsx'));
+// Not lazy: kept in the main bundle so toggling the panel doesn't hit
+// the Suspense boundary swap. TrackChangesPanel is also eager for the
+// same reason, and the chunk is small (~8KB). Lazy chat is fine because
+// the chunk fetch happens during the open transition and is invisible
+// to the user, but comments has additional elastic-positioning effects
+// that briefly shift cards into place on mount — adding a Suspense
+// fallback flash on top of that read as "slow."
+import CommentsSidebar from './components/CommentsSidebar.jsx';
 const BinaryPreview = lazy(() => import('./components/BinaryPreview.jsx'));
 import FileTree from './components/FileTree.jsx';
 import SyncArrows from './components/SyncArrows.jsx';
@@ -123,7 +130,6 @@ function AppInner() {
     import('./components/Editor.jsx').catch(() => {});
     import('./components/PdfViewer.jsx').catch(() => {});
     import('./components/ChatPanel.jsx').catch(() => {});
-    import('./components/CommentsSidebar.jsx').catch(() => {});
   }, [user]);
 
   // In-editor toasts for invitations that arrive while a user is mid-edit.
@@ -1083,7 +1089,7 @@ function AppInner() {
               </button>
             )}
             {ui.showComments ? (
-              <Suspense fallback={null}>
+              <>
                 <CommentsSidebar
                   currentUserName={user?.name}
                   currentUserId={user?.id}
@@ -1105,7 +1111,7 @@ function AppInner() {
                   style={{ width: ui.commentsWidth }}
                 />
                 <ResizeHandle onResize={(d) => ui.setCommentsWidth((w) => Math.max(180, Math.min(450, w + d)))} />
-              </Suspense>
+              </>
             ) : (
               // Collapsed comments rail: a thin vertical strip that
               // still surfaces WHERE the comments are by rendering a
