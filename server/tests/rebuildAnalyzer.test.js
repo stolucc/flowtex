@@ -12,6 +12,7 @@ import {
   detectRerunSignals,
   analyzeRebuild,
   checkBuildCache,
+  findStaleBibOutputToTouch,
 } from '../utils/rebuildAnalyzer.js';
 
 function tmpDir() {
@@ -265,5 +266,68 @@ describe('checkBuildCache (skip-rebuild)', () => {
     const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
     expect(r.hit).toBe(false);
     expect(r.reason).toMatch(/no tracked inputs/);
+  });
+});
+
+describe('findStaleBibOutputToTouch (skip biber on bib-mtime-only changes)', () => {
+  /** Seed a project + manifest containing the given files (relative paths
+   *  to contents) and create a .bbl file so the touch target exists. */
+  async function seed(files) {
+    const dir = tmpDir();
+    for (const [rel, content] of Object.entries(files)) {
+      await fsp.writeFile(path.join(dir, rel), content);
+    }
+    const inputsFls = Object.keys(files).map((p) => `INPUT ${path.join(dir, p)}`).join('\n');
+    await fsp.writeFile(path.join(dir, 'main.fls'), inputsFls + '\n');
+    // .bbl from a previous build
+    await fsp.writeFile(path.join(dir, 'main.bbl'), 'old bbl');
+    await analyzeRebuild({ projectDir: dir, jobName: 'main', logContent: '', env: { compiler: 'pdflatex', texDistribution: null } });
+    return dir;
+  }
+
+  it('returns null when there is no previous manifest', async () => {
+    const dir = tmpDir();
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
+  });
+
+  it('returns null when the previous build had no .bib files', async () => {
+    const dir = await seed({ 'main.tex': 'x' });
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
+  });
+
+  it('returns the .bbl path when every .bib hash still matches', async () => {
+    const dir = await seed({ 'main.tex': 'x', 'refs.bib': '@article{a,title={x}}' });
+    // Only bump the .bib mtime, do not change content.
+    const bibPath = path.join(dir, 'refs.bib');
+    const future = new Date(Date.now() + 10_000);
+    await fsp.utimes(bibPath, future, future);
+
+    const target = await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' });
+    expect(target).toBe(path.join(dir, 'main.bbl'));
+  });
+
+  it('returns null when any .bib content actually changed', async () => {
+    const dir = await seed({ 'main.tex': 'x', 'refs.bib': '@article{a,title={x}}' });
+    await fsp.writeFile(path.join(dir, 'refs.bib'), '@article{a,title={CHANGED}}');
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
+  });
+
+  it('returns null when a .bib in the manifest was deleted', async () => {
+    const dir = await seed({ 'main.tex': 'x', 'refs.bib': '@article{a}' });
+    await fsp.unlink(path.join(dir, 'refs.bib'));
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
+  });
+
+  it('returns null when the .bbl does not exist yet', async () => {
+    const dir = await seed({ 'main.tex': 'x', 'refs.bib': '@article{a}' });
+    await fsp.unlink(path.join(dir, 'main.bbl'));
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
+  });
+
+  it('checks every .bib in the manifest, not just the first', async () => {
+    const dir = await seed({ 'main.tex': 'x', 'a.bib': '@article{a}', 'b.bib': '@article{b}' });
+    // Change only b.bib content.
+    await fsp.writeFile(path.join(dir, 'b.bib'), '@article{b,title={NEW}}');
+    expect(await findStaleBibOutputToTouch({ projectDir: dir, jobName: 'main' })).toBeNull();
   });
 });

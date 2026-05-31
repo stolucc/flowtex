@@ -6,7 +6,7 @@ import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import logger from './logger.js';
-import { analyzeRebuild, checkBuildCache } from './utils/rebuildAnalyzer.js';
+import { analyzeRebuild, checkBuildCache, findStaleBibOutputToTouch } from './utils/rebuildAnalyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
@@ -388,6 +388,22 @@ export async function compileProject(
 
   if (onBeforeCompile) {
     await onBeforeCompile();
+  }
+
+  // Cache missed (something changed) but if NONE of the .bib files
+  // changed since the last successful build, pre-touch the existing
+  // .bbl so latexmk's mtime check decides biber is up-to-date. Saves
+  // the biber re-run in the common "edited a .tex file, didn't touch
+  // citations" case where git or an editor previously bumped the .bib
+  // mtime. Failure is non-fatal — biber just runs as usual.
+  try {
+    const bblToTouch = await findStaleBibOutputToTouch({ projectDir, jobName });
+    if (bblToTouch) {
+      const now = new Date();
+      await fsp.utimes(bblToTouch, now, now);
+    }
+  } catch (err) {
+    logger.warn({ err, jobName }, 'findStaleBibOutputToTouch failed; biber will run normally');
   }
 
   const timeoutMs = await getCompileTimeout();
