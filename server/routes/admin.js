@@ -372,6 +372,8 @@ router.delete('/users/:userId', async (req, res) => {
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
     const deleted = await adminDeleteUser(req.session.userId, req.body?.password, userId);
+    // Force-close any live WS *first* — see auth.js for the rationale.
+    req.app?.locals?.disconnectUserEverywhere?.(userId);
     // Encode id/name/email in detail so the forensic trail survives the
     // admin themselves being deleted (their audit_log rows have user_id
     // nulled out in that case — see purgeUserInTx).
@@ -381,7 +383,6 @@ router.delete('/users/:userId', async (req, res) => {
       detail: JSON.stringify({ id: userId, email: deleted.email, name: deleted.name }),
       ip: req.ip,
     }).catch((e) => logger.warn({ err: e }, 'Audit log failed for admin user delete'));
-    req.app?.locals?.disconnectUserEverywhere?.(userId);
     if (deleted.email) {
       const purgeAt = new Date(Date.now() + SOFT_DELETE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       sendAccountDeletedEmail(deleted.email, deleted.name, { purgeAt }).catch((err) =>
@@ -412,14 +413,15 @@ router.get('/users/deleted', async (req, res) => {
   }
 });
 
-/** POST /api/admin/users/:userId/restore -- Restore a soft-deleted account.
- *  Clears deleted_at; the user must sign in again (their session was killed
- *  at soft-delete). Sends a notification email. */
+/** POST /api/admin/users/:userId/restore  body { password }
+ *  Restore a soft-deleted account. Requires the admin's own password as a
+ *  second factor (same as the delete route). The user must sign in again
+ *  (their session was killed at soft-delete). Sends a notification email. */
 router.post('/users/:userId/restore', async (req, res) => {
   const userId = req.params.userId;
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
-    const restored = await adminRestoreUser(req.session.userId, userId);
+    const restored = await adminRestoreUser(req.session.userId, req.body?.password, userId);
     await auditLog(req.session.userId, 'account_restored_by_admin', {
       targetType: 'user',
       targetId: userId,

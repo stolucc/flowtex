@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
+import logger from '../logger.js';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_WINDOW_MINUTES = 15;
@@ -711,13 +712,22 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
 }
 
 /** Admin-driven restore of a soft-deleted user. Clears deleted_at so the
- *  user can sign in again. The user still has to log in (their session was
- *  killed at soft-delete). Returns the restored user's email + name so the
- *  caller can send a notification. */
-export async function adminRestoreUser(adminId, targetUserId) {
+ *  user can sign in again. Requires the admin's own password as a second
+ *  factor — mirrors adminDeleteUser, so a hijacked admin session can't
+ *  one-click un-quarantine a user the operator had binned for cause.
+ *  The restored user still has to log in (their session was killed at
+ *  soft-delete). Returns the restored user's email + name so the caller
+ *  can send a notification. */
+export async function adminRestoreUser(adminId, adminPassword, targetUserId) {
   if (!adminId || !targetUserId) throw Object.assign(new Error('Missing ids'), { status: 400 });
-  const admin = await db.get('SELECT id, is_admin FROM users WHERE id = $1', [adminId]);
+  const admin = await db.get('SELECT id, password_hash, is_admin FROM users WHERE id = $1', [adminId]);
   if (!admin || !admin.is_admin) throw Object.assign(new Error('Not an admin'), { status: 403 });
+  if (!adminPassword || typeof adminPassword !== 'string') {
+    throw Object.assign(new Error('Admin password required'), { status: 400 });
+  }
+  if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
+    throw Object.assign(new Error('Invalid admin password'), { status: 401 });
+  }
 
   const target = await db.get(
     'SELECT id, email, name, deleted_at FROM users WHERE id = $1',
@@ -727,7 +737,20 @@ export async function adminRestoreUser(adminId, targetUserId) {
   if (!target.deleted_at) {
     throw Object.assign(new Error('User is not deleted'), { status: 409 });
   }
-  await db.run('UPDATE users SET deleted_at = NULL WHERE id = $1', [target.id]);
+  // Conditional UPDATE + rowCount check guards the race with the hourly
+  // purge cron: if the row was hard-deleted between the SELECT above and
+  // this UPDATE, rowCount is 0 and we surface a clear 410 instead of
+  // returning {ok:true} for nothing.
+  const res = await db.run(
+    'UPDATE users SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL',
+    [target.id],
+  );
+  if (!res?.rowCount) {
+    throw Object.assign(
+      new Error('Account was already permanently purged'),
+      { status: 410 },
+    );
+  }
   return { email: target.email, name: target.name };
 }
 
@@ -765,8 +788,7 @@ export async function purgeExpiredSoftDeletes() {
       purgedIds.push(user.id);
     } catch (err) {
       // One bad row shouldn't halt the whole sweep — log + skip.
-      // eslint-disable-next-line no-console
-      console.error('[soft-delete purge] failed for user', user.id, err);
+      logger.error({ err, userId: user.id }, 'soft-delete purge failed for user');
     }
   }
   return purgedIds;

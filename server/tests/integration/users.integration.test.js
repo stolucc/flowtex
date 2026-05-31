@@ -142,15 +142,37 @@ describe('users — deletion (soft-delete recovery bin)', () => {
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
     await deleteAccount(u.id, 'TestPass123');
 
-    const admin = await seedUser();
+    const admin = await registerUser(`it-admin-${Date.now()}@example.test`, 'Admin', 'AdminPass123');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
 
-    await adminRestoreUser(admin.id, u.id);
+    await adminRestoreUser(admin.id, 'AdminPass123', u.id);
     const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
     expect(row.deleted_at).toBeNull();
 
     const ok = await authenticateUser(email, 'TestPass123');
     expect(ok.user?.id).toBe(u.id);
+  });
+
+  it('adminRestoreUser rejects a wrong admin password', async () => {
+    const u = await registerUser(`it-rw-${Date.now()}@example.test`, 'U', 'TestPass123');
+    await deleteAccount(u.id, 'TestPass123');
+    const admin = await registerUser(`it-adminrw-${Date.now()}@example.test`, 'A', 'AdminPass123');
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
+
+    await expect(adminRestoreUser(admin.id, 'WrongPass1', u.id))
+      .rejects.toMatchObject({ status: 401, message: 'Invalid admin password' });
+
+    const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
+    expect(row.deleted_at).not.toBeNull();
+  });
+
+  it('adminRestoreUser refuses to restore a user that is not deleted', async () => {
+    const u = await registerUser(`it-active-${Date.now()}@example.test`, 'U', 'TestPass123');
+    const admin = await registerUser(`it-adminact-${Date.now()}@example.test`, 'A', 'AdminPass123');
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
+
+    await expect(adminRestoreUser(admin.id, 'AdminPass123', u.id))
+      .rejects.toMatchObject({ status: 409 });
   });
 
   it('purgeExpiredSoftDeletes hard-deletes rows past the 30-day window', async () => {

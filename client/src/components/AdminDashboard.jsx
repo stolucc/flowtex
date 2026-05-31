@@ -872,10 +872,10 @@ export default function AdminDashboard({ onBack }) {
           <DeletedUsersPanel
             rows={deletedUsers}
             busyId={restoreBusy}
-            onRestore={async (row) => {
+            onRestore={async (row, password) => {
               setRestoreBusy(row.id);
               try {
-                const res = await post(`/api/admin/users/${row.id}/restore`);
+                const res = await post(`/api/admin/users/${row.id}/restore`, { password });
                 if (!res.ok) {
                   const data = await res.json().catch(() => ({}));
                   throw new Error(data.error || 'Restore failed');
@@ -1277,22 +1277,75 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
       )}
       {error && <div className="admin-delete-user-error">{error}</div>}
       {confirmRow && (
-        <ConfirmDialog
-          message={`Restore ${confirmRow.email}? The user will be able to sign in again with their existing password. All of their projects and memberships are intact.`}
-          confirmLabel="Restore"
-          confirmClass="confirm-dialog-primary"
-          onConfirm={async () => {
+        <AdminRestoreUserModal
+          target={confirmRow}
+          busy={busyId === confirmRow.id}
+          onClose={() => setConfirmRow(null)}
+          onConfirm={async (password) => {
             try {
-              await onRestore(confirmRow);
+              await onRestore(confirmRow, password);
               setConfirmRow(null);
             } catch (e) {
               setError(e.message || 'Restore failed');
               setConfirmRow(null);
             }
           }}
-          onCancel={() => setConfirmRow(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** Password-gated restore confirmation. Mirrors AdminDeleteUserModal's
+ *  password requirement so restore is no easier than delete (a hijacked
+ *  admin session can't un-quarantine a binned user without re-presenting
+ *  the admin's password). */
+function AdminRestoreUserModal({ target, busy, onClose, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}>
+      <div className="modal-card" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Restore account</h2>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
+          Restore <strong>{target.email}</strong>? They&rsquo;ll be able to sign in again with their existing password. All projects and memberships stay intact.
+        </p>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!password || submitting) return;
+            setError('');
+            setSubmitting(true);
+            try {
+              await onConfirm(password);
+            } catch (err) {
+              setError(err?.message || 'Restore failed');
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          className="admin-delete-user-form"
+        >
+          <label className="admin-delete-user-field">
+            <span>Your admin password:</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+          </label>
+          {error && <div className="admin-delete-user-error">{error}</div>}
+          <div className="admin-delete-user-actions">
+            <button type="button" onClick={onClose} disabled={submitting || busy}>Cancel</button>
+            <button type="submit" disabled={!password || submitting || busy}>
+              {submitting || busy ? 'Restoring…' : 'Restore'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

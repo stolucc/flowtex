@@ -368,8 +368,11 @@ router.post('/delete-account', requireAuth, async (req, res) => {
   const userId = req.session.userId;
   try {
     const { email, name } = await authService.deleteAccount(userId, req.body.password);
-    await auditLog(userId, 'account_deleted', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for account deletion'));
+    // Force-close any live WS *first* — the soft-delete is committed but the
+    // user's existing socket can still receive messages until we close it;
+    // shrinking that window before any further awaits is the cheap defence.
     req.app?.locals?.disconnectUserEverywhere?.(userId);
+    await auditLog(userId, 'account_deleted', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for account deletion'));
     if (email) {
       const purgeAt = new Date(Date.now() + authService.SOFT_DELETE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       sendAccountDeletedEmail(email, name, { purgeAt }).catch((err) =>
