@@ -243,8 +243,14 @@ export default function AuthPage({ onAuth }) {
     window.history.replaceState({}, '', '/');
   };
 
+  // Marketing pane is only shown alongside the main login/register form —
+  // not during transient flows (verify, reset, MFA prompt, invite-decline)
+  // where the user is already mid-task and a sidebar would be a distraction.
+  const showMarketing = (mode === 'login' || mode === 'register') && !mfaRequired;
+
   return (
-    <div className="auth-page">
+    <div className={`auth-page${showMarketing ? ' has-marketing' : ''}`}>
+      {showMarketing && <AuthMarketingPane />}
       <div className="auth-card">
         <h1 className="auth-title">FlowTex</h1>
 
@@ -511,5 +517,53 @@ export default function AuthPage({ onAuth }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Marketing pane shown next to the login/register form on the landing page.
+ *  The hero image is served from /marketing/editor-screenshot.png; if the
+ *  file isn't present the <img> hides itself via onError so the page still
+ *  renders cleanly (the feature list carries the page on its own). */
+function AuthMarketingPane() {
+  return (
+    <aside className="auth-marketing" aria-label="About FlowTex">
+      <h2 className="auth-marketing-headline">Write LaTeX with the people you write with.</h2>
+      <p className="auth-marketing-lede">
+        A collaborative LaTeX editor with a live PDF preview, real-time
+        editing, inline comments, and a writing history that&rsquo;s actually
+        useful.
+      </p>
+      <figure className="auth-marketing-hero">
+        <img
+          src="/marketing/editor-screenshot.png"
+          alt="FlowTex editor with source on the left and PDF preview on the right"
+          loading="lazy"
+          onError={(e) => {
+            // No screenshot deployed yet — hide the figure entirely so the
+            // feature list flows up. Avoids the broken-image icon.
+            const fig = e.currentTarget.closest('figure');
+            if (fig) fig.style.display = 'none';
+          }}
+        />
+      </figure>
+      <ul className="auth-marketing-features">
+        <li>
+          <strong>Edit together in real time</strong>
+          <span>Live cursors, shared changes, no merge headaches.</span>
+        </li>
+        <li>
+          <strong>Inline comments and project chat</strong>
+          <span>Discuss specific lines, @-mention collaborators, get email digests.</span>
+        </li>
+        <li>
+          <strong>Live PDF preview with SyncTeX</strong>
+          <span>Recompile on save; click the PDF to jump straight to the source.</span>
+        </li>
+        <li>
+          <strong>Track changes and version history</strong>
+          <span>Word-style review, every save snapshotted, restore any earlier version.</span>
+        </li>
+      </ul>
+    </aside>
   );
 }

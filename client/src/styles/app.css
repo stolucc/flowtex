@@ -4882,6 +4882,96 @@ html {
   background: var(--bg-primary);
 }
 
+/* Two-column landing layout: marketing pane on the left, auth card on the
+   right. Only applied when the marketing pane is rendered (login/register,
+   not during transient flows). Stacks on narrow screens. */
+.auth-page.has-marketing {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  height: auto;
+  min-height: 100vh;
+  padding: 48px 32px;
+}
+
+.auth-marketing {
+  max-width: 480px;
+  flex: 1 1 480px;
+  color: var(--text-primary);
+}
+
+.auth-marketing-headline {
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+}
+
+.auth-marketing-lede {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 24px 0;
+}
+
+.auth-marketing-hero {
+  margin: 0 0 28px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.auth-marketing-hero img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.auth-marketing-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.auth-marketing-features li {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding-left: 16px;
+  border-left: 2px solid var(--accent);
+}
+
+.auth-marketing-features li strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.auth-marketing-features li span {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .auth-page.has-marketing {
+    flex-direction: column;
+    gap: 32px;
+    padding: 32px 16px;
+  }
+  .auth-marketing {
+    max-width: 480px;
+    flex: 0 1 auto;
+  }
+  .auth-marketing-headline {
+    font-size: 24px;
+  }
+}
+
 .auth-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
