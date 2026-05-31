@@ -79,11 +79,13 @@ describe('Toolbar', () => {
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('renders logout button and calls onLogout', () => {
+  it('opens the user menu and calls onLogout from its Sign out item', () => {
     const { props, container } = renderToolbar();
-    const logoutBtn = container.querySelector('.toolbar-btn-logout');
-    expect(logoutBtn).toBeTruthy();
-    fireEvent.click(logoutBtn);
+    const trigger = container.querySelector('.toolbar-user-menu-trigger');
+    expect(trigger).toBeTruthy();
+    fireEvent.click(trigger);
+    const signOut = screen.getByRole('menuitem', { name: /sign out/i });
+    fireEvent.click(signOut);
     expect(props.onLogout).toHaveBeenCalledTimes(1);
   });
 
@@ -180,8 +182,8 @@ describe('Toolbar', () => {
     expect(screen.queryByText('History')).toBeNull();
   });
 
-  it('does not render logout button when onLogout is not provided', () => {
+  it('does not render the user menu when onLogout is not provided', () => {
     const { container } = renderToolbar({ onLogout: undefined });
-    expect(container.querySelector('.toolbar-btn-logout')).toBeNull();
+    expect(container.querySelector('.toolbar-user-menu-trigger')).toBeNull();
   });
 });
