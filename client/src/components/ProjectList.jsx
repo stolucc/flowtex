@@ -77,6 +77,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   const [docxDocType, setDocxDocType] = useState('book');
   const [docxImporting, setDocxImporting] = useState(false);
   const [docxProgress, setDocxProgress] = useState({ message: '', percent: 0 });
+  // ZIP import state — the server has no streaming endpoint so we just show
+  // a "this is happening" modal until the request resolves (or errors). On
+  // success the parent navigates to the new project and this component
+  // unmounts, taking the modal with it.
+  const [zipImporting, setZipImporting] = useState(null); // null | { fileName }
+  const [zipError, setZipError] = useState('');
   const docxAbortRef = useRef(null);
   const [showGitHubImport, setShowGitHubImport] = useState(false);
   const [ghImportRepo, setGhImportRepo] = useState('');
@@ -207,17 +213,30 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   /** Upload a ZIP file to create a new project from its contents. */
   const handleUploadZip = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch('/api/projects/from-zip', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-      headers: { 'X-CSRF-Token': getCsrfToken() },
-    });
-    if (res.ok) {
-      const project = await res.json();
-      onSelect(project);
+    setZipError('');
+    setZipImporting({ fileName: file.name });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/projects/from-zip', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': getCsrfToken() },
+      });
+      if (res.ok) {
+        const project = await res.json();
+        // onSelect unmounts this view; leave zipImporting set so the
+        // overlay stays visible until the editor actually appears.
+        onSelect(project);
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      setZipError(body.error || `Import failed (HTTP ${res.status})`);
+      setZipImporting(null);
+    } catch (err) {
+      setZipError(err?.message || 'Network error while importing');
+      setZipImporting(null);
     }
   };
 
@@ -1456,6 +1475,31 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             initialTab={settingsInitialTab}
           />
         </Suspense>
+      )}
+      {zipImporting && (
+        <div className="modal-overlay">
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380, textAlign: 'center' }}>
+            <div className="zip-import-spinner" aria-hidden="true" />
+            <h2 style={{ margin: '4px 0 6px', fontSize: 16 }}>Importing project</h2>
+            <p style={{ margin: '0 0 4px', fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+              {zipImporting.fileName}
+            </p>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+              Large projects can take a moment. You&rsquo;ll be taken to the editor when it&rsquo;s ready.
+            </p>
+          </div>
+        </div>
+      )}
+      {zipError && !zipImporting && (
+        <div className="modal-overlay" onClick={() => setZipError('')}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Couldn&rsquo;t import the ZIP</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{zipError}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="modal-btn modal-btn-secondary" onClick={() => setZipError('')}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
       {showDocxDialog && (
         <div className="modal-overlay" onClick={docxImporting ? undefined : () => { setShowDocxDialog(false); setDocxFile(null); }}>

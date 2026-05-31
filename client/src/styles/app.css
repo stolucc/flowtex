@@ -3600,6 +3600,16 @@ html {
   margin-right: 4px;
 }
 
+.zip-import-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+  margin: 4px auto 12px;
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);
