@@ -21,6 +21,7 @@ import ModalContainer from './components/ModalContainer.jsx';
 import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
+const AccountSettingsModal = lazy(() => import('./components/AccountSettingsModal.jsx'));
 import { get, post, patch, upload } from './api.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
@@ -107,6 +108,7 @@ function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
   const { alert: showAlert } = useAlert();
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
 
   // Once the user is authenticated, prefetch the lazy chunks the user
   // is likely to need shortly. Editor/PdfViewer always paint on project
@@ -645,6 +647,7 @@ function AppInner() {
           }}
           onShare={() => ui.setShowShareModal(true)}
           onLogout={handleLogoutFull}
+          onOpenAccountSettings={() => setShowAccountSettings(true)}
           activeFile={activeFile}
           onPrettyPrint={() => {
             if (!activeFile?.path?.endsWith('.bib')) return;
@@ -818,6 +821,16 @@ function AppInner() {
         projectSettingsTab={projectSettingsTab}
         setProjectSettingsTab={setProjectSettingsTab}
       />
+      {showAccountSettings && (
+        <Suspense fallback={null}>
+          <AccountSettingsModal
+            user={user}
+            onClose={() => setShowAccountSettings(false)}
+            onUpdate={setUser}
+            onAccountDeleted={handleLogoutFull}
+          />
+        </Suspense>
+      )}
       {invitationToasts.length > 0 && (
         <div className="invitation-toast-stack">
           {invitationToasts.map((inv) => (

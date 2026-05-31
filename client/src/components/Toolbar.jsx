@@ -1,7 +1,54 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
-import { HomeIcon, LogoutIcon } from './Icons.jsx';
+import { HomeIcon } from './Icons.jsx';
+
+/** Avatar-triggered user menu in the editor toolbar: opens to Account
+ *  settings + Sign out. Replaces the standalone log-out icon so the user
+ *  has the same access to settings inside a project that they have on the
+ *  dashboard sidebar. */
+function UserMenu({ user, onOpenSettings, onSignOut }) {
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  useClickOutside(ref, () => setOpen(false), open);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+  return (
+    <div className="toolbar-user-menu" ref={ref}>
+      <button
+        type="button"
+        className="toolbar-user-menu-trigger"
+        onClick={() => setOpen((v) => !v)}
+        title={user?.name ? `${user.name} — account menu` : 'Account menu'}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Avatar name={user?.name || user?.email || '?'} size={30} />
+      </button>
+      {open && (
+        <div className="toolbar-dropdown-menu toolbar-user-menu-dropdown" role="menu">
+          {user && (
+            <div className="toolbar-user-menu-header">
+              <div className="toolbar-user-menu-name">{user.name}</div>
+              <div className="toolbar-user-menu-email">{user.email}</div>
+            </div>
+          )}
+          <button role="menuitem" onClick={() => { setOpen(false); onOpenSettings?.(); }}>
+            Account settings
+          </button>
+          <div className="toolbar-dropdown-separator" />
+          <button role="menuitem" onClick={() => { setOpen(false); onSignOut?.(); }}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Generic toolbar dropdown menu that opens on click and follows hover when another menu is already open. */
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
@@ -52,6 +99,7 @@ export default function Toolbar({
   currentUser,
   onShare,
   onLogout,
+  onOpenAccountSettings,
   onUserClick,
   onRename,
   isOwner,
@@ -424,9 +472,11 @@ export default function Toolbar({
           </button>
         )}
         {onLogout && (
-          <button className="toolbar-btn toolbar-btn-logout" onClick={onLogout} title="Log out">
-            <LogoutIcon size={18} />
-          </button>
+          <UserMenu
+            user={currentUser}
+            onOpenSettings={onOpenAccountSettings}
+            onSignOut={onLogout}
+          />
         )}
       </div>
       <input

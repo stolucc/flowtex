@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { get, post, del, getCsrfToken } from '../api.js';
 import Avatar from './Avatar.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import MfaSetupModal from './MfaSetupModal.jsx';
+const AccountSettingsModal = lazy(() => import('./AccountSettingsModal.jsx'));
 import TemplateGallery from './TemplateGallery.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
@@ -1444,16 +1444,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         </div>
       )}
       {showMfa && (
-        <MfaSetupModal
-          user={user}
-          onClose={() => {
-            setShowMfa(false);
-            setSettingsInitialTab(null);
-          }}
-          onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
-          onAccountDeleted={onLogout}
-          initialTab={settingsInitialTab}
-        />
+        <Suspense fallback={null}>
+          <AccountSettingsModal
+            user={user}
+            onClose={() => {
+              setShowMfa(false);
+              setSettingsInitialTab(null);
+            }}
+            onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
+            onAccountDeleted={onLogout}
+            initialTab={settingsInitialTab}
+          />
+        </Suspense>
       )}
       {showDocxDialog && (
         <div className="modal-overlay" onClick={docxImporting ? undefined : () => { setShowDocxDialog(false); setDocxFile(null); }}>

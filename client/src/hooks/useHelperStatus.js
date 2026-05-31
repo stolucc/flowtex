@@ -17,7 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pingHealth, fetchHelperVersion } from '../utils/helperBridge.js';
 
-// Adaptive interval mirrors MfaSetupModals own probe loop.
+// Adaptive interval mirrors AccountSettingsModal's own probe loop.
 const FAST_INTERVAL_MS = 3_000;
 const SLOW_INTERVAL_MS = 60_000;
 
@@ -63,7 +63,7 @@ export default function useHelperStatus({ enabled }) {
     const interval = status.available ? SLOW_INTERVAL_MS : FAST_INTERVAL_MS;
     const id = setInterval(probe, interval);
     // Listen for explicit status-change pings from helperBridge AND
-    // MfaSetupModal (which broadcasts on every successful probe).
+    // AccountSettingsModal (which broadcasts on every successful probe).
     // Without this the consumer waits up to a full poll cycle to
     // notice a freshly-paired helper.
     const onChange = () => probe();

@@ -1,7 +1,7 @@
 // Single source of truth for "is the flowtex-helper paired and healthy".
 //
 // Why a context: prior to this, three callers each ran their own probe
-// loop — App.jsx (for the compile resolver), MfaSetupModal (for the
+// loop — App.jsx (for the compile resolver), AccountSettingsModal (for the
 // Account Settings status row), and the would-be ProjectSettingsModal
 // status row. They could disagree (different setInterval cadences,
 // different React render trees), which produced the "paired in Account

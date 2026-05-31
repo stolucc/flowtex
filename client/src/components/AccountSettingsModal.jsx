@@ -289,7 +289,7 @@ function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
 }
 
 /** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
-export default function MfaSetupModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
+export default function AccountSettingsModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
   const [tab, setTab] = useState(initialTab || 'mfa');
 
   // ── MFA state ──────────────────────────────────────────────────────
