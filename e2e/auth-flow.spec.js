@@ -281,15 +281,20 @@ test('delete-account: correct password removes the user and invalidates the sess
   const body = r.json();
   expect(body.ok).toBe(true);
 
-  // User row gone (cascade on FKs).
-  const row = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
-  expect(row.rowCount).toBe(0);
+  // Soft delete: the row survives in the 30-day recovery bin with
+  // deleted_at set; the hourly purge cron is what eventually removes it.
+  // See server/services/authService.js — softDeleteUserInTx + the docs in
+  // the rebuild/recovery-bin feature commit.
+  const row = await pool.query('SELECT deleted_at FROM users WHERE email = $1', [email]);
+  expect(row.rowCount).toBe(1);
+  expect(row.rows[0].deleted_at).not.toBeNull();
 
   // The post-delete session is destroyed — /me should 401 with the cookie.
   const meAfter = await api('GET', '/api/auth/me', { cookie });
   expect(meAfter.status).toBe(401);
 
-  // And login with that email now fails (account doesn't exist).
+  // And login with that email now fails: deleted accounts present as
+  // plain "invalid credentials" so the bin's existence isn't leaked.
   const reLogin = await api('POST', '/api/auth/login', { body: { email, password } });
   expect(reLogin.status).toBe(401);
 });

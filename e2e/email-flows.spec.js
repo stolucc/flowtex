@@ -148,7 +148,12 @@ test('verify-email: valid token marks user verified and returns ok', async () =>
   expect(row.rows[0].email_verified).toBe(true);
 });
 
-test('verify-email: replay of an already-used token → 400', async () => {
+test('verify-email: replay of an already-used token is idempotent (200)', async () => {
+  // verifyEmail is deliberately idempotent so that mail-provider scanners
+  // (Outlook Safe Links, Gmail virus scan, Apple Mail preview) GETting the
+  // URL before the human clicks don't burn the single-use token and leave
+  // the human with "expired" 30s later. The token stays valid for its
+  // configured window; replay succeeds.
   const email = `e2e-email-replay-${Date.now()}@test.local`;
   const userId = await registerAndGetUserId(email);
   const token = await insertVerificationToken(userId);
@@ -156,8 +161,11 @@ test('verify-email: replay of an already-used token → 400', async () => {
   const first = await api('GET', `/api/auth/verify-email?token=${token}`);
   expect(first.status).toBe(200);
   const second = await api('GET', `/api/auth/verify-email?token=${token}`);
-  expect(second.status).toBe(400);
-  expect(second.json().error.toLowerCase()).toMatch(/invalid|expired/);
+  expect(second.status).toBe(200);
+
+  // And the user really is verified after the replay.
+  const row = await pool.query('SELECT email_verified FROM users WHERE id = $1', [userId]);
+  expect(row.rows[0].email_verified).toBe(true);
 });
 
 test('verify-email: unknown / malformed token → 400 (no leak)', async () => {
