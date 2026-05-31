@@ -1137,23 +1137,45 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
             <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
             I understand this is permanent.
           </label>
+          {/* Honeypot pair: Chrome's autofill heuristic looks for the
+              FIRST text+password input pair in a form and treats them
+              as username+password. Putting two off-screen decoys
+              BEFORE the real fields means Chrome fills those instead
+              of the confirm box. Keeps the visible UI clean and
+              doesn't depend on Chrome honouring any autocomplete hint
+              (which it largely doesn't on text inputs). */}
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            tabIndex={-1}
+            aria-hidden="true"
+            style={{ position: 'absolute', left: '-9999px', height: 0, width: 0, opacity: 0 }}
+          />
+          <input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            tabIndex={-1}
+            aria-hidden="true"
+            style={{ position: 'absolute', left: '-9999px', height: 0, width: 0, opacity: 0 }}
+          />
           <label className="admin-delete-user-field">
             <span>
               Type <code>{target.email}</code> to confirm:
             </span>
             <input
               type="text"
-              // Chrome / Safari ignore autoComplete="off" on plain text
-              // fields they heuristically recognise as email and happily
-              // prefill with the SIGNED-IN admin's address — which is
-              // exactly the address that would defeat the confirm gate.
-              // "new-password" is one of the few values browsers reliably
-              // honour as "do not autofill". The name + data-1p-ignore +
-              // randomised name kill 1Password / Bitwarden suggestions too.
-              autoComplete="new-password"
+              // Belt-and-suspenders on top of the honeypot pair above:
+              // autoComplete + name hints, plus the readonly-on-mount
+              // trick (Chrome refuses to autofill readonly fields).
+              // Strip readonly on focus so the user can still type.
+              autoComplete="off"
               name={`delete-confirm-${target.id}`}
               data-1p-ignore="true"
               data-bwignore
+              readOnly
+              onFocus={(e) => e.target.removeAttribute('readonly')}
               value={emailConfirm}
               onChange={(e) => setEmailConfirm(e.target.value)}
               placeholder={target.email}
