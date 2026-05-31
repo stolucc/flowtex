@@ -637,8 +637,14 @@ const PdfViewer = forwardRef(function PdfViewer(
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('PDF load error:', err);
-          setError('Failed to load PDF');
+          // pdfjs throws MissingPDFException when the URL returns 404,
+          // which is what happens for a freshly-toggled track-changes
+          // view that hasnt been compiled yet (each mode has its own
+          // sibling PDF on disk). Surface a helpful "compile this view"
+          // message rather than a generic "Failed to load PDF" alarm.
+          const isMissing = err?.name === 'MissingPDFException' || /^missing/i.test(err?.message || '');
+          console.warn(isMissing ? 'PDF not built yet for this view' : 'PDF load error:', err);
+          setError(isMissing ? 'No PDF for this view yet — click PDF to compile.' : 'Failed to load PDF');
         }
       }
     };
