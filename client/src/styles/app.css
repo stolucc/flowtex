@@ -4005,6 +4005,20 @@ html {
 .pdf-console-rebuild-header {
   margin-bottom: 6px;
   color: var(--text-secondary);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pdf-console-rebuild-cached-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
 .pdf-console-rebuild-list {

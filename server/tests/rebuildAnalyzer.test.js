@@ -11,6 +11,7 @@ import {
   diffManifests,
   detectRerunSignals,
   analyzeRebuild,
+  checkBuildCache,
 } from '../utils/rebuildAnalyzer.js';
 
 function tmpDir() {
@@ -199,5 +200,70 @@ describe('analyzeRebuild (end-to-end)', () => {
       logContent: 'LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.',
     });
     expect(reason.rerunReason).toMatch(/cross-references/);
+  });
+});
+
+describe('checkBuildCache (skip-rebuild)', () => {
+  async function seed(dir, content, env = { compiler: 'pdflatex', texDistribution: null }) {
+    await fsp.writeFile(path.join(dir, 'main.tex'), content);
+    await fsp.writeFile(path.join(dir, 'main.fls'), `INPUT ${path.join(dir, 'main.tex')}\n`);
+    await analyzeRebuild({ projectDir: dir, jobName: 'main', logContent: '', env });
+  }
+
+  it('misses when no previous manifest exists', async () => {
+    const dir = tmpDir();
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
+    expect(r.hit).toBe(false);
+    expect(r.reason).toMatch(/no previous build/);
+  });
+
+  it('hits when no input changed and env matches', async () => {
+    const dir = tmpDir();
+    await seed(dir, 'stable');
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
+    expect(r.hit).toBe(true);
+  });
+
+  it('misses when an input file content changed', async () => {
+    const dir = tmpDir();
+    await seed(dir, 'v1');
+    await fsp.writeFile(path.join(dir, 'main.tex'), 'v2');
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
+    expect(r.hit).toBe(false);
+    expect(r.reason).toMatch(/inputs changed/);
+    expect(r.changedFiles).toEqual([{ path: 'main.tex', change: 'modified' }]);
+  });
+
+  it('misses when an input file is removed', async () => {
+    const dir = tmpDir();
+    await seed(dir, 'stable');
+    await fsp.unlink(path.join(dir, 'main.tex'));
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
+    expect(r.hit).toBe(false);
+    expect(r.changedFiles?.[0]).toMatchObject({ change: 'removed' });
+  });
+
+  it('misses when the compiler changes between builds', async () => {
+    const dir = tmpDir();
+    await seed(dir, 'stable', { compiler: 'pdflatex', texDistribution: null });
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'xelatex', texDistribution: null });
+    expect(r.hit).toBe(false);
+    expect(r.reason).toMatch(/compiler/);
+  });
+
+  it('misses when the tex distribution changes between builds', async () => {
+    const dir = tmpDir();
+    await seed(dir, 'stable', { compiler: 'pdflatex', texDistribution: 'texlive-2024' });
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: 'texlive-2025' });
+    expect(r.hit).toBe(false);
+  });
+
+  it('misses when the previous manifest had no tracked inputs', async () => {
+    const dir = tmpDir();
+    // Manifest with zero files (corner case: .fls was missing or empty).
+    await writeManifest(dir, 'main', { version: 1, builtAt: Date.now(), env: { compiler: 'pdflatex', texDistribution: null }, files: {} });
+    const r = await checkBuildCache({ projectDir: dir, jobName: 'main', compiler: 'pdflatex', texDistribution: null });
+    expect(r.hit).toBe(false);
+    expect(r.reason).toMatch(/no tracked inputs/);
   });
 });

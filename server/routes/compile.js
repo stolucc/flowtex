@@ -195,14 +195,14 @@ router.post('/:projectId', async (req, res) => {
       return { ...f, content };
     });
 
-    const { log, profile, rebuildReason } = await compileProject(projectId, mainFile, null, {
+    const { log, profile, rebuildReason, cached } = await compileProject(projectId, mainFile, null, {
       files,
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
     });
 
-    res.json({ success: true, log, profile, rebuildReason });
+    res.json({ success: true, log, profile, rebuildReason, cached: !!cached });
   } catch (err) {
     res.status(400).json({ success: false, log: safeMsg(err, 'Compilation failed') });
   }
@@ -265,7 +265,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       }
       return { ...f, content };
     });
-    const { log, profile, rebuildReason } = await compileProject(
+    const { log, profile, rebuildReason, cached } = await compileProject(
       projectId,
       mainFile,
       (chunk) => {
@@ -283,7 +283,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       },
     );
 
-    send('done', { success: true, log: stripPaths(log), profile, rebuildReason });
+    send('done', { success: true, log: stripPaths(log), profile, rebuildReason, cached: !!cached });
   } catch (err) {
     send('done', { success: false, log: stripPaths(err.message) });
   }

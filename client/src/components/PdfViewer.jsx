@@ -71,8 +71,11 @@ function RebuildReasonBlock({ reason }) {
   const overflow = (reason.changedFiles || []).length - shown.length;
   const labelFor = (change) => (change === 'added' ? '+' : change === 'removed' ? '−' : '~');
   return (
-    <div className="pdf-console-rebuild">
-      <div className="pdf-console-rebuild-header">{reason.message}</div>
+    <div className={`pdf-console-rebuild${reason.kind === 'cached' ? ' is-cached' : ''}`}>
+      <div className="pdf-console-rebuild-header">
+        {reason.kind === 'cached' && <span className="pdf-console-rebuild-cached-badge">✓ Cached</span>}
+        <span>{reason.message}</span>
+      </div>
       {shown.length > 0 && (
         <ul className="pdf-console-rebuild-list">
           {shown.map((f) => (

@@ -145,7 +145,7 @@ describe('POST /:projectId', () => {
     const res = mockRes();
     await handler(mockReq({ projectId: 'proj-1' }), res);
 
-    expect(res.body).toEqual({ success: true, log: 'Done' });
+    expect(res.body).toMatchObject({ success: true, log: 'Done', cached: false });
     expect(compileProject).toHaveBeenCalledWith(
       'proj-1',
       'main.tex',

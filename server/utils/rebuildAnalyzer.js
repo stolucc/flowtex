@@ -75,8 +75,13 @@ export async function hashFile(absPath) {
 
 /** Build a manifest object {path -> {size, mtimeMs, sha256}} for the
  *  given list of relative paths under projectDir. Files we can't hash
- *  are skipped (they'll surface as "removed" against the next manifest). */
-export async function buildManifest(projectDir, relativePaths) {
+ *  are skipped (they'll surface as "removed" against the next manifest).
+ *
+ *  `env` captures the build environment (engine + tex distribution) so
+ *  the skip-rebuild cache invalidates when the user switches compilers
+ *  — the same source can produce a different PDF under xelatex vs
+ *  pdflatex, so a stale PDF must not be served. */
+export async function buildManifest(projectDir, relativePaths, env = null) {
   const entries = await Promise.all(
     relativePaths.map(async (rel) => {
       const meta = await hashFile(path.join(projectDir, rel));
@@ -85,7 +90,12 @@ export async function buildManifest(projectDir, relativePaths) {
   );
   const files = {};
   for (const e of entries) if (e) files[e[0]] = e[1];
-  return { version: 1, builtAt: Date.now(), files };
+  return {
+    version: 1,
+    builtAt: Date.now(),
+    env: env ? { compiler: env.compiler ?? null, texDistribution: env.texDistribution ?? null } : null,
+    files,
+  };
 }
 
 export function manifestPath(projectDir, jobName) {
@@ -165,17 +175,54 @@ export function detectRerunSignals(logContent) {
   return null;
 }
 
+/** Decide whether the previous build's PDF can be served as-is without
+ *  invoking latexmk. Hits ONLY when every file the previous build read
+ *  still hashes the same now AND the build environment (engine, tex
+ *  distribution) is unchanged.
+ *
+ *  Returns `{ hit: true }` or `{ hit: false, reason, changedFiles? }`.
+ *  `changedFiles` reuses the diffManifests shape so the UI can render
+ *  cache misses with the same component as a real rebuild.
+ *
+ *  Performance: hashing is bounded by the number of files in the prev
+ *  manifest, not the entire project — typically a few tens of KB.
+ *  Caller is responsible for verifying the PDF still exists on disk
+ *  before serving it (a manual `clean` could have removed it). */
+export async function checkBuildCache({ projectDir, jobName, compiler, texDistribution }) {
+  const prev = readManifest(projectDir, jobName);
+  if (!prev) return { hit: false, reason: 'no previous build manifest' };
+
+  const prevEnv = prev.env || {};
+  const wantCompiler = compiler ?? null;
+  const wantTex = texDistribution ?? null;
+  if (prevEnv.compiler !== wantCompiler || prevEnv.texDistribution !== wantTex) {
+    return { hit: false, reason: 'compiler or tex distribution changed' };
+  }
+
+  const paths = Object.keys(prev.files);
+  if (paths.length === 0) {
+    // Empty manifest: nothing to verify; safer to recompile.
+    return { hit: false, reason: 'previous manifest had no tracked inputs' };
+  }
+  const current = await buildManifest(projectDir, paths, { compiler: wantCompiler, texDistribution: wantTex });
+  const changes = diffManifests(prev, current);
+  if (changes.length > 0) {
+    return { hit: false, reason: 'inputs changed', changedFiles: changes };
+  }
+  return { hit: true };
+}
+
 /** End-to-end: read .fls, build new manifest, compare to prev manifest,
  *  parse log warnings, persist the new manifest. Returns the structured
  *  rebuildReason that the route forwards to the client. */
-export async function analyzeRebuild({ projectDir, jobName, logContent }) {
+export async function analyzeRebuild({ projectDir, jobName, logContent, env = null }) {
   const flsPath = path.join(projectDir, `${jobName}.fls`);
   let flsContent = '';
   try { flsContent = await fsp.readFile(flsPath, 'utf-8'); } catch { /* no recorder file */ }
   const inputs = parseFlsInputs(flsContent, projectDir);
 
   const prev = readManifest(projectDir, jobName);
-  const next = await buildManifest(projectDir, inputs);
+  const next = await buildManifest(projectDir, inputs, env);
 
   // Persist for the next compile. Failure here is non-fatal — at worst
   // the next compile sees "initial build."

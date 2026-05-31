@@ -6,7 +6,7 @@ import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import logger from './logger.js';
-import { analyzeRebuild } from './utils/rebuildAnalyzer.js';
+import { analyzeRebuild, checkBuildCache } from './utils/rebuildAnalyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
@@ -346,13 +346,53 @@ export async function compileProject(
       if (onOutput) onOutput(msg);
     }
   }
+  // Skip-rebuild cache: if the previous build's manifest still matches
+  // every input on disk (and the engine/distribution are unchanged), we
+  // can serve the previous PDF directly without invoking latexmk. Cheap
+  // and decisive — "compile button mash with no edits" goes from seconds
+  // to milliseconds. Failure inside the check is non-fatal: we fall
+  // through to a normal compile.
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const suffix = userSuffix(userId);
+  const jobName = mainFile.replace(/\.tex$/, '') + suffix;
+  const pdfPath = path.join(projectDir, `${jobName}.pdf`);
+  try {
+    const cacheCheck = await checkBuildCache({
+      projectDir,
+      jobName,
+      compiler: compiler || null,
+      texDistribution: texDistribution || null,
+    });
+    if (cacheCheck.hit && fs.existsSync(pdfPath)) {
+      if (onBeforeCompile) await onBeforeCompile();
+      if (onOutput) {
+        onOutput(`Cache hit — no tracked inputs changed since the last build. Reused PDF.\n`);
+      }
+      return {
+        pdfPath,
+        log: '',
+        jobName,
+        cached: true,
+        profile: null,
+        rebuildReason: {
+          kind: 'cached',
+          message: 'No tracked inputs changed since the last build.',
+          changedFiles: [],
+          rerunReason: null,
+        },
+      };
+    }
+  } catch (err) {
+    logger.warn({ err, jobName }, 'checkBuildCache failed; falling through to a normal compile');
+  }
+
   if (onBeforeCompile) {
     await onBeforeCompile();
   }
 
   const timeoutMs = await getCompileTimeout();
 
-  return _doCompile(projectId, mainFile, onOutput, userSuffix(userId), timeoutMs, texDistribution, compiler);
+  return _doCompile(projectId, mainFile, onOutput, suffix, timeoutMs, texDistribution, compiler);
 }
 
 /** Internal: spawn latexmk and return a promise for the compilation result. */
@@ -528,8 +568,14 @@ async function _doCompile(
           // Only run the rebuild analyzer on success — a failed build
           // shouldn't poison the manifest we compare against next time.
           // Failure inside the analyzer is non-fatal: the compile result
-          // simply lacks rebuildReason.
-          analyzeRebuild({ projectDir, jobName, logContent: finalLog })
+          // simply lacks rebuildReason. env is stored in the manifest so
+          // the skip-rebuild cache invalidates when the engine changes.
+          analyzeRebuild({
+            projectDir,
+            jobName,
+            logContent: finalLog,
+            env: { compiler: compiler || null, texDistribution: texDistribution || null },
+          })
             .then((rebuildReason) => {
               resolve({ pdfPath, log: finalLog, jobName, profile, rebuildReason });
             })
@@ -704,6 +750,10 @@ export const GENERATED_EXTS = new Set([
   '.log',
   '.fls',
   '.fdb_latexmk',
+  // The skip-rebuild cache file: lives next to .aux/.log; tracked here so
+  // a "clean" wipes it too, otherwise a stale manifest would survive a
+  // user-initiated clean compile and incorrectly serve the cache next.
+  '.flowtex-build-manifest.json',
   '.synctex.gz',
   '.synctex',
   '.bbl',
