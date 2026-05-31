@@ -16,7 +16,6 @@ import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
 import AuthPage from './components/AuthPage.jsx';
 import SetupWizard from './components/SetupWizard.jsx';
-import { getMimeType } from './utils/mimeType.js';
 import ModalContainer from './components/ModalContainer.jsx';
 import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './components/Icons.jsx';
 
@@ -627,6 +626,21 @@ function AppInner() {
         }}
       >
         <div className="app">
+          {!filesLoaded && (
+            // Project just opened: file list, file tree, and editor are
+            // all empty until the /files response lands. For projects
+            // with many or large text files this takes a perceptible
+            // moment. Show a centred overlay so the user knows the app
+            // is working, not stuck. Disappears as soon as setFilesLoaded
+            // flips true (see useProject.js).
+            <div className="project-loading-overlay" role="status" aria-live="polite">
+              <div className="project-loading-card">
+                <div className="zip-import-spinner" aria-hidden="true" />
+                <div className="project-loading-title">Loading project…</div>
+                <div className="project-loading-subtitle">{project.name}</div>
+              </div>
+            </div>
+          )}
           {ui.showHistory ? (
         <div className="history-toolbar">
           <button className="history-back-btn" onClick={() => ui.setShowHistory(false)}>
@@ -942,16 +956,14 @@ function AppInner() {
                     onDownload={(file) => {
                       const fileName = file.path.split('/').pop();
                       if (file.is_binary) {
-                        const mime = getMimeType(file.path);
-                        const blob = new Blob([Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0))], {
-                          type: mime,
-                        });
-                        const url = URL.createObjectURL(blob);
+                        // Binary content is no longer shipped with the
+                        // initial file list (it dominated the payload).
+                        // Stream from /raw instead — the browser handles
+                        // download via Content-Disposition + download attr.
                         const a = document.createElement('a');
-                        a.href = url;
+                        a.href = `/api/projects/files/${file.id}/raw`;
                         a.download = fileName;
                         a.click();
-                        URL.revokeObjectURL(url);
                       } else {
                         const blob = new Blob([file.content || ''], { type: 'text/plain' });
                         const url = URL.createObjectURL(blob);

@@ -3610,6 +3610,39 @@ html {
   margin: 4px auto 12px;
 }
 
+.project-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+
+.project-loading-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 32px;
+  text-align: center;
+  min-width: 220px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.project-loading-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-loading-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);

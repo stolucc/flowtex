@@ -1383,7 +1383,21 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
 // --- File operations ---
 
 export async function getProjectFiles(projectId) {
-  return db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
+  // Binaries are base64-encoded in the DB and often dominate the payload
+  // (images, fonts, PDFs in a typical paper). The client doesn't need
+  // their bytes for the initial project load — BinaryPreview fetches via
+  // /api/projects/files/:id/raw on demand, and the download button does
+  // the same. Null out binary `content` here so the initial response
+  // ships file metadata + text content only. Cuts the JSON for a
+  // typical project from MBs to KBs.
+  return db.all(
+    `SELECT id, project_id, path, is_binary, tc_marks, updated_at, created_at,
+            CASE WHEN is_binary THEN NULL ELSE content END AS content
+       FROM files
+      WHERE project_id = $1
+      ORDER BY path`,
+    [projectId],
+  );
 }
 
 /** Upload or replace a binary file (image, font, etc.) in a project. */
