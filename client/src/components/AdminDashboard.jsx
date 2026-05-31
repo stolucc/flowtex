@@ -1143,7 +1143,17 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
             </span>
             <input
               type="text"
-              autoComplete="off"
+              // Chrome / Safari ignore autoComplete="off" on plain text
+              // fields they heuristically recognise as email and happily
+              // prefill with the SIGNED-IN admin's address — which is
+              // exactly the address that would defeat the confirm gate.
+              // "new-password" is one of the few values browsers reliably
+              // honour as "do not autofill". The name + data-1p-ignore +
+              // randomised name kill 1Password / Bitwarden suggestions too.
+              autoComplete="new-password"
+              name={`delete-confirm-${target.id}`}
+              data-1p-ignore="true"
+              data-bwignore
               value={emailConfirm}
               onChange={(e) => setEmailConfirm(e.target.value)}
               placeholder={target.email}
