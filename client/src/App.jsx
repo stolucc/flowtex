@@ -724,12 +724,16 @@ function AppInner() {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);
             else if (topic === 'bug-report') ui.setShowBugReport(true);
-            else if (topic === 'helper-guide') ui.setShowHelperGuide(true);
-            else if (topic === 'user-guide') {
-              // Pre-rendered at build time from USER_GUIDE.md to
-              // public/docs/user-guide.html. New tab keeps the
-              // user's editor session intact.
-              window.open('/docs/user-guide.html', '_blank', 'noopener');
+            else if (topic === 'helper-guide' || topic === 'user-guide') {
+              // Both docs are pre-rendered at build time from
+              // USER_GUIDE.md / HELPER_GUIDE.md into static HTML
+              // (client/scripts/build-docs.mjs) and served at
+              // /docs/<name>.html. New tab keeps the user's editor
+              // session intact. Helper-guide WAS an in-app modal but
+              // got promoted to a static page — same content, easier
+              // to deep-link / search-in-page / share by URL.
+              const file = topic === 'user-guide' ? 'user-guide.html' : 'helper-guide.html';
+              window.open(`/docs/${file}`, '_blank', 'noopener');
             }
           }}
           onCompareFiles={() => ui.setShowCompareFiles(true)}

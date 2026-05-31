@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/build-user-guide.mjs",
+    "prebuild": "node scripts/build-docs.mjs",
     "build": "VITE_BUILD_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo dev) VITE_BUILD_TIME=$(date -u +%FT%TZ) vite build",
     "test": "vitest run",
     "test:watch": "vitest"

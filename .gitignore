@@ -44,6 +44,8 @@ server/reports/mutation/
 # fingerprints, file-analysis artefacts). Regenerable; not source.
 .understand-anything/
 
-# Auto-generated docs (rebuilt by client/scripts/build-user-guide.mjs
-# on every `npm run build`). Source of truth is USER_GUIDE.md.
+# Auto-generated docs (rebuilt by client/scripts/build-docs.mjs on
+# every `npm run build`). Source of truth is the *.md files at the
+# repo root.
 client/public/docs/user-guide.html
+client/public/docs/helper-guide.html

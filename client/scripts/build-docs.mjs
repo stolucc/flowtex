@@ -1,8 +1,12 @@
 /* global console */
-// Renders ../../USER_GUIDE.md into a styled HTML page at
-// client/public/docs/user-guide.html so it ships inside the Vite
-// dist/ bundle and the running FlowTex server can serve it at
-// /docs/user-guide.html. The Help menu links here.
+// Renders markdown docs from the repo root into styled HTML pages
+// inside client/public/docs/ so they ship in the Vite dist/ bundle
+// and the running FlowTex server can serve them at /docs/<name>.html.
+// The Help menu links to each.
+//
+// Currently builds:
+//   USER_GUIDE.md   → /docs/user-guide.html      ("User guide")
+//   HELPER_GUIDE.md → /docs/helper-guide.html    ("Helper setup guide")
 //
 // Run automatically as `npm run prebuild` (and so on every `npm run
 // build`). Safe to re-run; output is deterministic for a given
@@ -15,13 +19,36 @@ import { marked } from 'marked';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
-const srcMd = path.join(repoRoot, 'USER_GUIDE.md');
 const destDir = path.resolve(here, '..', 'public', 'docs');
-const destFile = path.join(destDir, 'user-guide.html');
+
+// Source markdown → output HTML mapping. `sidebarTitle` is what
+// appears at the top of the left-hand sidebar; `pageTitle` is the
+// browser <title>; `banner` is the small note at the top of the
+// main column (auto-generated reminder + sibling-doc cross-link).
+const DOCS = [
+  {
+    src: 'USER_GUIDE.md',
+    out: 'user-guide.html',
+    sidebarTitle: 'User guide',
+    pageTitle: 'FlowTex — User Guide',
+    banner:
+      'This page is auto-generated from <code>USER_GUIDE.md</code> in the source repository. ' +
+      'For the helper-specific setup, see the <a href="/docs/helper-guide.html">Helper setup guide</a>.',
+  },
+  {
+    src: 'HELPER_GUIDE.md',
+    out: 'helper-guide.html',
+    sidebarTitle: 'Helper setup',
+    pageTitle: 'FlowTex — Helper Setup Guide',
+    banner:
+      'This page is auto-generated from <code>HELPER_GUIDE.md</code> in the source repository. ' +
+      'For the rest of the FlowTex app, see the <a href="/docs/user-guide.html">User guide</a>.',
+  },
+];
 
 // Disable mangling of email addresses (we don't have any but the
-// defaults flag is moving) and let GFM extensions through so the
-// existing tables + task lists in USER_GUIDE.md render.
+// defaults flag is moving) and let GFM extensions through so tables
+// + task lists render.
 marked.setOptions({ gfm: true, breaks: false });
 
 /** Build a sidebar table-of-contents from the H2 headings in the
@@ -45,13 +72,13 @@ function buildToc(html) {
   return { html: out, sidebar };
 }
 
-function template({ body, sidebar }) {
+function template({ body, sidebar, sidebarTitle, pageTitle, banner }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FlowTex — User Guide</title>
+<title>${pageTitle}</title>
 <style>
   :root { --bg: #f8f9fa; --fg: #1a1a2e; --accent: #2563eb; --border: #d1d5db; --surface: #fff; --code-bg: #f1f3f5; --muted: #6b7280; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -89,7 +116,7 @@ function template({ body, sidebar }) {
 </head>
 <body>
 <nav class="toc">
-  <h1>User guide</h1>
+  <h1>${sidebarTitle}</h1>
   <ul>
 ${sidebar}
   </ul>
@@ -98,9 +125,7 @@ ${sidebar}
   </p>
 </nav>
 <main>
-  <div class="helper-banner">
-    This page is auto-generated from <code>USER_GUIDE.md</code> in the source repository. For the helper-specific setup, also see <strong>Help → Helper setup guide…</strong> inside the editor.
-  </div>
+  <div class="helper-banner">${banner}</div>
 ${body}
 </main>
 </body>
@@ -108,9 +133,19 @@ ${body}
 `;
 }
 
-const md = await fs.readFile(srcMd, 'utf-8');
-const rawHtml = marked.parse(md);
-const { html, sidebar } = buildToc(rawHtml);
 await fs.mkdir(destDir, { recursive: true });
-await fs.writeFile(destFile, template({ body: html, sidebar }), 'utf-8');
-console.log(`build-user-guide: wrote ${destFile} (${html.length.toLocaleString()} chars HTML + ${sidebar.split('\n').length} TOC entries)`);
+for (const doc of DOCS) {
+  const srcPath = path.join(repoRoot, doc.src);
+  const destPath = path.join(destDir, doc.out);
+  const md = await fs.readFile(srcPath, 'utf-8');
+  const rawHtml = marked.parse(md);
+  const { html, sidebar } = buildToc(rawHtml);
+  await fs.writeFile(destPath, template({
+    body: html,
+    sidebar,
+    sidebarTitle: doc.sidebarTitle,
+    pageTitle: doc.pageTitle,
+    banner: doc.banner,
+  }), 'utf-8');
+  console.log(`build-docs: ${doc.src} → ${destPath} (${html.length.toLocaleString()} chars HTML + ${sidebar.split('\n').length} TOC entries)`);
+}
