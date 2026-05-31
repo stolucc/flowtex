@@ -1127,7 +1127,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
         <div className="modal-header">
           <h2>Delete user</h2>
         </div>
-        <form onSubmit={handleSubmit} className="admin-delete-user-body">
+        <form onSubmit={handleSubmit} className="admin-delete-user-body" autoComplete="off">
           <p className="admin-delete-user-warning">
             This permanently deletes <strong>{target.name || target.email}</strong> and removes
             their authorship from comments, replies, and versions. Projects they own alone are
@@ -1137,39 +1137,30 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
             <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
             I understand this is permanent.
           </label>
-          {/* Honeypot pair: Chrome's autofill heuristic looks for the
-              FIRST text+password input pair in a form and treats them
-              as username+password. Putting two off-screen decoys
-              BEFORE the real fields means Chrome fills those instead
-              of the confirm box. Keeps the visible UI clean and
-              doesn't depend on Chrome honouring any autocomplete hint
-              (which it largely doesn't on text inputs). */}
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            tabIndex={-1}
-            aria-hidden="true"
-            style={{ position: 'absolute', left: '-9999px', height: 0, width: 0, opacity: 0 }}
-          />
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            tabIndex={-1}
-            aria-hidden="true"
-            style={{ position: 'absolute', left: '-9999px', height: 0, width: 0, opacity: 0 }}
-          />
           <label className="admin-delete-user-field">
             <span>
               Type <code>{target.email}</code> to confirm:
             </span>
             <input
               type="text"
-              // Belt-and-suspenders on top of the honeypot pair above:
-              // autoComplete + name hints, plus the readonly-on-mount
-              // trick (Chrome refuses to autofill readonly fields).
-              // Strip readonly on focus so the user can still type.
+              // Chrome / Safari ignore autoComplete="off" on plain text
+              // inputs they heuristically recognise as a username field
+              // (text input preceding a password input). The reliable
+              // counter is readonly-until-focus: Chrome won't autofill
+              // a non-editable field, and we strip the attribute the
+              // moment the user clicks in so they can still type. The
+              // form-level autoComplete="off" + name + 1Password /
+              // Bitwarden ignore attributes are belt-and-suspenders;
+              // none of them alone hold against Chrome, but the
+              // readonly trick is widely documented as Chrome-proof.
+              //
+              // We deliberately do NOT use the honeypot-pair workaround
+              // (a hidden type=text + type=password before the real
+              // input). It works for the autofill problem but
+              // type=password + autoComplete=current-password causes
+              // Chrome to put the saved flowtex.click password into
+              // the DOM where any future XSS could harvest it. The
+              // readonly trick adds no such exposure.
               autoComplete="off"
               name={`delete-confirm-${target.id}`}
               data-1p-ignore="true"
