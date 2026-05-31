@@ -244,7 +244,17 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           setCompileProfile(data.profile || null);
           setRebuildReason(data.rebuildReason || null);
           if (data.success) {
-            setPdfUrlSmart(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
+            if (data.cached) {
+              // Skip-rebuild cache hit: the PDF on disk is bit-identical
+              // to what the viewer already shows. Bumping the ?t= cache-
+              // buster forces PdfViewer's [url] effect to wipe + reload
+              // for nothing — a visible flicker on every save-and-compile
+              // that didn't change anything build-tracked. Set the URL
+              // only if it wasn't set yet (first compile of the session).
+              setPdfUrl((prev) => prev || `/api/compile/${project.id}/pdf?t=${Date.now()}`);
+            } else {
+              setPdfUrlSmart(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
+            }
           }
           evtSource.close();
           compileSourceRef.current = null;
