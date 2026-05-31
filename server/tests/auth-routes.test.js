@@ -28,11 +28,15 @@ vi.mock('../services/authService.js', () => ({
   changeEmail: vi.fn(),
   changePassword: vi.fn(),
   deleteAccount: vi.fn(),
+  SOFT_DELETE_WINDOW_DAYS: 30,
 }));
 
 vi.mock('../utils/email.js', () => ({
   sendPasswordResetEmail: vi.fn().mockResolvedValue(undefined),
   sendEmailVerificationEmail: vi.fn().mockResolvedValue(undefined),
+  sendPasswordChangedEmail: vi.fn().mockResolvedValue(undefined),
+  sendAccountDeletedEmail: vi.fn().mockResolvedValue(undefined),
+  sendEmailChangedNotice: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../utils/audit.js', () => ({
@@ -744,8 +748,8 @@ describe('POST /delete-account', () => {
     expect(res.body.error).toMatch(/password/i);
   });
 
-  it('deletes account, destroys session, and returns ok', async () => {
-    authService.deleteAccount.mockResolvedValueOnce(undefined);
+  it('soft-deletes account, destroys session, and returns ok', async () => {
+    authService.deleteAccount.mockResolvedValueOnce({ email: 'x@y.test', name: 'X' });
 
     const req = mockReq({ body: { password: 'pass' } });
     const res = mockRes();

@@ -158,6 +158,9 @@ export async function registerUser(email, name, password) {
   await checkPasswordNotBreached(password);
 
   const normalizedEmail = email.toLowerCase().trim();
+  // A soft-deleted row still occupies the email; treat it the same as an
+  // active account for enumeration purposes (return the same "verification
+  // sent" shape). The dummy bcrypt below equalises timing.
   const existing = await db.get('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
   if (existing) {
     // Don't leak whether the email is registered. The route returns the same
@@ -255,13 +258,18 @@ export async function createEmailVerificationToken(userId) {
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const row = await db.get(
-    `SELECT t.user_id, u.email_verified
+    `SELECT t.user_id, u.email_verified, u.deleted_at
      FROM email_verification_tokens t
      JOIN users u ON u.id = t.user_id
      WHERE t.token_hash = $1 AND t.expires_at > NOW()`,
     [tokenHash],
   );
   if (!row) throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
+  if (row.deleted_at) {
+    // The account is in the recovery bin; clicking a stale verification
+    // link must not silently re-activate it.
+    throw Object.assign(new Error('This account has been deleted.'), { status: 410 });
+  }
 
   // Idempotent path: already verified (either by a previous click or
   // by an email-scanner prefetch). Nothing to do — return success.
@@ -289,7 +297,7 @@ const DUMMY_BCRYPT_HASH =
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get(
-    'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified FROM users WHERE email = $1',
+    'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified, deleted_at FROM users WHERE email = $1',
     [normalizedEmail],
   );
   if (!user) {
@@ -303,6 +311,11 @@ export async function authenticateUser(email, password) {
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return { error: 'Invalid credentials', status: 401 };
+
+  // Soft-deleted accounts: present as plain invalid credentials so we
+  // don't leak the bin's existence to scanners. The real user can ask an
+  // admin to restore (the deletion email tells them how).
+  if (user.deleted_at) return { error: 'Invalid credentials', status: 401 };
 
   if (!user.email_verified) {
     return {
@@ -486,8 +499,12 @@ export async function disableTotp(userId, password) {
  */
 export async function createPasswordResetToken(email) {
   const normalizedEmail = email.toLowerCase().trim();
-  const user = await db.get('SELECT id, email FROM users WHERE email = $1', [normalizedEmail]);
+  const user = await db.get(
+    'SELECT id, email, deleted_at FROM users WHERE email = $1',
+    [normalizedEmail],
+  );
   if (!user) return null; // Don't reveal user existence
+  if (user.deleted_at) return null; // Soft-deleted accounts can't reset their own password
 
   const recentTokens = await db.get(
     `SELECT COUNT(*) AS cnt FROM password_reset_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
@@ -579,6 +596,27 @@ export async function changePassword(userId, currentPassword, newPassword) {
   await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
 }
 
+/** Number of days a soft-deleted account lives in the recovery bin before
+ *  the daily cron permanently purges it. The deletion email quotes this
+ *  number, the admin UI displays it, and purgeExpiredSoftDeletes uses it
+ *  as the cut-off — keep them all in sync via this constant. */
+export const SOFT_DELETE_WINDOW_DAYS = 30;
+
+/** Soft-delete the account: marks deleted_at = NOW(), revokes every
+ *  session + reset/verification token + trusted device, and (best-effort)
+ *  closes any live WS connections via app.locals.disconnectUserEverywhere
+ *  if the caller passes the express app. The user row, authorship, and
+ *  memberships all remain intact so a restore is a clean revert. The
+ *  actual cascade-and-delete only happens at the 30-day mark via
+ *  purgeExpiredSoftDeletes. */
+async function softDeleteUserInTx(tx, user) {
+  await tx.run('UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [user.id]);
+  await tx.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [user.id]);
+  await tx.run('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.id]);
+  await tx.run('DELETE FROM email_verification_tokens WHERE user_id = $1', [user.id]);
+  await tx.run('DELETE FROM trusted_devices WHERE user_id = $1', [user.id]);
+}
+
 /** Permanently delete a user account and all owned data after verifying their password. */
 /** Tear down all rows referencing a user that don't ON-DELETE-CASCADE
  *  cleanly, then delete the user row. Run inside a transaction. Shared by
@@ -627,14 +665,18 @@ async function purgeUserInTx(tx, user) {
 }
 
 export async function deleteAccount(userId, password) {
-  const user = await db.get('SELECT id, email, password_hash FROM users WHERE id = $1', [userId]);
-  if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
+  const user = await db.get(
+    'SELECT id, email, name, password_hash, deleted_at FROM users WHERE id = $1',
+    [userId],
+  );
+  if (!user || user.deleted_at) throw Object.assign(new Error('User not found'), { status: 401 });
   if (!(await bcrypt.compare(password, user.password_hash)))
     throw Object.assign(new Error('Invalid password'), { status: 401 });
 
   await db.transaction(async (tx) => {
-    await purgeUserInTx(tx, user);
+    await softDeleteUserInTx(tx, user);
   });
+  return { email: user.email, name: user.name };
 }
 
 /** Admin-driven delete of another user. Requires the *admin's* own password
@@ -656,11 +698,76 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
   if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
     throw Object.assign(new Error('Invalid admin password'), { status: 401 });
   }
-  const target = await db.get('SELECT id, email, name FROM users WHERE id = $1', [targetUserId]);
+  const target = await db.get('SELECT id, email, name, deleted_at FROM users WHERE id = $1', [targetUserId]);
   if (!target) throw Object.assign(new Error('Target user not found'), { status: 404 });
+  if (target.deleted_at) {
+    throw Object.assign(new Error('User is already scheduled for deletion'), { status: 409 });
+  }
 
   await db.transaction(async (tx) => {
-    await purgeUserInTx(tx, target);
+    await softDeleteUserInTx(tx, target);
   });
   return { email: target.email, name: target.name };
+}
+
+/** Admin-driven restore of a soft-deleted user. Clears deleted_at so the
+ *  user can sign in again. The user still has to log in (their session was
+ *  killed at soft-delete). Returns the restored user's email + name so the
+ *  caller can send a notification. */
+export async function adminRestoreUser(adminId, targetUserId) {
+  if (!adminId || !targetUserId) throw Object.assign(new Error('Missing ids'), { status: 400 });
+  const admin = await db.get('SELECT id, is_admin FROM users WHERE id = $1', [adminId]);
+  if (!admin || !admin.is_admin) throw Object.assign(new Error('Not an admin'), { status: 403 });
+
+  const target = await db.get(
+    'SELECT id, email, name, deleted_at FROM users WHERE id = $1',
+    [targetUserId],
+  );
+  if (!target) throw Object.assign(new Error('User not found'), { status: 404 });
+  if (!target.deleted_at) {
+    throw Object.assign(new Error('User is not deleted'), { status: 409 });
+  }
+  await db.run('UPDATE users SET deleted_at = NULL WHERE id = $1', [target.id]);
+  return { email: target.email, name: target.name };
+}
+
+/** List users currently in the recovery bin (soft-deleted, awaiting purge).
+ *  Returns the absolute purge date for each so the admin UI doesn't have to
+ *  recompute the window. */
+export async function listSoftDeletedUsers() {
+  const rows = await db.all(
+    `SELECT id, email, name, deleted_at,
+            (deleted_at + ($1 || ' days')::interval) AS purge_at
+       FROM users
+      WHERE deleted_at IS NOT NULL
+      ORDER BY deleted_at DESC`,
+    [String(SOFT_DELETE_WINDOW_DAYS)],
+  );
+  return rows;
+}
+
+/** Permanently purge every soft-deleted account whose window has elapsed.
+ *  Called from a daily cron in server/index.js. Returns the IDs that were
+ *  purged so the caller can log them. */
+export async function purgeExpiredSoftDeletes() {
+  const expired = await db.all(
+    `SELECT id, email, name FROM users
+      WHERE deleted_at IS NOT NULL
+        AND deleted_at < NOW() - ($1 || ' days')::interval`,
+    [String(SOFT_DELETE_WINDOW_DAYS)],
+  );
+  const purgedIds = [];
+  for (const user of expired) {
+    try {
+      await db.transaction(async (tx) => {
+        await purgeUserInTx(tx, user);
+      });
+      purgedIds.push(user.id);
+    } catch (err) {
+      // One bad row shouldn't halt the whole sweep — log + skip.
+      // eslint-disable-next-line no-console
+      console.error('[soft-delete purge] failed for user', user.id, err);
+    }
+  }
+  return purgedIds;
 }

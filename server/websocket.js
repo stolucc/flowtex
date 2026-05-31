@@ -687,9 +687,25 @@ export function initWebSocket(server, app, sessionSecret) {
     }
   }
 
+  // Forcibly close all of a user's WS connections (used when a user is
+  // soft-deleted or restored — any in-flight session must not continue
+  // reading data after auth state changes).
+  function disconnectUserEverywhere(userId) {
+    for (const client of wss.clients) {
+      if (client._flowtexUserId === userId) {
+        try {
+          client.close(1000, 'session-revoked');
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   // Expose helpers on app.locals
   app.locals.broadcastToRoom = broadcastToRoom;
   app.locals.disconnectUserFromProject = disconnectUserFromProject;
+  app.locals.disconnectUserEverywhere = disconnectUserEverywhere;
   app.locals.sendToUser = sendToUser;
   // Capture for module-scoped use (handleChat pushes mention notifications).
   sendToUserFn = sendToUser;

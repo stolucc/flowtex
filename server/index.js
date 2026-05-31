@@ -718,6 +718,7 @@ db.initSchema()
   .then(() => {
     db.startCleanupJob();
     import('./utils/mentionDigest.js').then((m) => m.startMentionDigestJob());
+    import('./utils/softDeletePurge.js').then((m) => m.startSoftDeletePurgeJob());
     warnIfImageMagickPolicyMissing();
     server.listen(PORT, () => {
       const proto = useHttps ? 'https' : 'http';

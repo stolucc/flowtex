@@ -2,9 +2,14 @@ import { Router } from 'express';
 import os from 'os';
 import db, { getWriteStats } from '../db.js';
 import { compileMetrics } from '../compiler.js';
-import { resetTransporter, sendEmail, sendAccountDeletedEmail } from '../utils/email.js';
+import { resetTransporter, sendEmail, sendAccountDeletedEmail, sendAccountRestoredEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
-import { adminDeleteUser } from '../services/authService.js';
+import {
+  adminDeleteUser,
+  adminRestoreUser,
+  listSoftDeletedUsers,
+  SOFT_DELETE_WINDOW_DAYS,
+} from '../services/authService.js';
 import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
 import { sendError } from '../middleware/errorHandler.js';
@@ -376,9 +381,54 @@ router.delete('/users/:userId', async (req, res) => {
       detail: JSON.stringify({ id: userId, email: deleted.email, name: deleted.name }),
       ip: req.ip,
     }).catch((e) => logger.warn({ err: e }, 'Audit log failed for admin user delete'));
+    req.app?.locals?.disconnectUserEverywhere?.(userId);
     if (deleted.email) {
-      sendAccountDeletedEmail(deleted.email, deleted.name).catch((err) =>
+      const purgeAt = new Date(Date.now() + SOFT_DELETE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      sendAccountDeletedEmail(deleted.email, deleted.name, { purgeAt }).catch((err) =>
         logger.error({ err }, 'Failed to send admin-delete goodbye email'),
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** GET /api/admin/users/deleted -- List soft-deleted users awaiting purge.
+ *  Returns id, email, name, deleted_at (when binned), purge_at (when the
+ *  cron will permanently delete them). */
+router.get('/users/deleted', async (req, res) => {
+  try {
+    const rows = await listSoftDeletedUsers();
+    res.json(rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      name: r.name,
+      deletedAt: r.deleted_at,
+      purgeAt: r.purge_at,
+    })));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** POST /api/admin/users/:userId/restore -- Restore a soft-deleted account.
+ *  Clears deleted_at; the user must sign in again (their session was killed
+ *  at soft-delete). Sends a notification email. */
+router.post('/users/:userId/restore', async (req, res) => {
+  const userId = req.params.userId;
+  if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  try {
+    const restored = await adminRestoreUser(req.session.userId, userId);
+    await auditLog(req.session.userId, 'account_restored_by_admin', {
+      targetType: 'user',
+      targetId: userId,
+      detail: JSON.stringify({ id: userId, email: restored.email, name: restored.name }),
+      ip: req.ip,
+    }).catch((e) => logger.warn({ err: e }, 'Audit log failed for restore'));
+    if (restored.email) {
+      sendAccountRestoredEmail(restored.email, restored.name).catch((err) =>
+        logger.error({ err }, 'Failed to send account-restored email'),
       );
     }
     res.json({ ok: true });

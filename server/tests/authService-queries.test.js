@@ -112,12 +112,12 @@ describe('registerUser queries', () => {
 });
 
 describe('authenticateUser queries', () => {
-  it('SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified FROM users WHERE email = $1', async () => {
+  it('SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified, deleted_at FROM users WHERE email = $1', async () => {
     db.get.mockResolvedValueOnce(null);
     await authenticateUser('A@B.com', TEST_PW);
     const [sql, params] = db.get.mock.calls[0];
     expect(sql).toBe(
-      'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified FROM users WHERE email = $1',
+      'SELECT id, email, name, password_hash, totp_enabled, totp_secret, is_admin, email_verified, deleted_at FROM users WHERE email = $1',
     );
     expect(params).toEqual(['a@b.com']);
   });
@@ -340,11 +340,11 @@ describe('checkTrustedDevice queries', () => {
 });
 
 describe('createPasswordResetToken queries', () => {
-  it('SELECT id, email FROM users WHERE email = $1', async () => {
+  it('SELECT id, email, deleted_at FROM users WHERE email = $1', async () => {
     db.get.mockResolvedValueOnce(null);
     await createPasswordResetToken('e@x');
     const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toBe('SELECT id, email FROM users WHERE email = $1');
+    expect(sql).toBe('SELECT id, email, deleted_at FROM users WHERE email = $1');
     expect(params).toEqual(['e@x']);
   });
 

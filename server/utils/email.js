@@ -314,19 +314,64 @@ export async function sendEmailVerificationEmail(email, verifyUrl) {
   });
 }
 
-/** Send confirmation that a user's account has been deleted. */
-export async function sendAccountDeletedEmail(email, name) {
+/** Send confirmation that a user's account has been soft-deleted (bin).
+ *
+ *  `purgeAt` is the absolute UTC date on which the account will be
+ *  permanently purged (today + SOFT_DELETE_WINDOW_DAYS, computed by the
+ *  caller). The body tells the user how to recover the account during
+ *  the window: reply to this email — the SMTP_FROM address is the
+ *  operator contact for FlowTex. */
+export async function sendAccountDeletedEmail(email, name, { purgeAt } = {}) {
+  const safeName = escapeHtml(name);
+  const purgeDateText = purgeAt instanceof Date
+    ? purgeAt.toISOString().slice(0, 10)
+    : 'in 30 days';
+  return sendEmail({
+    to: email,
+    subject: 'Your FlowTex account has been scheduled for deletion',
+    text:
+      `Hi ${name},\n\n` +
+      `Your FlowTex account has been deactivated and is scheduled for ` +
+      `permanent deletion on ${purgeDateText}. Until then, the account ` +
+      `cannot be signed into and your email cannot be reused to register ` +
+      `a new account.\n\n` +
+      `If this was a mistake and you'd like to recover the account, ` +
+      `reply to this email before ${purgeDateText} and the FlowTex ` +
+      `operator can restore it.\n\n` +
+      `After ${purgeDateText}, the account and its data will be ` +
+      `permanently and irreversibly removed.\n`,
+    html: renderEmailLayout({
+      preheader: `Your FlowTex account will be permanently deleted on ${purgeDateText}.`,
+      greeting: `Hi ${safeName},`,
+      heading: 'Your account is scheduled for deletion',
+      bodyHtml:
+        `<p style="margin:0 0 10px 0;">Your FlowTex account has been deactivated and is scheduled for permanent deletion on <strong>${escapeHtml(purgeDateText)}</strong>.</p>` +
+        `<p style="margin:0 0 10px 0;">Until then the account cannot be signed into and your email address cannot be reused to register a new account.</p>` +
+        `<p style="margin:0;">If this was a mistake, <strong>reply to this email</strong> before ${escapeHtml(purgeDateText)} and the FlowTex operator can restore it.</p>`,
+      footnoteHtml: `After ${escapeHtml(purgeDateText)} the account and its data will be permanently and irreversibly removed.`,
+    }),
+  });
+}
+
+/** Notify a user that their previously-deleted account has been restored
+ *  by an admin. They can sign in again with the existing password. */
+export async function sendAccountRestoredEmail(email, name) {
   const safeName = escapeHtml(name);
   return sendEmail({
     to: email,
-    subject: 'Your FlowTex account has been deleted',
-    text: `Hi ${name},\n\nYour FlowTex account has been successfully deleted. All your personal data has been removed.\n\nIf you did not request this, please contact us immediately.\n\nThank you for using FlowTex.\n`,
+    subject: 'Your FlowTex account has been restored',
+    text:
+      `Hi ${name},\n\n` +
+      `Your FlowTex account has been restored and you can sign in again ` +
+      `with your existing password. All of your projects, files, and ` +
+      `memberships are intact.\n\n` +
+      `If you didn't ask for this, please reply to this email.\n`,
     html: renderEmailLayout({
-      preheader: 'Your FlowTex account and personal data have been removed.',
+      preheader: 'Your FlowTex account is active again.',
       greeting: `Hi ${safeName},`,
-      heading: 'Your account has been deleted',
-      bodyHtml: `<p style="margin:0 0 10px 0;">Your FlowTex account has been deleted and all your personal data has been removed.</p><p style="margin:0;">Thanks for using FlowTex.</p>`,
-      footnoteHtml: `If you didn&rsquo;t request this deletion, please contact us immediately.`,
+      heading: 'Your account has been restored',
+      bodyHtml: `<p style="margin:0 0 10px 0;">Your FlowTex account has been restored. You can sign in again with your existing password.</p><p style="margin:0;">All of your projects, files, and memberships are intact.</p>`,
+      footnoteHtml: `If you didn&rsquo;t ask for this, please reply to this email.`,
     }),
   });
 }

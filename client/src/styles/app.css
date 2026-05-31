@@ -6509,6 +6509,30 @@ kbd {
   opacity: 0.85;
 }
 
+.confirm-dialog-primary {
+  border: none;
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.confirm-dialog-primary:hover {
+  opacity: 0.85;
+}
+
+.admin-deleted-users {
+  margin-top: 24px;
+}
+
+.admin-deleted-users h2 {
+  margin: 0 0 4px 0;
+}
+
+.admin-deleted-users-hint {
+  margin: 0 0 12px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 /* Floating comment button in editor */
 .editor-wrapper {
   position: relative;

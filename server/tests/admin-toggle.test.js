@@ -33,6 +33,7 @@ vi.mock('../utils/email.js', () => ({
   resetTransporter: vi.fn(),
   sendEmail: vi.fn(),
   sendAccountDeletedEmail: vi.fn(),
+  sendAccountRestoredEmail: vi.fn(),
 }));
 
 vi.mock('../utils/crypto.js', () => ({
@@ -41,6 +42,9 @@ vi.mock('../utils/crypto.js', () => ({
 
 vi.mock('../services/authService.js', () => ({
   adminDeleteUser: vi.fn(),
+  adminRestoreUser: vi.fn(),
+  listSoftDeletedUsers: vi.fn(),
+  SOFT_DELETE_WINDOW_DAYS: 30,
 }));
 
 vi.mock('../compiler.js', () => ({

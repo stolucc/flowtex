@@ -11,6 +11,9 @@ import {
   createPasswordResetToken,
   resetPassword,
   deleteAccount,
+  adminRestoreUser,
+  listSoftDeletedUsers,
+  purgeExpiredSoftDeletes,
   createTrustedDevice,
   checkTrustedDevice,
 } from '../../services/authService.js';
@@ -107,14 +110,71 @@ describe('users — password change & reset', () => {
   });
 });
 
-describe('users — deletion', () => {
-  it('deleteAccount removes the user row', async () => {
+describe('users — deletion (soft-delete recovery bin)', () => {
+  it('deleteAccount soft-deletes the user (row + data preserved, login blocked)', async () => {
     const email = `it-del-${Date.now()}@example.test`;
     const u = await registerUser(email, 'Del', 'TestPass123');
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
     await deleteAccount(u.id, 'TestPass123');
-    const remaining = await db.get('SELECT id FROM users WHERE id = $1', [u.id]);
-    expect(remaining).toBeUndefined();
+
+    const row = await db.get('SELECT id, deleted_at FROM users WHERE id = $1', [u.id]);
+    expect(row).toBeDefined();
+    expect(row.deleted_at).not.toBeNull();
+
+    const loginAttempt = await authenticateUser(email, 'TestPass123');
+    expect(loginAttempt.error).toBeTruthy();
+    expect(loginAttempt.status).toBe(401);
+  });
+
+  it('a soft-deleted user shows up in listSoftDeletedUsers with a future purge_at', async () => {
+    const email = `it-bin-${Date.now()}@example.test`;
+    const u = await registerUser(email, 'Bin', 'TestPass123');
+    await deleteAccount(u.id, 'TestPass123');
+    const bin = await listSoftDeletedUsers();
+    const entry = bin.find((r) => r.id === u.id);
+    expect(entry).toBeDefined();
+    expect(new Date(entry.purge_at).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('adminRestoreUser clears deleted_at and lets the user log in again', async () => {
+    const email = `it-restore-${Date.now()}@example.test`;
+    const u = await registerUser(email, 'Restore', 'TestPass123');
+    await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
+    await deleteAccount(u.id, 'TestPass123');
+
+    const admin = await seedUser();
+    await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
+
+    await adminRestoreUser(admin.id, u.id);
+    const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
+    expect(row.deleted_at).toBeNull();
+
+    const ok = await authenticateUser(email, 'TestPass123');
+    expect(ok.user?.id).toBe(u.id);
+  });
+
+  it('purgeExpiredSoftDeletes hard-deletes rows past the 30-day window', async () => {
+    const email = `it-purge-${Date.now()}@example.test`;
+    const u = await registerUser(email, 'Purge', 'TestPass123');
+    await deleteAccount(u.id, 'TestPass123');
+    // Backdate the bin entry so the window is "elapsed."
+    await db.run(`UPDATE users SET deleted_at = NOW() - INTERVAL '31 days' WHERE id = $1`, [u.id]);
+
+    const purged = await purgeExpiredSoftDeletes();
+    expect(purged).toContain(u.id);
+    const gone = await db.get('SELECT id FROM users WHERE id = $1', [u.id]);
+    expect(gone).toBeUndefined();
+  });
+
+  it('purgeExpiredSoftDeletes leaves fresh soft-deletes alone', async () => {
+    const email = `it-fresh-${Date.now()}@example.test`;
+    const u = await registerUser(email, 'Fresh', 'TestPass123');
+    await deleteAccount(u.id, 'TestPass123');
+
+    const purged = await purgeExpiredSoftDeletes();
+    expect(purged).not.toContain(u.id);
+    const still = await db.get('SELECT id FROM users WHERE id = $1', [u.id]);
+    expect(still).toBeDefined();
   });
 });
 

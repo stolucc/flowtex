@@ -385,6 +385,8 @@ export default function AdminDashboard({ onBack }) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [topProjects, setTopProjects] = useState([]);
   const [topUsers, setTopUsers] = useState([]);
+  const [deletedUsers, setDeletedUsers] = useState([]);
+  const [restoreBusy, setRestoreBusy] = useState(null);
   const [auditLog, setAuditLog] = useState({ entries: [], total: 0, page: 1, pages: 1 });
   const [auditPage, setAuditPage] = useState(1);
   const [tab, setTab] = useState('overview');
@@ -466,6 +468,10 @@ export default function AdminDashboard({ onBack }) {
       get('/api/admin/stats/top-users?limit=20')
         .then((r) => r.json())
         .then(setTopUsers);
+      get('/api/admin/users/deleted')
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setDeletedUsers)
+        .catch(() => setDeletedUsers([]));
     }
 
     if (tab === 'audit') {
@@ -863,6 +869,23 @@ export default function AdminDashboard({ onBack }) {
               </div>
             )}
           </div>
+          <DeletedUsersPanel
+            rows={deletedUsers}
+            busyId={restoreBusy}
+            onRestore={async (row) => {
+              setRestoreBusy(row.id);
+              try {
+                const res = await post(`/api/admin/users/${row.id}/restore`);
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  throw new Error(data.error || 'Restore failed');
+                }
+                setDeletedUsers((prev) => prev.filter((r) => r.id !== row.id));
+              } finally {
+                setRestoreBusy(null);
+              }
+            }}
+          />
         </div>
       )}
 
@@ -1078,6 +1101,10 @@ export default function AdminDashboard({ onBack }) {
             }
             get('/api/admin/stats/top-users?limit=20').then((r) => r.json()).then(setTopUsers);
             get('/api/admin/stats/overview').then((r) => r.json()).then(setOverview);
+            get('/api/admin/users/deleted')
+              .then((r) => (r.ok ? r.json() : []))
+              .then(setDeletedUsers)
+              .catch(() => {});
           }}
         />
       )}
@@ -1190,6 +1217,82 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/** Shows users currently in the soft-delete recovery bin. Each row exposes
+ *  a Restore button (with on-theme confirm) and shows when the cron will
+ *  permanently purge the account. */
+function DeletedUsersPanel({ rows, busyId, onRestore }) {
+  const [confirmRow, setConfirmRow] = useState(null);
+  const [error, setError] = useState('');
+  const formatDate = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  };
+  return (
+    <div className="admin-deleted-users">
+      <h2>Recovery bin</h2>
+      <p className="admin-deleted-users-hint">
+        Accounts deleted in the last 30 days. After the purge date the
+        account and its data are removed permanently and cannot be restored.
+      </p>
+      {!rows?.length ? (
+        <div className="admin-empty">No accounts pending purge</div>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Deleted</th>
+                <th>Purges on</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.email}</td>
+                  <td>{r.name}</td>
+                  <td>{formatDate(r.deletedAt)}</td>
+                  <td>{formatDate(r.purgeAt)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => { setError(''); setConfirmRow(r); }}
+                      disabled={busyId === r.id}
+                    >
+                      {busyId === r.id ? 'Restoring…' : 'Restore'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {error && <div className="admin-delete-user-error">{error}</div>}
+      {confirmRow && (
+        <ConfirmDialog
+          message={`Restore ${confirmRow.email}? The user will be able to sign in again with their existing password. All of their projects and memberships are intact.`}
+          confirmLabel="Restore"
+          confirmClass="confirm-dialog-primary"
+          onConfirm={async () => {
+            try {
+              await onRestore(confirmRow);
+              setConfirmRow(null);
+            } catch (e) {
+              setError(e.message || 'Restore failed');
+              setConfirmRow(null);
+            }
+          }}
+          onCancel={() => setConfirmRow(null)}
+        />
+      )}
     </div>
   );
 }

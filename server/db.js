@@ -245,6 +245,15 @@ async function initSchema() {
     -- are present even when FEATURE_LOCAL_COMPILE is off so the schema
     -- never moves backwards; the API layer is what enforces the flag.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS compile_location TEXT NOT NULL DEFAULT 'server';
+    -- Soft-delete window: when a user (or admin) deletes the account, this
+    -- column is set to NOW(). Login + password-reset + email-verify all
+    -- reject any row where deleted_at IS NOT NULL. A daily cron
+    -- (purgeExpiredSoftDeletes) runs the real purge after 30 days.
+    -- During the window the row is preserved so an admin can restore it
+    -- (clears deleted_at) and all of the user's authorship/membership
+    -- data remains intact.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at) WHERE deleted_at IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       id TEXT PRIMARY KEY,

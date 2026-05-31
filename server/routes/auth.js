@@ -360,16 +360,19 @@ router.post('/change-password', requireAuth, async (req, res) => {
   }
 });
 
-/** POST /api/auth/delete-account -- Permanently delete the user's account after password confirmation. */
+/** POST /api/auth/delete-account -- Soft-delete the user's account after password
+ *  confirmation. The account enters the 30-day recovery bin: login is blocked,
+ *  sessions/tokens are revoked, but data is preserved until the cron purge. */
 router.post('/delete-account', requireAuth, async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password required' });
+  const userId = req.session.userId;
   try {
-    // Capture email/name before deletion
-    const user = await db.get('SELECT email, name FROM users WHERE id = $1', [req.session.userId]);
-    await authService.deleteAccount(req.session.userId, req.body.password);
-    await auditLog(req.session.userId, 'account_deleted', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for account deletion'));
-    if (user?.email) {
-      sendAccountDeletedEmail(user.email, user.name).catch((err) =>
+    const { email, name } = await authService.deleteAccount(userId, req.body.password);
+    await auditLog(userId, 'account_deleted', { ip: req.ip }).catch((e) => logger.warn({ err: e }, 'Audit log failed for account deletion'));
+    req.app?.locals?.disconnectUserEverywhere?.(userId);
+    if (email) {
+      const purgeAt = new Date(Date.now() + authService.SOFT_DELETE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      sendAccountDeletedEmail(email, name, { purgeAt }).catch((err) =>
         logger.error({ err }, 'Failed to send account deletion email'),
       );
     }
