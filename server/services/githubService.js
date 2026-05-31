@@ -26,6 +26,17 @@ export function getOAuthClientId() {
 
 /**
  * Exchange a GitHub OAuth authorization code for an access token.
+ *
+ * Note on the 2026-05-15 GitHub App installation-token format change:
+ * that changelog applies only to `ghs_…` *installation* tokens minted
+ * via POST /app/installations/:id/access_tokens. FlowTex is registered
+ * as an OAuth App (this endpoint mints `gho_…` user-to-server tokens)
+ * and also accepts manually-pasted PATs (`ghp_…`). Neither format is
+ * changing. We never introspect or length-check the token; the
+ * github_tokens.token column is unbounded TEXT and would happily
+ * accommodate the ~520-char JWT-shape `ghs_…` if FlowTex ever migrated
+ * to a GitHub App. No code change needed for the rollout.
+ *
  * @returns {string|null} The access token, or null on failure.
  */
 export async function exchangeOAuthCode(code) {
