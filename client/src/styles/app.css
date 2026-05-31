@@ -3993,6 +3993,61 @@ html {
   color: var(--text-secondary);
 }
 
+.pdf-console-rebuild {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+}
+
+.pdf-console-rebuild-header {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+
+.pdf-console-rebuild-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.pdf-console-rebuild-list li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 6px;
+  align-items: center;
+}
+
+.pdf-console-rebuild-mark {
+  text-align: center;
+  font-weight: 600;
+}
+
+.pdf-console-rebuild-mark.mark-modified { color: var(--accent); }
+.pdf-console-rebuild-mark.mark-added { color: var(--green, #2da44e); }
+.pdf-console-rebuild-mark.mark-removed { color: var(--red, #cf222e); }
+
+.pdf-console-rebuild-path {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.pdf-console-rebuild-overflow {
+  display: block;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding-left: 22px;
+}
+
+.pdf-console-rebuild-rerun {
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+
 @keyframes console-blink {
   0%,
   100% {

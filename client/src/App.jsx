@@ -269,6 +269,7 @@ function AppInner() {
     compileLog,
     setCompileLog,
     compileProfile,
+    rebuildReason,
     consoleOutput,
     setConsoleOutput,
     lintDiagnostics,
@@ -1402,6 +1403,7 @@ function AppInner() {
               onPdfPositionChange={setPdfClickPos}
               compileLog={compileLog}
               compileProfile={compileProfile}
+              rebuildReason={rebuildReason}
               consoleOutput={consoleOutput}
               lintDiagnostics={showLintWarnings ? lintDiagnostics : []}
               style={ui.pdfWidth ? { flex: 'none', width: ui.pdfWidth } : undefined}

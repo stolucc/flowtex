@@ -33,6 +33,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   const [pdfUrl, setPdfUrl] = useState(null);
   const [compileLog, setCompileLog] = useState('');
   const [compileProfile, setCompileProfile] = useState(null);
+  const [rebuildReason, setRebuildReason] = useState(null);
   const [consoleOutput, setConsoleOutput] = useState('');
   const [lintDiagnostics, setLintDiagnostics] = useState([]);
   const [generatedFiles, setGeneratedFiles] = useState([]);
@@ -74,6 +75,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       setPdfUrl(null);
       setCompileLog('');
       setCompileProfile(null);
+      setRebuildReason(null);
       setConsoleOutput('');
       setLintDiagnostics([]);
       setGeneratedFiles([]);
@@ -240,6 +242,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           const data = JSON.parse(e.data);
           setCompileLog(data.log || '');
           setCompileProfile(data.profile || null);
+          setRebuildReason(data.rebuildReason || null);
           if (data.success) {
             setPdfUrlSmart(`/api/compile/${project.id}/pdf?t=${Date.now()}`);
           }
@@ -319,6 +322,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         const data = JSON.parse(e.data);
         setCompileLog(data.log || '');
         setCompileProfile(data.profile || null);
+        setRebuildReason(data.rebuildReason || null);
         if (data.success) {
           setPdfUrl(`/api/compile/${project.id}/diff-pdf?t=${Date.now()}`);
         }
@@ -359,6 +363,8 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
     setCompileLog,
     compileProfile,
     setCompileProfile,
+    rebuildReason,
+    setRebuildReason,
     consoleOutput,
     setConsoleOutput,
     lintDiagnostics,

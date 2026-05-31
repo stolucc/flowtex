@@ -60,7 +60,40 @@ function CompileProfileBlock({ profile }) {
   );
 }
 
-function ConsolePanel({ output, compiling, profile }) {
+/** "Rebuilt because X" block. Shown only when the server returns a
+ *  rebuildReason. Server falls back to null on helper-side compiles
+ *  (no .fls available) and on the very first build for a project, so
+ *  we render a soft "first build tracked" line in that case for context. */
+function RebuildReasonBlock({ reason }) {
+  if (!reason) return null;
+  const MAX_LIST = 12;
+  const shown = (reason.changedFiles || []).slice(0, MAX_LIST);
+  const overflow = (reason.changedFiles || []).length - shown.length;
+  const labelFor = (change) => (change === 'added' ? '+' : change === 'removed' ? '−' : '~');
+  return (
+    <div className="pdf-console-rebuild">
+      <div className="pdf-console-rebuild-header">{reason.message}</div>
+      {shown.length > 0 && (
+        <ul className="pdf-console-rebuild-list">
+          {shown.map((f) => (
+            <li key={f.path}>
+              <span className={`pdf-console-rebuild-mark mark-${f.change}`}>{labelFor(f.change)}</span>
+              <span className="pdf-console-rebuild-path">{f.path}</span>
+            </li>
+          ))}
+          {overflow > 0 && (
+            <li className="pdf-console-rebuild-overflow">…and {overflow} more</li>
+          )}
+        </ul>
+      )}
+      {reason.rerunReason && (
+        <div className="pdf-console-rebuild-rerun">↻ {reason.rerunReason}</div>
+      )}
+    </div>
+  );
+}
+
+function ConsolePanel({ output, compiling, profile, rebuildReason }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -72,6 +105,7 @@ function ConsolePanel({ output, compiling, profile }) {
   return (
     <div className="pdf-console-panel" ref={ref}>
       <CompileProfileBlock profile={profile} />
+      <RebuildReasonBlock reason={rebuildReason} />
       {output ? (
         <pre className="pdf-console-output">{output}</pre>
       ) : (
@@ -280,6 +314,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     onPdfPositionChange,
     compileLog,
     compileProfile,
+    rebuildReason,
     consoleOutput,
     lintDiagnostics,
     style,
@@ -1191,7 +1226,12 @@ const PdfViewer = forwardRef(function PdfViewer(
         (tapsDiagnostics?.length || 0) === 0 &&
         hiddenBoxCount === 0 && <div className="pdf-log-panel empty">No warnings</div>}
       {showPanel === 'console' && (
-        <ConsolePanel output={consoleOutput} compiling={compiling} profile={compileProfile} />
+        <ConsolePanel
+          output={consoleOutput}
+          compiling={compiling}
+          profile={compileProfile}
+          rebuildReason={rebuildReason}
+        />
       )}
       {!mainFileExists && !url && !compiling && (
         <div className="pdf-no-main-file-banner">

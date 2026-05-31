@@ -6,6 +6,7 @@ import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import logger from './logger.js';
+import { analyzeRebuild } from './utils/rebuildAnalyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
@@ -461,6 +462,7 @@ async function _doCompile(
         '-interaction=nonstopmode',
         '-f',
         '--no-shell-escape',
+        '-recorder', // emit <jobname>.fls listing every input/output for the rebuild explainer
         '-e', '$max_repeat=4',
         ...profileOverrides,
         `-jobname=${jobName}`,
@@ -523,7 +525,18 @@ async function _doCompile(
           }
         } else if (fs.existsSync(pdfPath)) {
           recordCompile(true, duration);
-          resolve({ pdfPath, log: finalLog, jobName, profile });
+          // Only run the rebuild analyzer on success — a failed build
+          // shouldn't poison the manifest we compare against next time.
+          // Failure inside the analyzer is non-fatal: the compile result
+          // simply lacks rebuildReason.
+          analyzeRebuild({ projectDir, jobName, logContent: finalLog })
+            .then((rebuildReason) => {
+              resolve({ pdfPath, log: finalLog, jobName, profile, rebuildReason });
+            })
+            .catch((err) => {
+              logger.warn({ err, jobName }, 'rebuildAnalyzer failed; returning compile result without reason');
+              resolve({ pdfPath, log: finalLog, jobName, profile });
+            });
         } else {
           recordCompile(false, duration);
           reject(new Error(finalLog || stdout || stderr || 'Compilation failed'));
