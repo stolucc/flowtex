@@ -138,6 +138,11 @@ router.get('/stats/active-users', async (req, res) => {
       SELECT user_id FROM chat_messages
         WHERE date_trunc('day', created_at) = d::date
     ) u ON TRUE
+    -- Exclude soft-deleted (recovery bin) accounts; their pre-deletion
+    -- history is preserved on disk but they're suspended and don't count
+    -- as currently-active users.
+    LEFT JOIN users usr ON usr.id = uid
+    WHERE uid IS NULL OR usr.deleted_at IS NULL
     GROUP BY 1 ORDER BY 1
   `,
     [days],
@@ -218,6 +223,10 @@ router.get('/stats/top-users', async (req, res) => {
         (SELECT MAX(created_at) FROM audit_log WHERE user_id = u.id)
       ) AS last_active
     FROM users u
+    -- Exclude soft-deleted (recovery bin) accounts — they're suspended,
+    -- can't sign in, and shouldn't appear in any "active users" surface.
+    -- Admins manage them via the dedicated "Recovery bin" panel.
+    WHERE u.deleted_at IS NULL
     ORDER BY edit_count DESC
     LIMIT $1
   `,
