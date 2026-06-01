@@ -58,13 +58,29 @@ export default function useUIState() {
 
   // Layout: 'split' (default) | 'editor' (PDF hidden) | 'pdf' (editor hidden).
   // Initialised from ?layout= so opening a project in a new tab with
-  // "Open PDF in new tab" lands directly in the PDF-only view.
+  // "Open PDF in new tab" lands directly in the PDF-only view, AND so a
+  // hard refresh keeps whatever the user last picked.
   const initialLayout = (() => {
     if (typeof window === 'undefined') return 'split';
     const fromUrl = new URLSearchParams(window.location.search).get('layout');
     return fromUrl === 'editor' || fromUrl === 'pdf' ? fromUrl : 'split';
   })();
-  const [layoutMode, setLayoutMode] = useState(initialLayout);
+  const [layoutMode, setLayoutModeRaw] = useState(initialLayout);
+  // Wrapper: when the user changes layout from the menu, mirror the new
+  // value into the URL so a refresh restores it. Default ('split') is
+  // represented by removing the param so the URL stays clean.
+  const setLayoutMode = (next) => {
+    setLayoutModeRaw(next);
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      if (next === 'split') url.searchParams.delete('layout');
+      else url.searchParams.set('layout', next);
+      window.history.replaceState({}, '', url);
+    } catch {
+      /* ignore — replaceState is best-effort */
+    }
+  };
 
   return {
     fileTreeWidth,
