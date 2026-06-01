@@ -72,3 +72,127 @@ export function parseOutline(source) {
   }
   return out;
 }
+
+// \input{foo} / \include{foo} — same regex shape as the section
+// scanner. We only walk these from files we already have in the
+// project file table; remote/system inputs (tex live packages) are
+// outside our scope.
+const INPUT_RE = /\\(?:input|include)\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+
+// Resolve `\input{rel}` from `fromPath`. LaTeX is happy with or without
+// the .tex extension and treats the path as relative to the directory
+// of the file doing the \input. Returns null when no matching file
+// exists in the project.
+function resolveInput(rel, fromPath, byPath) {
+  if (!rel) return null;
+  // Strip a leading "./" — LaTeX accepts it, normalizing keeps the
+  // lookup deterministic.
+  const cleaned = rel.replace(/^\.\//, '');
+  const dir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/') + 1) : '';
+  const candidates = [
+    cleaned,                                // project-root-relative
+    dir + cleaned,                          // sibling-relative
+    cleaned + '.tex',                       // with .tex
+    dir + cleaned + '.tex',                 // sibling-relative with .tex
+  ];
+  for (const c of candidates) {
+    if (byPath.has(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Walk \input/\include from `mainFilePath` and return a flat outline
+ * spanning every reachable .tex file. Each entry carries the source
+ * `path` and 1-indexed `line` so the UI can jump cross-file.
+ *
+ * Falls back to a single-file scan when:
+ *   - mainFilePath is missing / not in the project
+ *   - no .tex files exist
+ *
+ * Cycles (a inputs b, b inputs a) are bounded by a visited Set so the
+ * walk always terminates. Each file is parsed at most once even if
+ * \input'd from multiple places — duplicates would just clutter the
+ * outline without adding information.
+ *
+ * @param {{path:string,is_binary:boolean,content:string}[]} files
+ * @param {string|null|undefined} mainFilePath
+ * @returns {{level:number,label:string,title:string,line:number,path:string}[]}
+ */
+export function parseDocumentOutline(files, mainFilePath) {
+  if (!Array.isArray(files) || files.length === 0) return [];
+  const byPath = new Map();
+  for (const f of files) {
+    if (!f?.path || f.is_binary) continue;
+    if (typeof f.content !== 'string') continue;
+    byPath.set(f.path, f);
+  }
+  if (byPath.size === 0) return [];
+
+  // Determine the entry file. Prefer the project main_file; fall back
+  // to main.tex if present; finally the first .tex we have.
+  const candidates = [mainFilePath, 'main.tex'].filter(Boolean);
+  let entry = null;
+  for (const c of candidates) {
+    if (byPath.has(c)) { entry = c; break; }
+  }
+  if (!entry) {
+    for (const path of byPath.keys()) {
+      if (path.endsWith('.tex')) { entry = path; break; }
+    }
+  }
+  if (!entry) return [];
+
+  const out = [];
+  const visited = new Set();
+  /**
+   * Walk a file: emit its sectioning entries in source order, then
+   * recurse on each \input/\include it makes. The depth-first order
+   * matches what a reader scrolling through the rendered PDF would
+   * see, which is what the user expects from an outline.
+   */
+  const walk = (path) => {
+    if (visited.has(path)) return;
+    visited.add(path);
+    const file = byPath.get(path);
+    if (!file) return;
+    const source = file.content || '';
+    const sections = parseOutline(source);
+    // Interleave sections + nested inputs in source-line order so a
+    // chapter that lives in a separate file shows in its logical
+    // place rather than at the end of the outline.
+    //
+    // Find all input/include positions with their line numbers, merge
+    // with section entries, sort by line, emit in order.
+    const inputs = [];
+    INPUT_RE.lastIndex = 0;
+    let m;
+    while ((m = INPUT_RE.exec(source)) !== null) {
+      // Line containing the match start.
+      const before = source.slice(0, m.index);
+      const line = before.split('\n').length;
+      inputs.push({ rel: m[1], line });
+    }
+    const events = [
+      ...sections.map((s) => ({ kind: 'sec', ...s })),
+      ...inputs.map((i) => ({ kind: 'input', ...i })),
+    ].sort((a, b) => a.line - b.line);
+
+    for (const ev of events) {
+      if (ev.kind === 'sec') {
+        out.push({
+          level: ev.level,
+          label: ev.label,
+          title: ev.title,
+          line: ev.line,
+          path,
+        });
+      } else {
+        const resolved = resolveInput(ev.rel, path, byPath);
+        if (resolved) walk(resolved);
+      }
+    }
+  };
+  walk(entry);
+  return out;
+}

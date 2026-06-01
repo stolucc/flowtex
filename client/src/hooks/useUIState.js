@@ -39,6 +39,7 @@ export default function useUIState() {
   const [historyFiles, setHistoryFiles] = useState(null);
   const [historySelectedFile, setHistorySelectedFile] = useState(null);
   const [genPanelHeight, setGenPanelHeight] = useState(150);
+  const [outlinePanelHeight, setOutlinePanelHeight] = useState(200);
   const [genContextMenu, setGenContextMenu] = useState(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -54,6 +55,16 @@ export default function useUIState() {
   const [showTrackedChangesInline, setShowTrackedChangesInline] = useState(true);
   const [showChangesPanel, setShowChangesPanel] = useState(false);
   const [changesPanelWidth, setChangesPanelWidth] = useState(280);
+
+  // Layout: 'split' (default) | 'editor' (PDF hidden) | 'pdf' (editor hidden).
+  // Initialised from ?layout= so opening a project in a new tab with
+  // "Open PDF in new tab" lands directly in the PDF-only view.
+  const initialLayout = (() => {
+    if (typeof window === 'undefined') return 'split';
+    const fromUrl = new URLSearchParams(window.location.search).get('layout');
+    return fromUrl === 'editor' || fromUrl === 'pdf' ? fromUrl : 'split';
+  })();
+  const [layoutMode, setLayoutMode] = useState(initialLayout);
 
   return {
     fileTreeWidth,
@@ -108,6 +119,10 @@ export default function useUIState() {
     setShowChangesPanel,
     changesPanelWidth,
     setChangesPanelWidth,
+    outlinePanelHeight,
+    setOutlinePanelHeight,
+    layoutMode,
+    setLayoutMode,
     theme,
     setTheme,
   };

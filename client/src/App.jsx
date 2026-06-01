@@ -694,6 +694,18 @@ function AppInner() {
           onToggleTrackedChangesInline={() => ui.setShowTrackedChangesInline((v) => !v)}
           showChangesPanel={ui.showChangesPanel}
           onToggleChangesPanel={() => ui.setShowChangesPanel((v) => !v)}
+          layoutMode={ui.layoutMode}
+          onSetLayoutMode={ui.setLayoutMode}
+          onOpenPdfInNewTab={() => {
+            if (!project) return;
+            // New tab inherits the project URL with ?layout=pdf so
+            // useUIState's initialiser picks it up and lands directly
+            // in the PDF-only view. Includes the active file id so
+            // SyncTeX click-to-source can later wire back if we add
+            // cross-tab messaging. noopener+noreferrer per OWASP.
+            const url = `/project/${project.id}?layout=pdf`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }}
           onToggleLineNumbers={() => ui.setShowLineNumbers((v) => !v)}
           onToggleWordWrap={() => ui.setWordWrap((v) => !v)}
           trackChangesMode={trackChangesMode}
@@ -1004,8 +1016,25 @@ function AppInner() {
                     onCollapse={() => ui.setShowFiles(false)}
                   />
                   <OutlinePanel
+                    files={files}
+                    mainFilePath={project?.main_file || 'main.tex'}
                     activeFile={activeFile}
-                    onJump={(line) => editorRef.current?.goToLine(line)}
+                    height={ui.outlinePanelHeight}
+                    onResize={ui.setOutlinePanelHeight}
+                    onJump={(path, line) => {
+                      // Cross-file: switch to the file holding the
+                      // section, then go to line. Same-file shortcut
+                      // skips the switch.
+                      if (path !== activeFile?.path) {
+                        const target = files.find((f) => f.path === path);
+                        if (target) {
+                          switchFile(target);
+                          setTimeout(() => editorRef.current?.goToLine(line), 60);
+                          return;
+                        }
+                      }
+                      editorRef.current?.goToLine(line);
+                    }}
                   />
                   {generatedFiles.length > 0 && (
                     <div className="generated-files-panel" style={{ height: ui.genPanelHeight }}>
@@ -1228,7 +1257,10 @@ function AppInner() {
                 )}
               </button>
             )}
-            <div className="editor-area">
+            <div
+              className="editor-area"
+              style={ui.layoutMode === 'pdf' ? { display: 'none' } : undefined}
+            >
               {project && !wsConnected && (
                 <div className="ws-disconnected-banner" role="status">
                   <span className="ws-disconnected-dot" aria-hidden="true" />
@@ -1353,22 +1385,27 @@ function AppInner() {
                 </>
               )}
             </div>
-            <div className="sync-arrows-wrapper">
-              <SyncArrows
-                onSyncForward={handleSyncForward}
-                onSyncInverse={handleSyncInverseFromArrow}
-                hasPdf={!!pdfUrl}
-                hasPdfPosition={!!pdfClickPos}
-              />
-            </div>
-            <ResizeHandle
-              onResize={(d) =>
-                ui.setPdfWidth((w) => {
-                  const current = w || document.querySelector('.pdf-viewer')?.offsetWidth || 500;
-                  return Math.max(250, current - d);
-                })
-              }
-            />
+            {ui.layoutMode !== 'editor' && (
+              <>
+                <div className="sync-arrows-wrapper">
+                  <SyncArrows
+                    onSyncForward={handleSyncForward}
+                    onSyncInverse={handleSyncInverseFromArrow}
+                    hasPdf={!!pdfUrl}
+                    hasPdfPosition={!!pdfClickPos}
+                  />
+                </div>
+                <ResizeHandle
+                  onResize={(d) =>
+                    ui.setPdfWidth((w) => {
+                      const current = w || document.querySelector('.pdf-viewer')?.offsetWidth || 500;
+                      return Math.max(250, current - d);
+                    })
+                  }
+                />
+              </>
+            )}
+            {ui.layoutMode !== 'editor' && (
             <PdfViewer
               ref={pdfRef}
               url={pdfUrl}
@@ -1430,7 +1467,13 @@ function AppInner() {
               rebuildReason={rebuildReason}
               consoleOutput={consoleOutput}
               lintDiagnostics={showLintWarnings ? lintDiagnostics : []}
-              style={ui.pdfWidth ? { flex: 'none', width: ui.pdfWidth } : undefined}
+              style={
+                ui.layoutMode === 'pdf'
+                  ? { flex: 1 } // PDF-only mode: ignore the resize-handle width
+                  : ui.pdfWidth
+                    ? { flex: 'none', width: ui.pdfWidth }
+                    : undefined
+              }
               onGoToLine={(line, col) => editorRef.current?.goToLine(line, col)}
               onGoToFileAndLine={(filePath, line, col) => {
                 const f = files.find((f) => f.path === filePath);
@@ -1455,6 +1498,7 @@ function AppInner() {
               showTrackedChangesInPdf={showTrackedChangesInPdf}
               onToggleTrackedChangesInPdf={() => setShowTrackedChangesInPdf((v) => !v)}
             />
+            )}
             {showChat ? (
               <Suspense fallback={null}>
                 <ChatPanel

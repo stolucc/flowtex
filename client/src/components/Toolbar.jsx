@@ -50,6 +50,63 @@ function UserMenu({ user, onOpenSettings, onSignOut }) {
   );
 }
 
+/** Icon-triggered "layout" menu in the right-hand toolbar cluster.
+ *  Mirrors UserMenu's pattern (click to open, click-outside / Escape
+ *  to close) so the affordance is consistent. The dropdown lets the
+ *  user pick Split / Editor only / PDF only, plus a one-shot "Open
+ *  PDF in new tab" action. */
+function LayoutMenu({ layoutMode, onSetLayoutMode, onOpenPdfInNewTab }) {
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  useClickOutside(ref, () => setOpen(false), open);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+  const label = layoutMode === 'editor'
+    ? 'Layout: editor only'
+    : layoutMode === 'pdf'
+      ? 'Layout: PDF only'
+      : 'Layout: split view';
+  return (
+    <div className="toolbar-layout-menu" ref={ref}>
+      <button
+        type="button"
+        className={`toolbar-btn toolbar-layout-trigger${open ? ' active' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {/* Side-by-side rectangles icon to suggest "panes". */}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="8" height="16" rx="1" />
+          <rect x="13" y="4" width="8" height="16" rx="1" />
+        </svg>
+      </button>
+      {open && (
+        <div className="toolbar-dropdown-menu toolbar-layout-dropdown" role="menu">
+          <button role="menuitem" onClick={() => { setOpen(false); onSetLayoutMode?.('split'); }}>
+            {layoutMode === 'split' ? '✓ ' : ''}Split view
+          </button>
+          <button role="menuitem" onClick={() => { setOpen(false); onSetLayoutMode?.('editor'); }}>
+            {layoutMode === 'editor' ? '✓ ' : ''}Editor only
+          </button>
+          <button role="menuitem" onClick={() => { setOpen(false); onSetLayoutMode?.('pdf'); }}>
+            {layoutMode === 'pdf' ? '✓ ' : ''}PDF only
+          </button>
+          <div className="toolbar-dropdown-separator" />
+          <button role="menuitem" onClick={() => { setOpen(false); onOpenPdfInNewTab?.(); }}>
+            Open PDF in new tab
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Generic toolbar dropdown menu that opens on click and follows hover when another menu is already open. */
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   const ref = useRef(null);
@@ -144,6 +201,9 @@ export default function Toolbar({
   onZoomOut,
   showTrackedChangesInPdf,
   onToggleTrackedChangesInPdf,
+  layoutMode,
+  onSetLayoutMode,
+  onOpenPdfInNewTab,
   theme,
   onToggleTheme,
   notificationsSlot,
@@ -239,6 +299,11 @@ export default function Toolbar({
   ];
 
   const viewMenuItems = [
+    { label: `${layoutMode === 'split' ? '✓ ' : ''}Split view`, action: () => onSetLayoutMode?.('split') },
+    { label: `${layoutMode === 'editor' ? '✓ ' : ''}Editor only`, action: () => onSetLayoutMode?.('editor') },
+    { label: `${layoutMode === 'pdf' ? '✓ ' : ''}PDF only`, action: () => onSetLayoutMode?.('pdf') },
+    { label: 'Open PDF in new tab', action: onOpenPdfInNewTab },
+    { label: 'separator' },
     { label: `${showComments ? '✓ ' : ''}Comments Panel`, action: onToggleComments },
     { label: `${showChat ? '✓ ' : ''}Chat`, action: onToggleChat },
     { label: `${showBoxWarnings ? '✓ ' : ''}Overfull/Underfull Warnings`, action: onToggleBoxWarnings },
@@ -430,6 +495,11 @@ export default function Toolbar({
               </span>
             ))}
         </div>
+        <LayoutMenu
+          layoutMode={layoutMode}
+          onSetLayoutMode={onSetLayoutMode}
+          onOpenPdfInNewTab={onOpenPdfInNewTab}
+        />
         {notificationsSlot}
         {onHistory && (
           <button className="toolbar-btn toolbar-btn-history" onClick={onHistory} title="Version history">

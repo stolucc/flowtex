@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseOutline } from '../latexOutline.js';
+import { parseOutline, parseDocumentOutline } from '../latexOutline.js';
 
 describe('parseOutline', () => {
   it('returns [] for empty / non-string input', () => {
@@ -89,5 +89,90 @@ describe('parseOutline', () => {
   it('preserves source order across mixed levels', () => {
     const src = '\\section{A}\n\\chapter{B}\n\\subsection{C}';
     expect(parseOutline(src).map((e) => e.label)).toEqual(['section', 'chapter', 'subsection']);
+  });
+});
+
+describe('parseDocumentOutline', () => {
+  const tex = (path, content) => ({ path, content, is_binary: false });
+
+  it('returns [] when there are no .tex files', () => {
+    expect(parseDocumentOutline([], 'main.tex')).toEqual([]);
+    expect(parseDocumentOutline([{ path: 'a.png', is_binary: true, content: '' }], 'main.tex')).toEqual([]);
+  });
+
+  it('returns sections from the main file when no inputs', () => {
+    const files = [tex('main.tex', '\\section{Hello}\n\\subsection{Sub}')];
+    const out = parseDocumentOutline(files, 'main.tex');
+    expect(out.map((e) => [e.label, e.path, e.line])).toEqual([
+      ['section', 'main.tex', 1],
+      ['subsection', 'main.tex', 2],
+    ]);
+  });
+
+  it('walks \\input across files and interleaves entries in source order', () => {
+    const files = [
+      tex('main.tex', '\\section{Intro}\n\\input{chap1}\n\\section{End}'),
+      tex('chap1.tex', '\\subsection{Detail A}\n\\subsection{Detail B}'),
+    ];
+    const out = parseDocumentOutline(files, 'main.tex');
+    expect(out.map((e) => [e.label, e.path, e.title])).toEqual([
+      ['section', 'main.tex', 'Intro'],
+      ['subsection', 'chap1.tex', 'Detail A'],
+      ['subsection', 'chap1.tex', 'Detail B'],
+      ['section', 'main.tex', 'End'],
+    ]);
+  });
+
+  it('resolves \\input both with and without .tex extension', () => {
+    const files = [
+      tex('main.tex', '\\input{chap}'),
+      tex('chap.tex', '\\section{From chap}'),
+    ];
+    expect(parseDocumentOutline(files, 'main.tex').map((e) => e.title)).toEqual(['From chap']);
+  });
+
+  it('resolves \\input relative to the including file', () => {
+    const files = [
+      tex('main.tex', '\\input{parts/intro}'),
+      tex('parts/intro.tex', '\\section{Intro}\n\\input{detail}'),
+      tex('parts/detail.tex', '\\subsection{Detail}'),
+    ];
+    expect(parseDocumentOutline(files, 'main.tex').map((e) => [e.path, e.title])).toEqual([
+      ['parts/intro.tex', 'Intro'],
+      ['parts/detail.tex', 'Detail'],
+    ]);
+  });
+
+  it('handles \\include like \\input', () => {
+    const files = [
+      tex('main.tex', '\\include{chap1}'),
+      tex('chap1.tex', '\\section{From include}'),
+    ];
+    expect(parseDocumentOutline(files, 'main.tex').map((e) => e.title)).toEqual(['From include']);
+  });
+
+  it('terminates on input cycles (visited bound)', () => {
+    const files = [
+      tex('a.tex', '\\section{A}\n\\input{b}'),
+      tex('b.tex', '\\section{B}\n\\input{a}'),
+    ];
+    expect(parseDocumentOutline(files, 'a.tex').map((e) => e.title)).toEqual(['A', 'B']);
+  });
+
+  it('falls back to main.tex when given an unknown mainFilePath', () => {
+    const files = [tex('main.tex', '\\section{Main}')];
+    expect(parseDocumentOutline(files, 'nonexistent.tex').map((e) => e.title)).toEqual(['Main']);
+  });
+
+  it('falls back to the first .tex if main.tex is also missing', () => {
+    const files = [tex('paper.tex', '\\section{Paper}')];
+    expect(parseDocumentOutline(files, null).map((e) => e.title)).toEqual(['Paper']);
+  });
+
+  it('skips inputs that do not resolve to a project file (system / missing)', () => {
+    const files = [
+      tex('main.tex', '\\input{external}\n\\section{Still here}'),
+    ];
+    expect(parseDocumentOutline(files, 'main.tex').map((e) => e.title)).toEqual(['Still here']);
   });
 });
