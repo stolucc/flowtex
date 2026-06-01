@@ -1245,6 +1245,90 @@ html {
   position: relative;
 }
 
+/* Outline panel — sits below the file tree in the left sidebar.
+   Capped to roughly the bottom half of the sidebar so the tree stays
+   usable; scrolls internally when the outline is long. */
+.outline-panel {
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 50%;
+  font-size: 12px;
+}
+
+.outline-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-secondary, var(--bg-surface));
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.outline-panel-title {
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+}
+
+.outline-panel-collapse {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.outline-panel-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.outline-panel-empty {
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.outline-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.outline-entry {
+  padding: 3px 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.outline-entry:hover {
+  background: var(--bg-hover);
+}
+
+/* Heading levels: part/chapter most prominent, paragraph/subparagraph
+   muted so the eye lands on the structural anchors first. */
+.outline-entry.outline-level-0,
+.outline-entry.outline-level-1 {
+  font-weight: 600;
+}
+.outline-entry.outline-level-5,
+.outline-entry.outline-level-6 {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .generated-files-resize-handle {
   position: absolute;
   top: -3px;

@@ -18,6 +18,7 @@ const ChatPanel = lazy(() => import('./components/ChatPanel.jsx'));
 import CommentsSidebar from './components/CommentsSidebar.jsx';
 const BinaryPreview = lazy(() => import('./components/BinaryPreview.jsx'));
 import FileTree from './components/FileTree.jsx';
+import OutlinePanel from './components/OutlinePanel.jsx';
 import SyncArrows from './components/SyncArrows.jsx';
 import ResizeHandle from './components/ResizeHandle.jsx';
 import Toolbar from './components/Toolbar.jsx';
@@ -1001,6 +1002,10 @@ function AppInner() {
                       handleSave(pretty, file.id);
                     }}
                     onCollapse={() => ui.setShowFiles(false)}
+                  />
+                  <OutlinePanel
+                    activeFile={activeFile}
+                    onJump={(line) => editorRef.current?.goToLine(line)}
                   />
                   {generatedFiles.length > 0 && (
                     <div className="generated-files-panel" style={{ height: ui.genPanelHeight }}>
