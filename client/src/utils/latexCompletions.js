@@ -311,6 +311,32 @@ const envSnippets = {
   },
 };
 
+// Environments that take a `\item` body (list-shaped) get a slightly
+// richer default snippet with one `\item` already inserted so the
+// caret lands where the user is about to type content.
+const LIST_ENVS = new Set(['itemize', 'enumerate', 'description']);
+
+/**
+ * Build the default `\begin{name}…\end{name}` snippet for an environment
+ * that doesn't have a custom hand-written scaffold in envSnippets. The
+ * snippet template replaces everything after `\begin{` (the completion's
+ * `from` cursor is positioned right after the opening brace) so we
+ * include the closing `}` for the begin tag explicitly.
+ *
+ * - For list envs: drop in one `\item` and place the caret after it.
+ * - For description: `\item[term] description` is more typical.
+ * - For anything else: just an empty line with the caret on it.
+ */
+function defaultEnvSnippet(name) {
+  if (name === 'description') {
+    return `${name}}\n\t\\item[\${1:term}] \${0}\n\\end{${name}}`;
+  }
+  if (LIST_ENVS.has(name)) {
+    return `${name}}\n\t\\item \${0}\n\\end{${name}}`;
+  }
+  return `${name}}\n\t\${0}\n\\end{${name}}`;
+}
+
 /**
  * CodeMirror completion source for LaTeX environment names inside \begin{} and \end{}.
  * @param {CompletionContext} context
@@ -325,19 +351,31 @@ function envCompletionSource(context) {
   const from = match.from + braceIdx + 1;
   const isBegin = match.text.startsWith('\\begin');
 
-  // For \begin{, offer snippet completions for figure/table that expand the whole environment
   const options = [];
   if (isBegin) {
-    // Add snippet versions first (they replace from \begin{ onward, closing the environment)
+    // \begin{...}: every environment expands to the full block —
+    // \begin{name}\n\t<caret>\n\\end{name} — so the user doesn't have
+    // to type the closing tag. figure/table/figure*/table* have richer
+    // hand-written scaffolds (centering, caption, label) and take
+    // precedence via the higher `boost`.
     for (const env of Object.keys(envSnippets)) {
       options.push({ ...envSnippets[env], boost: 2 });
     }
-  }
-  // Always add plain environment names
-  for (const e of environments) {
-    // Skip envs that have snippet versions (for \begin only) to avoid duplicates
-    if (isBegin && envSnippets[e]) continue;
-    options.push({ label: e, type: 'type', detail: 'environment' });
+    for (const e of environments) {
+      if (envSnippets[e]) continue; // already added with custom scaffold
+      options.push({
+        label: e,
+        type: 'type',
+        detail: 'environment',
+        apply: snippetApply(defaultEnvSnippet(e)),
+      });
+    }
+  } else {
+    // \end{...}: pick a plain name; no point auto-inserting another
+    // \end here.
+    for (const e of environments) {
+      options.push({ label: e, type: 'type', detail: 'environment' });
+    }
   }
 
   return {
