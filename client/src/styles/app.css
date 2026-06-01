@@ -4546,6 +4546,30 @@ html {
   margin-left: 6px;
 }
 
+/* "View tracked changes" button: document icon with a small
+   magnifying-glass pinned to the bottom-right corner to read as
+   "view" rather than "edit". Two stacked SVGs in a relatively-
+   positioned wrapper so the loupe rides on top of the doc icon
+   without affecting the button's layout. */
+.pdf-tc-btn-icon {
+  position: relative;
+  display: inline-flex;
+  line-height: 0;
+}
+
+.pdf-tc-btn-loupe {
+  position: absolute;
+  bottom: -2px;
+  right: -3px;
+  /* Cream background + matched stroke gives a clean "punch-out" look
+     against the document icon regardless of theme. */
+  background: var(--bg-surface);
+  border-radius: 50%;
+  padding: 1px;
+  color: var(--accent);
+  pointer-events: none;
+}
+
 .pdf-page-wrapper {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   border-radius: 2px;
