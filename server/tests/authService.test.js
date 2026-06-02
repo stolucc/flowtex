@@ -184,14 +184,16 @@ describe('registerUser', () => {
     expect(result.isAdmin).toBe(false);
     expect(result.emailVerified).toBe(false);
 
-    // Verify db.run was called with a bcrypt hash (starts with $2)
+    // Verify db.run was called with an Argon2id hash (starts with $argon2id$).
+    // Legacy bcrypt hashes ($2a/b/y) are still verifiable on login but new
+    // hashes always emit Argon2id (ASVS V2.4.1).
     expect(db.run).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO users'),
       expect.arrayContaining([
         expect.any(String), // id
         'new@test.com',
         'New User',
-        expect.stringMatching(/^\$2[aby]\$/), // bcrypt hash
+        expect.stringMatching(/^\$argon2id\$/),
       ]),
     );
   });
@@ -552,8 +554,9 @@ describe('changePassword', () => {
 
     await changePassword('u1', TEST_PASSWORD, 'NewPassword2');
 
+    // New hash is Argon2id; legacy bcrypt remains verifiable but isn't emitted.
     expect(db.run).toHaveBeenCalledWith(expect.stringContaining('UPDATE users SET password_hash'), [
-      expect.stringMatching(/^\$2[aby]\$/),
+      expect.stringMatching(/^\$argon2id\$/),
       'u1',
     ]);
   });

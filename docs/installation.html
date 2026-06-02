@@ -169,6 +169,11 @@ sudo apt-get install -y nginx certbot python3-certbot-nginx</code></pre>
 <pre><code>flowtex.example.com {
     reverse_proxy localhost:3001
     encode zstd gzip
+    <span class="comment"># TLS 1.2+1.3 only. Caddy 2's default; making it explicit here
+    # documents intent and survives any future Caddy default change.</span>
+    tls {
+        protocols tls1.2 tls1.3
+    }
 }
 
 www.flowtex.example.com {
@@ -182,6 +187,10 @@ www.flowtex.example.com {
 
     ssl_certificate     /etc/letsencrypt/live/flowtex.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/flowtex.example.com/privkey.pem;
+
+    <span class="comment"># TLS 1.2+1.3 only (ASVS V9.1.2). 1.0/1.1 are deprecated.</span>
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
 
     location / {
         proxy_pass http://localhost:3001;

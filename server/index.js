@@ -686,7 +686,14 @@ async function warnIfImageMagickPolicyMissing() {
       // Match either the IM6 single-line form `name="X"...rights="none"` or
       // the IM7 multi-line form where `pattern:` and `rights:` appear in
       // the same Coder block.
+      // `coder` is one of a small hard-coded set ('PS', 'EPS', 'PDF', etc.);
+      // not user-controlled. The {0,200}? bounded-length lookahead caps
+      // backtracking cost even on adversarial input. `stdout` here is
+      // `convert -list policy` output (server-controlled tool). ReDoS-
+      // reviewed 2026-06-02.
+      // eslint-disable-next-line security/detect-non-literal-regexp
       const im6 = new RegExp(`(?:name=)?"?${coder}"?[^\\n]*\\brights\\s*[:=]\\s*"?none"?`, 'i').test(stdout);
+      // eslint-disable-next-line security/detect-non-literal-regexp
       const im7 = new RegExp(
         `\\bpattern\\s*[:=]\\s*"?${coder}"?[\\s\\S]{0,200}?\\brights\\s*[:=]\\s*"?none"?` +
         `|\\brights\\s*[:=]\\s*"?none"?[\\s\\S]{0,200}?\\bpattern\\s*[:=]\\s*"?${coder}"?`,

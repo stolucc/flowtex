@@ -3,6 +3,18 @@
  * Replaces pandoc for DOCX import. Parses OOXML directly and emits LaTeX with
  * exact tracked-change positions, proper table widths, bold preservation, etc.
  */
+// ReDoS triage 2026-06-02: 6 detect-unsafe-regex hits in this file.
+// Each was reviewed individually. The dynamic ones (line ~502, building
+// a regex from one of four hard-coded command names) are detect-non-
+// literal-regexp false positives. The static ones (line ~454 author-text
+// matcher, ~1830 strip-inline-command, ~3562-3563 textbf-fragment
+// stripping, ~3589 fragile-command detector) all have either
+// well-anchored character classes or fixed-length / non-greedy patterns
+// that prevent catastrophic backtracking. Inputs are .docx-derived
+// content bounded by the upload size cap (50 MB). Highest-risk surface
+// in the codebase — re-review on every periodic security pass.
+/* eslint-disable security/detect-unsafe-regex */
+/* eslint-disable security/detect-non-literal-regexp */
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { execFileSync, execFile as execFileCb } from 'node:child_process';

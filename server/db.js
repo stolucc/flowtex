@@ -45,6 +45,13 @@ function detectWrite(sql) {
   const opMatch = /^(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i.exec(trimmed);
   if (!opMatch) return null;
   const op = opMatch[1].toUpperCase();
+  // Each SQL-shape regex below: anchored at ^ with a sequence of fixed
+  // keywords + optional non-capturing groups. The optionals (?:ONLY\s+)?,
+  // (?:IF\s+EXISTS\s+)?, (?:TABLE|INDEX|VIEW) etc. have disjoint
+  // start-character sets ("O", "I", "T"/"V" etc.) so the engine doesn't
+  // backtrack across them. Inputs are server-emitted SQL strings, not
+  // user data. ReDoS-reviewed 2026-06-02.
+  /* eslint-disable security/detect-unsafe-regex */
   const patterns = {
     INSERT: /^INSERT\s+INTO\s+(?:ONLY\s+)?"?(\w+)"?/i,
     UPDATE: /^UPDATE\s+(?:ONLY\s+)?"?(\w+)"?/i,
@@ -54,6 +61,7 @@ function detectWrite(sql) {
     DROP:   /^DROP\s+(?:TABLE|INDEX|VIEW)\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?/i,
     TRUNCATE: /^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?"?(\w+)"?/i,
   };
+  /* eslint-enable security/detect-unsafe-regex */
   const m = patterns[op].exec(trimmed);
   return { op, table: (m && m[1]) || 'unknown' };
 }

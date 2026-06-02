@@ -352,6 +352,12 @@ cat > /etc/caddy/Caddyfile <<CADDY
 $DOMAIN {
 	reverse_proxy localhost:3001
 	encode zstd gzip
+	# TLS policy. Caddy 2 defaults to 1.2+1.3 already; making it
+	# explicit here so the policy survives a future Caddy default
+	# change and is auditable from the Caddyfile alone (ASVS V9.1.2).
+	tls {
+		protocols tls1.2 tls1.3
+	}
 }$WWW_BLOCK
 CADDY
 systemctl enable caddy

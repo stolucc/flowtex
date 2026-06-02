@@ -1,3 +1,22 @@
+// ReDoS triage 2026-06-02: this file has 6 detect-unsafe-regex hits, all
+// in BibTeX / citation-text parsing. Each one was reviewed individually:
+//
+//   - line ~748, ~754: page-range patterns like (?:pp\.?\s*)?(\d+)\s*[–-]\s*(\d+)
+//     and the proceedings variant. Bounded by literal delimiters; no
+//     ambiguous nesting. Input is .bib content (size-capped).
+//   - line ~878: parenthetical-citation matcher /\([^)]*?[A-Z]...\)/g.
+//     Non-greedy [^)]*? with terminating ')' prevents catastrophic
+//     backtracking — engine commits as soon as a ')' is hit.
+//   - line ~966 / ~990: SN / AUTHOR patterns for textcite recognition.
+//     The repeating subgroups have disjoint start sets (delim then
+//     letter) so each iteration commits.
+//   - line ~1078: detailed author-name pattern. Same shape — delimiter-
+//     anchored repetitions.
+//
+// All inputs are user-uploaded .tex / .bib content bounded by the
+// 50 MB file cap. Re-review on next periodic security pass.
+/* eslint-disable security/detect-unsafe-regex */
+
 import { v4 as uuid } from 'uuid';
 import crypto from 'node:crypto';
 import { gzipSync } from 'node:zlib';

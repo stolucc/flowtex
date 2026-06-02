@@ -11,6 +11,7 @@
   "dependencies": {
     "adm-zip": "^0.5.16",
     "archiver": "^8.0.0",
+    "argon2": "^0.44.0",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "connect-pg-simple": "^10.0.0",
@@ -35,7 +36,8 @@
     "qrcode": "^1.5.4",
     "simple-git": "^3.33.0",
     "uuid": "^14.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",

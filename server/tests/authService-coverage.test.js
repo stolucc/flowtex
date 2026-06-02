@@ -143,13 +143,18 @@ describe('registerUser CR/LF stripping', () => {
     expect(r.name).toBe('Plain Name');
   });
 
-  it('still calls bcrypt.hash on the user-already-exists path (timing equalisation)', async () => {
+  it('still hashes the password on the user-already-exists path (timing equalisation)', async () => {
+    // The dummy-hash call now goes through utils/passwordHash.hashPassword
+    // (Argon2id), but the behavioural invariant — that timing matches the
+    // create-new path — is the same. We assert it by timing rather than
+    // spying on the algorithm: the alreadyExisted path should take at
+    // least ~50 ms (Argon2id is ~250 ms; 50 ms is a wide safety margin).
     db.get.mockResolvedValueOnce({ id: 'existing' });
-    const spy = vi.spyOn(bcrypt, 'hash');
+    const t0 = Date.now();
     const r = await registerUser('a@b.com', 'X', TEST_PW);
+    const elapsed = Date.now() - t0;
     expect(r.alreadyExisted).toBe(true);
-    expect(spy).toHaveBeenCalledWith(TEST_PW, 12);
-    spy.mockRestore();
+    expect(elapsed).toBeGreaterThanOrEqual(50);
   });
 });
 
@@ -166,17 +171,18 @@ describe('authenticateUser equal-time path', () => {
     expect(params).toEqual(['a@b.com']);
   });
 
-  it('compares against a non-empty dummy bcrypt hash on the not-found path', async () => {
+  it('runs a dummy verify on the not-found path to equalise timing', async () => {
+    // Same shape as above: we now use an Argon2id dummy hash to keep
+    // the not-found path's wall time comparable to the wrong-password
+    // path. Test by timing rather than internal spying: ~250 ms Argon2id
+    // vs ~5 ms for "user not found, no dummy" — 50 ms is a comfortable
+    // safety margin that catches a regression where the dummy is skipped.
     db.get.mockResolvedValueOnce(null);
-    const spy = vi.spyOn(bcrypt, 'compare');
-    await authenticateUser('nobody@x', TEST_PW);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const [, hashArg] = spy.mock.calls[0];
-    // The dummy must be a valid bcrypt-shaped string (starts with $2 and is non-empty).
-    expect(typeof hashArg).toBe('string');
-    expect(hashArg.length).toBeGreaterThan(50);
-    expect(hashArg.startsWith('$2')).toBe(true);
-    spy.mockRestore();
+    const t0 = Date.now();
+    const result = await authenticateUser('nobody@x', TEST_PW);
+    const elapsed = Date.now() - t0;
+    expect(result.error).toBe('Invalid credentials');
+    expect(elapsed).toBeGreaterThanOrEqual(50);
   });
 });
 

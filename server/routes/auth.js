@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
 import { sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailVerificationEmail, sendAccountDeletedEmail, sendEmailChangedNotice } from '../utils/email.js';
@@ -8,8 +9,55 @@ import db from '../db.js';
 import * as authService from '../services/authService.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
+import validateBody from '../middleware/validateBody.js';
 
 const router = Router();
+
+// Shared field shapes. authService also runs deeper checks (HIBP, password
+// complexity, name CR/LF stripping); these schemas are the cheap-up-front
+// gate that catches malformed shapes before any DB call. Auth-service
+// validation is the source of truth for security-relevant rules; schemas
+// here are about REQUEST SHAPE, not policy.
+const emailField    = z.string().trim().toLowerCase().email().max(254);
+const passwordField = z.string().min(1).max(1024); // policy enforced server-side
+const nameField     = z.string().min(1).max(200);
+const totpCodeField = z.string().regex(/^\d{6}$/);
+
+const registerSchema = z.object({
+  email: emailField,
+  name: nameField,
+  password: passwordField,
+  inviteId: z.string().uuid().optional(),
+}).strict();
+const loginSchema = z.object({
+  email: emailField,
+  password: passwordField,
+  totpCode: totpCodeField.optional(),
+  // Optional "remember this device for 7 days" checkbox; sets the
+  // trusted-device cookie that bypasses MFA on future logins.
+  trustDevice: z.boolean().optional(),
+}).strict();
+const resendVerificationSchema = z.object({
+  email: emailField,
+}).strict();
+const forgotPasswordSchema = z.object({
+  email: emailField,
+}).strict();
+const resetPasswordSchema = z.object({
+  token: z.string().min(1).max(256),
+  password: passwordField,
+}).strict();
+const changeEmailSchema = z.object({
+  password: passwordField,
+  newEmail: emailField,
+}).strict();
+const changePasswordSchema = z.object({
+  currentPassword: passwordField,
+  newPassword: passwordField,
+}).strict();
+const deleteAccountSchema = z.object({
+  password: passwordField,
+}).strict();
 
 /** Regenerate the session after login, preserving userId/userName and issuing a new CSRF token. */
 function regenerateSession(req, res) {
@@ -42,7 +90,7 @@ function regenerateSession(req, res) {
 }
 
 /** POST /api/auth/register -- Create a new user account and send a verification email. */
-router.post('/register', async (req, res) => {
+router.post('/register', validateBody(registerSchema), async (req, res) => {
   const { email, name, password } = req.body;
   if (!email || !name || !password) return res.status(400).json({ error: 'Email, name, and password are required' });
   if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -92,7 +140,7 @@ router.get('/verify-email', async (req, res) => {
 });
 
 /** POST /api/auth/resend-verification -- Resend the email verification link (silent no-op if already verified). */
-router.post('/resend-verification', async (req, res) => {
+router.post('/resend-verification', validateBody(resendVerificationSchema), async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
   const normalizedEmail = email.toLowerCase().trim();
@@ -114,7 +162,7 @@ router.post('/resend-verification', async (req, res) => {
 });
 
 /** POST /api/auth/login -- Authenticate user with email/password and optional TOTP. */
-router.post('/login', async (req, res) => {
+router.post('/login', validateBody(loginSchema), async (req, res) => {
   const { email, password, totpCode, trustDevice } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
@@ -239,7 +287,7 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
 });
 
 /** POST /api/auth/forgot-password -- Send a password reset email (always returns success to prevent enumeration). */
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', validateBody(forgotPasswordSchema), async (req, res) => {
   if (!req.body.email) return res.status(400).json({ error: 'Email is required' });
   const result = await authService.createPasswordResetToken(req.body.email);
   if (result) {
@@ -255,7 +303,7 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 /** POST /api/auth/reset-password -- Reset password using a token and invalidate all existing sessions. */
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', validateBody(resetPasswordSchema), async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Token and new password are required' });
   try {
@@ -299,7 +347,7 @@ router.patch('/me', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/change-email', requireAuth, async (req, res) => {
+router.post('/change-email', requireAuth, validateBody(changeEmailSchema), async (req, res) => {
   const { password, newEmail } = req.body;
   if (!password || !newEmail) return res.status(400).json({ error: 'Password and new email are required' });
   try {
@@ -338,7 +386,7 @@ router.post('/change-email', requireAuth, async (req, res) => {
 });
 
 /** POST /api/auth/change-password -- Change password and invalidate all other sessions. */
-router.post('/change-password', requireAuth, async (req, res) => {
+router.post('/change-password', requireAuth, validateBody(changePasswordSchema), async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
   try {
@@ -363,7 +411,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 /** POST /api/auth/delete-account -- Soft-delete the user's account after password
  *  confirmation. The account enters the 30-day recovery bin: login is blocked,
  *  sessions/tokens are revoked, but data is preserved until the cron purge. */
-router.post('/delete-account', requireAuth, async (req, res) => {
+router.post('/delete-account', requireAuth, validateBody(deleteAccountSchema), async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password required' });
   const userId = req.session.userId;
   try {

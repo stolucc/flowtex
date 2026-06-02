@@ -1,5 +1,8 @@
 import { v4 as uuid } from 'uuid';
-import bcrypt from 'bcryptjs';
+// bcrypt is no longer imported directly — hashing + verify go through
+// utils/passwordHash.js, which dispatches legacy bcrypt rows through
+// bcryptjs internally so the lazy-migration period keeps working.
+import { hashPassword, verifyPassword, needsRehash } from '../utils/passwordHash.js';
 import crypto from 'crypto';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
@@ -171,9 +174,9 @@ export async function registerUser(email, name, password) {
   if (existing) {
     // Don't leak whether the email is registered. The route returns the same
     // "verification sent" shape regardless, so an attacker can't distinguish
-    // existing accounts via response status. We still do a dummy bcrypt to
+    // existing accounts via response status. We still do a dummy hash to
     // equalize timing between the create-new and skip paths.
-    await bcrypt.hash(password, 12);
+    await hashPassword(password);
     return {
       id: null,
       email: normalizedEmail,
@@ -186,7 +189,7 @@ export async function registerUser(email, name, password) {
   }
 
   const id = uuid();
-  const password_hash = await bcrypt.hash(password, 12);
+  const password_hash = await hashPassword(password);
   // Strip CR/LF so the name can't be used to inject email headers when reused in subjects.
   const safeName = name.replace(/[\r\n]+/g, ' ').trim();
   await db.run('INSERT INTO users (id, email, name, password_hash, email_verified) VALUES ($1, $2, $3, $4, FALSE)', [
@@ -293,12 +296,20 @@ export async function verifyEmail(token) {
  * Authenticate a user by email and password.
  * @returns {{user} | {error, status, unverified?, userId?}} The user or an error descriptor.
  */
-// Pre-computed bcrypt hash of a fixed string at the same cost factor as real
-// password hashes. Used to equalize timing on the user-not-found path so an
-// attacker can't tell registered emails from unregistered ones via response
-// timing. The string itself doesn't matter — only the cost factor does.
-const DUMMY_BCRYPT_HASH =
-  '$2a$12$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+// Pre-computed dummy Argon2id hash used by the not-found path to
+// equalise wall time against the real wrong-password path. Without
+// it, "user not found" returns in ~5ms while "user found, wrong
+// password" takes ~250ms — a clear enumeration oracle. Argon2id is
+// the slower of bcrypt/argon2id, so this dummy bounds timing for
+// every code path (legacy bcrypt rows verify faster than the dummy
+// but still produce a generic "Invalid credentials" response).
+// Computed lazily on first need to avoid burning Argon2id-CPU at every
+// process start. After init this is just a string comparison.
+let dummyArgon2Hash = null;
+async function getDummyArgon2Hash() {
+  if (!dummyArgon2Hash) dummyArgon2Hash = await hashPassword('not-a-real-password');
+  return dummyArgon2Hash;
+}
 
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
@@ -307,16 +318,31 @@ export async function authenticateUser(email, password) {
     [normalizedEmail],
   );
   if (!user) {
-    // Dummy bcrypt to make this path take the same time as the real
-    // wrong-password path below. Without this, "user not found" returns in
-    // ~5ms while "user found, wrong password" takes ~150ms — a clear
-    // enumeration oracle.
-    await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+    // Dummy verify to make this path take the same wall time as the
+    // real wrong-password path below. We use the argon2id dummy (more
+    // expensive than bcrypt) so timing stays correct once existing
+    // bcrypt rows have all migrated. Old-bcrypt-rows path is still
+    // dominant briefly; verifyPassword cost is bounded by the slower
+    // algorithm regardless.
+    await verifyPassword(password, await getDummyArgon2Hash());
     return { error: 'Invalid credentials', status: 401 };
   }
 
-  const valid = await bcrypt.compare(password, user.password_hash);
+  const valid = await verifyPassword(password, user.password_hash);
   if (!valid) return { error: 'Invalid credentials', status: 401 };
+
+  // Opportunistic re-hash: if this user is still on the legacy bcrypt
+  // hash, upgrade to Argon2id now that we know the plaintext is valid.
+  // Wraps in a try/catch + .catch on the UPDATE so a transient DB
+  // failure doesn't break login.
+  if (needsRehash(user.password_hash)) {
+    try {
+      const upgraded = await hashPassword(password);
+      await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [upgraded, user.id]);
+    } catch (err) {
+      logger.warn({ err, userId: user.id }, 'Opportunistic password-hash upgrade failed; will retry on next login');
+    }
+  }
 
   // Soft-deleted accounts: present as plain invalid credentials so we
   // don't leak the bin's existence to scanners. The real user can ask an
@@ -490,7 +516,7 @@ export async function disableTotp(userId, password) {
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
   if (!user.totp_enabled) throw Object.assign(new Error('MFA is not enabled'), { status: 400 });
 
-  const valid = await bcrypt.compare(password, user.password_hash);
+  const valid = await verifyPassword(password, user.password_hash);
   if (!valid) throw Object.assign(new Error('Invalid password'), { status: 401 });
 
   await db.run('UPDATE users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1', [user.id]);
@@ -548,12 +574,12 @@ export async function resetPassword(token, newPassword) {
     if (!resetToken) throw Object.assign(new Error('Invalid or expired reset link'), { status: 400 });
 
     const currentUser = await tx.get('SELECT password_hash FROM users WHERE id = $1', [resetToken.user_id]);
-    if (currentUser && (await bcrypt.compare(newPassword, currentUser.password_hash))) {
+    if (currentUser && (await verifyPassword(newPassword, currentUser.password_hash))) {
       // Throwing rolls the transaction back, so the token remains unused.
       throw Object.assign(new Error('New password must be different from your current password'), { status: 400 });
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const passwordHash = await hashPassword(newPassword);
     await tx.run('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, resetToken.user_id]);
     await tx.run('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND id != $2', [
       resetToken.user_id,
@@ -573,7 +599,7 @@ export async function changeEmail(userId, password, newEmail) {
 
   const user = await db.get('SELECT id, email, name, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
-  if (!(await bcrypt.compare(password, user.password_hash)))
+  if (!(await verifyPassword(password, user.password_hash)))
     throw Object.assign(new Error('Incorrect password'), { status: 401 });
   if (normalizedEmail === user.email)
     throw Object.assign(new Error('New email is the same as your current email'), { status: 400 });
@@ -589,7 +615,7 @@ export async function changeEmail(userId, password, newEmail) {
 export async function changePassword(userId, currentPassword, newPassword) {
   const user = await db.get('SELECT id, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
-  if (!(await bcrypt.compare(currentPassword, user.password_hash)))
+  if (!(await verifyPassword(currentPassword, user.password_hash)))
     throw Object.assign(new Error('Current password is incorrect'), { status: 401 });
   if (currentPassword === newPassword)
     throw Object.assign(new Error('New password must be different from your current password'), { status: 400 });
@@ -598,7 +624,7 @@ export async function changePassword(userId, currentPassword, newPassword) {
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
   await checkPasswordNotBreached(newPassword);
 
-  const newHash = await bcrypt.hash(newPassword, 12);
+  const newHash = await hashPassword(newPassword);
   await db.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
 }
 
@@ -676,7 +702,7 @@ export async function deleteAccount(userId, password) {
     [userId],
   );
   if (!user || user.deleted_at) throw Object.assign(new Error('User not found'), { status: 401 });
-  if (!(await bcrypt.compare(password, user.password_hash)))
+  if (!(await verifyPassword(password, user.password_hash)))
     throw Object.assign(new Error('Invalid password'), { status: 401 });
 
   await db.transaction(async (tx) => {
@@ -723,7 +749,7 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
   if (!adminPassword || typeof adminPassword !== 'string') {
     throw Object.assign(new Error('Admin password required'), { status: 400 });
   }
-  if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
+  if (!(await verifyPassword(adminPassword, admin.password_hash))) {
     throw Object.assign(new Error('Invalid admin password'), { status: 401 });
   }
   const target = await db.get('SELECT id, email, name, is_admin, deleted_at FROM users WHERE id = $1', [targetUserId]);
@@ -768,7 +794,7 @@ export async function adminRestoreUser(adminId, adminPassword, targetUserId) {
   if (!adminPassword || typeof adminPassword !== 'string') {
     throw Object.assign(new Error('Admin password required'), { status: 400 });
   }
-  if (!(await bcrypt.compare(adminPassword, admin.password_hash))) {
+  if (!(await verifyPassword(adminPassword, admin.password_hash))) {
     throw Object.assign(new Error('Invalid admin password'), { status: 401 });
   }
 

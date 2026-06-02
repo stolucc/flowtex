@@ -12,8 +12,16 @@ const PROJECTS_DIR = path.resolve(__dirname, '..', '..', 'projects');
 export function stripPaths(text) {
   if (text == null) return text;
   let out = String(text);
+  // PROJECTS_DIR is a server-controlled constant — the regex constructor's
+  // dynamic argument is safe and the replaceAll metachar-escape pass
+  // makes the result a literal-match regex. ReDoS-reviewed 2026-06-02.
+  // eslint-disable-next-line security/detect-non-literal-regexp
   out = out.replace(new RegExp(PROJECTS_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<projects>');
   out = out.replace(/file:\/\/[^\s)"]+/g, '<file>');
+  // Path-strip regex: optional drive letter then alternating literal slash
+  // + non-empty path segment. The required trailing slash after each
+  // segment prevents backtrack ambiguity. Input is server error messages.
+  // eslint-disable-next-line security/detect-unsafe-regex
   out = out.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s\\/:)"]+[\\/])+/g, '<path>/');
   out = out.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<id>');
   return out;

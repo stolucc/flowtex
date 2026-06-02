@@ -3,6 +3,57 @@
 This document covers production-deployment security guidance — items that can't
 be fixed in code alone.
 
+## Threat model
+
+FlowTex is a self-hosted collaborative LaTeX editor. This section names
+what we defend against, what we don't, and who's responsible for each
+mitigation. Items not listed here are either intentionally out of scope
+(below) or untracked gaps — open an issue if you spot one.
+
+### Trust boundaries and components
+
+| Component | Trust | Operator? |
+|---|---|---|
+| Browser (client SPA) | Untrusted user agent | User |
+| Express API + WebSocket (`server/`) | Trusted; the security boundary | You |
+| PostgreSQL | Trusted; holds project text + tokens + sessions | You |
+| `latexmk` / `pdflatex` / `biber` subprocesses | Sandboxed; process user-controlled `.tex` | You + TeX Live |
+| ImageMagick `convert`, `rsvg-convert`, LibreOffice (DOCX path) | Sandboxed; process user-uploaded binaries | You + distro |
+| FlowTex helper (Go binary on user's machine) | User-controlled; loopback only with bearer + Origin pin | User |
+| GitHub OAuth + API | Third-party; tokens stored encrypted | GitHub |
+| Zotero API | Third-party; URL origin-pinned | Zotero |
+
+### STRIDE walkthrough
+
+| Threat | Where it lands in FlowTex | Mitigation |
+|---|---|---|
+| **S**poofing | Account takeover via stolen credentials or session | bcrypt→Argon2id passwords with 12-char minimum + HIBP check; account lockout after N failed attempts per email/IP; signed PG-backed sessions over HTTPS-only cookies; opt-in TOTP MFA with replay rejection; trusted-device cookie rotated on every use; CSRF double-submit token. |
+| **T**ampering | Cross-user data modification | Per-project membership check on every read/write/compile route; UUID-only ids prevent enumeration; track-changes view is a separate jobname so its PDF can't impersonate the plain build. |
+| **R**epudiation | "I didn't delete that project" | `audit_log` table: login attempts, password/email changes, account deletes (self + admin), admin promotions/restores. Pagination + admin-only view at `/api/admin/audit-log`. |
+| **I**nformation disclosure | DB dump, log leak, error-message leak, file-tree traversal | TLS 1.2+1.3 only; helmet CSP nonces, HSTS, `Cache-Control: no-store` on `/pdf`; PG `safePath` + `res.sendFile({ root })` boundaries; sandbox-CSP on `/raw` binary serving; pino with cookie/password redaction; soft-deleted users excluded from admin stats. Stored GitHub tokens + TOTP secrets AES-256-GCM encrypted. |
+| **D**enial of service | Resource exhaustion via giant uploads, runaway compiles, login spam | 50 MB per-file cap; `prlimit` on compile (memory + CPU + nproc); `--no-shell-escape` + `openin_any=p` + `openout_any=p`; ImageMagick policy disables ghostscript delegate + sets per-call resource caps; rate limiters on login, invite, unlock, admin routes. |
+| **E**levation of privilege | User → admin without authorisation | `requireAdmin` middleware on `/api/admin/*`; admin-status changes are FOR-UPDATE locked + audit-logged; session rows dropped + WebSocket closed when admin status flips so a pre-existing session can't act at the new privilege level. |
+
+### What this does NOT protect against
+
+- **Server-host compromise.** Anyone with shell access on the VPS can read project content from disk (compile workspace) or memory (decrypted tokens). DB-at-rest encryption is not enabled by default. See parked plan in conversation memory if needed.
+- **Malicious operator.** You administer the server; you can read everything. No cryptographic separation between operator and user.
+- **Targeted compromise of a user's own browser or machine** (extension exfiltration, OS keylogger, etc.). Outside FlowTex's scope.
+- **Side-channel attacks on the compile sandbox** that don't break out (e.g. crafting `.tex` that makes pdflatex compute predictable timing). LaTeX is Turing-complete; we cap CPU + memory but can't prevent computation itself.
+- **Compromise of upstream services** (GitHub OAuth, Zotero, CrossRef, HIBP). We pin origins and limit blast radius (no SSRF surface), but a compromised upstream can return malicious data we'd act on.
+
+### Operator obligations
+
+These are the things you, the operator, MUST do to keep the threat model intact:
+
+1. **Keep TeX Live, ImageMagick, LibreOffice, Node, Postgres patched.** Subscribe to your distro's security mailing list.
+2. **Apply the ImageMagick policy.** Verify with `convert -list policy | grep -E "pattern|rights"` that `PS / EPS / PDF / XPS / MVG / MSL / URL / HTTPS / HTTP / FTP` are all `rights: None`.
+3. **Restrict `.env` permissions.** `chmod 600`, owned by the service user.
+4. **Use HTTPS in production.** The default Caddyfile pins TLS 1.2+1.3 and obtains a Let's Encrypt cert automatically. Don't disable.
+5. **Run `npm ci` (not `npm install`) when deploying** so `package-lock.json` is honoured.
+6. **Watch CI.** `npm audit`, OSV-Scanner, CodeQL, and ESLint security plugin all run on every push.
+7. **Keep an admin account on hand.** The system refuses to demote the last alive admin; if you accidentally restrict access to your account, you'll need SQL access to recover.
+
 ## DOCX import sandboxing (recommended)
 
 When users import a `.docx`, FlowTex extracts embedded media and converts
