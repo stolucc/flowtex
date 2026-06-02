@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global process */
 // Per-tool stopwatch invoked by latexmk via $pdflatex / $bibtex / $biber /
 // $makeindex / $xelatex / $lualatex overrides. Records one JSON line per
 // invocation to the profile file passed via --profile=<path>, then forwards

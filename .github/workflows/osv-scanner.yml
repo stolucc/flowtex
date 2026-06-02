@@ -1,0 +1,48 @@
+# OSV-Scanner: dependency vulnerability scan against Google's open-source
+# vulnerability database. Complements `npm audit` in ci.yml (which only
+# consults the GitHub Advisory Database). OSV.dev aggregates multiple
+# upstream advisory feeds (GHSA, RustSec, PyPI, etc.) so we sometimes
+# learn about a CVE here days before it lands in GHSA.
+#
+# Reusable workflow from google/osv-scanner-action. Scans every lockfile
+# in the repo (root, server, client, helper) on push to main and on PRs.
+# Also runs weekly so a newly-published vulnerability against an existing
+# pinned dep doesn't sit unnoticed between merges.
+name: OSV-Scanner
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 03:00 UTC. Picks up vulnerabilities published against
+    # already-pinned dep versions between commits.
+    - cron: '0 3 * * 1'
+
+permissions:
+  # Required by the reusable workflow to upload SARIF to the Security tab.
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  scan-scheduled:
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.0.2
+    with:
+      # Fail the job on any vulnerability the scanner flags (default level).
+      # We rely on npm audit's `--audit-level=high` in ci.yml for the more
+      # noise-tolerant gate; this one is the strict "tell us about everything"
+      # signal that surfaces in the Security tab.
+      scan-args: |-
+        --recursive
+        ./
+
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.0.2
+    with:
+      scan-args: |-
+        --recursive
+        ./

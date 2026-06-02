@@ -1,0 +1,60 @@
+# CodeQL semantic-analysis scan for FlowTex. GitHub's static analyser
+# runs hundreds of security queries against the JavaScript / TypeScript
+# source (server + client) and Go (helper), surfacing the kinds of bugs
+# pattern-matching tools like ESLint can't see — taint tracking,
+# inter-procedural data flow, dangerous sink usage.
+#
+# Free for public repos. Results land in the repo's Security tab as
+# "Code scanning alerts." Runs on push/PR to main + weekly so newly-
+# added queries catch up against the existing codebase.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Tuesday 04:00 UTC. Offset from OSV-Scanner (Mon 03:00) so weekly
+    # alerts don't all fire at the same hour.
+    - cron: '0 4 * * 2'
+
+permissions:
+  # Required to upload CodeQL results to the Security tab.
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 'javascript-typescript' covers both .js/.jsx/.ts/.tsx — the
+        # whole server + client. 'go' covers the helper binary.
+        language: [javascript-typescript, go]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality covers the security pack PLUS code-
+          # quality findings; security-extended is the next level up
+          # but tends to be noisy. Start with the standard pack.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
