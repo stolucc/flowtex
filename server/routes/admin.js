@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import os from 'os';
+import { z } from 'zod';
 import db, { getWriteStats } from '../db.js';
 import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail, sendAccountDeletedEmail, sendAccountRestoredEmail } from '../utils/email.js';
@@ -13,10 +14,27 @@ import {
 import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
 import { sendError } from '../middleware/errorHandler.js';
+import validateBody from '../middleware/validateBody.js';
 
 const router = Router();
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// Schemas for state-changing admin routes. See routes/auth.js for the
+// rationale on .strict() and the policy-vs-shape split.
+const adminPasswordSchema = z.object({
+  password: z.string().min(1).max(1024),
+}).strict();
+const toggleAdminSchema = z.object({
+  isAdmin: z.boolean(),
+}).strict();
+const updateSettingSchema = z.object({
+  key: z.string().min(1).max(128),
+  value: z.union([z.string().max(8192), z.number(), z.boolean(), z.null()]),
+}).strict();
+const testEmailSchema = z.object({
+  to: z.string().trim().toLowerCase().email().max(254),
+}).strict();
 
 /** GET /api/admin/stats/overview -- Aggregate counts for users, projects, files, etc. */
 router.get('/stats/overview', async (req, res) => {
@@ -379,7 +397,7 @@ router.get('/users/:id/activity', async (req, res) => {
  *  cascade: NULLs out author references, drops sole-owner projects, deletes
  *  the user row. Refuses self-delete via this route (admins must use the
  *  self-delete flow). */
-router.delete('/users/:userId', async (req, res) => {
+router.delete('/users/:userId', validateBody(adminPasswordSchema), async (req, res) => {
   const userId = req.params.userId;
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
@@ -429,7 +447,7 @@ router.get('/users/deleted', async (req, res) => {
  *  Restore a soft-deleted account. Requires the admin's own password as a
  *  second factor (same as the delete route). The user must sign in again
  *  (their session was killed at soft-delete). Sends a notification email. */
-router.post('/users/:userId/restore', async (req, res) => {
+router.post('/users/:userId/restore', validateBody(adminPasswordSchema), async (req, res) => {
   const userId = req.params.userId;
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
@@ -462,7 +480,7 @@ router.post('/users/:userId/restore', async (req, res) => {
  *  Both rules are checked inside a SERIALIZABLE-equivalent read (count
  *  + update in a single transaction) so two simultaneous demotions can't
  *  race past each other and leave the system orphaned. */
-router.patch('/users/:userId/admin', async (req, res) => {
+router.patch('/users/:userId/admin', validateBody(toggleAdminSchema), async (req, res) => {
   const userId = req.params.userId;
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   if (typeof req.body?.isAdmin !== 'boolean') {
@@ -686,7 +704,7 @@ router.get('/settings', async (req, res) => {
 });
 
 /** PUT /api/admin/settings -- Update a single setting (compile_timeout, smtp_*). */
-router.put('/settings', async (req, res) => {
+router.put('/settings', validateBody(updateSettingSchema), async (req, res) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' });
 
@@ -735,7 +753,7 @@ router.put('/settings', async (req, res) => {
 });
 
 /** POST /api/admin/settings/test-email -- Send a test email to verify SMTP configuration. */
-router.post('/settings/test-email', async (req, res) => {
+router.post('/settings/test-email', validateBody(testEmailSchema), async (req, res) => {
   const { to } = req.body;
   if (!to) return res.status(400).json({ error: 'Recipient email required' });
   try {

@@ -1,0 +1,122 @@
+# Weekly dependency-drift report. Complements npm audit (which only
+# flags KNOWN CVEs) and OSV-Scanner (same, plus broader index) by
+# surfacing major-version drift on pinned deps. A dep that's three
+# major versions behind is more likely to be eligible for the NEXT
+# vulnerability than the one it currently has, so periodic review is
+# the right cadence (rather than blocking every PR on it).
+#
+# Opens (or updates) a single GitHub issue with the consolidated
+# report across root + server + client. If no major-version drift
+# exists, the action closes any prior outdated-deps issue.
+name: Dependency drift (npm outdated)
+
+on:
+  schedule:
+    # Wednesday 05:00 UTC. Offset from OSV-Scanner (Mon 03:00) + CodeQL
+    # (Tue 04:00) so the weekly notification stream is paced.
+    - cron: '0 5 * * 3'
+  workflow_dispatch: {}
+
+permissions:
+  # Issue create/update requires this scope; nothing else is needed.
+  issues: write
+  contents: read
+
+jobs:
+  outdated:
+    name: npm outdated (root + server + client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install all package trees
+        run: |
+          npm ci --ignore-scripts
+          (cd server && npm ci --ignore-scripts)
+          (cd client && npm ci --ignore-scripts)
+
+      - name: Collect outdated report
+        id: report
+        run: |
+          set +e
+          # npm outdated exits non-zero when anything is outdated, so don't
+          # let that fail the job; capture the JSON and we'll process it.
+          npm outdated --json --long 2>/dev/null > /tmp/root.json || true
+          (cd server && npm outdated --json --long 2>/dev/null) > /tmp/server.json || true
+          (cd client && npm outdated --json --long 2>/dev/null) > /tmp/client.json || true
+
+          # Build a single markdown report. Filter to MAJOR drift only
+          # (current major < latest major). Patch/minor lag is fine for
+          # a weekly digest; majors are the ones worth a human eye.
+          node -e '
+            const fs = require("fs");
+            function major(v) { return Number(String(v||"0").split(".")[0]); }
+            function load(p) { try { return JSON.parse(fs.readFileSync(p, "utf-8") || "{}"); } catch { return {}; } }
+            function table(name, json) {
+              const out = [];
+              for (const [pkg, info] of Object.entries(json || {})) {
+                if (major(info.current) < major(info.latest)) {
+                  out.push("| `" + pkg + "` | " + info.current + " | " + info.latest + " | " + (info.homepage || "—") + " |");
+                }
+              }
+              if (!out.length) return "";
+              return "### " + name + "\n\n| Package | Current | Latest | Homepage |\n|---|---|---|---|\n" + out.join("\n") + "\n";
+            }
+            let body = "Weekly dependency drift report. Major-version-behind packages only — patch/minor drift is OK for a digest cadence.\n\n";
+            body += table("root", load("/tmp/root.json")) || "";
+            body += table("server", load("/tmp/server.json")) || "";
+            body += table("client", load("/tmp/client.json")) || "";
+            const hasContent = body.includes("|");
+            if (!hasContent) {
+              body = "EMPTY";
+            } else {
+              body += "\n\n_Triage: bump each dep individually; run tests + lint before merging. CVE risk of a major-behind dep is roughly the same as the average CVE rate of its ecosystem, so this is preventive, not urgent._";
+            }
+            fs.writeFileSync("report.md", body);
+          '
+          {
+            echo "body<<EOF"
+            cat report.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `${{ steps.report.outputs.body }}`;
+            const title = 'Weekly: dependency major-version drift';
+            const empty = body.trim() === 'EMPTY';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'dep-drift',
+            });
+            const existing = issues.find(i => i.title === title);
+            if (empty) {
+              if (existing) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number, state: 'closed',
+                });
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body: 'No major-version drift detected this week — auto-closing.',
+                });
+              }
+              return;
+            }
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['dep-drift'],
+              });
+            }
