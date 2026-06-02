@@ -24,7 +24,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
-import { PROJECTS_DIR } from '../compiler.js';
+import { PROJECTS_DIR } from '../paths.js';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_HEX_RE = /^[0-9a-f-]{36}$/i;

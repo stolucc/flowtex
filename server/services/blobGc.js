@@ -22,7 +22,7 @@ import { readdir, stat, unlink, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import db from '../db.js';
 import logger from '../logger.js';
-import { PROJECTS_DIR } from '../compiler.js';
+import { PROJECTS_DIR } from '../paths.js';
 import { deleteBlob, blobsDir } from './blobStore.js';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;

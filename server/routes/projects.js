@@ -7,6 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import * as projectService from '../services/projectService.js';
 import { statBlob, readBlobStream } from '../services/blobStore.js';
+import { loadFileBytes } from '../services/fileBytes.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { resolveUsedFiles } from '../../shared/texDeps.js';
@@ -479,13 +480,16 @@ router.get('/:id/zip', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   const project = await db.get('SELECT name FROM projects WHERE id = $1', [req.params.id]);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [req.params.id]);
+  const files = await db.all(
+    'SELECT path, content, is_binary, binary_sha256 FROM files WHERE project_id = $1',
+    [req.params.id],
+  );
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
   const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.pipe(res);
-  for (const f of files) archive.append(f.is_binary ? Buffer.from(f.content, 'base64') : f.content, { name: f.path });
+  for (const f of files) archive.append(await loadFileBytes(req.params.id, f), { name: f.path });
   archive.finalize();
 });
 
@@ -494,7 +498,10 @@ router.get('/:id/zip-used', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   const project = await db.get('SELECT name, main_file FROM projects WHERE id = $1', [req.params.id]);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [req.params.id]);
+  const files = await db.all(
+    'SELECT path, content, is_binary, binary_sha256 FROM files WHERE project_id = $1',
+    [req.params.id],
+  );
   const mainFile = project.main_file || 'main.tex';
   const usedPaths = resolveUsedFiles(files, mainFile);
   const usedFiles = files.filter((f) => usedPaths.has(f.path));
@@ -503,8 +510,7 @@ router.get('/:id/zip-used', async (req, res) => {
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
   const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.pipe(res);
-  for (const f of usedFiles)
-    archive.append(f.is_binary ? Buffer.from(f.content, 'base64') : f.content, { name: f.path });
+  for (const f of usedFiles) archive.append(await loadFileBytes(req.params.id, f), { name: f.path });
   archive.finalize();
 });
 

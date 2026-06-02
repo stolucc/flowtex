@@ -7,9 +7,11 @@ import { fileURLToPath } from 'url';
 import db from './db.js';
 import logger from './logger.js';
 import { analyzeRebuild, checkBuildCache, findStaleBibOutputToTouch } from './utils/rebuildAnalyzer.js';
+import { loadFileBytes } from './services/fileBytes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
+import { PROJECTS_DIR } from './paths.js';
+export { PROJECTS_DIR };
 const PROFILE_WRAPPER_PATH = path.join(__dirname, 'utils', 'compileProfileWrapper.mjs');
 
 /** Build the latexmk `-e '$tool = q[…]'` overrides that route each phase
@@ -811,7 +813,7 @@ function getFileExt(filePath) {
 /**
  * Write project files to disk, skipping unchanged files and generated artifacts.
  * @param {string} projectId
- * @param {Array<{path: string, content: string, is_binary: boolean}>} files
+ * @param {Array<{path: string, content: string, is_binary: boolean, binary_sha256?: string}>} files
  */
 export async function syncFilesToDisk(projectId, files) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
@@ -827,7 +829,10 @@ export async function syncFilesToDisk(projectId, files) {
     if (GENERATED_EXTS.has(ext)) return;
 
     const filePath = safePath(projectDir, file.path);
-    const buf = file.is_binary && file.content ? Buffer.from(file.content, 'base64') : file.content;
+    // Bytes come via loadFileBytes so we transparently handle both legacy
+    // base64-in-DB and Phase A.2+ blob-stored binaries. For text rows the
+    // string is returned as-is.
+    const buf = await loadFileBytes(projectId, file);
     const hash = contentHash(typeof buf === 'string' ? buf : buf || '');
     const cacheKey = projectId + ':' + file.path;
 

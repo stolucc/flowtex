@@ -9,7 +9,7 @@ import path from 'node:path';
 
 let TMP_ROOT;
 
-vi.mock('../compiler.js', () => ({
+vi.mock('../paths.js', () => ({
   // Read at access time so beforeEach() can swap PROJECTS_DIR per test.
   get PROJECTS_DIR() { return TMP_ROOT; },
 }));

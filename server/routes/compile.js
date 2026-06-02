@@ -175,7 +175,7 @@ router.post('/:projectId', async (req, res) => {
     // strip them so the compiler sees the "Final" view.
     const showTC = req.query.showTrackedChanges === '1' || req.body?.showTrackedChanges === true;
     const rawFiles = await db.all(
-      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
@@ -248,7 +248,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
   try {
     const showTC = req.query.showTrackedChanges === '1';
     const rawFiles = await db.all(
-      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
@@ -567,7 +567,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     }
 
     const rawFiles = await db.all(
-      'SELECT path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+      'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
     // Strip pending del ranges before sending to LaTeX (M2 model — the
