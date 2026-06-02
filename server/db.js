@@ -303,6 +303,34 @@ async function initSchema() {
       UNIQUE(project_id, path)
     );
 
+    -- Phase A.1 of the blob-storage migration. Binary file content
+    -- currently lives base64-encoded in files.content; this is a
+    -- +33%-storage, no-streaming pattern that doesnt scale. The
+    -- migration moves bytes onto disk at
+    --   server/projects/<projectId>/_blobs/<sha256[0:2]>/<sha256>
+    -- and tracks them via:
+    --   files.binary_sha256 / binary_size / binary_mime  -- reference + meta
+    --   project_blobs                                    -- refcount + GC anchor
+    -- Per-project (not global) blob dirs by deliberate choice -- closes the
+    -- upload-timing side channel a global dedup would create.
+    -- Phase A.2 (upload/read paths) and B (background migration of legacy
+    -- rows) land in subsequent commits; for now the columns are present but
+    -- unused, so existing base64-in-DB rows keep working.
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS binary_sha256 CHAR(64);
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS binary_size INTEGER;
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS binary_mime TEXT;
+    CREATE INDEX IF NOT EXISTS idx_files_binary_sha256 ON files(binary_sha256) WHERE binary_sha256 IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS project_blobs (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      sha256 CHAR(64) NOT NULL,
+      size INTEGER NOT NULL,
+      ref_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, sha256)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_blobs_orphan ON project_blobs(project_id) WHERE ref_count = 0;
+
     -- Explicit empty-folder bookkeeping. Folders are still implicit in file
     -- paths (e.g. a file at "parts/foo.tex" creates a virtual "parts" folder
     -- in the UI), but to let users create a folder *before* dropping a file

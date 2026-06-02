@@ -261,11 +261,33 @@ router.post('/totp/setup', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * Drop every session for `userId` EXCEPT `keepSessionId`. Used after a
+ * privilege-envelope change (MFA enabled/disabled) so a session that
+ * was created BEFORE the change can't continue at the new envelope —
+ * the user must re-authenticate on every other device. ASVS V3.5.1.
+ * Best-effort: log on failure, don't fail the calling request.
+ */
+async function dropOtherSessions(userId, keepSessionId) {
+  try {
+    await db.run(
+      `DELETE FROM session WHERE sess->>'userId' = $1 AND sid <> $2`,
+      [userId, keepSessionId],
+    );
+  } catch (err) {
+    logger.warn({ err, userId }, 'Failed to drop other sessions after MFA toggle');
+  }
+}
+
 /** POST /api/auth/totp/verify -- Verify a TOTP code and enable MFA for the user. */
 router.post('/totp/verify', requireAuth, async (req, res) => {
   if (!req.body.code) return res.status(400).json({ error: 'Verification code required' });
   try {
     await authService.verifyAndEnableTotp(req.session.userId, req.body.code);
+    // Privilege envelope changed (now requires TOTP on next sign-in).
+    // Invalidate every other session for this user so a pre-existing
+    // session can't keep acting under the old, no-MFA envelope.
+    await dropOtherSessions(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'mfa_enabled', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
@@ -279,6 +301,10 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
   try {
     await authService.disableTotp(req.session.userId, req.body.password);
     res.clearCookie('trusted-device', { path: '/' });
+    // Same rationale as enable: the envelope changed (no longer
+    // requires TOTP). A session that was created before the change
+    // shouldn't keep running silently — force re-auth elsewhere.
+    await dropOtherSessions(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'mfa_disabled', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
