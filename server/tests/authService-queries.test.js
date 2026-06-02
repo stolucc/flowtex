@@ -40,7 +40,7 @@ import {
   resetPassword,
 } from '../services/authService.js';
 
-const TEST_PW = 'Password1';
+const TEST_PW = 'Password1234';
 const TEST_HASH = bcrypt.hashSync(TEST_PW, 4);
 
 beforeEach(() => {
@@ -202,7 +202,7 @@ describe('disableTotp queries', () => {
 describe('changePassword queries', () => {
   it('SELECT id, password_hash FROM users WHERE id = $1', async () => {
     db.get.mockResolvedValueOnce(null);
-    await expect(changePassword('u', TEST_PW, 'NewPass1')).rejects.toBeDefined();
+    await expect(changePassword('u', TEST_PW, 'NewPassword1')).rejects.toBeDefined();
     const [sql, params] = db.get.mock.calls[0];
     expect(sql).toBe('SELECT id, password_hash FROM users WHERE id = $1');
     expect(params).toEqual(['u']);
@@ -211,7 +211,7 @@ describe('changePassword queries', () => {
   it('UPDATE users SET password_hash = $1 WHERE id = $2', async () => {
     const oldHash = bcrypt.hashSync('OldPass1', 4);
     db.get.mockResolvedValueOnce({ id: 'u', password_hash: oldHash });
-    await changePassword('u', 'OldPass1', 'NewPass1');
+    await changePassword('u', 'OldPass1', 'NewPassword1');
     const [sql, params] = db.run.mock.calls[0];
     expect(sql).toBe('UPDATE users SET password_hash = $1 WHERE id = $2');
     expect(params[1]).toBe('u');
@@ -376,7 +376,7 @@ describe('createPasswordResetToken queries', () => {
 describe('resetPassword queries', () => {
   it('UPDATE password_reset_tokens with token_hash, used=FALSE, RETURNING id, user_id', async () => {
     db.get.mockResolvedValueOnce(null);
-    await expect(resetPassword('rawtoken', 'NewPass1')).rejects.toBeDefined();
+    await expect(resetPassword('rawtoken', 'NewPassword1')).rejects.toBeDefined();
     const [sql, params] = db.get.mock.calls[0];
     expect(sql).toMatch(/UPDATE password_reset_tokens SET used = TRUE/);
     expect(sql).toContain('token_hash = $1');
@@ -390,7 +390,7 @@ describe('resetPassword queries', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const sel = db.get.mock.calls[1];
     expect(sel[0]).toBe('SELECT password_hash FROM users WHERE id = $1');
     expect(sel[1]).toEqual(['u']);
@@ -400,7 +400,7 @@ describe('resetPassword queries', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const updateUsers = db.run.mock.calls.find((c) => c[0].includes('users SET password_hash'));
     expect(updateUsers[0]).toBe('UPDATE users SET password_hash = $1 WHERE id = $2');
     expect(updateUsers[1][1]).toBe('u');
@@ -410,7 +410,7 @@ describe('resetPassword queries', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const inv = db.run.mock.calls.find(
       (c) => c[0].includes('password_reset_tokens') && c[0].includes('id != $2'),
     );
@@ -422,7 +422,7 @@ describe('resetPassword queries', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const sess = db.run.mock.calls.find((c) => c[0].includes('DELETE FROM session'));
     expect(sess[0]).toBe(`DELETE FROM session WHERE sess->>'userId' = $1`);
     expect(sess[1]).toEqual(['u']);
@@ -432,7 +432,7 @@ describe('resetPassword queries', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const dev = db.run.mock.calls.find((c) => c[0].includes('DELETE FROM trusted_devices'));
     expect(dev[0]).toBe('DELETE FROM trusted_devices WHERE user_id = $1');
     expect(dev[1]).toEqual(['u']);

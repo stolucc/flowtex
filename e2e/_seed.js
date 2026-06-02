@@ -14,7 +14,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
 
-const PASSWORD = 'TestPass123';
+const PASSWORD = 'TestPass1234';
 let _pool;
 function pool() {
   if (!_pool) {

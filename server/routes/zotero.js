@@ -60,9 +60,24 @@ router.delete('/disconnect', async (req, res) => {
 // ── Helper to get decrypted key ──────────────────────────────────────
 
 /** Retrieve and decrypt the Zotero API key and user ID for a given user. */
+// Zotero user IDs are positive integers (their API contract). Reject
+// anything else at read time so even if a future Zotero API quirk
+// returned something weirder than expected, we can't path-inject
+// the value into the request URLs that interpolate it.
+function isValidZoteroUserId(value) {
+  return typeof value === 'string' && /^\d+$/.test(value);
+}
+
 async function getZoteroAuth(userId) {
   const row = await db.get('SELECT api_key, zotero_user_id FROM zotero_tokens WHERE user_id = $1', [userId]);
   if (!row) return null;
+  if (!isValidZoteroUserId(row.zotero_user_id)) {
+    // Defence in depth: a stored zoteroUserId that isn't purely digits
+    // could be path-injected into Zotero API URLs. Refuse to proceed;
+    // the user can reconnect to overwrite the bad row.
+    logger.warn({ userId }, 'Stored Zotero user_id has unexpected shape; refusing to use it');
+    return null;
+  }
   return { apiKey: decrypt(row.api_key), zoteroUserId: row.zotero_user_id };
 }
 
@@ -169,6 +184,12 @@ router.get('/export', async (req, res) => {
 
   try {
     const url = new URL(`/users/${auth.zoteroUserId}/items`, ZOTERO_API);
+    // SSRF guard mirroring zoteroFetch's: refuse if the constructed URL
+    // ever resolves off api.zotero.org (e.g. if a future refactor of
+    // zoteroUserId ever lets an absolute URL in).
+    if (url.origin !== new URL(ZOTERO_API).origin) {
+      throw new Error(`refusing to fetch non-Zotero origin: ${url.origin}`);
+    }
     url.searchParams.set('itemKey', keyList.join(','));
     url.searchParams.set('format', 'bibtex');
     url.searchParams.set('limit', String(keyList.length));

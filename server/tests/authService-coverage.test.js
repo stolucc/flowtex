@@ -48,7 +48,7 @@ import {
   checkPasswordNotBreached,
 } from '../services/authService.js';
 
-const TEST_PW = 'Password1';
+const TEST_PW = 'Password1234';
 const TEST_HASH = bcrypt.hashSync(TEST_PW, 4);
 
 beforeEach(() => {
@@ -281,7 +281,7 @@ describe('changeEmail', () => {
 describe('changePassword extras', () => {
   it('queries SELECT id, password_hash FROM users WHERE id = $1', async () => {
     db.get.mockResolvedValueOnce(null);
-    await expect(changePassword('u', TEST_PW, 'NewPass1')).rejects.toBeDefined();
+    await expect(changePassword('u', TEST_PW, 'NewPassword1')).rejects.toBeDefined();
     expect(db.get.mock.calls[0][0]).toContain('SELECT id, password_hash FROM users');
     expect(db.get.mock.calls[0][1]).toEqual(['u']);
   });
@@ -505,7 +505,7 @@ describe('TOTP lifecycle', () => {
 
   it('disableTotp throws 401 on wrong password', async () => {
     db.get.mockResolvedValueOnce({ id: 'u', password_hash: TEST_HASH, totp_enabled: true });
-    await expect(disableTotp('u', 'WrongPass1'))
+    await expect(disableTotp('u', 'WrongPassword1'))
       .rejects.toMatchObject({ message: 'Invalid password', status: 401 });
   });
 
@@ -603,14 +603,14 @@ describe('resetPassword', () => {
     // it would proceed to "Invalid or expired reset link" instead.
     await expect(resetPassword('rawtoken', 'weak'))
       .rejects.toMatchObject({
-        message: /at least 8 characters/i,
+        message: /at least 12 characters/i,
         status: 400,
       });
   });
 
   it('throws 400 for an unknown/expired token', async () => {
     db.get.mockResolvedValueOnce(null); // no resetToken row
-    await expect(resetPassword('rawtoken', 'NewPass1'))
+    await expect(resetPassword('rawtoken', 'NewPassword1'))
       .rejects.toMatchObject({ message: 'Invalid or expired reset link', status: 400 });
   });
 
@@ -626,7 +626,7 @@ describe('resetPassword', () => {
     db.get
       .mockResolvedValueOnce({ id: 't1', user_id: 'u' })
       .mockResolvedValueOnce({ password_hash: bcrypt.hashSync('OldPass1', 4) });
-    await resetPassword('rawtoken', 'NewPass1');
+    await resetPassword('rawtoken', 'NewPassword1');
     const sqls = db.run.mock.calls.map((c) => c[0]);
     expect(sqls.some((s) => s.includes('UPDATE users SET password_hash'))).toBe(true);
     expect(sqls.some((s) => s.includes('DELETE FROM session'))).toBe(true);
@@ -644,7 +644,7 @@ describe('deleteAccount', () => {
 
   it('throws 401 on wrong password', async () => {
     db.get.mockResolvedValueOnce({ id: 'u', email: 'e@x', password_hash: TEST_HASH });
-    await expect(deleteAccount('u', 'WrongPass1'))
+    await expect(deleteAccount('u', 'WrongPassword1'))
       .rejects.toMatchObject({ message: 'Invalid password', status: 401 });
   });
 
@@ -714,7 +714,7 @@ describe('adminDeleteUser', () => {
 
   it('rejects when admin password is wrong', async () => {
     db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true });
-    await expect(adminDeleteUser('a', 'WrongPass1', 't'))
+    await expect(adminDeleteUser('a', 'WrongPassword1', 't'))
       .rejects.toMatchObject({ status: 401, message: 'Invalid admin password' });
   });
 

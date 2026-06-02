@@ -78,7 +78,7 @@ function pickCsrf(res) {
   return null;
 }
 
-async function registerAndGetUserId(email, name = 'Email Test', password = 'StrongPass1') {
+async function registerAndGetUserId(email, name = 'Email Test', password = 'StrongPass1234') {
   const r = await api('POST', '/api/auth/register', { body: { email, name, password } });
   expect(r.status).toBe(200);
   const row = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -332,7 +332,7 @@ test('reset-password: weak new password → 400', async () => {
 test('change-email: changes the email and creates a fresh verification token', async () => {
   const oldEmail = `e2e-email-change-${Date.now()}@test.local`;
   const newEmail = `e2e-newemail-${Date.now()}@test.local`;
-  const password = 'StrongPass1';
+  const password = 'StrongPass1234';
   await api('POST', '/api/auth/register', { body: { email: oldEmail, name: 'Change Mail', password } });
   const u = await pool.query('SELECT id FROM users WHERE email = $1', [oldEmail]);
   const userId = u.rows[0].id;
@@ -370,7 +370,7 @@ test('change-email: changes the email and creates a fresh verification token', a
 test('change-email: wrong password is rejected, email unchanged', async () => {
   const oldEmail = `e2e-email-changewrong-${Date.now()}@test.local`;
   const newEmail = `e2e-newemail-wrong-${Date.now()}@test.local`;
-  const password = 'StrongPass1';
+  const password = 'StrongPass1234';
   await api('POST', '/api/auth/register', { body: { email: oldEmail, name: 'Change Wrong', password } });
   const u = await pool.query('SELECT id FROM users WHERE email = $1', [oldEmail]);
   await pool.query('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.rows[0].id]);

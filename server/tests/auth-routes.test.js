@@ -134,14 +134,14 @@ describe('POST /register', () => {
 
   it('returns 400 when email is missing', async () => {
     const res = mockRes();
-    await handler(mockReq({ body: { name: 'A', password: 'pass123' } }), res);
+    await handler(mockReq({ body: { name: 'A', password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body.error).toMatch(/email/i);
   });
 
   it('returns 400 when name is missing', async () => {
     const res = mockRes();
-    await handler(mockReq({ body: { email: 'a@b.com', password: 'pass123' } }), res);
+    await handler(mockReq({ body: { email: 'a@b.com', password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body.error).toMatch(/name/i);
   });
@@ -155,14 +155,14 @@ describe('POST /register', () => {
 
   it('returns 400 for invalid email format', async () => {
     const res = mockRes();
-    await handler(mockReq({ body: { email: 'not-an-email', name: 'A', password: 'pass123' } }), res);
+    await handler(mockReq({ body: { email: 'not-an-email', name: 'A', password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body.error).toMatch(/email format/i);
   });
 
   it('returns 400 for email without domain', async () => {
     const res = mockRes();
-    await handler(mockReq({ body: { email: 'user@', name: 'A', password: 'pass123' } }), res);
+    await handler(mockReq({ body: { email: 'user@', name: 'A', password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body.error).toMatch(/email format/i);
   });
@@ -170,14 +170,14 @@ describe('POST /register', () => {
   it('returns 400 when name exceeds 200 characters', async () => {
     const res = mockRes();
     const longName = 'a'.repeat(201);
-    await handler(mockReq({ body: { email: 'a@b.com', name: longName, password: 'pass123' } }), res);
+    await handler(mockReq({ body: { email: 'a@b.com', name: longName, password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body.error).toMatch(/200/);
   });
 
   it('returns 400 when name is empty string', async () => {
     const res = mockRes();
-    await handler(mockReq({ body: { email: 'a@b.com', name: '   ', password: 'pass123' } }), res);
+    await handler(mockReq({ body: { email: 'a@b.com', name: '   ', password: 'passABC12345' } }), res);
     expect(res.status).toHaveBeenCalledWith(400);
   });
 

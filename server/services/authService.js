@@ -37,7 +37,12 @@ export function decryptTotpSecret(encrypted) {
  * @returns {string|null} Error message, or null if valid.
  */
 export function validatePassword(password) {
-  if (typeof password !== 'string' || password.length < 8) return 'Password must be at least 8 characters';
+  // ASVS v4.0.3 §2.1.1: minimum 12 characters at L2. Only enforced for
+  // NEW passwords (registration, password change, password reset);
+  // existing 8-11 char passwords still authenticate via bcrypt.compare
+  // and won't be invalidated. Users are pushed to 12 only when they
+  // next set a password.
+  if (typeof password !== 'string' || password.length < 12) return 'Password must be at least 12 characters';
   if (password.length > 128) return 'Password must be at most 128 characters';
   if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter';
   if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter';

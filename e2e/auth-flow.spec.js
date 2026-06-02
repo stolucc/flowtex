@@ -152,7 +152,7 @@ test('register: weak password → 400 with reason', async () => {
 test('login: full flow — register → verify → login → /me → logout → /me 401', async () => {
   const stamp = Date.now();
   const email = `e2e-auth-flow-${stamp}@test.local`;
-  const password = 'StrongPass1';
+  const password = 'StrongPass1234';
 
   // 1. Register
   const reg = await api('POST', '/api/auth/register', { body: { email, name: 'Flow', password } });
@@ -232,9 +232,9 @@ test('login: unknown email → 401 (timing-equalised with wrong-password path)',
 test('login: unverified email → 403 with unverified: true flag', async () => {
   // Register a fresh user but DON'T flip the verified flag.
   const email = `e2e-auth-unverif-${Date.now()}@test.local`;
-  await api('POST', '/api/auth/register', { body: { email, name: 'Unv', password: 'StrongPass1' } });
+  await api('POST', '/api/auth/register', { body: { email, name: 'Unv', password: 'StrongPass1234' } });
 
-  const r = await api('POST', '/api/auth/login', { body: { email, password: 'StrongPass1' } });
+  const r = await api('POST', '/api/auth/login', { body: { email, password: 'StrongPass1234' } });
   expect(r.status).toBe(403);
   const body = r.json();
   expect(body.unverified).toBe(true);
@@ -243,7 +243,7 @@ test('login: unverified email → 403 with unverified: true flag', async () => {
 test('delete-account: wrong password is rejected, account remains', async () => {
   const stamp = Date.now();
   const email = `e2e-auth-delwrong-${stamp}@test.local`;
-  const password = 'StrongPass1';
+  const password = 'StrongPass1234';
   await api('POST', '/api/auth/register', { body: { email, name: 'Del Wrong', password } });
   await getEmailVerificationToken(email);
   const login = await api('POST', '/api/auth/login', { body: { email, password } });
@@ -268,7 +268,7 @@ test('delete-account: wrong password is rejected, account remains', async () => 
 test('delete-account: correct password removes the user and invalidates the session', async () => {
   const stamp = Date.now();
   const email = `e2e-auth-delok-${stamp}@test.local`;
-  const password = 'StrongPass1';
+  const password = 'StrongPass1234';
   await api('POST', '/api/auth/register', { body: { email, name: 'Del OK', password } });
   await getEmailVerificationToken(email);
   const login = await api('POST', '/api/auth/login', { body: { email, password } });

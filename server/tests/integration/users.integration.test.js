@@ -21,7 +21,7 @@ import {
 describe('users — registration and login', () => {
   it('registers a new user and stores them in users', async () => {
     const email = `it-reg-${Date.now()}@example.test`;
-    const user = await registerUser(email, 'Reg User', 'TestPass123');
+    const user = await registerUser(email, 'Reg User', 'TestPass1234');
     expect(user.id).toBeTruthy();
     expect(user.email).toBe(email);
     expect(user.alreadyExisted).toBe(false);
@@ -32,8 +32,8 @@ describe('users — registration and login', () => {
 
   it('returns alreadyExisted=true for duplicate emails (no enumeration leak)', async () => {
     const email = `it-dup-${Date.now()}@example.test`;
-    await registerUser(email, 'First', 'TestPass123');
-    const second = await registerUser(email, 'Second', 'TestPass123');
+    await registerUser(email, 'First', 'TestPass1234');
+    const second = await registerUser(email, 'Second', 'TestPass1234');
     expect(second.alreadyExisted).toBe(true);
     expect(second.id).toBeNull();
     const count = await db.get('SELECT COUNT(*)::int AS n FROM users WHERE email = $1', [email]);
@@ -42,16 +42,16 @@ describe('users — registration and login', () => {
 
   it('authenticates a verified user with the right password', async () => {
     const email = `it-auth-${Date.now()}@example.test`;
-    const created = await registerUser(email, 'Auth', 'TestPass123');
+    const created = await registerUser(email, 'Auth', 'TestPass1234');
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [created.id]);
-    const result = await authenticateUser(email, 'TestPass123');
+    const result = await authenticateUser(email, 'TestPass1234');
     expect(result.error).toBeUndefined();
     expect(result.user.email).toBe(email);
   });
 
   it('rejects wrong password with timing-equalized response', async () => {
     const email = `it-wrong-${Date.now()}@example.test`;
-    const created = await registerUser(email, 'Wrong', 'TestPass123');
+    const created = await registerUser(email, 'Wrong', 'TestPass1234');
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [created.id]);
     const result = await authenticateUser(email, 'WrongPass456');
     expect(result.error).toBe('Invalid credentials');
@@ -60,8 +60,8 @@ describe('users — registration and login', () => {
 
   it('refuses to log in unverified accounts (and flags unverified=true)', async () => {
     const email = `it-unver-${Date.now()}@example.test`;
-    await registerUser(email, 'Unver', 'TestPass123');
-    const result = await authenticateUser(email, 'TestPass123');
+    await registerUser(email, 'Unver', 'TestPass1234');
+    const result = await authenticateUser(email, 'TestPass1234');
     expect(result.unverified).toBe(true);
     expect(result.userId).toBeTruthy();
   });
@@ -70,25 +70,25 @@ describe('users — registration and login', () => {
 describe('users — password change & reset', () => {
   it('changePassword rejects wrong current password', async () => {
     const email = `it-cp-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'CP', 'OrigPass1A');
-    const wrong = await changePassword(u.id, 'NotTheRightOne', 'NewPass1234').catch((e) => e);
+    const u = await registerUser(email, 'CP', 'OrigPass1A234');
+    const wrong = await changePassword(u.id, 'NotTheRightOne', 'NewPass1234A').catch((e) => e);
     expect(wrong).toBeInstanceOf(Error);
     expect(wrong.status).toBe(401);
   });
 
   it('changePassword succeeds with the right current password', async () => {
     const email = `it-cp2-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'CP', 'OrigPass1A');
-    await changePassword(u.id, 'OrigPass1A', 'NewPass1234');
+    const u = await registerUser(email, 'CP', 'OrigPass1A234');
+    await changePassword(u.id, 'OrigPass1A234', 'NewPass1234A');
     // The new password should authenticate
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
-    const result = await authenticateUser(email, 'NewPass1234');
+    const result = await authenticateUser(email, 'NewPass1234A');
     expect(result.user).toBeTruthy();
   });
 
   it('resetPassword consumes the token and invalidates trusted devices', async () => {
     const email = `it-reset-${Date.now()}@example.test`;
-    await registerUser(email, 'Reset', 'OrigPass1');
+    await registerUser(email, 'Reset', 'OrigPass1234');
     const tok = await createPasswordResetToken(email);
     expect(tok).toBeTruthy();
     expect(tok.token).toMatch(/^[0-9a-f]{64}$/);
@@ -96,12 +96,12 @@ describe('users — password change & reset', () => {
     const td = await createTrustedDevice(tok.userId, 'TestAgent');
     expect(await checkTrustedDevice(tok.userId, td.token)).not.toBeNull();
     // Reset
-    const userId = await resetPassword(tok.token, 'NewPass1234');
+    const userId = await resetPassword(tok.token, 'NewPass1234A');
     expect(userId).toBe(tok.userId);
     // Trusted device should be gone after reset
     expect(await checkTrustedDevice(tok.userId, td.token)).toBeNull();
     // Token can't be replayed
-    await expect(resetPassword(tok.token, 'AnotherPass5')).rejects.toThrow(/Invalid or expired/);
+    await expect(resetPassword(tok.token, 'AnotherPass5678')).rejects.toThrow(/Invalid or expired/);
   });
 
   it('createPasswordResetToken returns null for unknown emails (no enumeration)', async () => {
@@ -113,23 +113,23 @@ describe('users — password change & reset', () => {
 describe('users — deletion (soft-delete recovery bin)', () => {
   it('deleteAccount soft-deletes the user (row + data preserved, login blocked)', async () => {
     const email = `it-del-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'Del', 'TestPass123');
+    const u = await registerUser(email, 'Del', 'TestPass1234');
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
-    await deleteAccount(u.id, 'TestPass123');
+    await deleteAccount(u.id, 'TestPass1234');
 
     const row = await db.get('SELECT id, deleted_at FROM users WHERE id = $1', [u.id]);
     expect(row).toBeDefined();
     expect(row.deleted_at).not.toBeNull();
 
-    const loginAttempt = await authenticateUser(email, 'TestPass123');
+    const loginAttempt = await authenticateUser(email, 'TestPass1234');
     expect(loginAttempt.error).toBeTruthy();
     expect(loginAttempt.status).toBe(401);
   });
 
   it('a soft-deleted user shows up in listSoftDeletedUsers with a future purge_at', async () => {
     const email = `it-bin-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'Bin', 'TestPass123');
-    await deleteAccount(u.id, 'TestPass123');
+    const u = await registerUser(email, 'Bin', 'TestPass1234');
+    await deleteAccount(u.id, 'TestPass1234');
     const bin = await listSoftDeletedUsers();
     const entry = bin.find((r) => r.id === u.id);
     expect(entry).toBeDefined();
@@ -138,28 +138,28 @@ describe('users — deletion (soft-delete recovery bin)', () => {
 
   it('adminRestoreUser clears deleted_at and lets the user log in again', async () => {
     const email = `it-restore-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'Restore', 'TestPass123');
+    const u = await registerUser(email, 'Restore', 'TestPass1234');
     await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [u.id]);
-    await deleteAccount(u.id, 'TestPass123');
+    await deleteAccount(u.id, 'TestPass1234');
 
-    const admin = await registerUser(`it-admin-${Date.now()}@example.test`, 'Admin', 'AdminPass123');
+    const admin = await registerUser(`it-admin-${Date.now()}@example.test`, 'Admin', 'AdminPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
 
-    await adminRestoreUser(admin.id, 'AdminPass123', u.id);
+    await adminRestoreUser(admin.id, 'AdminPass1234', u.id);
     const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
     expect(row.deleted_at).toBeNull();
 
-    const ok = await authenticateUser(email, 'TestPass123');
+    const ok = await authenticateUser(email, 'TestPass1234');
     expect(ok.user?.id).toBe(u.id);
   });
 
   it('adminRestoreUser rejects a wrong admin password', async () => {
-    const u = await registerUser(`it-rw-${Date.now()}@example.test`, 'U', 'TestPass123');
-    await deleteAccount(u.id, 'TestPass123');
-    const admin = await registerUser(`it-adminrw-${Date.now()}@example.test`, 'A', 'AdminPass123');
+    const u = await registerUser(`it-rw-${Date.now()}@example.test`, 'U', 'TestPass1234');
+    await deleteAccount(u.id, 'TestPass1234');
+    const admin = await registerUser(`it-adminrw-${Date.now()}@example.test`, 'A', 'AdminPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
 
-    await expect(adminRestoreUser(admin.id, 'WrongPass1', u.id))
+    await expect(adminRestoreUser(admin.id, 'WrongPassword1', u.id))
       .rejects.toMatchObject({ status: 401, message: 'Invalid admin password' });
 
     const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [u.id]);
@@ -169,10 +169,10 @@ describe('users — deletion (soft-delete recovery bin)', () => {
   it('deleteAccount refuses when caller is the only alive admin (lockout guard)', async () => {
     // Wipe any pre-existing admins seeded by other tests so we control the count.
     await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
-    const u = await registerUser(`it-lastadmin-${Date.now()}@example.test`, 'Sole', 'TestPass123');
+    const u = await registerUser(`it-lastadmin-${Date.now()}@example.test`, 'Sole', 'TestPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [u.id]);
 
-    await expect(deleteAccount(u.id, 'TestPass123'))
+    await expect(deleteAccount(u.id, 'TestPass1234'))
       .rejects.toMatchObject({ status: 409, message: /only admin/ });
 
     // Row is intact (no soft-delete happened).
@@ -182,41 +182,41 @@ describe('users — deletion (soft-delete recovery bin)', () => {
 
   it('deleteAccount succeeds for an admin when another alive admin exists', async () => {
     await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
-    const a = await registerUser(`it-admin-a-${Date.now()}@example.test`, 'A', 'TestPass123');
-    const b = await registerUser(`it-admin-b-${Date.now()}@example.test`, 'B', 'TestPass123');
+    const a = await registerUser(`it-admin-a-${Date.now()}@example.test`, 'A', 'TestPass1234');
+    const b = await registerUser(`it-admin-b-${Date.now()}@example.test`, 'B', 'TestPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id IN ($1, $2)', [a.id, b.id]);
 
-    await deleteAccount(a.id, 'TestPass123');
+    await deleteAccount(a.id, 'TestPass1234');
     const row = await db.get('SELECT deleted_at FROM users WHERE id = $1', [a.id]);
     expect(row.deleted_at).not.toBeNull();
   });
 
   it('a soft-deleted admin no longer counts toward the alive-admin floor', async () => {
     await db.run(`UPDATE users SET is_admin = FALSE WHERE deleted_at IS NULL`);
-    const a = await registerUser(`it-bin-a-${Date.now()}@example.test`, 'A', 'TestPass123');
-    const b = await registerUser(`it-bin-b-${Date.now()}@example.test`, 'B', 'TestPass123');
+    const a = await registerUser(`it-bin-a-${Date.now()}@example.test`, 'A', 'TestPass1234');
+    const b = await registerUser(`it-bin-b-${Date.now()}@example.test`, 'B', 'TestPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id IN ($1, $2)', [a.id, b.id]);
 
     // Bin admin A — now B is the only ALIVE admin.
-    await deleteAccount(a.id, 'TestPass123');
+    await deleteAccount(a.id, 'TestPass1234');
     // B's self-delete must now fail.
-    await expect(deleteAccount(b.id, 'TestPass123'))
+    await expect(deleteAccount(b.id, 'TestPass1234'))
       .rejects.toMatchObject({ status: 409 });
   });
 
   it('adminRestoreUser refuses to restore a user that is not deleted', async () => {
-    const u = await registerUser(`it-active-${Date.now()}@example.test`, 'U', 'TestPass123');
-    const admin = await registerUser(`it-adminact-${Date.now()}@example.test`, 'A', 'AdminPass123');
+    const u = await registerUser(`it-active-${Date.now()}@example.test`, 'U', 'TestPass1234');
+    const admin = await registerUser(`it-adminact-${Date.now()}@example.test`, 'A', 'AdminPass1234');
     await db.run('UPDATE users SET is_admin = TRUE WHERE id = $1', [admin.id]);
 
-    await expect(adminRestoreUser(admin.id, 'AdminPass123', u.id))
+    await expect(adminRestoreUser(admin.id, 'AdminPass1234', u.id))
       .rejects.toMatchObject({ status: 409 });
   });
 
   it('purgeExpiredSoftDeletes hard-deletes rows past the 30-day window', async () => {
     const email = `it-purge-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'Purge', 'TestPass123');
-    await deleteAccount(u.id, 'TestPass123');
+    const u = await registerUser(email, 'Purge', 'TestPass1234');
+    await deleteAccount(u.id, 'TestPass1234');
     // Backdate the bin entry so the window is "elapsed."
     await db.run(`UPDATE users SET deleted_at = NOW() - INTERVAL '31 days' WHERE id = $1`, [u.id]);
 
@@ -228,8 +228,8 @@ describe('users — deletion (soft-delete recovery bin)', () => {
 
   it('purgeExpiredSoftDeletes leaves fresh soft-deletes alone', async () => {
     const email = `it-fresh-${Date.now()}@example.test`;
-    const u = await registerUser(email, 'Fresh', 'TestPass123');
-    await deleteAccount(u.id, 'TestPass123');
+    const u = await registerUser(email, 'Fresh', 'TestPass1234');
+    await deleteAccount(u.id, 'TestPass1234');
 
     const purged = await purgeExpiredSoftDeletes();
     expect(purged).not.toContain(u.id);

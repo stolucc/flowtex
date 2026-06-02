@@ -23,6 +23,30 @@ export function isValidFilePath(filePath) {
   return true;
 }
 
+// ASVS V12.5.1 deny-list for binary uploads. None of these are
+// legitimate LaTeX project assets, and the /raw endpoint serves
+// uploaded bytes inline by default (HTML/SVG with embedded script
+// would be sandboxed by the CSP we set, but defence-in-depth: refuse
+// at upload time so they never enter the project at all).
+// HTML is intentionally rejected too because a project member could
+// otherwise stash a phishing page and share its /raw URL with a
+// scoped session.
+const DENIED_BINARY_EXTS = new Set([
+  '.exe', '.bat', '.cmd', '.com', '.scr', '.pif',
+  '.msi', '.dll', '.sys',
+  '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh',
+  '.ps1', '.psm1',
+  '.html', '.htm', '.xhtml', '.mht', '.mhtml',
+]);
+
+function deniedBinaryExtension(filePath) {
+  const base = String(filePath).toLowerCase();
+  const dot = base.lastIndexOf('.');
+  if (dot < 0) return null;
+  const ext = base.slice(dot);
+  return DENIED_BINARY_EXTS.has(ext) ? ext : null;
+}
+
 // --- Authorization helpers ---
 
 /** Check if a user is a member of a project; returns the membership or null. */
@@ -1403,6 +1427,8 @@ export async function getProjectFiles(projectId) {
 /** Upload or replace a binary file (image, font, etc.) in a project. */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
+  const denied = deniedBinaryExtension(filePath);
+  if (denied) throw new Error(`File type not allowed: ${denied}`);
   if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
   const content = buffer.toString('base64');
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);

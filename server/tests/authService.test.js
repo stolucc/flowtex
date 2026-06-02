@@ -31,7 +31,7 @@ import {
 } from '../services/authService.js';
 
 // Shared test fixtures
-const TEST_PASSWORD = 'Password1';
+const TEST_PASSWORD = 'Password1234';
 const TEST_HASH = bcrypt.hashSync(TEST_PASSWORD, 4); // low rounds for speed
 
 beforeEach(() => {
@@ -44,26 +44,28 @@ beforeEach(() => {
 
 describe('validatePassword', () => {
   it('returns null for a valid password', () => {
-    expect(validatePassword('Password1')).toBeNull();
+    expect(validatePassword('Password1234')).toBeNull();
   });
 
   it('returns null for a password with special characters', () => {
-    expect(validatePassword('P@ssw0rd!#$')).toBeNull();
+    expect(validatePassword('P@ssw0rd!#$X')).toBeNull(); // 12 chars
   });
 
   it('returns error for non-string input', () => {
-    expect(validatePassword(undefined)).toBe('Password must be at least 8 characters');
-    expect(validatePassword(null)).toBe('Password must be at least 8 characters');
-    expect(validatePassword(12345678)).toBe('Password must be at least 8 characters');
+    expect(validatePassword(undefined)).toBe('Password must be at least 12 characters');
+    expect(validatePassword(null)).toBe('Password must be at least 12 characters');
+    expect(validatePassword(12345678)).toBe('Password must be at least 12 characters');
   });
 
-  it('returns error for password shorter than 8 characters', () => {
-    expect(validatePassword('Pass1')).toBe('Password must be at least 8 characters');
-    expect(validatePassword('Abcde1')).toBe('Password must be at least 8 characters');
+  it('returns error for password shorter than 12 characters', () => {
+    expect(validatePassword('Pass1')).toBe('Password must be at least 12 characters');
+    expect(validatePassword('Abcde1')).toBe('Password must be at least 12 characters');
+    expect(validatePassword('Passwor1')).toBe('Password must be at least 12 characters');   // 8 chars — now too short
+    expect(validatePassword('Passw0rd!#$')).toBe('Password must be at least 12 characters'); // 11 chars — still too short
   });
 
   it('returns error for empty string', () => {
-    expect(validatePassword('')).toBe('Password must be at least 8 characters');
+    expect(validatePassword('')).toBe('Password must be at least 12 characters');
   });
 
   it('returns error for password longer than 128 characters', () => {
@@ -72,19 +74,19 @@ describe('validatePassword', () => {
   });
 
   it('returns error for missing uppercase letter', () => {
-    expect(validatePassword('password1')).toBe('Password must contain an uppercase letter');
+    expect(validatePassword('password1234')).toBe('Password must contain an uppercase letter');
   });
 
   it('returns error for missing lowercase letter', () => {
-    expect(validatePassword('PASSWORD1')).toBe('Password must contain a lowercase letter');
+    expect(validatePassword('PASSWORD1234')).toBe('Password must contain a lowercase letter');
   });
 
   it('returns error for missing number', () => {
-    expect(validatePassword('Passwordd')).toBe('Password must contain a number');
+    expect(validatePassword('Passworddddd')).toBe('Password must contain a number');
   });
 
-  it('accepts exactly 8 characters', () => {
-    expect(validatePassword('Passwor1')).toBeNull();
+  it('accepts exactly 12 characters', () => {
+    expect(validatePassword('Passworddd12')).toBeNull(); // 12 chars
   });
 
   it('accepts exactly 128 characters', () => {
@@ -100,7 +102,7 @@ describe('authenticateUser', () => {
   it('returns error if user not found', async () => {
     db.get.mockResolvedValue(undefined);
 
-    const result = await authenticateUser('nobody@test.com', 'Password1');
+    const result = await authenticateUser('nobody@test.com', 'Password1234');
     expect(result).toEqual({ error: 'Invalid credentials', status: 401 });
   });
 
@@ -116,7 +118,7 @@ describe('authenticateUser', () => {
       email_verified: true,
     });
 
-    const result = await authenticateUser('user@test.com', 'WrongPass1');
+    const result = await authenticateUser('user@test.com', 'WrongPassword1');
     expect(result).toEqual({ error: 'Invalid credentials', status: 401 });
   });
 
@@ -162,7 +164,7 @@ describe('authenticateUser', () => {
   it('normalizes email to lowercase and trims whitespace', async () => {
     db.get.mockResolvedValue(undefined);
 
-    await authenticateUser('  USER@TEST.COM  ', 'Password1');
+    await authenticateUser('  USER@TEST.COM  ', 'Password1234');
     expect(db.get).toHaveBeenCalledWith(expect.any(String), ['user@test.com']);
   });
 });
@@ -174,7 +176,7 @@ describe('registerUser', () => {
     db.get.mockResolvedValue(undefined); // no existing user
     db.run.mockResolvedValue(undefined);
 
-    const result = await registerUser('new@test.com', 'New User', 'Password1');
+    const result = await registerUser('new@test.com', 'New User', 'Password1234');
     expect(result.email).toBe('new@test.com');
     expect(result.name).toBe('New User');
     expect(result.id).toBeDefined();
@@ -197,7 +199,7 @@ describe('registerUser', () => {
   it('returns alreadyExisted=true (not an error) if email is registered, to defeat enumeration', async () => {
     db.get.mockResolvedValue({ id: 'existing-id' });
 
-    const result = await registerUser('taken@test.com', 'Name', 'Password1');
+    const result = await registerUser('taken@test.com', 'Name', 'Password1234');
     expect(result.alreadyExisted).toBe(true);
     expect(result.email).toBe('taken@test.com');
     expect(result.id).toBeNull();
@@ -207,7 +209,7 @@ describe('registerUser', () => {
 
   it('rejects invalid passwords', async () => {
     const error = await registerUser('x@test.com', 'Name', 'short').catch((e) => e);
-    expect(error.message).toBe('Password must be at least 8 characters');
+    expect(error.message).toBe('Password must be at least 12 characters');
     expect(error.status).toBe(400);
   });
 
@@ -215,7 +217,7 @@ describe('registerUser', () => {
     db.get.mockResolvedValue(undefined);
     db.run.mockResolvedValue(undefined);
 
-    const result = await registerUser('  USER@TEST.COM  ', '  Trimmed  ', 'Password1');
+    const result = await registerUser('  USER@TEST.COM  ', '  Trimmed  ', 'Password1234');
     expect(result.email).toBe('user@test.com');
     expect(result.name).toBe('Trimmed');
   });
@@ -508,7 +510,7 @@ describe('changePassword', () => {
   it('rejects if user not found', async () => {
     db.get.mockResolvedValue(undefined);
 
-    const err = await changePassword('no-id', 'OldPass1', 'NewPass1').catch((e) => e);
+    const err = await changePassword('no-id', 'OldPass1', 'NewPassword1').catch((e) => e);
     expect(err.message).toBe('User not found');
     expect(err.status).toBe(401);
   });
@@ -516,7 +518,7 @@ describe('changePassword', () => {
   it('rejects if current password is wrong', async () => {
     db.get.mockResolvedValue({ id: 'u1', password_hash: TEST_HASH });
 
-    const err = await changePassword('u1', 'WrongPass1', 'NewPass1').catch((e) => e);
+    const err = await changePassword('u1', 'WrongPassword1', 'NewPassword1').catch((e) => e);
     expect(err.message).toBe('Current password is incorrect');
     expect(err.status).toBe(401);
   });
@@ -533,7 +535,7 @@ describe('changePassword', () => {
     db.get.mockResolvedValue({ id: 'u1', password_hash: TEST_HASH });
 
     await expect(changePassword('u1', TEST_PASSWORD, 'short')).rejects.toThrow(
-      'Password must be at least 8 characters',
+      'Password must be at least 12 characters',
     );
   });
 
@@ -583,7 +585,7 @@ describe('changeEmail', () => {
   it('rejects if password is incorrect', async () => {
     db.get.mockResolvedValue(userRow);
 
-    const err = await changeEmail('u1', 'WrongPass1', 'new@test.com').catch((e) => e);
+    const err = await changeEmail('u1', 'WrongPassword1', 'new@test.com').catch((e) => e);
     expect(err.message).toBe('Incorrect password');
     expect(err.status).toBe(401);
   });

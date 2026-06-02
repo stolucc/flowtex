@@ -494,6 +494,13 @@ router.patch('/users/:userId/admin', async (req, res) => {
         }
       }
       await tx.run('UPDATE users SET is_admin = $1 WHERE id = $2', [desired, userId]);
+      // ASVS V3.5.1: rotate session on privilege change. Drop every
+      // existing session row for the target user inside the same
+      // transaction so a pre-existing session can't continue at the
+      // new privilege level without the user re-authenticating. Pairs
+      // with the disconnectUserEverywhere() call after commit to close
+      // any in-flight WebSocket.
+      await tx.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [userId]);
       return { ok: true, target };
     });
     if (result.error) return res.status(result.status).json({ error: result.error });
@@ -501,6 +508,9 @@ router.patch('/users/:userId/admin', async (req, res) => {
     // Audit only real changes — a no-op toggle isn't worth a row, but
     // do return ok so the client UI stays in sync.
     if (!result.noop) {
+      // Close any live WS so the target really has to re-authenticate.
+      // Mirrors the soft-delete + admin-delete pattern.
+      req.app?.locals?.disconnectUserEverywhere?.(userId);
       await auditLog(req.session.userId, desired ? 'admin_granted' : 'admin_revoked', {
         targetType: 'user',
         targetId: userId,
