@@ -6,6 +6,7 @@ import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
 import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import * as projectService from '../services/projectService.js';
+import { statBlob, readBlobStream } from '../services/blobStore.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { resolveUsedFiles } from '../../shared/texDeps.js';
@@ -520,7 +521,12 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
   }
 });
 
-/** GET /api/projects/files/:fileId/raw -- Serve the raw content of a file (binary or text). */
+/** GET /api/projects/files/:fileId/raw -- Serve the raw content of a file (binary or text).
+ *  Dual-mode binary read: new uploads land in the per-project blob store
+ *  (file.binary_sha256 is set, content is empty) and are streamed from
+ *  disk; legacy base64-in-DB rows continue to work as a fallback until
+ *  phase B migrates them. Either path applies the same sandbox-CSP +
+ *  nosniff + SVG-attachment defences. */
 router.get('/files/:fileId/raw', async (req, res) => {
   const file = await projectService.getRawFile(req.params.fileId, req.session.userId);
   if (!file) return res.status(404).json({ error: 'File not found' });
@@ -536,17 +542,41 @@ router.get('/files/:fileId/raw', async (req, res) => {
     pdf: 'application/pdf',
     eps: 'application/postscript',
   };
-  const mime = ext === 'svg' ? 'image/svg+xml' : mimeMap[ext] || 'application/octet-stream';
+  // Stored mime (set at upload time) wins when present; the ext-map is
+  // the fallback for legacy rows that don't carry binary_mime.
+  const mime = file.binary_mime
+    || (ext === 'svg' ? 'image/svg+xml' : mimeMap[ext] || 'application/octet-stream');
+
   if (file.is_binary) {
-    const buf = Buffer.from(file.content, 'base64');
     res.set('Content-Type', mime);
     // Force download for SVG (prevents inline script execution); inline for others
     res.set('Content-Disposition', ext === 'svg' ? 'attachment' : 'inline');
     // Sandbox all user-uploaded binary content to prevent embedded scripts
     res.set('Content-Security-Policy', "sandbox; default-src 'none'");
     res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Content-Length', buf.length);
-    res.send(buf);
+
+    if (file.binary_sha256) {
+      // Blob-store path: stream from disk. statBlob first so we can
+      // emit Content-Length and short-circuit a missing-blob case
+      // (would be a GC bug; surface as 404 rather than a half stream).
+      const blobStat = await statBlob(file.project_id, file.binary_sha256);
+      if (!blobStat) {
+        logger.error({ fileId: file.id, sha256: file.binary_sha256 }, 'blob row references missing on-disk file');
+        return res.status(404).json({ error: 'File data unavailable' });
+      }
+      res.set('Content-Length', blobStat.size);
+      readBlobStream(file.project_id, file.binary_sha256)
+        .on('error', (err) => {
+          logger.error({ err, fileId: file.id }, 'blob stream error');
+          if (!res.headersSent) res.status(500).end();
+        })
+        .pipe(res);
+    } else {
+      // Legacy base64 path. Phase B's migration will convert these.
+      const buf = Buffer.from(file.content, 'base64');
+      res.set('Content-Length', buf.length);
+      res.send(buf);
+    }
   } else {
     res.set('Content-Type', 'text/plain; charset=utf-8');
     res.send(file.content || '');

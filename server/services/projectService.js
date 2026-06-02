@@ -19,12 +19,15 @@
 
 import { v4 as uuid } from 'uuid';
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 import db from '../db.js';
+import logger from '../logger.js';
 import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
+import { writeBlob } from './blobStore.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
@@ -1443,31 +1446,119 @@ export async function getProjectFiles(projectId) {
   );
 }
 
+// Phase A.2: binary uploads write the bytes to the per-project blob
+// store and reference them by sha256, instead of base64-in-DB. Legacy
+// base64 rows continue to read normally via getRawFile (dual-mode
+// read in routes/projects.js). Replace-existing handles the
+// cross-mode case: if the prior row was base64 (binary_sha256 IS NULL),
+// it just becomes a blob row with no refcount bookkeeping for the old
+// content; if it was already a blob, the prior blob's refcount is
+// decremented (GC sweeps when ref_count = 0).
+const BLOB_MIME_MAP = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  eps: 'application/postscript',
+};
+
+function mimeFromPath(filePath) {
+  const dot = String(filePath).lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  const ext = filePath.slice(dot + 1).toLowerCase();
+  return BLOB_MIME_MAP[ext] || 'application/octet-stream';
+}
+
 /** Upload or replace a binary file (image, font, etc.) in a project. */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   const denied = deniedBinaryExtension(filePath);
   if (denied) throw new Error(`File type not allowed: ${denied}`);
   if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
-  const content = buffer.toString('base64');
-  const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
-  if (existing) {
-    await db.run('UPDATE files SET content = $1, is_binary = TRUE, updated_at = NOW() WHERE id = $2', [
-      content,
-      existing.id,
-    ]);
-    await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
-    return { id: existing.id, project_id: projectId, path: filePath, content, is_binary: true, updated: true };
+
+  // Stream the buffer into the blob store. Returns { sha256, size, deduped }.
+  // Wrapping the buffer in a Readable gives the helper the same shape it'd
+  // see from a real multipart upload stream.
+  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
+  const mime = mimeFromPath(filePath);
+
+  const existing = await db.get(
+    'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
+    [projectId, filePath],
+  );
+
+  try {
+    await db.transaction(async (tx) => {
+      // Bump the refcount for the new blob (or create the row at 1).
+      await tx.run(
+        `INSERT INTO project_blobs (project_id, sha256, size, ref_count)
+         VALUES ($1, $2, $3, 1)
+         ON CONFLICT (project_id, sha256) DO UPDATE
+           SET ref_count = project_blobs.ref_count + 1`,
+        [projectId, sha256, size],
+      );
+
+      if (existing) {
+        // Decrement the OLD blob's refcount (if it was a blob; base64
+        // rows have no project_blobs row, so the UPDATE is a no-op for
+        // those).
+        if (existing.binary_sha256 && existing.binary_sha256 !== sha256) {
+          await tx.run(
+            'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
+            [projectId, existing.binary_sha256],
+          );
+        }
+        await tx.run(
+          `UPDATE files
+              SET content = '', is_binary = TRUE,
+                  binary_sha256 = $1, binary_size = $2, binary_mime = $3,
+                  updated_at = NOW()
+            WHERE id = $4`,
+          [sha256, size, mime, existing.id],
+        );
+      } else {
+        await tx.run(
+          `INSERT INTO files (id, project_id, path, content, is_binary,
+                              binary_sha256, binary_size, binary_mime)
+           VALUES ($1, $2, $3, '', TRUE, $4, $5, $6)`,
+          [uuid(), projectId, filePath, sha256, size, mime],
+        );
+      }
+
+      await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+    });
+  } catch (err) {
+    // Transaction rolled back. The blob is on disk but un-refcounted
+    // (no project_blobs row exists for it, or the refcount we just
+    // bumped also rolled back). The GC sweep will collect orphans.
+    // Don't attempt eager unlink — the blob may have been deduped from
+    // an existing file in this project that still references it.
+    logger.warn({ err, projectId, sha256 }, 'uploadBinaryFile DB transaction failed; orphan blob will be GC-swept');
+    throw err;
   }
-  const id = uuid();
-  await db.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, TRUE)', [
-    id,
-    projectId,
-    filePath,
-    content,
-  ]);
-  await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
-  return { id, project_id: projectId, path: filePath, content, is_binary: true, updated: false };
+
+  const row = await db.get(
+    `SELECT id, project_id, path, binary_sha256, binary_size, binary_mime, is_binary
+       FROM files WHERE project_id = $1 AND path = $2`,
+    [projectId, filePath],
+  );
+  return { ...row, updated: !!existing };
+}
+
+// Helper for the file-delete path: decrement the refcount on the blob
+// referenced by a row about to be deleted. No-op for base64 rows.
+// Called inside the same transaction that deletes the file row.
+async function decrementBlobRefcount(tx, projectId, blobSha256) {
+  if (!blobSha256) return;
+  await tx.run(
+    'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
+    [projectId, blobSha256],
+  );
 }
 
 /** Create a new text file in a project (fails if the path already exists). */
@@ -1585,7 +1676,20 @@ export async function renameFile(fileId, newPath) {
 }
 
 export async function deleteFile(fileId) {
-  await db.run('DELETE FROM files WHERE id = $1', [fileId]);
+  // If the file references a blob, decrement that blob's refcount in
+  // the same transaction. GC sweep (phase B) removes blobs that
+  // hit ref_count = 0. Legacy base64 rows have no project_blobs row
+  // and the UPDATE is a harmless no-op for them.
+  await db.transaction(async (tx) => {
+    const file = await tx.get(
+      'SELECT project_id, binary_sha256 FROM files WHERE id = $1',
+      [fileId],
+    );
+    if (file) {
+      await decrementBlobRefcount(tx, file.project_id, file.binary_sha256);
+    }
+    await tx.run('DELETE FROM files WHERE id = $1', [fileId]);
+  });
 }
 
 // --- Folders ---
