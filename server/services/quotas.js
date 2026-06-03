@@ -12,15 +12,17 @@
 //   - Storage and file count: collaborators' uploads count against
 //     whichever owner owns the project they uploaded into.
 //
-// Static caps for now; per-user overrides can be layered on later via
-// a users.quota_override JSON column without changing call sites.
+// Each cap is admin-tunable from the dashboard — a row in `settings`
+// keyed `quota_<name>` overrides the default below. Asserts read the
+// live value via getEffectiveQuota on every call, so a change takes
+// effect immediately without a server restart.
 
 import db from '../db.js';
 
 export const QUOTAS = {
   // How many projects a single user can OWN. Memberships in projects
   // owned by others do not count.
-  PROJECTS_PER_USER: 100,
+  PROJECTS_PER_USER: 1000,
 
   // Files in a single project. Catches "5000-fake-PNGs" stress patterns
   // before they fill the file tree.
@@ -32,17 +34,40 @@ export const QUOTAS = {
   BLOB_BYTES_PER_USER: 2 * 1024 * 1024 * 1024, // 2 GiB
 };
 
+// `settings.key` for each quota override. Admin UI writes these via
+// PUT /api/admin/settings; reads come back through getEffectiveQuota.
+export const QUOTA_KEYS = {
+  PROJECTS_PER_USER: 'quota_projects_per_user',
+  FILES_PER_PROJECT: 'quota_files_per_project',
+  BLOB_BYTES_PER_USER: 'quota_blob_bytes_per_user',
+};
+
+/** Resolve the live value of one quota: admin-set override if present
+ *  and parseable, else the static default. */
+export async function getEffectiveQuota(name) {
+  const fallback = QUOTAS[name];
+  const key = QUOTA_KEYS[name];
+  if (!key || fallback === undefined) {
+    throw new Error(`Unknown quota name: ${name}`);
+  }
+  const row = await db.get('SELECT value FROM settings WHERE key = $1', [key]);
+  if (!row?.value) return fallback;
+  const n = Number(row.value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Throw a 413-tagged Error when the user already owns this many projects. */
 export async function assertProjectCountUnderLimit(userId) {
+  const limit = await getEffectiveQuota('PROJECTS_PER_USER');
   const row = await db.get(
     `SELECT COUNT(*)::int AS n
        FROM project_members
       WHERE user_id = $1 AND role = 'owner'`,
     [userId],
   );
-  if ((row?.n ?? 0) >= QUOTAS.PROJECTS_PER_USER) {
+  if ((row?.n ?? 0) >= limit) {
     const err = new Error(
-      `Project limit reached (${QUOTAS.PROJECTS_PER_USER}). Delete an existing project before creating a new one.`,
+      `Project limit reached (${limit}). Delete an existing project before creating a new one.`,
     );
     err.status = 413;
     throw err;
@@ -52,13 +77,14 @@ export async function assertProjectCountUnderLimit(userId) {
 /** Throw when the project already holds this many files.
  *  Called inside the same transaction as the INSERT for accuracy. */
 export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
+  const limit = await getEffectiveQuota('FILES_PER_PROJECT');
   const row = await tx.get(
     'SELECT COUNT(*)::int AS n FROM files WHERE project_id = $1',
     [projectId],
   );
-  if ((row?.n ?? 0) + extraFiles > QUOTAS.FILES_PER_PROJECT) {
+  if ((row?.n ?? 0) + extraFiles > limit) {
     const err = new Error(
-      `File limit reached for this project (${QUOTAS.FILES_PER_PROJECT}). Delete files before adding more.`,
+      `File limit reached for this project (${limit}). Delete files before adding more.`,
     );
     err.status = 413;
     throw err;
@@ -75,6 +101,7 @@ export async function assertBlobBytesUnderLimitForProject(projectId, extraBytes)
     [projectId],
   );
   if (!owner) return; // orphan project — no owner to charge against
+  const limit = await getEffectiveQuota('BLOB_BYTES_PER_USER');
   const row = await db.get(
     `SELECT COALESCE(SUM(pb.size), 0)::bigint AS used
        FROM project_members pm
@@ -83,9 +110,9 @@ export async function assertBlobBytesUnderLimitForProject(projectId, extraBytes)
     [owner.user_id],
   );
   const used = Number(row?.used ?? 0);
-  if (used + extraBytes > QUOTAS.BLOB_BYTES_PER_USER) {
+  if (used + extraBytes > limit) {
     const err = new Error(
-      `Storage quota exceeded (${formatBytes(QUOTAS.BLOB_BYTES_PER_USER)}). ` +
+      `Storage quota exceeded (${formatBytes(limit)}). ` +
       `Delete some figures or PDFs before uploading more.`,
     );
     err.status = 413;
@@ -96,6 +123,11 @@ export async function assertBlobBytesUnderLimitForProject(projectId, extraBytes)
 /** Return a usage snapshot for the given user. Used by /api/me/usage and
  *  by the admin overview. */
 export async function getUserUsage(userId) {
+  const [projectsLimit, filesLimit, blobLimit] = await Promise.all([
+    getEffectiveQuota('PROJECTS_PER_USER'),
+    getEffectiveQuota('FILES_PER_PROJECT'),
+    getEffectiveQuota('BLOB_BYTES_PER_USER'),
+  ]);
   const projects = await db.get(
     `SELECT COUNT(*)::int AS n
        FROM project_members
@@ -110,9 +142,9 @@ export async function getUserUsage(userId) {
     [userId],
   );
   return {
-    projects: { used: projects?.n ?? 0, limit: QUOTAS.PROJECTS_PER_USER },
-    storageBytes: { used: Number(storage?.used ?? 0), limit: QUOTAS.BLOB_BYTES_PER_USER },
-    filesPerProjectLimit: QUOTAS.FILES_PER_PROJECT,
+    projects: { used: projects?.n ?? 0, limit: projectsLimit },
+    storageBytes: { used: Number(storage?.used ?? 0), limit: blobLimit },
+    filesPerProjectLimit: filesLimit,
   };
 }
 

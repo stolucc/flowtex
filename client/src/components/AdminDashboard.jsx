@@ -989,6 +989,76 @@ export default function AdminDashboard({ onBack }) {
             </div>
           </div>
 
+          <h3 style={{ marginTop: 28, marginBottom: 12 }}>Resource limits</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            Static caps applied to every user. They bound the blast radius of a single misbehaving account.
+            Changes take effect immediately, no restart required.
+          </p>
+          {[
+            {
+              key: 'quota_projects_per_user',
+              label: 'Projects per user',
+              hint: 'Maximum projects a single user can own (1–100000)',
+              fallback: '1000',
+              min: 1,
+              max: 100000,
+              width: 130,
+            },
+            {
+              key: 'quota_files_per_project',
+              label: 'Files per project',
+              hint: 'Maximum files in a single project (1–100000)',
+              fallback: '2000',
+              min: 1,
+              max: 100000,
+              width: 130,
+            },
+            {
+              key: 'quota_blob_bytes_per_user',
+              label: 'Storage per user (bytes)',
+              hint: 'Total binary storage per user, in bytes. 1 GiB = 1073741824. 1 TiB = 1099511627776.',
+              fallback: String(2 * 1024 * 1024 * 1024),
+              min: 1024 * 1024,
+              max: 1024 * 1024 * 1024 * 1024,
+              width: 200,
+            },
+          ].map(({ key, label, hint, fallback, min, max, width }) => (
+            <div className="admin-setting-row" key={key}>
+              <label className="admin-setting-label">
+                {label}
+                <span className="admin-setting-hint">{hint}</span>
+              </label>
+              <div className="admin-setting-input">
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={adminSettings[key] || fallback}
+                  onChange={(e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  className="auth-input"
+                  style={{ width }}
+                />
+                <button
+                  className="auth-button"
+                  style={{ marginLeft: 8 }}
+                  onClick={async () => {
+                    setSettingsMsg('');
+                    const res = await put('/api/admin/settings', { key, value: adminSettings[key] || fallback });
+                    const d = await res.json();
+                    if (res.ok) {
+                      setSettingsMsg('Saved');
+                      setTimeout(() => setSettingsMsg(''), 2000);
+                    } else {
+                      setSettingsMsg(d.error || 'Failed');
+                    }
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          ))}
+
           <h3 style={{ marginTop: 28, marginBottom: 12 }}>Email (SMTP)</h3>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
             Configure outgoing email for project invitations and password resets. Leave blank to log emails to console

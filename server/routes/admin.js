@@ -716,6 +716,9 @@ router.put('/settings', validateBody(updateSettingSchema), async (req, res) => {
     'smtp_pass',
     'smtp_secure',
     'smtp_from',
+    'quota_projects_per_user',
+    'quota_files_per_project',
+    'quota_blob_bytes_per_user',
   ];
   if (!ALLOWED_KEYS.includes(key)) return res.status(400).json({ error: 'Unknown setting' });
 
@@ -735,6 +738,26 @@ router.put('/settings', validateBody(updateSettingSchema), async (req, res) => {
   if (key === 'smtp_secure') {
     if (value !== 'true' && value !== 'false') {
       return res.status(400).json({ error: 'smtp_secure must be "true" or "false"' });
+    }
+  }
+  if (key === 'quota_projects_per_user') {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 1 || n > 100000) {
+      return res.status(400).json({ error: 'Projects per user must be between 1 and 100000' });
+    }
+  }
+  if (key === 'quota_files_per_project') {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 1 || n > 100000) {
+      return res.status(400).json({ error: 'Files per project must be between 1 and 100000' });
+    }
+  }
+  if (key === 'quota_blob_bytes_per_user') {
+    const n = Number(value);
+    // Lower bound 1 MiB, upper bound 1 TiB — outside that range is almost
+    // certainly a unit-confusion mistake.
+    if (!Number.isFinite(n) || n < 1024 * 1024 || n > 1024 * 1024 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Storage cap must be between 1 MiB and 1 TiB (in bytes)' });
     }
   }
 

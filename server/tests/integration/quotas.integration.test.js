@@ -1,18 +1,31 @@
 // Integration tests for per-user resource caps. Verify that quota
 // assertions trip in real DB conditions (project_members count, blob
-// SUM, files row count).
-import { describe, it, expect, vi } from 'vitest';
+// SUM, files row count). Caps are overridden via the `settings` table
+// (the same admin-tunable mechanism the dashboard uses) so the tests
+// exercise the real lookup path.
+import { describe, it, expect } from 'vitest';
 import { v4 as uuid } from 'uuid';
 import db from '../../db.js';
 import { seedUser, seedProject } from './setup.js';
 import {
   QUOTAS,
+  QUOTA_KEYS,
   assertProjectCountUnderLimit,
   assertFileCountUnderLimit,
   assertBlobBytesUnderLimitForProject,
+  getEffectiveQuota,
   getUserUsage,
 } from '../../services/quotas.js';
 import { uploadBinaryFile, createProject } from '../../services/projectService.js';
+
+async function setQuota(name, value) {
+  const key = QUOTA_KEYS[name];
+  await db.run(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2`,
+    [key, String(value)],
+  );
+}
 
 describe('quotas: project count per user', () => {
   it('passes when under the limit', async () => {
@@ -21,30 +34,21 @@ describe('quotas: project count per user', () => {
     await expect(assertProjectCountUnderLimit(user.id)).resolves.not.toThrow();
   });
 
-  it('throws 413 once the user owns QUOTAS.PROJECTS_PER_USER projects', async () => {
+  it('throws 413 once the user owns the effective limit projects', async () => {
     const user = await seedUser();
-    // Force the threshold by lowering the cap for this assertion alone.
-    const spy = vi.spyOn(QUOTAS, 'PROJECTS_PER_USER', 'get').mockReturnValue(2);
-    try {
-      await seedProject(user.id);
-      await seedProject(user.id);
-      await expect(assertProjectCountUnderLimit(user.id))
-        .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Project limit/) });
-    } finally {
-      spy.mockRestore();
-    }
+    await setQuota('PROJECTS_PER_USER', 2);
+    await seedProject(user.id);
+    await seedProject(user.id);
+    await expect(assertProjectCountUnderLimit(user.id))
+      .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Project limit/) });
   });
 
   it('createProject surfaces the 413 at the service boundary', async () => {
     const user = await seedUser();
-    const spy = vi.spyOn(QUOTAS, 'PROJECTS_PER_USER', 'get').mockReturnValue(1);
-    try {
-      await createProject(user.id, 'First');
-      await expect(createProject(user.id, 'Second'))
-        .rejects.toMatchObject({ status: 413 });
-    } finally {
-      spy.mockRestore();
-    }
+    await setQuota('PROJECTS_PER_USER', 1);
+    await createProject(user.id, 'First');
+    await expect(createProject(user.id, 'Second'))
+      .rejects.toMatchObject({ status: 413 });
   });
 
   it('memberships in projects owned by others do not count', async () => {
@@ -72,17 +76,13 @@ describe('quotas: files per project', () => {
   it('throws 413 once the project hits the cap', async () => {
     const owner = await seedUser();
     const project = await seedProject(owner.id);
-    const spy = vi.spyOn(QUOTAS, 'FILES_PER_PROJECT', 'get').mockReturnValue(2);
-    try {
-      await db.run(`INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, '')`, [uuid(), project.id, 'a.tex']);
-      await db.run(`INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, '')`, [uuid(), project.id, 'b.tex']);
-      await db.transaction(async (tx) => {
-        await expect(assertFileCountUnderLimit(tx, project.id))
-          .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/File limit/) });
-      });
-    } finally {
-      spy.mockRestore();
-    }
+    await setQuota('FILES_PER_PROJECT', 2);
+    await db.run(`INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, '')`, [uuid(), project.id, 'a.tex']);
+    await db.run(`INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, '')`, [uuid(), project.id, 'b.tex']);
+    await db.transaction(async (tx) => {
+      await expect(assertFileCountUnderLimit(tx, project.id))
+        .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/File limit/) });
+    });
   });
 });
 
@@ -96,16 +96,11 @@ describe('quotas: blob bytes per user', () => {
   it('throws 413 when the new upload would push over the limit', async () => {
     const owner = await seedUser();
     const project = await seedProject(owner.id);
-    const spy = vi.spyOn(QUOTAS, 'BLOB_BYTES_PER_USER', 'get').mockReturnValue(1024);
-    try {
-      // Land a blob worth 500 bytes via the real upload path.
-      await uploadBinaryFile(project.id, 'a.png', Buffer.alloc(500, 1));
-      // Trying to add 600 more would put owner at 1100 > 1024.
-      await expect(assertBlobBytesUnderLimitForProject(project.id, 600))
-        .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Storage quota/) });
-    } finally {
-      spy.mockRestore();
-    }
+    // 1 MiB cap satisfies the admin-route minimum; 500 + 600 KiB still exceeds it.
+    await setQuota('BLOB_BYTES_PER_USER', 1024 * 1024);
+    await uploadBinaryFile(project.id, 'a.png', Buffer.alloc(500 * 1024, 1));
+    await expect(assertBlobBytesUnderLimitForProject(project.id, 600 * 1024))
+      .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Storage quota/) });
   });
 
   it('orphan project (no owner) is a no-op rather than throwing', async () => {
@@ -115,8 +110,22 @@ describe('quotas: blob bytes per user', () => {
   });
 });
 
+describe('getEffectiveQuota', () => {
+  it('returns the default when no settings row exists', async () => {
+    expect(await getEffectiveQuota('PROJECTS_PER_USER')).toBe(QUOTAS.PROJECTS_PER_USER);
+  });
+  it('honours an admin-set override', async () => {
+    await setQuota('FILES_PER_PROJECT', 42);
+    expect(await getEffectiveQuota('FILES_PER_PROJECT')).toBe(42);
+  });
+  it('falls back to the default when the stored value is unparseable', async () => {
+    await setQuota('FILES_PER_PROJECT', 'not a number');
+    expect(await getEffectiveQuota('FILES_PER_PROJECT')).toBe(QUOTAS.FILES_PER_PROJECT);
+  });
+});
+
 describe('getUserUsage', () => {
-  it('reports project + storage counts and the static caps', async () => {
+  it('reports project + storage counts and the effective caps', async () => {
     const owner = await seedUser();
     const project = await seedProject(owner.id);
     await uploadBinaryFile(project.id, 'cover.png', Buffer.alloc(2048, 2));
