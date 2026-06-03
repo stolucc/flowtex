@@ -349,24 +349,34 @@ sudo journalctl -u flowtex -f</code></pre>
 <p>Open <code>https://flowtex.example.com</code> in a browser. The first-run wizard will prompt you to create the administrator account.</p>
 
 <h3>4.5 Backups</h3>
-<p>FlowTex's persistent state lives in two places: PostgreSQL and the <code>projects/</code> directory.</p>
+<p>FlowTex's persistent state lives in <strong>two stores that must be backed up together</strong>: PostgreSQL and the per-project blob tree under <code>projects/*/_blobs/</code>. Restoring one without the other leaves dangling references — files rows that point at SHA-256 blobs that aren't on disk, or orphan blobs with no <code>project_blobs</code> row. The reconciliation sweep tidies small drift on the next tick, but a fully one-sided restore is data loss.</p>
 <table>
   <tr><th>What</th><th>Backup with</th></tr>
-  <tr><td>PostgreSQL database (users, projects, file contents, sessions, snapshots, comments, tracked changes)</td><td><code>pg_dump -Fc flowtex &gt; flowtex.dump</code></td></tr>
-  <tr><td><code>/opt/flowtex/projects/</code> (working compilation tree — caches and PDFs, regenerable)</td><td>Optional. Skipping it just means recompiling after restore.</td></tr>
+  <tr><td>PostgreSQL database (users, projects, file <em>text</em> content, sessions, snapshots, comments, tracked changes, blob refcounts)</td><td><code>pg_dump -Fc flowtex &gt; flowtex.dump</code></td></tr>
+  <tr><td><code>/opt/flowtex/projects/*/_blobs/</code> (per-project binary file bytes — figures, PDFs, fonts)</td><td><code>tar czf projects.tgz -C /opt/flowtex projects</code> (or rsync)</td></tr>
   <tr><td><code>/opt/flowtex/git-repos/</code> (git working copies for GitHub sync)</td><td>Optional — these can be re-cloned from GitHub.</td></tr>
-  <tr><td><code>/opt/flowtex/.env</code></td><td>Back up <strong>once</strong>, securely, off-server. <code>SESSION_SECRET</code> and <code>ENCRYPTION_KEY</code> rotation invalidates sessions and encrypted GitHub tokens.</td></tr>
+  <tr><td><code>/opt/flowtex/.env</code></td><td>Back up <strong>once</strong>, securely, off-server, separate from the data backup. <code>ENCRYPTION_KEY</code> is required to decrypt TOTP / GitHub / Zotero / SMTP columns at restore time; <code>SESSION_SECRET</code> rotation invalidates sessions.</td></tr>
 </table>
 
-<p>A daily cron is sufficient:</p>
-<pre><code><span class="comment"># /etc/cron.daily/flowtex-backup</span>
+<p>FlowTex ships <code>scripts/backup.sh</code> and <code>scripts/restore.sh</code> that bundle the DB dump and the projects tree into one timestamped archive, with optional <a href="https://filippo.io/age">age</a> encryption for off-host transfer. Recommended cron:</p>
+<pre><code><span class="comment"># /etc/cron.daily/flowtex-backup — encrypted off-host backup</span>
 #!/bin/bash
 set -e
-BACKUP_DIR=/var/backups/flowtex
-mkdir -p "$BACKUP_DIR"
-DATE=$(date +%Y-%m-%d)
-sudo -u postgres pg_dump -Fc flowtex &gt; "$BACKUP_DIR/db-$DATE.dump"
-find "$BACKUP_DIR" -name 'db-*.dump' -mtime +30 -delete</code></pre>
+cd /opt/flowtex
+BACKUP_DIR=/var/backups/flowtex \
+BACKUP_AGE_RECIPIENT=age1...your_public_key... \
+scripts/backup.sh &gt;&gt;/var/log/flowtex-backup.log 2&gt;&amp;1</code></pre>
+<p>One-time setup of the age keypair (run on a <strong>different</strong> machine, not the production server):</p>
+<pre><code>age-keygen -o flowtex-backup.key
+<span class="comment"># The first line of flowtex-backup.key is the recipient (age1...).</span>
+<span class="comment"># Treat the private-key file like an SSH master key — password</span>
+<span class="comment"># manager or hardware token.</span></code></pre>
+<p>Restore:</p>
+<pre><code>sudo systemctl stop flowtex
+BACKUP_AGE_KEY_FILE=~/flowtex-backup.key \
+scripts/restore.sh /var/backups/flowtex/flowtex-YYYYMMDD_HHMMSS.tar.gz.age
+sudo systemctl start flowtex</code></pre>
+<p>Both scripts refuse to clobber a populated target (existing projects directory <em>or</em> non-empty <code>users</code> table) unless <code>RESTORE_FORCE=1</code> is set. Re-run quarterly against a fresh VM to verify the backup round-trips and to measure your effective restore time. See SECURITY.md "Backups" for the rotation drill checklist.</p>
 
 <h3>4.6 Upgrades</h3>
 <p>Upgrade procedure for a deployed instance:</p>

@@ -38,8 +38,12 @@ client/src/
 server/
   index.js         — Express server, WebSocket handler, session auth
   db.js            — PostgreSQL connection pool
+  paths.js         — PROJECTS_DIR constant (imported by blobStore, compiler, etc.)
   routes/          — auth, projects, compile, github, bib, zotero, chat, comments, ...
-  utils/           — crypto, email, gitSync, latexDiff
+  services/        — projectService, authService, blobStore, blobGc, fileBytes,
+                     quotas, ... (all DB + business logic. Routes are thin.)
+  utils/           — crypto, email, gitSync, latexDiff, blobSweep (cron driver),
+                     softDeletePurge
 
 helper/            — Go companion app for opt-in local LaTeX compile + local LLM.
                      macOS .dmg (.app menu-bar), Windows .exe (system tray,
@@ -66,9 +70,11 @@ scripts/
 - Editor exposes methods via `useImperativeHandle` (ref) — App.jsx calls `editorRef.current?.method()`
 - WebSocket auth: session cookie is verified by parsing it directly from the upgrade request and looking up the session in PostgreSQL (bypasses Express middleware)
 - Session secret must be consistent between Express middleware and WS auth — both read `SESSION_SECRET` from a single const
-- File contents are stored in PostgreSQL `files` table and loaded into client memory on project open
+- File contents are stored in PostgreSQL `files` table and loaded into client memory on project open. Text rows hold UTF-8 in `files.content`; binary rows (`is_binary = TRUE`) reference a per-project content-addressed blob store at `server/projects/<projectId>/_blobs/<sha256[0:2]>/<sha256>` via `files.binary_sha256`. Refcount lives in `project_blobs`. Every binary write must go through `writeBinaryFileInTx` in `services/projectService.js`; every byte read goes through `loadFileBytes` in `services/fileBytes.js`. Background GC: `utils/blobSweep.js`.
 - Global search runs client-side against in-memory file array (no server round-trip)
 - CSS uses custom properties defined in `:root` — use `var(--bg-primary)`, `var(--bg-surface)`, `var(--accent)`, etc.
+- Per-user resource caps (`services/quotas.js`): projects-per-user, files-per-project, blob-bytes-per-user. Caps are admin-tunable via Settings tab; runtime resolves the live value on every assertion. Caller pattern: pass `tx` into the assertion so the per-user / per-project advisory lock holds for the whole check + insert.
+- `PROJECTS_DIR` constant lives in `server/paths.js` (NOT `compiler.js`) to avoid a circular import via `blobStore.js`. Other modules import from `paths.js` directly; `compiler.js` re-exports it for back-compat.
 
 ## Building & Running
 

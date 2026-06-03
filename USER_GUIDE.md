@@ -33,7 +33,7 @@ After logging in, you'll see the **Project List** dashboard.
 
 ### Managing Projects
 
-- **Rename**: Click the project name or use the context menu
+- **Rename**: Click the project name (in the editor toolbar or dashboard) or use **Project → Rename Project…** from the editor menu
 - **Delete**: Click the trash icon (owner only) — this permanently deletes the project and all files
 - **Archive/Trash**: Use the project menu for soft archiving
 

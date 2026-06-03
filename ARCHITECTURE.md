@@ -312,13 +312,23 @@ Client              Server              Git (simple-git)         GitHub
                    │   │ id (PK)          │       │  file_versions   │
                    │   │ project_id (FK)  │       ├──────────────────┤
                    │   │ path             │◄──────│ file_id (FK)     │
-                   │   │ content          │       │ project_id (FK)  │
+                   │   │ content (text)   │       │ project_id (FK)  │
                    │   │ is_binary        │       │ file_path        │
-                   │   │ created_at       │       │ content          │
-                   │   │ updated_at       │       │ author_id        │
-                   │   └──────────────────┘       │ author_name      │
-                   │          │                   │ created_at       │
-                   │          ▼                   └──────────────────┘
+                   │   │ binary_sha256    │──┐    │ content          │
+                   │   │ binary_size      │  │    │ author_id        │
+                   │   │ binary_mime      │  │    │ author_name      │
+                   │   │ created_at       │  │    │ created_at       │
+                   │   │ updated_at       │  │    └──────────────────┘
+                   │   └──────────────────┘  ▼
+                   │          │      ┌──────────────────┐
+                   │          │      │  project_blobs   │
+                   │          │      │ (project_id +    │
+                   │          │      │  sha256 PK)      │
+                   │          │      │ size, ref_count  │
+                   │          │      └──────────────────┘
+                   │          │      on disk:
+                   │          │      server/projects/<id>/_blobs/<sh[0:2]>/<sh>
+                   │          ▼
                    │   ┌──────────────────┐
                    │   │   comments       │       ┌──────────────────┐
                    │   ├──────────────────┤       │ comment_replies  │
@@ -434,6 +444,12 @@ Collaboration tables (FKs back to comments / comment_replies / chat_messages):
                     │  docxToLatex.js  - DOCX import│
                     │  trackedChange-                │
                     │    Markup.js   - TC → latexdiff│
+                    │  blobStore.js  - per-project   │
+                    │                  blob storage  │
+                    │  blobGc.js     - orphan +      │
+                    │                  reconciliation│
+                    │  fileBytes.js  - bytes-for-row │
+                    │  quotas.js     - per-user caps │
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐
