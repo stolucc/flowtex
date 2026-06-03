@@ -313,24 +313,64 @@ export async function pairWithHelper(code) {
   }
 }
 
+// Backoff so that a paired-but-not-running helper doesn't spam the
+// browser console with one ERR_FAILED + one ERR_SSL_PROTOCOL_ERROR
+// (HTTP + HTTPS fallback) on every page load. Chrome wraps the
+// connection failure as a "blocked by CORS" message because it
+// happened during the preflight phase, even though the real cause is
+// "nothing listening on :9876". After the first failure we sit out
+// for HELPER_UNREACHABLE_BACKOFF_MS before trying again — long
+// enough that opening / closing tabs is silent, short enough that the
+// helper is rediscovered soon after the user starts it.
+const HELPER_REACHABILITY_KEY = 'flowtex-helper-reachability';
+const HELPER_UNREACHABLE_BACKOFF_MS = 5 * 60 * 1000;
+
+function readReachability() {
+  try {
+    const raw = window.sessionStorage.getItem(HELPER_REACHABILITY_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function writeReachability(state) {
+  try {
+    window.sessionStorage.setItem(HELPER_REACHABILITY_KEY, JSON.stringify({ state, ts: Date.now() }));
+  } catch { /* private mode — degrade silently */ }
+}
+
 /**
  * Fetch /llm/status — { available, baseUrl, models[], defaultModel?, error? }.
  * Returns { ok: false, error } if the helper is unreachable or unauthed;
  * returns { ok: true, status } on success (where status may still report
  * available=false if Ollama isn't running on the user's machine).
+ *
+ * Implements a per-session unreachability backoff: after one failed
+ * fetch, subsequent calls within HELPER_UNREACHABLE_BACKOFF_MS skip
+ * the network entirely. Closes the "helper not running, browser tab
+ * full of console errors" complaint.
  */
 export async function fetchLlmStatus() {
   const token = getHelperToken();
   if (!token) return { ok: false, error: 'Helper not paired' };
+  const last = readReachability();
+  if (last?.state === 'unreachable' && Date.now() - last.ts < HELPER_UNREACHABLE_BACKOFF_MS) {
+    return { ok: false, error: 'Helper unreachable (cached)' };
+  }
   try {
     const res = await fetchTryBoth('/llm/status', {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return { ok: false, error: `Helper returned ${res.status}` };
+    if (!res.ok) {
+      writeReachability('unreachable');
+      return { ok: false, error: `Helper returned ${res.status}` };
+    }
+    writeReachability('reachable');
     const status = await res.json();
     return { ok: true, status };
   } catch (err) {
+    writeReachability('unreachable');
     return { ok: false, error: err?.message || 'Could not reach helper' };
   }
 }

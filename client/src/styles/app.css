@@ -5912,7 +5912,6 @@ html {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -6150,7 +6149,6 @@ html {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
 }
 .shortcuts-modal .modal-header h2,
 .about-modal .modal-header h2 {
@@ -6294,7 +6292,6 @@ kbd {
   display: flex;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
 }
 
 .wordcount-modal .modal-header h2 {
@@ -10254,7 +10251,6 @@ kbd {
   display: flex;
   align-items: center;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
 }
 .admin-delete-user-modal .modal-header h2 {
   margin: 0;
@@ -10427,7 +10423,6 @@ kbd {
 }
 .copy-project-modal .modal-header {
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
 }
 .copy-project-modal .modal-header h2 {
   margin: 0;
@@ -10520,7 +10515,6 @@ kbd {
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
 }
 .bug-report-modal .modal-header h2 {
   margin: 0;
@@ -10634,7 +10628,6 @@ kbd {
 }
 .llm-dialog .modal-header {
   padding: 14px 20px 10px;
-  border-bottom: 1px solid var(--border);
 }
 .llm-dialog .modal-header h2 {
   margin: 0;
