@@ -528,65 +528,50 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
 });
 
 /** GET /api/projects/files/:fileId/raw -- Serve the raw content of a file (binary or text).
- *  Dual-mode binary read: new uploads land in the per-project blob store
- *  (file.binary_sha256 is set, content is empty) and are streamed from
- *  disk; legacy base64-in-DB rows continue to work as a fallback until
- *  phase B migrates them. Either path applies the same sandbox-CSP +
- *  nosniff + SVG-attachment defences. */
+ *  Binary rows are streamed from the per-project blob store; text rows
+ *  come from files.content. SVG is forced to attachment and sandbox-CSP
+ *  + nosniff are set for any binary to neutralise embedded scripts. */
 router.get('/files/:fileId/raw', async (req, res) => {
   const file = await projectService.getRawFile(req.params.fileId, req.session.userId);
   if (!file) return res.status(404).json({ error: 'File not found' });
-  const ext = (file.path || '').split('.').pop().toLowerCase();
-  const mimeMap = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    bmp: 'image/bmp',
-    ico: 'image/x-icon',
-    webp: 'image/webp',
-    pdf: 'application/pdf',
-    eps: 'application/postscript',
-  };
-  // Stored mime (set at upload time) wins when present; the ext-map is
-  // the fallback for legacy rows that don't carry binary_mime.
-  const mime = file.binary_mime
-    || (ext === 'svg' ? 'image/svg+xml' : mimeMap[ext] || 'application/octet-stream');
 
-  if (file.is_binary) {
-    res.set('Content-Type', mime);
-    // Force download for SVG (prevents inline script execution); inline for others
-    res.set('Content-Disposition', ext === 'svg' ? 'attachment' : 'inline');
-    // Sandbox all user-uploaded binary content to prevent embedded scripts
-    res.set('Content-Security-Policy', "sandbox; default-src 'none'");
-    res.set('X-Content-Type-Options', 'nosniff');
-
-    if (file.binary_sha256) {
-      // Blob-store path: stream from disk. statBlob first so we can
-      // emit Content-Length and short-circuit a missing-blob case
-      // (would be a GC bug; surface as 404 rather than a half stream).
-      const blobStat = await statBlob(file.project_id, file.binary_sha256);
-      if (!blobStat) {
-        logger.error({ fileId: file.id, sha256: file.binary_sha256 }, 'blob row references missing on-disk file');
-        return res.status(404).json({ error: 'File data unavailable' });
-      }
-      res.set('Content-Length', blobStat.size);
-      readBlobStream(file.project_id, file.binary_sha256)
-        .on('error', (err) => {
-          logger.error({ err, fileId: file.id }, 'blob stream error');
-          if (!res.headersSent) res.status(500).end();
-        })
-        .pipe(res);
-    } else {
-      // Legacy base64 path. Phase B's migration will convert these.
-      const buf = Buffer.from(file.content, 'base64');
-      res.set('Content-Length', buf.length);
-      res.send(buf);
-    }
-  } else {
+  if (!file.is_binary) {
     res.set('Content-Type', 'text/plain; charset=utf-8');
-    res.send(file.content || '');
+    return res.send(file.content || '');
   }
+
+  // Invariant since phase C.2: every binary row has binary_sha256 +
+  // binary_mime. A row that doesn't would indicate a code path that
+  // skipped writeBinaryFileInTx; refuse to serve rather than silently
+  // fall back to a broken read.
+  if (!file.binary_sha256) {
+    logger.error({ fileId: file.id, path: file.path }, 'binary file row missing binary_sha256');
+    return res.status(500).json({ error: 'File data unavailable' });
+  }
+
+  const ext = (file.path || '').split('.').pop().toLowerCase();
+  res.set('Content-Type', file.binary_mime || 'application/octet-stream');
+  // Force download for SVG (prevents inline script execution); inline for others
+  res.set('Content-Disposition', ext === 'svg' ? 'attachment' : 'inline');
+  // Sandbox all user-uploaded binary content to prevent embedded scripts
+  res.set('Content-Security-Policy', "sandbox; default-src 'none'");
+  res.set('X-Content-Type-Options', 'nosniff');
+
+  // statBlob first so we can emit Content-Length and short-circuit a
+  // missing-blob case (would be a GC bug; surface as 404 rather than a
+  // half stream).
+  const blobStat = await statBlob(file.project_id, file.binary_sha256);
+  if (!blobStat) {
+    logger.error({ fileId: file.id, sha256: file.binary_sha256 }, 'blob row references missing on-disk file');
+    return res.status(404).json({ error: 'File data unavailable' });
+  }
+  res.set('Content-Length', blobStat.size);
+  readBlobStream(file.project_id, file.binary_sha256)
+    .on('error', (err) => {
+      logger.error({ err, fileId: file.id }, 'blob stream error');
+      if (!res.headersSent) res.status(500).end();
+    })
+    .pipe(res);
 });
 
 /** GET /api/projects/:id/files -- List all files in a project. */

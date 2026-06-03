@@ -346,6 +346,73 @@ The first-run setup flow explicitly mints the CSRF token + cookie after the boot
 
 `POST /api/projects/:id/copy` accepts `{ includeMembers: bool }`. With `includeMembers = true`, every non-caller member of the source is added to the new project at their original role. **This path requires editor or owner of the source** — a viewer can still clone the project for themselves but cannot rebroadcast it. Every member-addition through copy is audit-logged as `project_member_added_via_copy` so an admin can trace who pulled which user into which clone.
 
+## Binary file storage
+
+Binary uploads (figures, PDFs, fonts, etc.) live on disk in a
+per-project, content-addressed blob store rather than as base64 inside
+Postgres. The on-disk layout is:
+
+```text
+server/projects/<projectId>/_blobs/<sha256[0:2]>/<sha256>
+server/projects/<projectId>/_blobs/_tmp/<uuid>     ← in-flight uploads
+```
+
+- **Path is server-derived only.** No user-controlled component touches
+  the filesystem path; the SHA-256 is computed as bytes stream in. The
+  `/raw` route uses `res.sendFile`-equivalent (statBlob + readBlobStream)
+  scoped to the per-project `_blobs/` root, matching the path-traversal
+  defence used elsewhere.
+- **Per-project dedup only.** A blob uploaded to two projects produces
+  two on-disk copies; we never share a blob across project ids. This
+  closes the upload-timing side channel that a global dedup would open,
+  where a member could probe whether arbitrary bytes already exist
+  under another user's project.
+- **No directory listing.** `server/projects/` is not served as static
+  files by Express; only the `/raw` endpoint reaches into `_blobs/`, and
+  it enforces membership on the parent project.
+- **Refcount + reconciliation GC.** `project_blobs` tracks references
+  per (project_id, sha256). The hourly orphan sweep deletes only blobs
+  whose ref_count ≤ 0 *and* whose LEFT JOIN against `files.binary_sha256`
+  returns no row — a wrong refcount alone cannot cause data loss. A
+  6-hourly reconciliation walk catches blobs that landed on disk but
+  whose surrounding DB transaction then rolled back (the
+  "rollback-orphan" case); blobs newer than the freshness grace window
+  are protected from this sweep.
+- **Deny-list at write time.** `deniedBinaryExtension` rejects
+  `.exe`/`.bat`/`.html`/etc. on every binary-write path (upload, ZIP
+  import, DOCX import, template instantiation, project duplicate).
+  Denied entries are skipped silently in import flows; explicit upload
+  calls throw.
+- **Sandbox + nosniff on read.** `/raw` sets
+  `Content-Security-Policy: sandbox; default-src 'none'`,
+  `X-Content-Type-Options: nosniff`, and forces SVG to
+  `Content-Disposition: attachment` so an embedded `<script>` cannot
+  execute inline.
+
+## Backups
+
+The application persists state to two stores; backups must include
+both, taken together. Restoring one without the other leaves dangling
+references — `files` rows that point at SHA-256 blobs no longer on
+disk, or orphan blobs with no `project_blobs` row.
+
+| Store | Contents | Tool |
+| --- | --- | --- |
+| Postgres | All text content, metadata, sessions, audit log, blob refcounts | `pg_dump` |
+| `server/projects/*/_blobs/` | Per-project binary file bytes | `tar` / `rsync` |
+
+Recommended cadence: nightly Postgres dump + nightly tar of
+`server/projects/`, both shipped to off-host storage. Take them within
+the same maintenance window so they describe the same point in time.
+If the application is live during backup, take the Postgres dump
+first (it captures the SHA-256 references); a blob that was written
+between the two snapshots simply looks like an orphan on restore and
+the reconciliation sweep collects it.
+
+Restore order is the inverse: untar `server/projects/` first, then
+restore the Postgres dump, then restart the server so the GC sweep can
+reconcile any small drift.
+
 ## TLS
 
 The server falls back to HTTP if `server/certs/cert.pem` and

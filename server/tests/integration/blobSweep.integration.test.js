@@ -1,7 +1,7 @@
-// Phase B integration tests: GC sweeps and the legacy-base64 migrator.
-// Real DB (BEGIN/ROLLBACK per test via setup.js); on-disk side effects
-// land in PROJECTS_DIR under uuid project ids that the OS reaps with
-// its tmp lifecycle. The blob store IS exercised end-to-end.
+// Integration tests for the blob-storage GC sweeps. Real DB
+// (BEGIN/ROLLBACK per test via setup.js); on-disk side effects land in
+// PROJECTS_DIR under uuid project ids that the OS reaps with its tmp
+// lifecycle.
 import { describe, it, expect } from 'vitest';
 import { v4 as uuid } from 'uuid';
 import db from '../../db.js';
@@ -11,10 +11,6 @@ import {
   sweepOrphanRefcounts,
   reconcileOnDiskBlobs,
 } from '../../services/blobGc.js';
-import {
-  migrateLegacyBlobBatch,
-  countLegacyBlobRows,
-} from '../../services/blobMigrator.js';
 import { statBlob, writeBlob, blobPath } from '../../services/blobStore.js';
 import { Readable } from 'node:stream';
 import { utimes, access } from 'node:fs/promises';
@@ -107,77 +103,3 @@ describe('reconcileOnDiskBlobs', () => {
   });
 });
 
-describe('migrateLegacyBlobBatch', () => {
-  it('migrates a legacy base64 row to a blob reference', async () => {
-    const { project } = await seed();
-    const bytes = Buffer.from('legacy PNG bytes');
-    // Insert a row in the OLD format directly: content holds base64,
-    // binary_sha256 is NULL, is_binary = TRUE.
-    const id = uuid();
-    await db.run(
-      `INSERT INTO files (id, project_id, path, content, is_binary)
-       VALUES ($1, $2, $3, $4, TRUE)`,
-      [id, project.id, 'legacy/img.png', bytes.toString('base64')],
-    );
-    expect(await countLegacyBlobRows({ projectId: project.id })).toBeGreaterThanOrEqual(1);
-
-    const result = await migrateLegacyBlobBatch({ batchSize: 10, projectId: project.id });
-    expect(result.migrated).toBeGreaterThanOrEqual(1);
-
-    const after = await db.get(
-      `SELECT content, binary_sha256, binary_size, binary_mime FROM files WHERE id = $1`,
-      [id],
-    );
-    expect(after.binary_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(after.binary_size).toBe(bytes.length);
-    expect(after.binary_mime).toBe('image/png');
-    expect(after.content).toBe('');
-
-    const blob = await db.get(
-      'SELECT ref_count FROM project_blobs WHERE project_id = $1 AND sha256 = $2',
-      [project.id, after.binary_sha256],
-    );
-    expect(blob.ref_count).toBe(1);
-    expect(await statBlob(project.id, after.binary_sha256)).not.toBeNull();
-  });
-
-  it('skips already-migrated rows on re-run (idempotent)', async () => {
-    const { project } = await seed();
-    const id = uuid();
-    await db.run(
-      `INSERT INTO files (id, project_id, path, content, is_binary)
-       VALUES ($1, $2, $3, $4, TRUE)`,
-      [id, project.id, 'idem/img.png', Buffer.from('content').toString('base64')],
-    );
-    await migrateLegacyBlobBatch({ projectId: project.id });
-    const second = await migrateLegacyBlobBatch({ projectId: project.id });
-    expect(second.migrated).toBe(0);
-    expect(second.examined).toBe(0);
-  });
-
-  it('skips rows that decode to zero bytes', async () => {
-    const { project } = await seed();
-    const id = uuid();
-    await db.run(
-      `INSERT INTO files (id, project_id, path, content, is_binary)
-       VALUES ($1, $2, $3, $4, TRUE)`,
-      [id, project.id, 'empty/img.png', '!!!'], // invalid base64 → 0 bytes when decoded
-    );
-    const result = await migrateLegacyBlobBatch({ projectId: project.id });
-    expect(result.skipped).toBeGreaterThanOrEqual(1);
-
-    // Row should still be in legacy format (we didn't touch it).
-    const after = await db.get(
-      'SELECT binary_sha256, content FROM files WHERE id = $1',
-      [id],
-    );
-    expect(after.binary_sha256).toBeNull();
-  });
-});
-
-describe('countLegacyBlobRows', () => {
-  it('returns 0 for a project that has no legacy rows', async () => {
-    const { project } = await seed();
-    expect(await countLegacyBlobRows({ projectId: project.id })).toBe(0);
-  });
-});

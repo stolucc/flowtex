@@ -1510,14 +1510,10 @@ export async function getProjectFiles(projectId) {
   );
 }
 
-// Phase A.2: binary uploads write the bytes to the per-project blob
-// store and reference them by sha256, instead of base64-in-DB. Legacy
-// base64 rows continue to read normally via getRawFile (dual-mode
-// read in routes/projects.js). Replace-existing handles the
-// cross-mode case: if the prior row was base64 (binary_sha256 IS NULL),
-// it just becomes a blob row with no refcount bookkeeping for the old
-// content; if it was already a blob, the prior blob's refcount is
-// decremented (GC sweeps when ref_count = 0).
+// Binary uploads land in the per-project blob store (bytes on disk,
+// SHA-256 reference in files.binary_sha256). Replace-in-place
+// decrements the prior blob's refcount; the GC sweep removes blobs
+// once ref_count = 0.
 const BLOB_MIME_MAP = {
   png: 'image/png',
   jpg: 'image/jpeg',

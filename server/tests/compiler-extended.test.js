@@ -60,6 +60,17 @@ vi.mock('fs/promises', () => ({
   open: makeOpenSpy,
 }));
 
+// Mock fileBytes so syncFilesToDisk tests can stub the byte source
+// without provisioning a real on-disk blob.
+const { loadFileBytesMock } = vi.hoisted(() => ({
+  loadFileBytesMock: vi.fn(async (_projectId, file) =>
+    file.is_binary ? Buffer.alloc(0) : (file.content ?? ''),
+  ),
+}));
+vi.mock('../services/fileBytes.js', () => ({
+  loadFileBytes: loadFileBytesMock,
+}));
+
 // Now import the module under test
 import {
   TEX_PATHS,
@@ -361,13 +372,22 @@ describe('syncFilesToDisk', () => {
     expect(fsp.writeFile).toHaveBeenCalledWith(expectedPath, '\\documentclass{article}');
   });
 
-  it('writes a binary file decoded from base64', async () => {
-    const base64Content = Buffer.from('binary data here').toString('base64');
-    const files = [{ path: 'image.png', content: base64Content, is_binary: true }];
+  it('writes a binary file streamed from the blob store', async () => {
+    // Phase C: binary rows reference a sha256 in the blob store. The
+    // file's bytes are pulled via loadFileBytes (mocked above to bypass
+    // an actual disk read at services/fileBytes.js).
+    const bytes = Buffer.from('binary data here');
+    loadFileBytesMock.mockResolvedValueOnce(bytes);
+    const files = [{
+      path: 'image.png',
+      content: '',
+      is_binary: true,
+      binary_sha256: 'a'.repeat(64),
+    }];
     await syncFilesToDisk('proj-abc', files);
 
     const expectedPath = path.join(PROJECTS_DIR, 'proj-abc', 'image.png');
-    expect(fsp.writeFile).toHaveBeenCalledWith(expectedPath, Buffer.from(base64Content, 'base64'));
+    expect(fsp.writeFile).toHaveBeenCalledWith(expectedPath, bytes);
   });
 
   it('creates subdirectories for nested file paths', async () => {
