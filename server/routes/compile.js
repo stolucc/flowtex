@@ -205,6 +205,11 @@ router.post('/:projectId', async (req, res) => {
 
     res.json({ success: true, log, profile, rebuildReason, cached: !!cached });
   } catch (err) {
+    // Without this log the operator only sees the 400 status in the
+    // proxy access log — the underlying reason (missing main file, bad
+    // env, latexmk crash, etc.) is silent. Match the format used by the
+    // format/lint catches below.
+    logger.error({ err, projectId: req.params.projectId }, 'Compile error');
     res.status(400).json({ success: false, log: safeMsg(err, 'Compilation failed') });
   }
 });

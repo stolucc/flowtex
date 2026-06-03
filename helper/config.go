@@ -134,6 +134,23 @@ func loadConfig() (*config, error) {
 	}
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = defaultAllowedOrigins()
+	} else {
+		// Back-fill any *new* entries that have been added to the
+		// shipped defaults since this config file was written. Without
+		// this, an install from before "https://flowtex.click" landed in
+		// the defaults keeps refusing CORS preflights from the
+		// production frontend even after the user upgrades the helper.
+		// Custom origins the user added by hand are preserved; we only
+		// add what's missing.
+		seen := make(map[string]struct{}, len(cfg.AllowedOrigins))
+		for _, o := range cfg.AllowedOrigins {
+			seen[o] = struct{}{}
+		}
+		for _, def := range defaultAllowedOrigins() {
+			if _, ok := seen[def]; !ok {
+				cfg.AllowedOrigins = append(cfg.AllowedOrigins, def)
+			}
+		}
 	}
 	// Defence in depth: DefaultTexYear ends up in a filepath.Join /
 	// Glob call. Anything written legitimately (via the tray) is

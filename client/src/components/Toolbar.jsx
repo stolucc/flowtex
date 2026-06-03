@@ -257,6 +257,15 @@ export default function Toolbar({
       },
     },
     { label: 'separator' },
+    {
+      // Mirrors the inline-rename triggered by clicking the project name;
+      // surfaced in the Project menu so the action is discoverable from the
+      // keyboard / for users who never click the name field. Owner-only,
+      // matching startEditing's gate.
+      label: 'Rename Project…',
+      action: startEditing,
+      disabled: !isOwner || !onRename,
+    },
     { label: 'Project Settings', action: () => onProjectSettings?.() },
   ];
 
