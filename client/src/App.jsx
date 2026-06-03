@@ -1236,22 +1236,43 @@ function AppInner() {
                 onClick={() => ui.setShowChangesPanel(true)}
                 title={`Show tracked changes panel${pendingChanges.length > 0 ? ` (${pendingChanges.length})` : ''}`}
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="8" y1="13" x2="16" y2="13" stroke="#e06c75" strokeWidth="2" />
-                  <line x1="8" y1="17" x2="13" y2="17" stroke="#61afef" strokeWidth="2" />
-                </svg>
+                {/* Matches the PDF viewer's "Show tracked changes in PDF"
+                    button: document with red-strike + blue-underline rows,
+                    plus a small magnifying-glass loupe pinned bottom-right
+                    to read as VIEW changes (not edit them). */}
+                <span className="pdf-tc-btn-icon">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="8" y1="13" x2="16" y2="13" stroke="#e06c75" strokeWidth="2" />
+                    <line x1="8" y1="17" x2="13" y2="17" stroke="#61afef" strokeWidth="2" />
+                  </svg>
+                  <svg
+                    className="pdf-tc-btn-loupe"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="10" cy="10" r="7" />
+                    <line x1="21" y1="21" x2="15.5" y2="15.5" />
+                  </svg>
+                </span>
                 {pendingChanges.length > 0 && (
                   <span className="tc-toggle-badge">{pendingChanges.length}</span>
                 )}
