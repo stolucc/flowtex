@@ -54,6 +54,122 @@ These are the things you, the operator, MUST do to keep the threat model intact:
 6. **Watch CI.** `npm audit`, OSV-Scanner, CodeQL, and ESLint security plugin all run on every push.
 7. **Keep an admin account on hand.** The system refuses to demote the last alive admin; if you accidentally restrict access to your account, you'll need SQL access to recover.
 
+## Sensitive-data classification
+
+OWASP ASVS V6.1.1 expects every application to write down what categories
+of sensitive data it stores and how each is handled. The discipline is
+already implemented in code; this section makes the intent explicit so
+drift gets caught at review time rather than at audit time.
+
+Five tiers, ordered by handling strictness:
+
+### Tier 1 — Secrets and credentials
+
+Anything that, if leaked, allows immediate impersonation or out-of-band
+account takeover.
+
+| Field | Storage | At-rest | In logs | Rotation |
+| --- | --- | --- | --- | --- |
+| `users.password_hash` | Postgres | Argon2id (bcryptjs fallback for legacy rows) | Never logged | Per-user, on password change |
+| `users.totp_secret` | Postgres | AES-256-GCM via `utils/crypto.js` | Never logged | Per-user, on re-enrollment |
+| `github_tokens.token` | Postgres | AES-256-GCM | Never logged | Per-user, on re-auth |
+| `zotero_tokens.api_key` | Postgres | AES-256-GCM | Never logged | Per-user, on re-auth |
+| `settings.smtp_pass` | Postgres | AES-256-GCM | Never logged | Admin, via dashboard |
+| `SESSION_SECRET` | `.env` | OS file mode 600 | Never logged | Operator, see §Secrets & rotation |
+| `ENCRYPTION_KEY` | `.env` | OS file mode 600 | Never logged | Operator, see §Secrets & rotation |
+| `settings.encryption_salt` | Postgres | Plaintext (defence in depth via `ENCRYPTION_KEY`) | Never logged | Operator, via `migrate-salt.js` |
+
+Handling: tier-1 values are read into memory only at the point of use,
+never appear in the response body for any non-admin endpoint, and are
+explicitly redacted from `pino` log output by the redaction list in
+`server/logger.js`. The error middleware strips `err.message` to a
+generic string for any status ≥ 500 so an exception stringify cannot
+leak ciphertext context. `audit_log.detail` accepts arbitrary JSON but
+no call site stuffs a tier-1 value into it.
+
+### Tier 2 — Personally identifying information (PII)
+
+Identifiers that connect FlowTex activity to a real person.
+
+| Field | Visible to | Notes |
+| --- | --- | --- |
+| `users.email` | Self; project owner (for member list); admin | Never returned to editors/viewers — `GET /api/projects/:id/members` strips the field unless the requester is the owner. |
+| `users.name` | All members of any project the user is on | Display name; not used for auth. |
+| `users.last_login_at`, `users.created_at` | Self; admin | Account-page only; not exposed broadly. |
+| `audit_log` rows referencing a user | Admin only | `targetId` deliberately stores `count:N` rather than email lists for bulk recipient cases. |
+| `comment_mentions.mentioned_user_id` | Comment thread participants | Indirect reference; the email is never carried with the mention. |
+| `chat_messages.user_id` | Project members | Author identity only; no email in the row. |
+| Server access log (Caddy, pino) | Operator | IP addresses, user-agent strings; rotate per the operator's log policy. |
+
+Handling: tier-2 fields are subject to access control on every read.
+Routes default-deny — see `requireAuth`, `requireAdmin`,
+`requireMembership`, `requireEditor` in `server/middleware/auth.js`.
+GDPR-style erasure is supported through the 30-day soft-delete recovery
+bin and the eventual hard-purge (`purgeExpiredSoftDeletes`).
+
+### Tier 3 — User content
+
+What users write, upload, and discuss inside their projects.
+
+| Field | Visible to | Notes |
+| --- | --- | --- |
+| `files.content` (text rows) | Project members | Editable by editors and the owner. Snapshots in `file_versions`. |
+| `project_blobs` (binary bytes) | Project members | Per-project content-addressed disk store. Served via `/raw` with sandbox CSP + `X-Content-Type-Options: nosniff`. |
+| `comments`, `comment_replies` | Project members | Authored by name; cannot be edited by a different user. |
+| `chat_messages` | Project members | Truncated server-side at 5000 chars. |
+| `projects.name`, `projects.main_file`, `projects.compiler`, etc. | Project members | Editor + owner can change. |
+
+Handling: not encrypted at rest by default — a parked design exists for
+per-project encryption (see project memory). Anyone with shell access on
+the VPS can read user content, so the operator obligations above
+(`chmod 600`, restricted shell access, host hardening) are part of the
+data-protection story for this tier. The sandbox CSP and SVG-as-
+attachment defence on `/raw` prevent embedded-script execution when a
+member views another member's upload in the browser.
+
+### Tier 4 — Auth state
+
+Short-lived tokens and session material that gate access.
+
+| Field | Storage | At-rest | TTL |
+| --- | --- | --- | --- |
+| `session` (table from `connect-pg-simple`) | Postgres | Sid only in cookie (HMAC-signed); session JSON in DB | 24 h idle, 7 d absolute |
+| `password_resets.token_hash` | Postgres | SHA-256 of the emailed token | 1 h |
+| `email_verifications.token_hash` | Postgres | SHA-256 of the emailed token | 24 h |
+| `trusted_devices.token_hash` | Postgres | SHA-256, rotated on every use | 7 d |
+| `used_totp_codes` | Postgres + in-memory | Plaintext code + expiry (anti-replay only) | TOTP step (30s) |
+| `passwordless_login_tokens.token_hash` | Postgres | SHA-256 | 15 min |
+
+Handling: every plaintext token leaves the server exactly once (in the
+email or response that grants it). Reuse requires the original token,
+which only the legitimate recipient ever sees. Token comparisons go
+through `crypto.timingSafeEqual` to prevent leaking the prefix length
+via response timing.
+
+### Tier 5 — Operational metadata
+
+Server-side telemetry, useful for forensics, not sensitive but not
+public either.
+
+| Field | Visible to | Retention |
+| --- | --- | --- |
+| `audit_log` | Admin only | Indefinite; reviewed during incident response. |
+| `login_attempts` | Internal lockout logic + admin | 24 h sliding window for the lockout check; rows pruned by cron. |
+| `compile_metrics`, `compile_history` | Admin overview | Indefinite; tiny rows. |
+| Pino structured logs | Operator | Per the operator's log rotation policy (Caddy default 30 d). |
+
+Handling: admin-only routes (`/api/admin/*`) require `requireAdmin`
+session check. No PII is returned in compile_metrics aggregation — the
+admin overview reports counts and timings, not user identity.
+
+### Drift discipline
+
+When a new column or table is added that holds anything user-sourced,
+the author classifies it into one of the five tiers above and updates
+this section in the same PR. If a new field doesn't fit any tier
+cleanly, that's a signal the design needs another look — not a signal
+to add a sixth tier.
+
 ## DOCX import sandboxing (recommended)
 
 When users import a `.docx`, FlowTex extracts embedded media and converts
