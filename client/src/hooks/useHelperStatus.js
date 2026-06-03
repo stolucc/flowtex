@@ -26,7 +26,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { pingHealth, fetchHelperVersion } from '../utils/helperBridge.js';
 
-// Adaptive interval mirrors AccountSettingsModal's own probe loop.
 const FAST_INTERVAL_MS = 3_000;
 const SLOW_INTERVAL_MS = 60_000;
 const LONG_INTERVAL_MS = 5 * 60_000;
@@ -37,18 +36,22 @@ const FAILURES_BEFORE_LONG = 5;
 export default function useHelperStatus({ enabled }) {
   const [status, setStatus] = useState({ available: false, loading: enabled });
   const [pokeKey, setPokeKey] = useState(0);
-  // Consecutive failures kept in state so the effect's interval picker
-  // re-runs on every threshold cross. failuresRef gives the async probe
-  // a stable counter to bump without restarting the interval mid-fetch.
+  // Failures count + the live status are kept in refs so the
+  // self-rescheduling tick loop can read the freshest value without
+  // having them in the effect's dependency array. (Putting them in deps
+  // would re-run the effect on every probe outcome, which restarts the
+  // timer immediately and turns the throttle into a render-loop —
+  // exactly the regression that landed in fcef109 and produced ~40
+  // ERR_CONNECTION_REFUSED per second in the console.)
   const failuresRef = useRef(0);
-  const [failures, setFailures] = useState(0);
+  const availableRef = useRef(false);
 
   const probe = useCallback(async () => {
     setStatus((prev) => ({ ...prev, loading: true }));
     const alive = await pingHealth();
     if (!alive) {
       failuresRef.current += 1;
-      setFailures(failuresRef.current);
+      availableRef.current = false;
       setStatus({ available: false, loading: false, error: 'unreachable' });
       return;
     }
@@ -58,12 +61,12 @@ export default function useHelperStatus({ enabled }) {
       // available but distinguish the error so the settings UI can prompt
       // "pair the helper" rather than "install the helper".
       failuresRef.current += 1;
-      setFailures(failuresRef.current);
+      availableRef.current = false;
       setStatus({ available: false, loading: false, error: 'unpaired' });
       return;
     }
     failuresRef.current = 0;
-    setFailures(0);
+    availableRef.current = true;
     setStatus({
       available: true,
       loading: false,
@@ -79,38 +82,52 @@ export default function useHelperStatus({ enabled }) {
     if (!enabled) {
       setStatus({ available: false, loading: false });
       failuresRef.current = 0;
+      availableRef.current = false;
       return undefined;
     }
-    probe();
-    // Tier selection: green → SLOW; freshly unreachable → FAST for the
-    // first few probes (discover-on-restart); stubbornly unreachable →
-    // LONG so we don't fill the console.
-    let interval;
-    if (status.available) interval = SLOW_INTERVAL_MS;
-    else if (failures < FAILURES_BEFORE_LONG) interval = FAST_INTERVAL_MS;
-    else interval = LONG_INTERVAL_MS;
-    const id = setInterval(probe, interval);
-    // Any external success ping (e.g. user paired the helper in
-    // AccountSettingsModal, which broadcasts on every successful probe)
-    // resets the failure counter and re-probes immediately so we drop
-    // back into FAST discovery instead of waiting up to LONG_INTERVAL_MS.
+    let cancelled = false;
+    let timer = null;
+
+    // Self-rescheduling tick: after each probe, pick the next interval
+    // based on the up-to-date refs. The effect mounts once per
+    // enabled/pokeKey change, never per probe outcome, so the cadence
+    // genuinely throttles.
+    async function tick() {
+      if (cancelled) return;
+      await probe();
+      if (cancelled) return;
+      let next;
+      if (availableRef.current) next = SLOW_INTERVAL_MS;
+      else if (failuresRef.current < FAILURES_BEFORE_LONG) next = FAST_INTERVAL_MS;
+      else next = LONG_INTERVAL_MS;
+      timer = setTimeout(tick, next);
+    }
+    tick();
+
+    // External success ping (AccountSettingsModal broadcasts on every
+    // successful probe) drops us back into FAST discovery and
+    // re-probes immediately.
     const onChange = () => {
       failuresRef.current = 0;
-      setFailures(0);
-      probe();
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      tick();
     };
     window.addEventListener('flowtex:helper-status-changed', onChange);
+
     return () => {
-      clearInterval(id);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
       window.removeEventListener('flowtex:helper-status-changed', onChange);
     };
-  }, [enabled, pokeKey, probe, status.available, failures]);
+  }, [enabled, pokeKey, probe]);
 
   return {
     status,
     redetect: () => {
       failuresRef.current = 0;
-      setFailures(0);
       setPokeKey((k) => k + 1);
     },
   };
