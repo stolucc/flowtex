@@ -159,7 +159,6 @@ export async function listUserProjects(userId) {
 
 /** Create a new project from a user/preloaded template. */
 export async function createProjectFromTemplate(userId, templateId, name) {
-  await assertProjectCountUnderLimit(userId);
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
 
@@ -171,6 +170,7 @@ export async function createProjectFromTemplate(userId, templateId, name) {
   const safeName = (name || tmpl.name).slice(0, 500).replace(/[\\{}$&#^_%~]/g, '');
 
   await db.transaction(async (tx) => {
+    await assertProjectCountUnderLimit(tx, userId);
     await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, safeName]);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [id, userId, 'owner']);
 
@@ -424,7 +424,6 @@ export async function setTemplateTags(templateId, tagIds) {
 
 /** Create a new blank project with a default main.tex file. */
 export async function createProject(userId, name) {
-  await assertProjectCountUnderLimit(userId);
   const id = uuid();
   const fileId = uuid();
   const safeName = (name || 'Untitled').slice(0, 500).replace(/[\\{}$&#^_%~\r\n]/g, '');
@@ -446,6 +445,7 @@ Hello from FlowTex!
 `;
 
   await db.transaction(async (tx) => {
+    await assertProjectCountUnderLimit(tx, userId);
     await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, safeName]);
     await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
       fileId,
@@ -461,7 +461,6 @@ Hello from FlowTex!
 
 /** Create a new project by extracting files from an uploaded ZIP buffer. */
 export async function createProjectFromZip(userId, buffer, originalName) {
-  await assertProjectCountUnderLimit(userId);
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
@@ -484,6 +483,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
   const created = [];
 
   await db.transaction(async (tx) => {
+    await assertProjectCountUnderLimit(tx, userId);
     await tx.run('INSERT INTO projects (id, name) VALUES ($1, $2)', [projectId, projectName]);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
       projectId,
@@ -533,7 +533,6 @@ export async function createProjectFromZip(userId, buffer, originalName) {
 
 /** Create a new project by converting a .docx file to LaTeX using the custom converter. */
 export async function createProjectFromDocx(userId, buffer, originalName, options = {}) {
-  await assertProjectCountUnderLimit(userId);
   const onProgress = options.onProgress || (() => {});
   // Pass progress callback to converter — it reports 5-75%
   options.onProgress = onProgress;
@@ -603,6 +602,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
 
   onProgress('Saving project…', 90);
   await db.transaction(async (tx) => {
+    await assertProjectCountUnderLimit(tx, userId);
     await tx.run('INSERT INTO projects (id, name, compiler) VALUES ($1, $2, $3)', [projectId, projectName, 'xelatex']);
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [projectId, userId, 'owner']);
 
@@ -1341,7 +1341,6 @@ export async function deleteProject(projectId) {
  *     copy; the *current* state of every file is preserved verbatim via
  *     the files INSERTs below. */
 export async function copyProject(projectId, userId, newName, { includeMembers = false } = {}) {
-  await assertProjectCountUnderLimit(userId);
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
   const newId = uuid();
@@ -1360,6 +1359,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
     [projectId],
   );
   await db.transaction(async (tx) => {
+    await assertProjectCountUnderLimit(tx, userId);
     // Carry the source's compile settings across — particularly `compiler`,
     // which is set to xelatex for DOCX imports and other projects that use
     // fontspec. If we let it default to pdflatex on copy, the compiled PDF
@@ -1613,27 +1613,35 @@ async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
   if (!existing) {
     await assertFileCountUnderLimit(tx, projectId);
   }
-  await assertBlobBytesUnderLimitForProject(projectId, buffer.length);
+  await assertBlobBytesUnderLimitForProject(tx, projectId, buffer.length);
 
   const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
   const mime = mimeFromPath(filePath);
 
-  await tx.run(
-    `INSERT INTO project_blobs (project_id, sha256, size, ref_count)
-     VALUES ($1, $2, $3, 1)
-     ON CONFLICT (project_id, sha256) DO UPDATE
-       SET ref_count = project_blobs.ref_count + 1`,
-    [projectId, sha256, size],
-  );
-
-  let fileId;
-  if (existing) {
-    if (existing.binary_sha256 && existing.binary_sha256 !== sha256) {
+  // Refcount accounting. The file row only gains a NEW reference when it
+  // wasn't already pointing at this blob. Bumping unconditionally would
+  // cause refcount drift on same-bytes-same-path re-uploads (file count
+  // unchanged, ref count up by 1) and the blob would never be GC-able.
+  const newReference = !existing || existing.binary_sha256 !== sha256;
+  if (newReference) {
+    await tx.run(
+      `INSERT INTO project_blobs (project_id, sha256, size, ref_count)
+       VALUES ($1, $2, $3, 1)
+       ON CONFLICT (project_id, sha256) DO UPDATE
+         SET ref_count = project_blobs.ref_count + 1`,
+      [projectId, sha256, size],
+    );
+    if (existing?.binary_sha256) {
+      // Row used to reference a different blob; drop a reference there.
       await tx.run(
         'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
         [projectId, existing.binary_sha256],
       );
     }
+  }
+
+  let fileId;
+  if (existing) {
     await tx.run(
       `UPDATE files
           SET content = '', is_binary = TRUE,

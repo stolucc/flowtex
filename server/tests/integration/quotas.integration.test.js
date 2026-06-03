@@ -31,7 +31,9 @@ describe('quotas: project count per user', () => {
   it('passes when under the limit', async () => {
     const user = await seedUser();
     await seedProject(user.id);
-    await expect(assertProjectCountUnderLimit(user.id)).resolves.not.toThrow();
+    await db.transaction(async (tx) => {
+      await expect(assertProjectCountUnderLimit(tx, user.id)).resolves.not.toThrow();
+    });
   });
 
   it('throws 413 once the user owns the effective limit projects', async () => {
@@ -39,8 +41,10 @@ describe('quotas: project count per user', () => {
     await setQuota('PROJECTS_PER_USER', 2);
     await seedProject(user.id);
     await seedProject(user.id);
-    await expect(assertProjectCountUnderLimit(user.id))
-      .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Project limit/) });
+    await db.transaction(async (tx) => {
+      await expect(assertProjectCountUnderLimit(tx, user.id))
+        .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Project limit/) });
+    });
   });
 
   it('createProject surfaces the 413 at the service boundary', async () => {
@@ -60,7 +64,9 @@ describe('quotas: project count per user', () => {
       [project.id, guest.id],
     );
     // The guest is now a member of one project but owns none.
-    await expect(assertProjectCountUnderLimit(guest.id)).resolves.not.toThrow();
+    await db.transaction(async (tx) => {
+      await expect(assertProjectCountUnderLimit(tx, guest.id)).resolves.not.toThrow();
+    });
   });
 });
 
@@ -90,7 +96,9 @@ describe('quotas: blob bytes per user', () => {
   it('passes when adding under the limit', async () => {
     const owner = await seedUser();
     const project = await seedProject(owner.id);
-    await expect(assertBlobBytesUnderLimitForProject(project.id, 1024)).resolves.not.toThrow();
+    await db.transaction(async (tx) => {
+      await expect(assertBlobBytesUnderLimitForProject(tx, project.id, 1024)).resolves.not.toThrow();
+    });
   });
 
   it('throws 413 when the new upload would push over the limit', async () => {
@@ -99,14 +107,18 @@ describe('quotas: blob bytes per user', () => {
     // 1 MiB cap satisfies the admin-route minimum; 500 + 600 KiB still exceeds it.
     await setQuota('BLOB_BYTES_PER_USER', 1024 * 1024);
     await uploadBinaryFile(project.id, 'a.png', Buffer.alloc(500 * 1024, 1));
-    await expect(assertBlobBytesUnderLimitForProject(project.id, 600 * 1024))
-      .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Storage quota/) });
+    await db.transaction(async (tx) => {
+      await expect(assertBlobBytesUnderLimitForProject(tx, project.id, 600 * 1024))
+        .rejects.toMatchObject({ status: 413, message: expect.stringMatching(/Storage quota/) });
+    });
   });
 
   it('orphan project (no owner) is a no-op rather than throwing', async () => {
     const orphanProjectId = uuid();
     await db.run(`INSERT INTO projects (id, name) VALUES ($1, 'orphan')`, [orphanProjectId]);
-    await expect(assertBlobBytesUnderLimitForProject(orphanProjectId, 999999999)).resolves.not.toThrow();
+    await db.transaction(async (tx) => {
+      await expect(assertBlobBytesUnderLimitForProject(tx, orphanProjectId, 999999999)).resolves.not.toThrow();
+    });
   });
 });
 

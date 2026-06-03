@@ -56,10 +56,21 @@ export async function getEffectiveQuota(name) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Throw a 413-tagged Error when the user already owns this many projects. */
-export async function assertProjectCountUnderLimit(userId) {
+// Advisory-lock namespace. pg_advisory_xact_lock takes two int4s; we use
+// a fixed first int to namespace the quota locks away from any other
+// advisory lock the application might use, and hashtext(...) as the
+// second int to derive a per-user / per-project bucket.
+const LOCK_NAMESPACE = 0x510a;
+
+/** Throw a 413-tagged Error when the user already owns this many projects.
+ *  Takes `tx` so the SELECT runs against the same snapshot as the
+ *  subsequent INSERT. Grabs a per-user xact-advisory lock first, which
+ *  serialises concurrent createProject calls from the same user and
+ *  closes the "two parallel creates both pass the cap" race. */
+export async function assertProjectCountUnderLimit(tx, userId) {
+  await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `user:${userId}`]);
   const limit = await getEffectiveQuota('PROJECTS_PER_USER');
-  const row = await db.get(
+  const row = await tx.get(
     `SELECT COUNT(*)::int AS n
        FROM project_members
       WHERE user_id = $1 AND role = 'owner'`,
@@ -75,8 +86,11 @@ export async function assertProjectCountUnderLimit(userId) {
 }
 
 /** Throw when the project already holds this many files.
- *  Called inside the same transaction as the INSERT for accuracy. */
+ *  Called inside the same transaction as the INSERT for accuracy.
+ *  Per-project advisory lock serialises concurrent writers on this
+ *  project so the cap is strict, not eventual. */
 export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
+  await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `project:${projectId}`]);
   const limit = await getEffectiveQuota('FILES_PER_PROJECT');
   const row = await tx.get(
     'SELECT COUNT(*)::int AS n FROM files WHERE project_id = $1',
@@ -93,16 +107,19 @@ export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
 
 /** Throw when adding `extraBytes` bytes would put the project's OWNER
  *  over their total-blob-bytes quota. Looks up the owner internally so
- *  callers only need a projectId. */
-export async function assertBlobBytesUnderLimitForProject(projectId, extraBytes) {
+ *  callers only need a projectId. Takes the same per-user advisory lock
+ *  the project-count check uses, so parallel uploads from the same
+ *  owner are serialised against the SUM. */
+export async function assertBlobBytesUnderLimitForProject(tx, projectId, extraBytes) {
   if (extraBytes <= 0) return;
-  const owner = await db.get(
+  const owner = await tx.get(
     `SELECT user_id FROM project_members WHERE project_id = $1 AND role = 'owner' LIMIT 1`,
     [projectId],
   );
   if (!owner) return; // orphan project — no owner to charge against
+  await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `user:${owner.user_id}`]);
   const limit = await getEffectiveQuota('BLOB_BYTES_PER_USER');
-  const row = await db.get(
+  const row = await tx.get(
     `SELECT COALESCE(SUM(pb.size), 0)::bigint AS used
        FROM project_members pm
        JOIN project_blobs pb ON pb.project_id = pm.project_id

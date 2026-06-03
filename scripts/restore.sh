@@ -63,6 +63,25 @@ if [ -d "$ROOT_DIR/projects" ] && [ "${RESTORE_FORCE:-0}" != "1" ]; then
   fi
 fi
 
+# Same guard for the target database. pg_restore --clean drops every
+# table in $PGDATABASE; if the operator pointed this at production by
+# mistake, the on-disk projects/ guard above is no comfort. Count any
+# rows in `users` — present in every non-empty FlowTex DB — and bail
+# unless RESTORE_FORCE=1. Brand-new DBs return empty (psql -tA on a
+# missing table = empty line), which we treat as zero.
+USER_COUNT="$(PGPASSWORD="${PGPASSWORD:-}" psql \
+  --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" --dbname="$PGDATABASE" \
+  --tuples-only --no-align --quiet \
+  --command="SELECT count(*) FROM users" 2>/dev/null || true)"
+USER_COUNT="${USER_COUNT//[^0-9]/}"
+USER_COUNT="${USER_COUNT:-0}"
+if [ "$USER_COUNT" -gt 0 ] && [ "${RESTORE_FORCE:-0}" != "1" ]; then
+  echo "[restore] FATAL: target database $PGDATABASE has $USER_COUNT users." >&2
+  echo "[restore] Refusing to clean+restore over it. pg_restore --clean would drop EVERY table." >&2
+  echo "[restore] If you really meant this database, re-run with RESTORE_FORCE=1." >&2
+  exit 3
+fi
+
 WORK_DIR="$(mktemp -d -t flowtex-restore-XXXXXX)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 

@@ -72,6 +72,21 @@ describe('uploadBinaryFile (blob store)', () => {
     expect(blob.ref_count).toBe(2);
   });
 
+  it('replace existing: same path SAME bytes does NOT drift the refcount (M1 regression)', async () => {
+    const { project } = await seed();
+    const bytes = Buffer.from('byte-identical re-upload to the same path');
+    const first = await uploadBinaryFile(project.id, 'cover.png', bytes);
+    await uploadBinaryFile(project.id, 'cover.png', bytes);
+
+    // Only one file references the blob, so refcount must stay at 1.
+    // Pre-fix this was 2 because the UPSERT bumped without compensating.
+    const blob = await db.get(
+      'SELECT ref_count FROM project_blobs WHERE project_id = $1 AND sha256 = $2',
+      [project.id, first.binary_sha256],
+    );
+    expect(blob.ref_count).toBe(1);
+  });
+
   it('replace existing: same path different bytes swaps blob ref and decrements old', async () => {
     const { project } = await seed();
     const v1 = Buffer.from('version 1');

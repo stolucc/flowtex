@@ -740,6 +740,11 @@ router.put('/settings', validateBody(updateSettingSchema), async (req, res) => {
       return res.status(400).json({ error: 'smtp_secure must be "true" or "false"' });
     }
   }
+  // Quota keys take a string or number. Booleans would otherwise coerce
+  // (Number(true) === 1) and silently cap the entire instance at 1.
+  if (key.startsWith('quota_') && typeof value !== 'string' && typeof value !== 'number') {
+    return res.status(400).json({ error: `${key} must be a string or number` });
+  }
   if (key === 'quota_projects_per_user') {
     const n = Number(value);
     if (!Number.isFinite(n) || n < 1 || n > 100000) {

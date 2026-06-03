@@ -20,17 +20,25 @@
 // base64-in-DB pattern; the win is streaming + smaller backups.
 
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, rename, stat, unlink } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { constants as fsConstants } from 'node:fs';
+import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { PROJECTS_DIR } from '../paths.js';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_HEX_RE = /^[0-9a-f-]{36}$/i;
+const PROJECT_ID_RE = /^[0-9a-f-]{36}$/i; // project ids are UUIDs
 
 /** Absolute path to a project's blob root directory. */
 export function blobsDir(projectId) {
+  if (!PROJECT_ID_RE.test(projectId)) {
+    // Defence-in-depth: callers should only ever pass DB-sourced UUIDs.
+    // Refuse anything else outright so a future caller that forwards
+    // user-controlled data cannot reach the filesystem via path.join().
+    throw new Error(`blobStore: invalid projectId`);
+  }
   return path.join(PROJECTS_DIR, projectId, '_blobs');
 }
 
@@ -39,6 +47,7 @@ export function blobPath(projectId, sha256) {
   if (!SHA256_RE.test(sha256)) {
     throw new Error(`blobStore: invalid sha256 ${sha256}`);
   }
+  // blobsDir() validates the projectId.
   return path.join(blobsDir(projectId), sha256.slice(0, 2), sha256);
 }
 
@@ -74,12 +83,15 @@ export async function writeBlob(projectId, stream, opts = {}) {
   const hash = createHash('sha256');
   let bytesSeen = 0;
 
-  // Tee the stream into both the hash and the temp file. pipeline
-  // resolves when both sinks finish; rejects (and cleans up) on error.
-  // Hold a reference to the WriteStream so the catch path can wait
-  // for its 'close' before unlinking — otherwise we race a still-
-  // opening fd and the stream re-creates the temp file post-unlink.
-  const out = createWriteStream(tmpPath, { flags: 'w' });
+  // Open the temp file with O_NOFOLLOW so a symlink planted at tmpPath
+  // (via a host-level compromise or a tmp-dir race) refuses to open
+  // rather than redirecting our write at an attacker-chosen path. The
+  // file is then streamed through the FileHandle's WriteStream, which
+  // shares the existing fd so no second open happens. Matches the
+  // discipline used in compiler.syncFilesToDisk.
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW;
+  const handle = await open(tmpPath, flags, 0o600);
+  const out = handle.createWriteStream();
   try {
     await pipeline(
       stream,

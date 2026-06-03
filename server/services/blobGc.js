@@ -26,6 +26,7 @@ import { PROJECTS_DIR } from '../paths.js';
 import { deleteBlob, blobsDir } from './blobStore.js';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const UUID_HEX_RE = /^[0-9a-f-]{36}$/i;
 
 // Grace window before reconciliation will touch an on-disk blob. A
 // freshly-uploaded blob exists on disk BEFORE the DB transaction that
@@ -92,6 +93,7 @@ export async function sweepOrphanRefcounts({ limit = 500 } = {}) {
 export async function reconcileOnDiskBlobs() {
   let walked = 0;
   let orphaned = 0;
+  let staleTmp = 0;
   let projects = 0;
   const now = Date.now();
 
@@ -122,9 +124,42 @@ export async function reconcileOnDiskBlobs() {
 
     for (const shard of shards) {
       if (!shard.isDirectory()) continue;
-      // Skip the in-flight upload staging dir; writeBlob owns it and
-      // the rollback-orphan case there is handled in writeBlob itself.
-      if (shard.name === '_tmp') continue;
+      // Sweep the in-flight upload staging dir for stale temps. writeBlob
+      // unlinks on every error path it knows about, but a hard process
+      // kill or disk-full at the wrong moment can leave a tmp file
+      // behind. Only touch entries older than the reconciliation grace
+      // window so a concurrent upload mid-write is never collected.
+      if (shard.name === '_tmp') {
+        const tmpDir = path.join(root, shard.name);
+        let tmps;
+        try {
+          tmps = await readdir(tmpDir, { withFileTypes: true });
+        } catch (err) {
+          if (err && err.code === 'ENOENT') continue;
+          throw err;
+        }
+        for (const t of tmps) {
+          if (!t.isFile()) continue;
+          if (!UUID_HEX_RE.test(t.name)) continue;
+          const tmpPath = path.join(tmpDir, t.name);
+          let st;
+          try {
+            st = await stat(tmpPath);
+          } catch {
+            continue;
+          }
+          if (now - st.mtimeMs < RECONCILE_GRACE_MS) continue;
+          try {
+            await unlink(tmpPath);
+            staleTmp += 1;
+          } catch (err) {
+            if (!err || err.code !== 'ENOENT') {
+              logger.warn({ err, projectId, tmpName: t.name }, 'blobGc: failed to unlink stale tmp');
+            }
+          }
+        }
+        continue;
+      }
       // Two-hex shard names only — defence-in-depth against accidental
       // sibling dirs.
       if (!/^[0-9a-f]{2}$/.test(shard.name)) continue;
@@ -176,5 +211,5 @@ export async function reconcileOnDiskBlobs() {
     }
   }
 
-  return { walked, orphaned, projects };
+  return { walked, orphaned, staleTmp, projects };
 }
