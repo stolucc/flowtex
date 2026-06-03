@@ -3,15 +3,17 @@
 //     started or freshly paired helper is discovered quickly.
 //   - SLOW (60 s) once the helper is green; this is just a liveness check.
 //   - After FAILURES_BEFORE_GIVE_UP consecutive fast-tier failures we
-//     STOP polling entirely. Background discovery is not worth a
-//     console error every N seconds for a user who has clearly not
-//     started the helper yet. Two explicit recovery paths remain:
-//       1. AccountSettingsModal does its own probe and broadcasts
-//          `flowtex:helper-status-changed` on success — we listen for
-//          that and immediately re-enter FAST.
-//       2. The redetect() callback returned from this hook (wired to
-//          a "Test connection" button) bumps pokeKey and re-mounts
-//          the effect from scratch.
+//     STOP polling AND persist "offline" to localStorage for
+//     OFFLINE_CACHE_TTL_MS. Subsequent page loads consult the cache
+//     and skip the auto-probe entirely so the console stays clean.
+//
+// Two explicit recovery paths remain — both clear the cache:
+//   1. AccountSettingsModal does its own probe and broadcasts
+//      `flowtex:helper-status-changed`. The listener calls probe()
+//      again, which on success markOnline()s and updates the status.
+//   2. The redetect() callback returned from this hook (wired to
+//      a "Test connection" button) clears the cache and re-mounts
+//      the effect.
 //
 // Status shape mirrors what resolveCompileLocation() needs:
 //   { available: bool, year?: string, scheme?: string, error?: string }
@@ -27,7 +29,13 @@
 // either the user's setting or the per-project override.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { pingHealth, fetchHelperVersion } from '../utils/helperBridge.js';
+import {
+  pingHealth,
+  fetchHelperVersion,
+  isHelperCachedOffline,
+  markHelperOffline,
+  clearHelperOfflineCache,
+} from '../utils/helperBridge.js';
 
 const FAST_INTERVAL_MS = 3_000;
 const SLOW_INTERVAL_MS = 60_000;
@@ -54,6 +62,7 @@ export default function useHelperStatus({ enabled }) {
     if (!alive) {
       failuresRef.current += 1;
       availableRef.current = false;
+      if (failuresRef.current >= FAILURES_BEFORE_GIVE_UP) markHelperOffline();
       setStatus({ available: false, loading: false, error: 'unreachable' });
       return;
     }
@@ -64,11 +73,13 @@ export default function useHelperStatus({ enabled }) {
       // "pair the helper" rather than "install the helper".
       failuresRef.current += 1;
       availableRef.current = false;
+      if (failuresRef.current >= FAILURES_BEFORE_GIVE_UP) markHelperOffline();
       setStatus({ available: false, loading: false, error: 'unpaired' });
       return;
     }
     failuresRef.current = 0;
     availableRef.current = true;
+    clearHelperOfflineCache();
     setStatus({
       available: true,
       loading: false,
@@ -104,7 +115,17 @@ export default function useHelperStatus({ enabled }) {
       else return; // give up; user must redetect or trigger the broadcast
       timer = setTimeout(tick, next);
     }
-    tick();
+
+    // Skip the auto-probe entirely when we have a recent "offline"
+    // marker. The status sits at unreachable until the user explicitly
+    // redetects (which clears the marker before re-mounting) or
+    // AccountSettings broadcasts a successful probe (the onChange
+    // listener below picks it up and re-enters the tick loop).
+    if (isHelperCachedOffline()) {
+      setStatus({ available: false, loading: false, error: 'unreachable' });
+    } else {
+      tick();
+    }
 
     // External success ping (AccountSettingsModal broadcasts on every
     // successful probe) drops us back into FAST discovery and
@@ -130,6 +151,7 @@ export default function useHelperStatus({ enabled }) {
     status,
     redetect: () => {
       failuresRef.current = 0;
+      clearHelperOfflineCache();
       setPokeKey((k) => k + 1);
     },
   };

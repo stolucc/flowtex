@@ -313,30 +313,33 @@ export async function pairWithHelper(code) {
   }
 }
 
-// Backoff so that a paired-but-not-running helper doesn't spam the
-// browser console with one ERR_FAILED + one ERR_SSL_PROTOCOL_ERROR
-// (HTTP + HTTPS fallback) on every page load. Chrome wraps the
-// connection failure as a "blocked by CORS" message because it
-// happened during the preflight phase, even though the real cause is
-// "nothing listening on :9876". After the first failure we sit out
-// for HELPER_UNREACHABLE_BACKOFF_MS before trying again — long
-// enough that opening / closing tabs is silent, short enough that the
-// helper is rediscovered soon after the user starts it.
-const HELPER_REACHABILITY_KEY = 'flowtex-helper-reachability';
-const HELPER_UNREACHABLE_BACKOFF_MS = 5 * 60 * 1000;
+// Sticky "the helper is offline" marker shared with useHelperStatus.
+// Persisted to localStorage so a paired-but-not-running helper doesn't
+// produce console errors on every page load — once we've confirmed
+// it's offline we just skip the network call until either (a) the user
+// explicitly redetects, (b) AccountSettings reaches the helper and
+// broadcasts success, or (c) the TTL expires. Chrome wraps the
+// connection failure as a "blocked by CORS" message because the
+// failure happens during the preflight phase, even when the real
+// cause is "nothing listening on :9876"; the cache lets us avoid
+// triggering that wrap.
+const HELPER_OFFLINE_KEY = 'flowtex-helper-offline-since';
+const HELPER_OFFLINE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function readReachability() {
+export function isHelperCachedOffline() {
   try {
-    const raw = window.sessionStorage.getItem(HELPER_REACHABILITY_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch { return null; }
+    const ts = Number(window.localStorage.getItem(HELPER_OFFLINE_KEY));
+    if (!ts) return false;
+    return Date.now() - ts < HELPER_OFFLINE_TTL_MS;
+  } catch { return false; }
 }
-
-function writeReachability(state) {
-  try {
-    window.sessionStorage.setItem(HELPER_REACHABILITY_KEY, JSON.stringify({ state, ts: Date.now() }));
-  } catch { /* private mode — degrade silently */ }
+export function markHelperOffline() {
+  try { window.localStorage.setItem(HELPER_OFFLINE_KEY, String(Date.now())); }
+  catch { /* private mode — degrade silently */ }
+}
+export function clearHelperOfflineCache() {
+  try { window.localStorage.removeItem(HELPER_OFFLINE_KEY); }
+  catch { /* same */ }
 }
 
 /**
@@ -345,17 +348,16 @@ function writeReachability(state) {
  * returns { ok: true, status } on success (where status may still report
  * available=false if Ollama isn't running on the user's machine).
  *
- * Implements a per-session unreachability backoff: after one failed
- * fetch, subsequent calls within HELPER_UNREACHABLE_BACKOFF_MS skip
- * the network entirely. Closes the "helper not running, browser tab
- * full of console errors" complaint.
+ * Honours the shared offline marker (see isHelperCachedOffline) — when
+ * useHelperStatus has previously given up on the helper, this skips
+ * the network call entirely. That keeps the right-click LLM menu's
+ * on-mount probe silent on pages where the helper is known-offline.
  */
 export async function fetchLlmStatus() {
   const token = getHelperToken();
   if (!token) return { ok: false, error: 'Helper not paired' };
-  const last = readReachability();
-  if (last?.state === 'unreachable' && Date.now() - last.ts < HELPER_UNREACHABLE_BACKOFF_MS) {
-    return { ok: false, error: 'Helper unreachable (cached)' };
+  if (isHelperCachedOffline()) {
+    return { ok: false, error: 'Helper offline (cached)' };
   }
   try {
     const res = await fetchTryBoth('/llm/status', {
@@ -363,14 +365,14 @@ export async function fetchLlmStatus() {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
-      writeReachability('unreachable');
+      markHelperOffline();
       return { ok: false, error: `Helper returned ${res.status}` };
     }
-    writeReachability('reachable');
+    clearHelperOfflineCache();
     const status = await res.json();
     return { ok: true, status };
   } catch (err) {
-    writeReachability('unreachable');
+    markHelperOffline();
     return { ok: false, error: err?.message || 'Could not reach helper' };
   }
 }
