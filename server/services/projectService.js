@@ -28,6 +28,7 @@ import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 import { writeBlob } from './blobStore.js';
+import { loadFileBytes } from './fileBytes.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
@@ -168,16 +169,23 @@ export async function createProjectFromTemplate(userId, templateId, name) {
     await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [id, userId, 'owner']);
 
     for (const file of templateFiles) {
-      const content = tmpl.preloaded
-        ? file.content.replace(/__TITLE__/g, safeName).replace(/__AUTHOR__/g, '')
-        : file.content;
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        uuid(),
-        id,
-        file.path,
-        content,
-        file.is_binary || false,
-      ]);
+      if (file.is_binary) {
+        // Template binary content is still stored base64 in
+        // user_template_files (intentionally — admin-curated, low
+        // volume, simpler to back up as part of the SQL dump). Decode
+        // here and land it through the blob store for the new project.
+        const buf = Buffer.from(file.content || '', 'base64');
+        if (buf.length === 0) continue; // skip empty placeholder rows
+        await writeBinaryFileInTx(tx, id, file.path, buf);
+      } else {
+        const content = tmpl.preloaded
+          ? file.content.replace(/__TITLE__/g, safeName).replace(/__AUTHOR__/g, '')
+          : file.content;
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
+          [uuid(), id, file.path, content],
+        );
+      }
     }
   });
 
@@ -487,17 +495,25 @@ export async function createProjectFromZip(userId, buffer, originalName) {
       const rawData = entry.getData();
       actualTotal += rawData.length;
       if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
-      const content = isBinary ? rawData.toString('base64') : rawData.toString('utf8');
-      const id = uuid();
 
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        id,
-        projectId,
-        entryPath,
-        content,
-        isBinary,
-      ]);
-      created.push({ id, path: entryPath });
+      if (isBinary) {
+        // deniedBinaryExtension may reject .exe/.bat/.html etc. — silently
+        // skip those in a ZIP rather than aborting the whole import.
+        if (deniedBinaryExtension(entryPath)) continue;
+        try {
+          const { id } = await writeBinaryFileInTx(tx, projectId, entryPath, rawData);
+          created.push({ id, path: entryPath });
+        } catch (err) {
+          logger.warn({ err, entryPath }, 'createProjectFromZip: skipping bad binary entry');
+        }
+      } else {
+        const id = uuid();
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
+          [id, projectId, entryPath, rawData.toString('utf8')],
+        );
+        created.push({ id, path: entryPath });
+      }
     }
   });
 
@@ -595,10 +611,19 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
       if (!isValidFilePath(filePath)) continue;
       const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
       const isBinary = BINARY_EXTS.has(ext);
-      const content = isBinary ? mf.data.toString('base64') : mf.data.toString('utf8');
-      await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-        uuid(), projectId, filePath, content, isBinary,
-      ]);
+      if (isBinary) {
+        if (deniedBinaryExtension(filePath)) continue;
+        try {
+          await writeBinaryFileInTx(tx, projectId, filePath, mf.data);
+        } catch (err) {
+          logger.warn({ err, filePath }, 'createProjectFromDocx: skipping bad media file');
+        }
+      } else {
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
+          [uuid(), projectId, filePath, mf.data.toString('utf8')],
+        );
+      }
     }
 
     // Import DOCX comments
@@ -1171,26 +1196,48 @@ export async function uploadZipToProject(projectId, buffer) {
       const rawData = entry.getData();
       actualTotal += rawData.length;
       if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
-      const content = isBinary ? rawData.toString('base64') : rawData.toString('utf8');
 
       const existing = await tx.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, entryPath]);
-      if (existing) {
-        await tx.run('UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3', [
-          content,
-          isBinary,
-          existing.id,
-        ]);
-        created.push({ id: existing.id, path: entryPath, updated: true });
+
+      if (isBinary) {
+        if (deniedBinaryExtension(entryPath)) continue;
+        try {
+          // writeBinaryFileInTx handles BOTH insert and replace via its
+          // own internal lookup, so we don't need separate branches here.
+          // It also bumps refcount on the new blob + decrements the old
+          // one if the row already pointed at a different blob.
+          const { id } = await writeBinaryFileInTx(tx, projectId, entryPath, rawData);
+          created.push({ id, path: entryPath, updated: !!existing });
+        } catch (err) {
+          logger.warn({ err, entryPath }, 'mergeZipIntoProject: skipping bad binary entry');
+        }
       } else {
-        const id = uuid();
-        await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-          id,
-          projectId,
-          entryPath,
-          content,
-          isBinary,
-        ]);
-        created.push({ id, path: entryPath, updated: false });
+        const utf = rawData.toString('utf8');
+        if (existing) {
+          // Switching a row from binary to text: drop the blob ref too.
+          const prior = await tx.get(
+            'SELECT binary_sha256 FROM files WHERE id = $1',
+            [existing.id],
+          );
+          if (prior?.binary_sha256) {
+            await decrementBlobRefcount(tx, projectId, prior.binary_sha256);
+          }
+          await tx.run(
+            `UPDATE files SET content = $1, is_binary = FALSE,
+                              binary_sha256 = NULL, binary_size = NULL, binary_mime = NULL,
+                              updated_at = NOW()
+              WHERE id = $2`,
+            [utf, existing.id],
+          );
+          created.push({ id: existing.id, path: entryPath, updated: true });
+        } else {
+          const id = uuid();
+          await tx.run(
+            'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
+            [id, projectId, entryPath, utf],
+          );
+          created.push({ id, path: entryPath, updated: false });
+        }
       }
     }
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
@@ -1295,7 +1342,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
   // source: deletes would no longer strike through (and would still
   // appear in the compiled PDF), inserts would render as plain text.
   const files = await db.all(
-    'SELECT id, path, content, is_binary, tc_marks FROM files WHERE project_id = $1',
+    'SELECT id, path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
     [projectId],
   );
   await db.transaction(async (tx) => {
@@ -1338,12 +1385,29 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
 
     const fileIdMap = new Map(); // oldFileId -> newFileId
     for (const file of files) {
-      const newFileId = uuid();
-      fileIdMap.set(file.id, newFileId);
-      await tx.run(
-        'INSERT INTO files (id, project_id, path, content, is_binary, tc_marks) VALUES ($1, $2, $3, $4, $5, $6)',
-        [newFileId, newId, file.path, file.content, file.is_binary, JSON.stringify(file.tc_marks ?? [])],
-      );
+      if (file.is_binary) {
+        // Cross-project blob copy: per-project dedup forbids sharing a
+        // blob across project ids, so we read the source bytes and land
+        // them in the new project's blob store. loadFileBytes works for
+        // both legacy base64-in-content rows and blob-stored rows.
+        const bytes = await loadFileBytes(projectId, file);
+        if (!bytes || bytes.length === 0) continue;
+        const { id: newFileId } = await writeBinaryFileInTx(tx, newId, file.path, bytes);
+        fileIdMap.set(file.id, newFileId);
+        if (file.tc_marks && file.tc_marks.length > 0) {
+          await tx.run('UPDATE files SET tc_marks = $1 WHERE id = $2', [
+            JSON.stringify(file.tc_marks),
+            newFileId,
+          ]);
+        }
+      } else {
+        const newFileId = uuid();
+        fileIdMap.set(file.id, newFileId);
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary, tc_marks) VALUES ($1, $2, $3, $4, FALSE, $5)',
+          [newFileId, newId, file.path, file.content, JSON.stringify(file.tc_marks ?? [])],
+        );
+      }
     }
 
     if (files.length === 0) return;
@@ -1476,69 +1540,24 @@ function mimeFromPath(filePath) {
 
 /** Upload or replace a binary file (image, font, etc.) in a project. */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
-  if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
-  const denied = deniedBinaryExtension(filePath);
-  if (denied) throw new Error(`File type not allowed: ${denied}`);
-  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
-
-  // Stream the buffer into the blob store. Returns { sha256, size, deduped }.
-  // Wrapping the buffer in a Readable gives the helper the same shape it'd
-  // see from a real multipart upload stream.
-  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
-  const mime = mimeFromPath(filePath);
-
-  const existing = await db.get(
-    'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
+  // Snapshot whether the row pre-existed before we touch it; the API
+  // contract returns { updated: true } on replace.
+  const preExisting = await db.get(
+    'SELECT 1 FROM files WHERE project_id = $1 AND path = $2',
     [projectId, filePath],
   );
 
   try {
     await db.transaction(async (tx) => {
-      // Bump the refcount for the new blob (or create the row at 1).
-      await tx.run(
-        `INSERT INTO project_blobs (project_id, sha256, size, ref_count)
-         VALUES ($1, $2, $3, 1)
-         ON CONFLICT (project_id, sha256) DO UPDATE
-           SET ref_count = project_blobs.ref_count + 1`,
-        [projectId, sha256, size],
-      );
-
-      if (existing) {
-        // Decrement the OLD blob's refcount (if it was a blob; base64
-        // rows have no project_blobs row, so the UPDATE is a no-op for
-        // those).
-        if (existing.binary_sha256 && existing.binary_sha256 !== sha256) {
-          await tx.run(
-            'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
-            [projectId, existing.binary_sha256],
-          );
-        }
-        await tx.run(
-          `UPDATE files
-              SET content = '', is_binary = TRUE,
-                  binary_sha256 = $1, binary_size = $2, binary_mime = $3,
-                  updated_at = NOW()
-            WHERE id = $4`,
-          [sha256, size, mime, existing.id],
-        );
-      } else {
-        await tx.run(
-          `INSERT INTO files (id, project_id, path, content, is_binary,
-                              binary_sha256, binary_size, binary_mime)
-           VALUES ($1, $2, $3, '', TRUE, $4, $5, $6)`,
-          [uuid(), projectId, filePath, sha256, size, mime],
-        );
-      }
-
+      await writeBinaryFileInTx(tx, projectId, filePath, buffer);
       await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
     });
   } catch (err) {
     // Transaction rolled back. The blob is on disk but un-refcounted
-    // (no project_blobs row exists for it, or the refcount we just
-    // bumped also rolled back). The GC sweep will collect orphans.
-    // Don't attempt eager unlink — the blob may have been deduped from
-    // an existing file in this project that still references it.
-    logger.warn({ err, projectId, sha256 }, 'uploadBinaryFile DB transaction failed; orphan blob will be GC-swept');
+    // (no project_blobs row was committed). The GC sweep will collect
+    // orphans. Don't attempt eager unlink — per-project dedup may have
+    // pointed us at a blob that another file in this project still uses.
+    logger.warn({ err, projectId }, 'uploadBinaryFile DB transaction failed; orphan blob will be GC-swept');
     throw err;
   }
 
@@ -1547,7 +1566,73 @@ export async function uploadBinaryFile(projectId, filePath, buffer) {
        FROM files WHERE project_id = $1 AND path = $2`,
     [projectId, filePath],
   );
-  return { ...row, updated: !!existing };
+  return { ...row, updated: !!preExisting };
+}
+
+/**
+ * Land a binary file in the project blob store + insert/replace the
+ * files row, all inside the caller's transaction. Used by every binary
+ * write path: upload, ZIP import, DOCX import, template instantiation,
+ * project duplication.
+ *
+ * The blob is written to disk BEFORE the DB write (writeBlob runs
+ * outside the transaction). If the surrounding transaction rolls back,
+ * the blob is orphaned on disk — the GC sweep (blobGc.js) collects it.
+ *
+ * @param {object} tx        Active transaction handle (db.transaction).
+ * @param {string} projectId
+ * @param {string} filePath  Validated upstream by isValidFilePath().
+ * @param {Buffer} buffer
+ * @returns {Promise<{ id: string, sha256: string, size: number, mime: string }>}
+ */
+async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
+  if (!isValidFilePath(filePath)) throw new Error(`Invalid file path: ${filePath}`);
+  const denied = deniedBinaryExtension(filePath);
+  if (denied) throw new Error(`File type not allowed: ${denied}`);
+  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
+
+  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
+  const mime = mimeFromPath(filePath);
+
+  await tx.run(
+    `INSERT INTO project_blobs (project_id, sha256, size, ref_count)
+     VALUES ($1, $2, $3, 1)
+     ON CONFLICT (project_id, sha256) DO UPDATE
+       SET ref_count = project_blobs.ref_count + 1`,
+    [projectId, sha256, size],
+  );
+
+  const existing = await tx.get(
+    'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
+    [projectId, filePath],
+  );
+  let fileId;
+  if (existing) {
+    if (existing.binary_sha256 && existing.binary_sha256 !== sha256) {
+      await tx.run(
+        'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
+        [projectId, existing.binary_sha256],
+      );
+    }
+    await tx.run(
+      `UPDATE files
+          SET content = '', is_binary = TRUE,
+              binary_sha256 = $1, binary_size = $2, binary_mime = $3,
+              updated_at = NOW()
+        WHERE id = $4`,
+      [sha256, size, mime, existing.id],
+    );
+    fileId = existing.id;
+  } else {
+    fileId = uuid();
+    await tx.run(
+      `INSERT INTO files (id, project_id, path, content, is_binary,
+                          binary_sha256, binary_size, binary_mime)
+       VALUES ($1, $2, $3, '', TRUE, $4, $5, $6)`,
+      [fileId, projectId, filePath, sha256, size, mime],
+    );
+  }
+  return { id: fileId, sha256, size, mime };
 }
 
 // Helper for the file-delete path: decrement the refcount on the blob
