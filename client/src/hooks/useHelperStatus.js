@@ -2,13 +2,16 @@
 //   - FAST (3 s) on first mount / right after a status change, so a freshly
 //     started or freshly paired helper is discovered quickly.
 //   - SLOW (60 s) once the helper is green; this is just a liveness check.
-//   - LONG (5 min) after the helper has been unreachable for the first few
-//     fast probes. Closes the "browser console full of /health ECONNREFUSED
-//     errors when the helper is offline" complaint without sacrificing
-//     discovery: the AccountSettingsModal broadcasts
-//     `flowtex:helper-status-changed` on every successful probe it does,
-//     and that event resets us back to the FAST tier; the redetect()
-//     callback exposed from this hook does the same.
+//   - After FAILURES_BEFORE_GIVE_UP consecutive fast-tier failures we
+//     STOP polling entirely. Background discovery is not worth a
+//     console error every N seconds for a user who has clearly not
+//     started the helper yet. Two explicit recovery paths remain:
+//       1. AccountSettingsModal does its own probe and broadcasts
+//          `flowtex:helper-status-changed` on success — we listen for
+//          that and immediately re-enter FAST.
+//       2. The redetect() callback returned from this hook (wired to
+//          a "Test connection" button) bumps pokeKey and re-mounts
+//          the effect from scratch.
 //
 // Status shape mirrors what resolveCompileLocation() needs:
 //   { available: bool, year?: string, scheme?: string, error?: string }
@@ -28,10 +31,9 @@ import { pingHealth, fetchHelperVersion } from '../utils/helperBridge.js';
 
 const FAST_INTERVAL_MS = 3_000;
 const SLOW_INTERVAL_MS = 60_000;
-const LONG_INTERVAL_MS = 5 * 60_000;
-// How many consecutive fast-tier failures we tolerate before downshifting
-// to LONG_INTERVAL_MS. 5 × 3 s = ~15 s of rapid discovery, then back off.
-const FAILURES_BEFORE_LONG = 5;
+// How many consecutive fast-tier failures we tolerate before giving
+// up. 5 × 3 s = ~15 s of rapid discovery before we go quiet.
+const FAILURES_BEFORE_GIVE_UP = 5;
 
 export default function useHelperStatus({ enabled }) {
   const [status, setStatus] = useState({ available: false, loading: enabled });
@@ -98,8 +100,8 @@ export default function useHelperStatus({ enabled }) {
       if (cancelled) return;
       let next;
       if (availableRef.current) next = SLOW_INTERVAL_MS;
-      else if (failuresRef.current < FAILURES_BEFORE_LONG) next = FAST_INTERVAL_MS;
-      else next = LONG_INTERVAL_MS;
+      else if (failuresRef.current < FAILURES_BEFORE_GIVE_UP) next = FAST_INTERVAL_MS;
+      else return; // give up; user must redetect or trigger the broadcast
       timer = setTimeout(tick, next);
     }
     tick();
