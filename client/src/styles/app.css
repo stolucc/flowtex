@@ -6985,6 +6985,20 @@ kbd {
   font-size: 13px;
 }
 
+.admin-recovery-countdown {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.admin-recovery-countdown--normal { color: var(--text-primary); }
+.admin-recovery-countdown--warn {
+  color: var(--warning, #b86e00);
+  font-weight: 600;
+}
+.admin-recovery-countdown--critical {
+  color: var(--danger, #c03333);
+  font-weight: 700;
+}
+
 /* Floating comment button in editor */
 .editor-wrapper {
   position: relative;

@@ -1227,10 +1227,34 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
 function DeletedUsersPanel({ rows, busyId, onRestore }) {
   const [confirmRow, setConfirmRow] = useState(null);
   const [error, setError] = useState('');
+  // Tick once a minute so the relative countdown stays current without
+  // a full data refetch. The actual purge is cron-driven server-side; this
+  // only refreshes the displayed "time left" string.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   const formatDate = (iso) => {
     if (!iso) return '—';
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  };
+  const formatCountdown = (iso) => {
+    if (!iso) return { text: '—', tone: 'normal' };
+    const target = new Date(iso).getTime();
+    if (Number.isNaN(target)) return { text: '—', tone: 'normal' };
+    const ms = target - now;
+    if (ms <= 0) return { text: 'Imminent', tone: 'critical' };
+    const minutes = Math.floor(ms / 60_000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    let text;
+    if (days >= 1) text = days === 1 ? '1 day' : `${days} days`;
+    else if (hours >= 1) text = hours === 1 ? '1 hour' : `${hours} hours`;
+    else text = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    const tone = days < 1 ? 'critical' : days < 3 ? 'warn' : 'normal';
+    return { text, tone };
   };
   return (
     <div className="admin-deleted-users">
@@ -1250,16 +1274,22 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
                 <th>Name</th>
                 <th>Deleted</th>
                 <th>Purges on</th>
+                <th>Time left</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                const cd = formatCountdown(r.purgeAt);
+                return (
                 <tr key={r.id}>
                   <td>{r.email}</td>
                   <td>{r.name}</td>
                   <td>{formatDate(r.deletedAt)}</td>
                   <td>{formatDate(r.purgeAt)}</td>
+                  <td className={`admin-recovery-countdown admin-recovery-countdown--${cd.tone}`}>
+                    {cd.text}
+                  </td>
                   <td>
                     <button
                       type="button"
@@ -1270,7 +1300,8 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
