@@ -525,9 +525,113 @@ first (it captures the SHA-256 references); a blob that was written
 between the two snapshots simply looks like an orphan on restore and
 the reconciliation sweep collects it.
 
-Restore order is the inverse: untar `server/projects/` first, then
-restore the Postgres dump, then restart the server so the GC sweep can
-reconcile any small drift.
+`scripts/backup.sh` and `scripts/restore.sh` ship the opinionated
+implementation. The backup script wraps `pg_dump`, `tar projects/`,
+and `tar git-repos/` into a single timestamped archive; the restore
+script unwinds it in the safe order (DB first, then on-disk projects).
+
+### Encrypted off-host transfer (strongly recommended)
+
+A plaintext backup placed on remote storage is as sensitive as the
+production database. It contains:
+
+- Every text file in every project (`files.content`).
+- Every encrypted column (TOTP secrets, GitHub tokens, SMTP password).
+  These are AES-256-GCM ciphertexts under `ENCRYPTION_KEY`. If a
+  backup destination also holds a copy of `.env`, the attacker decrypts
+  them and has Tier-1 credentials.
+- Every Tier-2 PII row (email, name, audit_log).
+
+So the off-host backup should be encrypted before it leaves the VPS,
+with a key the destination does not have. The shipped backup script
+supports this via `BACKUP_AGE_RECIPIENT`:
+
+```bash
+# One-time key generation, performed OFF the production server:
+age-keygen -o flowtex-backup.key      # produces a private key file
+# The first line is the recipient (age1...). Treat the private key
+# file like an SSH master key — password manager / hardware token.
+
+# On the production server, set BACKUP_AGE_RECIPIENT to the age1... line
+# in your cron / systemd unit:
+30 3 * * * cd /opt/flowtex && \
+  BACKUP_DIR=/var/backups/flowtex \
+  BACKUP_AGE_RECIPIENT=age1abcdef... \
+  scripts/backup.sh >>/var/log/flowtex-backup.log 2>&1
+```
+
+The script pipes the final tarball through `age --recipient ...`,
+producing a `.tar.gz.age` file, and unlinks the plaintext tarball
+before any S3 upload. A compromise of the backup destination — or the
+production server — exposes ciphertext only, since the private key
+is not present on either machine.
+
+`age` (filippo.io/age) is in Debian/Ubuntu (`apt install age`) and
+Homebrew (`brew install age`). It is the modern replacement for the
+"GPG-symmetric-encrypt a tarball" pattern: smaller binary, no key
+server, no web-of-trust complexity, single command-line flow.
+
+### Restore procedure
+
+```bash
+# Stop the FlowTex server.
+sudo systemctl stop flowtex
+
+# Decrypt + restore in one step.
+BACKUP_AGE_KEY_FILE=~/flowtex-backup.key \
+  scripts/restore.sh /var/backups/flowtex/flowtex-20260603_033000.tar.gz.age
+
+# Start the server. The first orphan-refcount sweep (hourly) and the
+# first reconciliation walk (6h) tidy any drift between Postgres and
+# the on-disk blob store.
+sudo systemctl start flowtex
+```
+
+`restore.sh` refuses to overwrite an existing populated
+`projects/` directory unless `RESTORE_FORCE=1` is set. That guard
+catches the worst class of restore accident — pointing the restore
+at the wrong host and destroying live data.
+
+The `.env` is NOT in the backup. The restored database has
+ciphertext columns that need the original `ENCRYPTION_KEY` to decrypt;
+keep that key paired with the backup private key so a real disaster
+recovery has both at hand.
+
+### Rotation drill (quarterly)
+
+A backup that has never been restored is unproven. Once a quarter:
+
+1. **Provision a fresh target.** Empty VPS, local docker-compose, or a
+   spare VM. Install the same Postgres major version as production.
+2. **Fetch the most recent off-host backup.** From S3 / B2 / wherever
+   the backup destination lives.
+3. **Decrypt + restore.** Run `scripts/restore.sh` against it. Time it.
+4. **Boot a FlowTex server pointing at the restored data.** Use a
+   throwaway `.env` with a fresh `SESSION_SECRET` and the original
+   `ENCRYPTION_KEY`.
+5. **Log in as a known test user.** Confirm projects list, open a
+   project with figures, run a compile, view the PDF.
+6. **Record the elapsed wall-clock time** from step 3 to step 5 — that
+   is your declared restore time.
+7. **Decommission the drill machine** and any working copies of the
+   private key.
+
+Common failure modes the drill catches:
+
+- Backup hasn't been writing the blob tree (only the DB), and nobody
+  noticed because the cron exits 0.
+- `.env` was never separately backed up; the restored DB can be
+  queried but every encrypted column is opaque.
+- Schema-version drift (dump from PG 17 against PG 15).
+- The age private key was lost between rotations.
+- Latest backup tarball is corrupt at the tail and `tar` silently
+  stops before extracting projects/.
+- The restore script needs a tool (`age`, `pg_restore`, matching PG
+  major) that isn't installed on the fresh target.
+
+If the drill takes longer than your business can tolerate, that's the
+input for the next round of backup-strategy work — not a reason to
+skip the drill.
 
 ## TLS
 

@@ -8,13 +8,22 @@
 #   BACKUP_DIR=/var/backups/flowtex scripts/backup.sh # explicit dir
 #   AWS_S3_BUCKET=my-bucket scripts/backup.sh         # also upload to S3
 #
+# Encryption (strongly recommended for any off-host backup):
+#   BACKUP_AGE_RECIPIENT=age1abc... scripts/backup.sh
+# Pipes the final tarball through `age` (filippo.io/age) before writing.
+# The matching private key (age-keygen output) MUST live off this server
+# — typical pattern: keep it in a password manager and on a USB. Server
+# never holds the decryption key, so a server-compromise does not give
+# the attacker access to the encrypted off-host backups.
+#
 # Required env: PGHOST, PGPORT, PGUSER, PGPASSWORD (or .pgpass), PGDATABASE.
 # Reads .env from the repo root if present.
 #
 # Recommended cron (UTC nightly at 03:30):
-#   30 3 * * * cd /opt/flowtex && BACKUP_DIR=/var/backups/flowtex scripts/backup.sh >>/var/log/flowtex-backup.log 2>&1
+#   30 3 * * * cd /opt/flowtex && BACKUP_DIR=/var/backups/flowtex \
+#     BACKUP_AGE_RECIPIENT=age1... scripts/backup.sh >>/var/log/flowtex-backup.log 2>&1
 #
-# Restore: pg_restore + tar -xzf to projects/.
+# Restore: scripts/restore.sh path/to/flowtex-YYYYMMDD_HHMMSS.tar.gz[.age]
 
 set -euo pipefail
 
@@ -72,16 +81,41 @@ tar --create --gzip --file="$ARCHIVE" -C "$BACKUP_DIR" "flowtex-$TS"
 rm -rf "$TARGET"
 echo "[backup] wrote $ARCHIVE ($(du -h "$ARCHIVE" | cut -f1))"
 
+# ── Optional age encryption (off-host transfer hardening) ────────────
+# Pipe the tarball through `age -r <recipient>` to produce a public-key-
+# encrypted .age file. Recipient is an age public key (age1...); the
+# matching private key lives off this server. Once encryption succeeds
+# we replace the plaintext tarball so it never reaches S3 / remote
+# storage / older backup hosts. A server-compromise therefore exposes
+# at most one in-flight backup, not the historical set.
+FINAL_ARCHIVE="$ARCHIVE"
+if [ -n "${BACKUP_AGE_RECIPIENT:-}" ]; then
+  if ! command -v age >/dev/null 2>&1; then
+    echo "[backup] FATAL: BACKUP_AGE_RECIPIENT set but \`age\` binary not found." >&2
+    echo "[backup] Install with: apt install age   /   brew install age" >&2
+    exit 1
+  fi
+  FINAL_ARCHIVE="$ARCHIVE.age"
+  echo "[backup] encrypting to $FINAL_ARCHIVE"
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$FINAL_ARCHIVE" "$ARCHIVE"
+  rm -f "$ARCHIVE"
+  echo "[backup] encrypted $FINAL_ARCHIVE ($(du -h "$FINAL_ARCHIVE" | cut -f1))"
+else
+  echo "[backup] WARNING: BACKUP_AGE_RECIPIENT not set; this archive is unencrypted." >&2
+  echo "[backup]          Encrypt before shipping off-host: see SECURITY.md \"Backups\"." >&2
+fi
+
 # ── Optional S3 upload ───────────────────────────────────────────────
 if [ -n "${AWS_S3_BUCKET:-}" ]; then
-  echo "[backup] uploading to s3://$AWS_S3_BUCKET/"
-  aws s3 cp "$ARCHIVE" "s3://$AWS_S3_BUCKET/flowtex-$TS.tar.gz"
+  S3_NAME="$(basename "$FINAL_ARCHIVE")"
+  echo "[backup] uploading to s3://$AWS_S3_BUCKET/$S3_NAME"
+  aws s3 cp "$FINAL_ARCHIVE" "s3://$AWS_S3_BUCKET/$S3_NAME"
 fi
 
 # ── Retention: prune local backups older than RETENTION_DAYS ─────────
 if [ "$RETENTION_DAYS" -gt 0 ]; then
   echo "[backup] pruning local backups older than $RETENTION_DAYS days"
-  find "$BACKUP_DIR" -maxdepth 1 -name 'flowtex-*.tar.gz' -mtime "+$RETENTION_DAYS" -delete
+  find "$BACKUP_DIR" -maxdepth 1 \( -name 'flowtex-*.tar.gz' -o -name 'flowtex-*.tar.gz.age' \) -mtime "+$RETENTION_DAYS" -delete
 fi
 
 echo "[backup] done"
