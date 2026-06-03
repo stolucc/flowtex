@@ -219,7 +219,12 @@ router.post('/from-docx', upload.single('file'), async (req, res) => {
 
   try {
     const options = {};
-    if (req.body.docType) options.docType = req.body.docType;
+    // typeof guard: req.body is parsed JSON, so docType could be an object
+    // or array if the caller is hostile; the converter expects a short
+    // string ('thesis', 'article', etc.).
+    if (typeof req.body.docType === 'string' && req.body.docType.length <= 64) {
+      options.docType = req.body.docType;
+    }
     options.signal = abortController.signal;
     options.onProgress = (message, percent) => {
       sendEvent({ type: 'progress', message, percent });

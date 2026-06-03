@@ -719,7 +719,9 @@ export function initWebSocket(server, app, sessionSecret) {
     wsUniqueUsers: wsConnectionCounts.size,
   });
 
-  // Heartbeat
+  // Heartbeat. .unref() so a lingering WS server in a test process can
+  // still let the event loop exit (the wss.on('close') handler still
+  // clears the timer on a clean shutdown).
   const heartbeatTimer = setInterval(() => {
     for (const ws of wss.clients) {
       if (ws.isAlive === false) {
@@ -729,7 +731,7 @@ export function initWebSocket(server, app, sessionSecret) {
       ws.isAlive = false;
       ws.ping();
     }
-  }, WS_HEARTBEAT_INTERVAL);
+  }, WS_HEARTBEAT_INTERVAL).unref();
 
   wss.on('close', () => clearInterval(heartbeatTimer));
 

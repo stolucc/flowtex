@@ -74,6 +74,6 @@ export function startMentionDigestJob() {
   }
 
   // First flush after 1 minute, then every 5 minutes
-  setTimeout(flush, 60000);
+  setTimeout(flush, 60000).unref();
   setInterval(flush, DIGEST_INTERVAL).unref();
 }

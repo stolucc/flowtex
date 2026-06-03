@@ -1,4 +1,5 @@
 import pg from 'pg';
+import logger from './logger.js';
 
 const pool = new pg.Pool({
   database: process.env.PGDATABASE || 'flowtex',
@@ -798,11 +799,11 @@ function startCleanupJob() {
         )
       `);
     } catch (err) {
-      console.error('DB cleanup error:', err.message);
+      logger.error({ err }, 'DB cleanup error');
     }
   }
   // Run once after 1 minute, then every 6 hours
-  setTimeout(cleanup, 60000);
+  setTimeout(cleanup, 60000).unref();
   setInterval(cleanup, 6 * 60 * 60 * 1000).unref();
 }
 db.startCleanupJob = startCleanupJob;

@@ -21,7 +21,7 @@ setInterval(() => {
   for (const [key, expiry] of usedTotpCodes) {
     if (now > expiry) usedTotpCodes.delete(key);
   }
-  db.run('DELETE FROM used_totp_codes WHERE expires_at < NOW()').catch((e) => console.warn('TOTP cleanup failed:', e.message));
+  db.run('DELETE FROM used_totp_codes WHERE expires_at < NOW()').catch((err) => logger.warn({ err }, 'TOTP cleanup failed'));
 }, 60000).unref();
 
 /** Decrypt an encrypted TOTP secret, falling back to the raw value if decryption fails. */

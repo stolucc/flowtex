@@ -1674,23 +1674,41 @@ async function decrementBlobRefcount(tx, projectId, blobSha256) {
   );
 }
 
+// Postgres unique-constraint violation. The existence pre-check in
+// createFile / renameFile can be raced past by a concurrent client;
+// the UNIQUE(project_id, path) index then fires and pg returns 23505.
+// Catch it and rethrow with a 409 so the user sees "name already in
+// use" instead of a generic 500.
+function isUniqueViolation(err) {
+  return err?.code === '23505';
+}
+const FILE_PATH_TAKEN = () =>
+  Object.assign(new Error('A file with that name already exists'), { status: 409 });
+
 /** Create a new text file in a project (fails if the path already exists). */
 export async function createFile(projectId, filePath, content) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (content && content.length > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
-  if (existing) throw Object.assign(new Error('A file with that name already exists'), { status: 409 });
+  if (existing) throw FILE_PATH_TAKEN();
   const id = uuid();
-  await db.transaction(async (tx) => {
-    await assertFileCountUnderLimit(tx, projectId);
-    await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
-      id,
-      projectId,
-      filePath,
-      content || '',
-    ]);
-    await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
-  });
+  try {
+    await db.transaction(async (tx) => {
+      await assertFileCountUnderLimit(tx, projectId);
+      await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
+        id,
+        projectId,
+        filePath,
+        content || '',
+      ]);
+      await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+    });
+  } catch (err) {
+    // A concurrent createFile / renameFile won the race; surface as 409
+    // instead of bubbling a generic 500.
+    if (isUniqueViolation(err)) throw FILE_PATH_TAKEN();
+    throw err;
+  }
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
@@ -1768,25 +1786,45 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
   return { ok: true, newSnapshot, projectId: file.project_id, authorName, version };
 }
 
-/** Rename/move a file within its project. */
+/** Rename/move a file within its project. Atomic: the path update and
+ *  the main_file pointer follow-up share a single transaction and a
+ *  FOR UPDATE lock on the project row, so a concurrent rename or
+ *  project update can't slip the main_file pointer past us. */
 export async function renameFile(fileId, newPath) {
   if (!isValidFilePath(newPath)) throw new Error('Invalid file path');
-  // Capture the old path BEFORE the rename so we can tell whether this file
-  // was the project's main_file and migrate that pointer to the new path.
-  const before = await db.get('SELECT path, project_id FROM files WHERE id = $1', [fileId]);
-  await db.run('UPDATE files SET path = $1, updated_at = NOW() WHERE id = $2', [newPath, fileId]);
-  const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
-  if (file) {
-    if (before && before.path !== newPath) {
-      // If the file we just renamed is the project's main file, follow the
-      // rename so subsequent compiles still target the right entry point.
-      await db.run(
-        'UPDATE projects SET main_file = $1, updated_at = NOW() WHERE id = $2 AND main_file = $3',
-        [newPath, file.project_id, before.path],
+  let file = null;
+  try {
+    await db.transaction(async (tx) => {
+      // Find the file + lock its project row. SELECT before UPDATE so
+      // we see the prior path; lock prevents another writer from
+      // changing main_file out from under our follow-up.
+      const before = await tx.get(
+        'SELECT path, project_id FROM files WHERE id = $1',
+        [fileId],
       );
-    } else {
-      await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
-    }
+      if (!before) return;
+      await tx.get('SELECT id FROM projects WHERE id = $1 FOR UPDATE', [before.project_id]);
+
+      await tx.run(
+        'UPDATE files SET path = $1, updated_at = NOW() WHERE id = $2',
+        [newPath, fileId],
+      );
+      file = await tx.get('SELECT * FROM files WHERE id = $1', [fileId]);
+
+      if (before.path !== newPath) {
+        // If this file was the project's main_file, follow the rename so
+        // subsequent compiles still target the right entry point.
+        await tx.run(
+          'UPDATE projects SET main_file = $1, updated_at = NOW() WHERE id = $2 AND main_file = $3',
+          [newPath, before.project_id, before.path],
+        );
+      } else {
+        await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [before.project_id]);
+      }
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw FILE_PATH_TAKEN();
+    throw err;
   }
   return file;
 }

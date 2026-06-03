@@ -173,33 +173,45 @@ export async function reconcileOnDiskBlobs() {
         throw err;
       }
 
+      // Filter to only the candidates we'd actually want to consider
+      // (sha-shaped name, past the grace window). Then ask the DB in a
+      // single ANY($1) query which of them have project_blobs rows
+      // rather than one round-trip per file (was an N+1 over the
+      // entire shard, on a sweep that already walks every project).
+      const candidates = [];
       for (const file of files) {
         if (!file.isFile()) continue;
-        if (!SHA256_RE.test(file.name)) continue; // ignore anything weird
+        if (!SHA256_RE.test(file.name)) continue;
         walked += 1;
-
         const filePath = path.join(shardPath, file.name);
         let s;
         try {
           s = await stat(filePath);
-        } catch {
-          continue;
-        }
+        } catch { continue; }
         if (now - s.mtimeMs < RECONCILE_GRACE_MS) continue;
+        candidates.push({ sha256: file.name, filePath });
+      }
 
-        const ref = await db.get(
-          'SELECT 1 FROM project_blobs WHERE project_id = $1 AND sha256 = $2',
-          [projectId, file.name],
+      let referenced;
+      if (candidates.length === 0) {
+        referenced = new Set();
+      } else {
+        const refRows = await db.all(
+          'SELECT sha256 FROM project_blobs WHERE project_id = $1 AND sha256 = ANY($2)',
+          [projectId, candidates.map((c) => c.sha256)],
         );
-        if (ref) continue;
+        referenced = new Set(refRows.map((r) => r.sha256));
+      }
 
+      for (const { sha256, filePath } of candidates) {
+        if (referenced.has(sha256)) continue;
         try {
           await unlink(filePath);
           orphaned += 1;
         } catch (err) {
           if (!err || err.code !== 'ENOENT') {
             logger.warn(
-              { err, projectId, sha256: file.name },
+              { err, projectId, sha256 },
               'blobGc: failed to unlink reconcile-orphan blob',
             );
           }

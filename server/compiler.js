@@ -753,9 +753,25 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
   }
 }
 
-// Cache of content hashes to skip unchanged file writes
-// Key: "projectId:path" → md5 hex digest
+// Cache of content hashes to skip unchanged file writes.
+// Key: "projectId:path" → md5 hex digest. Bounded so the map can't
+// grow without limit on a long-running instance with many projects.
+// Insertion order = age (Map iteration order in V8); we evict the
+// oldest when we cross FILE_HASH_CACHE_MAX. 50 000 entries ≈ a few
+// MB at typical key/value sizes, plenty for hundreds of active
+// projects. Hits don't refresh entry age — the cache only matters
+// for "did this file change since I last wrote it", which doesn't
+// benefit from LRU touch.
+const FILE_HASH_CACHE_MAX = 50_000;
 const fileHashCache = new Map();
+
+function setFileHash(key, hash) {
+  if (!fileHashCache.has(key) && fileHashCache.size >= FILE_HASH_CACHE_MAX) {
+    const oldest = fileHashCache.keys().next().value;
+    if (oldest !== undefined) fileHashCache.delete(oldest);
+  }
+  fileHashCache.set(key, hash);
+}
 
 /** Compute an MD5 hex digest of content for change detection. */
 function contentHash(content) {
@@ -831,8 +847,16 @@ export async function syncFilesToDisk(projectId, files) {
     const filePath = safePath(projectDir, file.path);
     // Bytes come via loadFileBytes so we transparently handle both legacy
     // base64-in-DB and Phase A.2+ blob-stored binaries. For text rows the
-    // string is returned as-is.
-    const buf = await loadFileBytes(projectId, file);
+    // string is returned as-is. A binary row without binary_sha256 (would
+    // indicate a code-path regression) throws here; skip just that file
+    // with a warning rather than aborting the entire compile.
+    let buf;
+    try {
+      buf = await loadFileBytes(projectId, file);
+    } catch (err) {
+      logger.warn({ err, projectId, path: file.path }, 'syncFilesToDisk: skipping file with unloadable bytes');
+      return;
+    }
     const hash = contentHash(typeof buf === 'string' ? buf : buf || '');
     const cacheKey = projectId + ':' + file.path;
 
@@ -860,7 +884,7 @@ export async function syncFilesToDisk(projectId, files) {
     } finally {
       await handle.close();
     }
-    fileHashCache.set(cacheKey, hash);
+    setFileHash(cacheKey, hash);
   });
 
   await Promise.all(writes);
