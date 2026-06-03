@@ -7,6 +7,7 @@ import { sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailVerification
 import logger from '../logger.js';
 import db from '../db.js';
 import * as authService from '../services/authService.js';
+import { getUserUsage } from '../services/quotas.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 import validateBody from '../middleware/validateBody.js';
@@ -249,6 +250,15 @@ router.get('/me', requireAuth, async (req, res) => {
   if (!user) return res.status(401).json({ error: 'User not found' });
   res.set({ 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' });
   res.json(user);
+});
+
+/** GET /api/auth/me/usage -- Return the current user's resource usage
+ *  and the static caps that gate writes. Used by the account-settings
+ *  storage pane and by quota-aware client UI. */
+router.get('/me/usage', requireAuth, async (req, res) => {
+  const usage = await getUserUsage(req.session.userId);
+  res.set({ 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' });
+  res.json(usage);
 });
 
 /** POST /api/auth/totp/setup -- Generate a TOTP secret and QR code for MFA enrollment. */

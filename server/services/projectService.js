@@ -29,6 +29,11 @@ import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 import { writeBlob } from './blobStore.js';
 import { loadFileBytes } from './fileBytes.js';
+import {
+  assertProjectCountUnderLimit,
+  assertFileCountUnderLimit,
+  assertBlobBytesUnderLimitForProject,
+} from './quotas.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
@@ -154,6 +159,7 @@ export async function listUserProjects(userId) {
 
 /** Create a new project from a user/preloaded template. */
 export async function createProjectFromTemplate(userId, templateId, name) {
+  await assertProjectCountUnderLimit(userId);
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
 
@@ -181,6 +187,7 @@ export async function createProjectFromTemplate(userId, templateId, name) {
         const content = tmpl.preloaded
           ? file.content.replace(/__TITLE__/g, safeName).replace(/__AUTHOR__/g, '')
           : file.content;
+        await assertFileCountUnderLimit(tx, id);
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
           [uuid(), id, file.path, content],
@@ -417,6 +424,7 @@ export async function setTemplateTags(templateId, tagIds) {
 
 /** Create a new blank project with a default main.tex file. */
 export async function createProject(userId, name) {
+  await assertProjectCountUnderLimit(userId);
   const id = uuid();
   const fileId = uuid();
   const safeName = (name || 'Untitled').slice(0, 500).replace(/[\\{}$&#^_%~\r\n]/g, '');
@@ -453,6 +461,7 @@ Hello from FlowTex!
 
 /** Create a new project by extracting files from an uploaded ZIP buffer. */
 export async function createProjectFromZip(userId, buffer, originalName) {
+  await assertProjectCountUnderLimit(userId);
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
@@ -508,6 +517,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
         }
       } else {
         const id = uuid();
+        await assertFileCountUnderLimit(tx, projectId);
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
           [id, projectId, entryPath, rawData.toString('utf8')],
@@ -523,6 +533,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
 
 /** Create a new project by converting a .docx file to LaTeX using the custom converter. */
 export async function createProjectFromDocx(userId, buffer, originalName, options = {}) {
+  await assertProjectCountUnderLimit(userId);
   const onProgress = options.onProgress || (() => {});
   // Pass progress callback to converter — it reports 5-75%
   options.onProgress = onProgress;
@@ -619,6 +630,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
           logger.warn({ err, filePath }, 'createProjectFromDocx: skipping bad media file');
         }
       } else {
+        await assertFileCountUnderLimit(tx, projectId);
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
           [uuid(), projectId, filePath, mf.data.toString('utf8')],
@@ -1232,6 +1244,7 @@ export async function uploadZipToProject(projectId, buffer) {
           created.push({ id: existing.id, path: entryPath, updated: true });
         } else {
           const id = uuid();
+          await assertFileCountUnderLimit(tx, projectId);
           await tx.run(
             'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
             [id, projectId, entryPath, utf],
@@ -1328,6 +1341,7 @@ export async function deleteProject(projectId) {
  *     copy; the *current* state of every file is preserved verbatim via
  *     the files INSERTs below. */
 export async function copyProject(projectId, userId, newName, { includeMembers = false } = {}) {
+  await assertProjectCountUnderLimit(userId);
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
   const newId = uuid();
@@ -1403,6 +1417,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
       } else {
         const newFileId = uuid();
         fileIdMap.set(file.id, newFileId);
+        await assertFileCountUnderLimit(tx, newId);
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary, tc_marks) VALUES ($1, $2, $3, $4, FALSE, $5)',
           [newFileId, newId, file.path, file.content, JSON.stringify(file.tc_marks ?? [])],
@@ -1587,6 +1602,19 @@ async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
   if (denied) throw new Error(`File type not allowed: ${denied}`);
   if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
 
+  const existing = await tx.get(
+    'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
+    [projectId, filePath],
+  );
+
+  // Quota gates BEFORE writeBlob so we don't litter the disk with
+  // blobs that can't be referenced. assertFileCountUnderLimit only
+  // applies when this is a new row (replace doesn't grow the count).
+  if (!existing) {
+    await assertFileCountUnderLimit(tx, projectId);
+  }
+  await assertBlobBytesUnderLimitForProject(projectId, buffer.length);
+
   const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
   const mime = mimeFromPath(filePath);
 
@@ -1598,10 +1626,6 @@ async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
     [projectId, sha256, size],
   );
 
-  const existing = await tx.get(
-    'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
-    [projectId, filePath],
-  );
   let fileId;
   if (existing) {
     if (existing.binary_sha256 && existing.binary_sha256 !== sha256) {
@@ -1649,13 +1673,16 @@ export async function createFile(projectId, filePath, content) {
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
   if (existing) throw Object.assign(new Error('A file with that name already exists'), { status: 409 });
   const id = uuid();
-  await db.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
-    id,
-    projectId,
-    filePath,
-    content || '',
-  ]);
-  await db.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+  await db.transaction(async (tx) => {
+    await assertFileCountUnderLimit(tx, projectId);
+    await tx.run('INSERT INTO files (id, project_id, path, content) VALUES ($1, $2, $3, $4)', [
+      id,
+      projectId,
+      filePath,
+      content || '',
+    ]);
+    await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+  });
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
