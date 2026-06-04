@@ -4667,6 +4667,12 @@ html {
      either way. */
   overflow: visible;
   flex-shrink: 0;
+  /* .comments-toggle-btn is `display: flex` with the default `row`
+     direction (intended for the bare toggle); stack children in a
+     column on the rail variant so the count badge lands under the
+     speech-bubble icon instead of beside it. */
+  flex-direction: column;
+  align-items: center;
 }
 
 .comments-rail-icon {
