@@ -5,7 +5,7 @@ import cookie from 'cookie';
 import signature from 'cookie-signature';
 import logger from './logger.js';
 import db from './db.js';
-import { UUID_RE } from './middleware/auth.js';
+import { UUID_RE, isProjectMember } from './middleware/auth.js';
 import { recordMentions } from './utils/mentions.js';
 
 // sendToUser is a closure inside createWebSocketServer; the chat handler
@@ -848,8 +848,20 @@ export function initWebSocket(server, app, sessionSecret) {
 
         if (!state.projectId || !state.clientEntry) return;
 
-        // Viewers can only send cursor updates
-        if (state.memberRole === 'viewer' && writeTypes.has(msg.type)) return;
+        // Viewers can only send cursor updates. For write-types we
+        // re-check membership against the 5 s-TTL cache (cheap when
+        // hot, refreshes after invalidateMembership). This closes the
+        // "user role downgraded while WS open" gap without making the
+        // cursor path pay for the lookup — cursor frames are by far
+        // the chattiest message type and the membership was already
+        // verified at join time.
+        if (writeTypes.has(msg.type)) {
+          const member = await isProjectMember(state.projectId, state.authenticatedUserId);
+          if (!member || member.role === 'viewer') return;
+          // Refresh state.memberRole so a future read of it stays current
+          // (e.g. handlers that gate on owner-only sub-actions).
+          state.memberRole = member.role;
+        }
 
         const handler = messageHandlers[msg.type];
         if (handler) {

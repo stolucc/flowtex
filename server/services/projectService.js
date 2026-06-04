@@ -1549,26 +1549,40 @@ function mimeFromPath(filePath) {
   return BLOB_MIME_MAP[ext] || 'application/octet-stream';
 }
 
-/** Upload or replace a binary file (image, font, etc.) in a project. */
+/** Upload or replace a binary file (image, font, etc.) in a project.
+ *  The slow part (writeBlob streaming to disk) runs OUTSIDE the DB
+ *  transaction so the pg pool isn't held during a multi-MB write. The
+ *  tx then does only the (fast) bookkeeping: quota gates, project_blobs
+ *  upsert, files insert/update. If the tx rolls back, the blob is
+ *  orphaned on disk and the GC sweep collects it.
+ */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
-  // Snapshot whether the row pre-existed before we touch it; the API
-  // contract returns { updated: true } on replace.
+  // 1. Cheap validation up front, before we touch the disk.
+  if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
+  const denied = deniedBinaryExtension(filePath);
+  if (denied) throw new Error(`File type not allowed: ${denied}`);
+  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
+
+  // 2. Snapshot existence for the API contract ({ updated: true } on replace).
   const preExisting = await db.get(
     'SELECT 1 FROM files WHERE project_id = $1 AND path = $2',
     [projectId, filePath],
   );
 
+  // 3. Write the bytes to disk OUTSIDE any tx — no pg connection held.
+  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
+  const mime = mimeFromPath(filePath);
+
+  // 4. Brief tx for the DB-only bookkeeping. If it rolls back (quota
+  //    reject, unique-violation race), the blob is orphaned on disk
+  //    and blobGc.sweepOrphanRefcounts picks it up.
   try {
     await db.transaction(async (tx) => {
-      await writeBinaryFileInTx(tx, projectId, filePath, buffer);
+      await landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime, buffer.length);
       await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
     });
   } catch (err) {
-    // Transaction rolled back. The blob is on disk but un-refcounted
-    // (no project_blobs row was committed). The GC sweep will collect
-    // orphans. Don't attempt eager unlink — per-project dedup may have
-    // pointed us at a blob that another file in this project still uses.
-    logger.warn({ err, projectId }, 'uploadBinaryFile DB transaction failed; orphan blob will be GC-swept');
+    logger.warn({ err, projectId, sha256 }, 'uploadBinaryFile DB tx failed; orphan blob will be GC-swept');
     throw err;
   }
 
@@ -1581,42 +1595,30 @@ export async function uploadBinaryFile(projectId, filePath, buffer) {
 }
 
 /**
- * Land a binary file in the project blob store + insert/replace the
- * files row, all inside the caller's transaction. Used by every binary
- * write path: upload, ZIP import, DOCX import, template instantiation,
- * project duplication.
+ * DB-only bookkeeping for an already-written blob: quota gates,
+ * project_blobs upsert/refcount, files insert or replace. The blob
+ * bytes are assumed to be on disk (sha256/size from a prior
+ * writeBlob call); this helper does no I/O outside the tx so the pg
+ * connection is held only for the (fast) DB work.
  *
- * The blob is written to disk BEFORE the DB write (writeBlob runs
- * outside the transaction). If the surrounding transaction rolls back,
- * the blob is orphaned on disk — the GC sweep (blobGc.js) collects it.
- *
- * @param {object} tx        Active transaction handle (db.transaction).
- * @param {string} projectId
- * @param {string} filePath  Validated upstream by isValidFilePath().
- * @param {Buffer} buffer
- * @returns {Promise<{ id: string, sha256: string, size: number, mime: string }>}
+ * The original buffer length is passed separately for the quota
+ * check — the on-disk blob's `size` is what we already wrote, but
+ * the quota assertion needs to know the upload's contribution.
  */
-async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
-  if (!isValidFilePath(filePath)) throw new Error(`Invalid file path: ${filePath}`);
-  const denied = deniedBinaryExtension(filePath);
-  if (denied) throw new Error(`File type not allowed: ${denied}`);
-  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
-
+async function landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime, uploadBytes) {
   const existing = await tx.get(
     'SELECT id, binary_sha256 FROM files WHERE project_id = $1 AND path = $2',
     [projectId, filePath],
   );
 
-  // Quota gates BEFORE writeBlob so we don't litter the disk with
-  // blobs that can't be referenced. assertFileCountUnderLimit only
-  // applies when this is a new row (replace doesn't grow the count).
+  // Quota gates. assertFileCountUnderLimit only applies when this is a
+  // new row (replace doesn't grow the count). assertBlobBytesUnderLimit
+  // uses the upload bytes so the same-bytes-different-blob case is
+  // accounted at the requested size, not the deduped on-disk size.
   if (!existing) {
     await assertFileCountUnderLimit(tx, projectId);
   }
-  await assertBlobBytesUnderLimitForProject(tx, projectId, buffer.length);
-
-  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
-  const mime = mimeFromPath(filePath);
+  await assertBlobBytesUnderLimitForProject(tx, projectId, uploadBytes);
 
   // Refcount accounting. The file row only gains a NEW reference when it
   // wasn't already pointing at this blob. Bumping unconditionally would
@@ -1661,6 +1663,26 @@ async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
     );
   }
   return { id: fileId, sha256, size, mime };
+}
+
+/**
+ * Bulk-import helper: validate, writeBlob, and DB-land all in one go,
+ * INSIDE the caller's transaction. Used by createProjectFromZip /
+ * createProjectFromDocx / createProjectFromTemplate / copyProject etc.
+ * — they iterate many files inside a single tx, so this helper keeps
+ * that pattern. For per-HTTP-upload (`uploadBinaryFile`), use the
+ * split path (writeBlob outside, landBlobReferenceInTx inside) so the
+ * pg pool isn't held during the multi-MB write.
+ */
+async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
+  if (!isValidFilePath(filePath)) throw new Error(`Invalid file path: ${filePath}`);
+  const denied = deniedBinaryExtension(filePath);
+  if (denied) throw new Error(`File type not allowed: ${denied}`);
+  if (buffer.length > 50 * 1024 * 1024) throw new Error('File too large (max 50MB)');
+
+  const { sha256, size } = await writeBlob(projectId, Readable.from([buffer]));
+  const mime = mimeFromPath(filePath);
+  return landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime, buffer.length);
 }
 
 // Helper for the file-delete path: decrement the refcount on the blob

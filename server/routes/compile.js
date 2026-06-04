@@ -313,7 +313,7 @@ router.get('/:projectId/pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
+  const project = await db.get('SELECT name, main_file FROM projects WHERE id = $1', [projectId]);
   const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');
   const tc = req.query.tc === '1';
   const userSuffix = makeUserSuffix(req.session.userId, { tc });
@@ -325,6 +325,18 @@ router.get('/:projectId/pdf', async (req, res) => {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   const relPath = baseName + userSuffix + '.pdf';
 
+  // Suggest a download filename derived from the project name so a user
+  // saving the PDF from the inline viewer (or hitting /pdf directly)
+  // gets "<project>.pdf" instead of "pdf". Whitespace + punctuation are
+  // squashed to underscores; cap at 32 chars to keep the name shell-
+  // friendly. inline disposition keeps the PdfViewer in-browser render
+  // working — only the Save button picks up the filename.
+  const dlBase = (project?.name || 'project').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'project';
+  const dlName = dlBase + (tc ? '_tracked-changes' : '') + '.pdf';
+  res.set(
+    'Content-Disposition',
+    `inline; filename="${dlName}"; filename*=UTF-8''${encodeURIComponent(dlName)}`,
+  );
   res.set('Cache-Control', 'no-store');
   res.sendFile(relPath, { root: projectDir }, (err) => {
     if (err) {

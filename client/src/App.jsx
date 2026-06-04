@@ -1430,6 +1430,7 @@ function AppInner() {
             <PdfViewer
               ref={pdfRef}
               url={pdfUrl}
+              projectName={project?.name}
               compiling={compiling}
               compileChoice={compileChoice}
               localCompileFeatureOn={!!user?.serverFeatures?.localCompile}

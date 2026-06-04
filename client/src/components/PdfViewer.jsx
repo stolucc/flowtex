@@ -318,6 +318,7 @@ function HelpPanel({ help, onBack }) {
 const PdfViewer = forwardRef(function PdfViewer(
   {
     url,
+    projectName,
     compiling,
     compileChoice,
     // Phase 3b1: per-project compile-location toggle on the PDF dropdown.
@@ -1089,11 +1090,20 @@ const PdfViewer = forwardRef(function PdfViewer(
             </span>
           </button>
         )}
-        {url && (
-          <a className="pdf-header-btn pdf-download-btn" href={url} download="output.pdf" title="Download PDF">
-            <DownloadIcon />
-          </a>
-        )}
+        {url && (() => {
+          // Build a filename from the project name so the download is
+          // recognizable (vs. "output.pdf"). Punctuation/whitespace
+          // squashed to underscores, capped at 32 chars to keep the
+          // name shell-friendly. Matches the server's Content-Disposition
+          // suggestion for direct /pdf opens.
+          const cleaned = (projectName || 'project').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'project';
+          const dlName = cleaned + (showTrackedChangesInPdf ? '_tracked-changes' : '') + '.pdf';
+          return (
+            <a className="pdf-header-btn pdf-download-btn" href={url} download={dlName} title="Download PDF">
+              <DownloadIcon />
+            </a>
+          );
+        })()}
         {numPages > 0 && (
           <div className="pdf-page-nav">
             <button className="pdf-zoom-btn" onClick={goToPrevPage} title="Previous page" disabled={currentPage <= 1}>
