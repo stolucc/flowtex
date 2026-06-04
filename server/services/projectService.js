@@ -2125,7 +2125,7 @@ export async function inviteMember(projectId, email, role, inviterId) {
     `SELECT
        (SELECT COUNT(*) FROM project_members WHERE project_id = $1) +
        (SELECT COUNT(*) FROM project_invitations
-         WHERE project_id = $1 AND status = 'pending') AS total`,
+         WHERE project_id = $1 AND status = 'pending' AND expires_at > NOW()) AS total`,
     [projectId],
   );
   const total = parseInt(sizeRow?.total || 0, 10);
@@ -2140,7 +2140,7 @@ export async function inviteMember(projectId, email, role, inviterId) {
   const assignedRole = VALID_ROLES.includes(role) ? role : 'editor';
 
   const existingInvite = await db.get(
-    "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending'",
+    "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending' AND expires_at > NOW()",
     [projectId, normalizedEmail],
   );
   if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
@@ -2162,7 +2162,8 @@ export async function inviteMember(projectId, email, role, inviterId) {
     `INSERT INTO project_invitations (id, project_id, email, role, inviter_id, decline_token_hash)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (project_id, email)
-       DO UPDATE SET role = $4, inviter_id = $5, status = 'pending', decline_token_hash = $6`,
+       DO UPDATE SET role = $4, inviter_id = $5, status = 'pending',
+                     decline_token_hash = $6, expires_at = NOW() + INTERVAL '30 days'`,
     [id, projectId, normalizedEmail, assignedRole, inviterId, declineTokenHash],
   );
   return {
@@ -2195,7 +2196,7 @@ export async function getMyInvitations(userId) {
      FROM project_invitations pi
      JOIN projects p ON p.id = pi.project_id
      JOIN users u ON u.id = pi.inviter_id
-     WHERE LOWER(pi.email) = LOWER($1) AND pi.status = 'pending'
+     WHERE LOWER(pi.email) = LOWER($1) AND pi.status = 'pending' AND pi.expires_at > NOW()
      ORDER BY pi.created_at DESC`,
     [user.email],
   );
@@ -2216,6 +2217,9 @@ export async function acceptInvitation(inviteId, userId) {
   if (!inviteRaw || inviteRaw.status !== 'pending') {
     throw Object.assign(new Error('Invitation not found'), { status: 404 });
   }
+  if (inviteRaw.expires_at && new Date(inviteRaw.expires_at).getTime() <= Date.now()) {
+    throw Object.assign(new Error('Invitation expired'), { status: 410 });
+  }
   if ((inviteRaw.email || '').toLowerCase() !== user.email.toLowerCase()) {
     throw Object.assign(new Error('Invitation not found'), { status: 404, emailMismatch: true });
   }
@@ -2223,17 +2227,14 @@ export async function acceptInvitation(inviteId, userId) {
 
   await db.transaction(async (tx) => {
     await tx.run("UPDATE project_invitations SET status = 'accepted' WHERE id = $1", [invite.id]);
-    const existing = await tx.get('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [
-      invite.project_id,
-      user.id,
-    ]);
-    if (!existing) {
-      await tx.run('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [
-        invite.project_id,
-        user.id,
-        invite.role,
-      ]);
-    }
+    // ON CONFLICT closes the existence-check/insert race: two parallel
+    // accepts (e.g. double-click on the dashboard banner) used to make
+    // one of them surface as a 500 unique-violation.
+    await tx.run(
+      `INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)
+       ON CONFLICT (project_id, user_id) DO NOTHING`,
+      [invite.project_id, user.id, invite.role],
+    );
   });
   invalidateMembership(invite.project_id, user.id);
   return { ok: true, projectId: invite.project_id };
@@ -2244,7 +2245,7 @@ export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
   const invite = await db.get(
-    "SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'",
+    "SELECT * FROM project_invitations WHERE id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending' AND expires_at > NOW()",
     [inviteId, user.email],
   );
   if (!invite) throw Object.assign(new Error('Invitation not found'), { status: 404 });
@@ -2256,7 +2257,8 @@ export async function getProjectInvitations(projectId) {
   return db.all(
     `SELECT pi.id, pi.email, pi.role, pi.status, pi.created_at, u.name AS inviter_name
      FROM project_invitations pi JOIN users u ON u.id = pi.inviter_id
-     WHERE pi.project_id = $1 AND pi.status = 'pending' ORDER BY pi.created_at DESC`,
+     WHERE pi.project_id = $1 AND pi.status = 'pending' AND pi.expires_at > NOW()
+     ORDER BY pi.created_at DESC`,
     [projectId],
   );
 }

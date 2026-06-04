@@ -594,7 +594,14 @@ router.get('/audit-log/export', async (req, res) => {
 
   const escapeCsv = (val) => {
     if (val == null) return '';
-    const s = String(val);
+    let s = String(val);
+    // Neutralise spreadsheet-formula injection: cells starting with
+    // =/+/-/@/TAB/CR are interpreted as formulas by Excel and Calc.
+    // User-controlled data lands in `detail` (e.g. MFA trust-device
+    // User-Agent), so an admin opening the export could execute
+    // attacker-supplied formulas. Prefix a single quote — the
+    // standard OWASP CSV-injection mitigation.
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
   };
 

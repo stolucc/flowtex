@@ -481,6 +481,13 @@ async function initSchema() {
     -- the in-app accept/decline flow and don't need a token.
     ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS decline_token_hash TEXT;
 
+    -- Invitation expiry. Pending invitations should not live forever:
+    -- a screenshot or leaked email from years ago would otherwise
+    -- still be a valid acceptance token. 30 days matches the
+    -- "expected response window" for collaborative work.
+    ALTER TABLE project_invitations
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days');
+
     CREATE TABLE IF NOT EXISTS tags (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -837,6 +844,14 @@ function startCleanupJob() {
       await pool.query('DELETE FROM password_reset_tokens WHERE expires_at < NOW()');
       // Expired email verification tokens
       await pool.query('DELETE FROM email_verification_tokens WHERE expires_at < NOW()');
+      // Expired pending project invitations (mark, then purge after a
+      // grace period so audit trails can still join on the row briefly).
+      await pool.query(
+        "UPDATE project_invitations SET status = 'expired' WHERE status = 'pending' AND expires_at < NOW()",
+      );
+      await pool.query(
+        "DELETE FROM project_invitations WHERE status = 'expired' AND expires_at < NOW() - INTERVAL '7 days'",
+      );
       // Project snapshots: keep max 100 per project, delete oldest beyond that
       await pool.query(`
         DELETE FROM project_snapshots WHERE id IN (

@@ -42,7 +42,16 @@ router.patch('/:id', async (req, res) => {
   const { name, color } = req.body;
   const tag = await db.get('SELECT * FROM tags WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
   if (!tag) return res.status(404).json({ error: 'Tag not found' });
-  if (name !== undefined) await db.run('UPDATE tags SET name = $1 WHERE id = $2', [name.trim(), req.params.id]);
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name required' });
+    if (name.length > 100) return res.status(400).json({ error: 'Tag name too long' });
+    try {
+      await db.run('UPDATE tags SET name = $1 WHERE id = $2', [name.trim(), req.params.id]);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
+      throw err;
+    }
+  }
   if (color !== undefined && validColor(color))
     await db.run('UPDATE tags SET color = $1 WHERE id = $2', [color, req.params.id]);
   res.json({ ok: true });
