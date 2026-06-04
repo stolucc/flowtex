@@ -11,6 +11,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GIT_REPOS_DIR = path.join(__dirname, '..', '..', 'git-repos');
 
 import { BINARY_EXTS } from './fileTypes.js';
+import { loadFileBytes } from '../services/fileBytes.js';
+import { writeBinaryFileInTx, decrementBlobRefcount } from '../services/projectService.js';
 
 const syncLocks = new Map();
 
@@ -83,7 +85,13 @@ async function clearRemoteAuth(git) {
 
 /** Write all project files from the database to the local git repo directory. */
 async function writeProjectFilesToDisk(projectId, repoDir) {
-  const files = await db.all('SELECT path, content, is_binary FROM files WHERE project_id = $1', [projectId]);
+  // SELECT binary_sha256 so loadFileBytes can resolve binary rows via
+  // the blob store. Pre-migration this column didn't exist; post-C.3
+  // binary rows have empty content here and the bytes live on disk.
+  const files = await db.all(
+    'SELECT path, content, is_binary, binary_sha256 FROM files WHERE project_id = $1',
+    [projectId],
+  );
 
   // Remove existing files (except .git)
   for (const entry of fs.readdirSync(repoDir)) {
@@ -97,10 +105,15 @@ async function writeProjectFilesToDisk(projectId, repoDir) {
     if (!filePath.startsWith(repoDir + path.sep) && filePath !== repoDir) continue;
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (file.is_binary && file.content) {
-      fs.writeFileSync(filePath, Buffer.from(file.content, 'base64'));
-    } else {
-      fs.writeFileSync(filePath, file.content || '');
+    // loadFileBytes returns a Buffer for binary rows (reads from the
+    // blob store via binary_sha256) and a string for text rows. Pre-
+    // migration this used Buffer.from(content, 'base64') for binaries,
+    // which silently wrote empty files post-C.3 because content was ''.
+    try {
+      const bytes = await loadFileBytes(projectId, file);
+      fs.writeFileSync(filePath, bytes ?? '');
+    } catch (err) {
+      logger.warn({ err, projectId, path: file.path }, 'gitSync: skipping file with unloadable bytes');
     }
   }
 }
@@ -141,28 +154,43 @@ async function readDiskFilesToProject(projectId, repoDir) {
       const fullPath = path.join(repoDir, relPath);
       const ext = relPath.substring(relPath.lastIndexOf('.')).toLowerCase();
       const isBinary = BINARY_EXTS.has(ext);
-      const content = isBinary ? fs.readFileSync(fullPath).toString('base64') : fs.readFileSync(fullPath, 'utf8');
 
-      if (dbPathMap.has(relPath)) {
-        await tx.run('UPDATE files SET content = $1, is_binary = $2, updated_at = NOW() WHERE id = $3', [
-          content,
-          isBinary,
+      if (isBinary) {
+        // Land binaries through the blob store so files.binary_sha256
+        // is populated and /raw can serve them. Pre-migration this
+        // wrote base64 into files.content which the post-C.3 read path
+        // refuses.
+        const buf = fs.readFileSync(fullPath);
+        try {
+          await writeBinaryFileInTx(tx, projectId, relPath, buf);
+        } catch (err) {
+          logger.warn({ err, projectId, path: relPath }, 'gitSync: skipping unimportable binary');
+        }
+      } else if (dbPathMap.has(relPath)) {
+        await tx.run('UPDATE files SET content = $1, is_binary = FALSE, updated_at = NOW() WHERE id = $2', [
+          fs.readFileSync(fullPath, 'utf8'),
           dbPathMap.get(relPath),
         ]);
       } else {
-        await tx.run('INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, $5)', [
-          uuid(),
-          projectId,
-          relPath,
-          content,
-          isBinary,
-        ]);
+        await tx.run(
+          'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
+          [uuid(), projectId, relPath, fs.readFileSync(fullPath, 'utf8')],
+        );
       }
     }
 
-    // Delete DB files no longer on disk
+    // Delete DB files no longer on disk. For binary rows, decrement the
+    // blob refcount inside the same tx so the GC sweep can collect the
+    // now-unreferenced blob.
     for (const [dbPath, dbId] of dbPathMap) {
       if (!diskPaths.has(dbPath)) {
+        const row = await tx.get(
+          'SELECT binary_sha256 FROM files WHERE id = $1',
+          [dbId],
+        );
+        if (row?.binary_sha256) {
+          await decrementBlobRefcount(tx, projectId, row.binary_sha256);
+        }
         await tx.run('DELETE FROM files WHERE id = $1', [dbId]);
       }
     }

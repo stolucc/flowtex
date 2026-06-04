@@ -152,55 +152,132 @@ router.post('/restore/:snapshotId', async (req, res) => {
     ? await db.get('SELECT id, name FROM users WHERE id = $1', [req.session.userId])
     : null;
 
-  // First, create a snapshot of the current state so the restore can be undone
+  // F1 of the migration audit: snapshots now capture binary_sha256 +
+  // size + mime; each unique binary blob a snapshot references is
+  // INSERT'd into snapshot_blob_refs so the trigger keeps
+  // project_blobs.ref_count above zero for the lifetime of the
+  // snapshot. Without this, the blob would be GC'd and the snapshot
+  // become unrestorable.
+  async function createSnapshotWithRefs(tx, files, label) {
+    const snapshotId = uuid();
+    const compressed = gzipSync(Buffer.from(JSON.stringify({ files }), 'utf8'));
+    await tx.run(
+      'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
+      [snapshotId, projectId, compressed, user?.id || null, user?.name || 'Unknown', label],
+    );
+    const uniqueSha = new Set(
+      files.filter((f) => f.is_binary && f.binary_sha256).map((f) => f.binary_sha256),
+    );
+    for (const sha of uniqueSha) {
+      await tx.run(
+        'INSERT INTO snapshot_blob_refs (snapshot_id, project_id, sha256) VALUES ($1, $2, $3)',
+        [snapshotId, projectId, sha],
+      );
+    }
+  }
+
+  // First, create a snapshot of the current state so the restore can be undone.
   const currentFiles = await db.all(
-    'SELECT id, path, content, is_binary FROM files WHERE project_id = $1 ORDER BY path',
+    'SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime FROM files WHERE project_id = $1 ORDER BY path',
     [projectId],
   );
-  const preRestorePayload = JSON.stringify({ files: currentFiles });
-  const preRestoreCompressed = gzipSync(Buffer.from(preRestorePayload, 'utf8'));
-  await db.run(
-    'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
-    [uuid(), projectId, preRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Before restore'],
-  );
+  await db.transaction(async (tx) => {
+    await createSnapshotWithRefs(tx, currentFiles, 'Before restore');
+  });
 
   // Decompress the target snapshot
   const target = decompressSnapshot(snap.data);
-  const targetFileIds = new Set(target.files.map((f) => f.id));
-  const currentFileIds = new Set(currentFiles.map((f) => f.id));
+  const currentById = new Map(currentFiles.map((f) => [f.id, f]));
+  const targetById = new Map(target.files.map((f) => [f.id, f]));
 
   await db.transaction(async (tx) => {
-    // Delete files that don't exist in the target snapshot
+    // 1. Delete files in current but not target. Drop the blob ref so the
+    //    refcount stays accurate; the snapshot still holds its own ref
+    //    via snapshot_blob_refs (created in the pre-restore step above).
     for (const cf of currentFiles) {
-      if (!targetFileIds.has(cf.id)) {
+      if (!targetById.has(cf.id)) {
+        if (cf.is_binary && cf.binary_sha256) {
+          await tx.run(
+            'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
+            [projectId, cf.binary_sha256],
+          );
+        }
         await tx.run('DELETE FROM files WHERE id = $1', [cf.id]);
       }
     }
 
-    // Restore/create each file from the snapshot
+    // 2. For each file in the target: insert or update, with refcount
+    //    deltas that account for binary <-> text transitions and
+    //    blob-sha changes between current and target.
     for (const f of target.files) {
-      if (currentFileIds.has(f.id)) {
-        await tx.run('UPDATE files SET content = $1, path = $2, updated_at = NOW() WHERE id = $3', [
-          f.content,
-          f.path,
-          f.id,
-        ]);
+      const cur = currentById.get(f.id);
+      const targetIsBinary = !!(f.is_binary && f.binary_sha256);
+
+      // Refcount accounting comes before the row write so the
+      // refcount invariant holds even if the write below errors out
+      // (Postgres rolls the whole tx back together).
+      if (cur) {
+        const curIsBinary = !!(cur.is_binary && cur.binary_sha256);
+        if (targetIsBinary && (!curIsBinary || cur.binary_sha256 !== f.binary_sha256)) {
+          await tx.run(
+            'UPDATE project_blobs SET ref_count = ref_count + 1 WHERE project_id = $1 AND sha256 = $2',
+            [projectId, f.binary_sha256],
+          );
+        }
+        if (curIsBinary && (!targetIsBinary || cur.binary_sha256 !== f.binary_sha256)) {
+          await tx.run(
+            'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
+            [projectId, cur.binary_sha256],
+          );
+        }
+      } else if (targetIsBinary) {
+        await tx.run(
+          'UPDATE project_blobs SET ref_count = ref_count + 1 WHERE project_id = $1 AND sha256 = $2',
+          [projectId, f.binary_sha256],
+        );
+      }
+
+      if (cur) {
+        if (targetIsBinary) {
+          await tx.run(
+            `UPDATE files SET content = '', path = $1, is_binary = TRUE,
+                              binary_sha256 = $2, binary_size = $3, binary_mime = $4,
+                              updated_at = NOW()
+                          WHERE id = $5`,
+            [f.path, f.binary_sha256, f.binary_size, f.binary_mime, f.id],
+          );
+        } else {
+          await tx.run(
+            `UPDATE files SET content = $1, path = $2, is_binary = FALSE,
+                              binary_sha256 = NULL, binary_size = NULL, binary_mime = NULL,
+                              updated_at = NOW()
+                          WHERE id = $3`,
+            [f.content ?? '', f.path, f.id],
+          );
+        }
+      } else if (targetIsBinary) {
+        await tx.run(
+          `INSERT INTO files (id, project_id, path, content, is_binary,
+                              binary_sha256, binary_size, binary_mime,
+                              created_at, updated_at)
+           VALUES ($1, $2, $3, '', TRUE, $4, $5, $6, NOW(), NOW())`,
+          [f.id, projectId, f.path, f.binary_sha256, f.binary_size, f.binary_mime],
+        );
       } else {
         await tx.run(
-          'INSERT INTO files (id, project_id, path, content, is_binary, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())',
-          [f.id, projectId, f.path, f.content, f.is_binary || false],
+          `INSERT INTO files (id, project_id, path, content, is_binary, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, FALSE, NOW(), NOW())`,
+          [f.id, projectId, f.path, f.content ?? ''],
         );
       }
     }
   });
 
-  // Create a post-restore snapshot
-  const postRestorePayload = JSON.stringify({ files: target.files });
-  const postRestoreCompressed = gzipSync(Buffer.from(postRestorePayload, 'utf8'));
-  await db.run(
-    'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name, label) VALUES ($1, $2, $3, $4, $5, $6)',
-    [uuid(), projectId, postRestoreCompressed, user?.id || null, user?.name || 'Unknown', 'Restored snapshot'],
-  );
+  // Post-restore snapshot: record what we ended up with so the
+  // restored state itself is in history. Uses the same refs helper.
+  await db.transaction(async (tx) => {
+    await createSnapshotWithRefs(tx, target.files, 'Restored snapshot');
+  });
 
   await auditLog(req.session.userId, 'snapshot_restored', {
     targetType: 'project',

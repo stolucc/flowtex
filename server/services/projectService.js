@@ -19,6 +19,8 @@
 
 import { v4 as uuid } from 'uuid';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { rm as fsRm } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
@@ -27,6 +29,7 @@ import logger from '../logger.js';
 import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
+import { PROJECTS_DIR } from '../paths.js';
 import { writeBlob } from './blobStore.js';
 import { loadFileBytes } from './fileBytes.js';
 import {
@@ -1323,6 +1326,23 @@ export async function updateProject(
 
 export async function deleteProject(projectId) {
   await db.run('DELETE FROM projects WHERE id = $1', [projectId]);
+  // CASCADE clears files / project_blobs / project_members / etc. but
+  // leaves the on-disk tree at server/projects/<projectId>/ -- blob
+  // files, compile artifacts (.aux, .log, .synctex.gz, .pdf), and any
+  // git-sync working copy. Without explicit cleanup these persist
+  // forever per deleted project. safePath bounds-check via the UUID
+  // regex on projectId would be ideal but every caller passes a
+  // DB-sourced UUID; defence-in-depth via the explicit shape check.
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) return;
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  try {
+    await fsRm(projectDir, { recursive: true, force: true });
+  } catch (err) {
+    // Don't fail the delete on filesystem errors -- the DB row is
+    // already gone, the on-disk tree is now orphaned, and the
+    // blobGc reconciliation walk catches the blob files within 6 h.
+    logger.warn({ err, projectId }, 'deleteProject: failed to remove on-disk project tree');
+  }
 }
 
 /** Duplicate a project and all its files, making the user the owner of the
@@ -1674,7 +1694,7 @@ async function landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime
  * split path (writeBlob outside, landBlobReferenceInTx inside) so the
  * pg pool isn't held during the multi-MB write.
  */
-async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
+export async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
   if (!isValidFilePath(filePath)) throw new Error(`Invalid file path: ${filePath}`);
   const denied = deniedBinaryExtension(filePath);
   if (denied) throw new Error(`File type not allowed: ${denied}`);
@@ -1688,7 +1708,7 @@ async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
 // Helper for the file-delete path: decrement the refcount on the blob
 // referenced by a row about to be deleted. No-op for base64 rows.
 // Called inside the same transaction that deletes the file row.
-async function decrementBlobRefcount(tx, projectId, blobSha256) {
+export async function decrementBlobRefcount(tx, projectId, blobSha256) {
   if (!blobSha256) return;
   await tx.run(
     'UPDATE project_blobs SET ref_count = ref_count - 1 WHERE project_id = $1 AND sha256 = $2',
@@ -1785,15 +1805,35 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
     const elapsed = latestSnap ? (Date.now() - new Date(latestSnap.created_at).getTime()) / 1000 : Infinity;
     if (elapsed >= intervalSec) {
       const allFiles = await tx.all(
-        'SELECT id, path, content, is_binary FROM files WHERE project_id = $1 ORDER BY path',
+        // Capture binary_sha256/size/mime so restore can reconstruct
+        // file rows that pass the F4 CHECK constraint and the /raw
+        // read invariant. Pre-F1 this dropped the bytes silently;
+        // post-F1 the on-disk blobs are kept alive by
+        // snapshot_blob_refs until the snapshot itself goes away.
+        'SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime FROM files WHERE project_id = $1 ORDER BY path',
         [file.project_id],
       );
+      const snapshotId = uuid();
       const payload = JSON.stringify({ files: allFiles });
       const compressed = gzipSync(Buffer.from(payload, 'utf8'));
       await tx.run(
         'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name) VALUES ($1, $2, $3, $4, $5)',
-        [uuid(), file.project_id, compressed, authorId, authorName],
+        [snapshotId, file.project_id, compressed, authorId, authorName],
       );
+      // Record one (snapshot_id, sha256) per UNIQUE binary blob this
+      // snapshot references. The AFTER INSERT trigger bumps
+      // project_blobs.ref_count atomically.
+      const uniqueBinaries = new Set(
+        allFiles
+          .filter((f) => f.is_binary && f.binary_sha256)
+          .map((f) => f.binary_sha256),
+      );
+      for (const sha of uniqueBinaries) {
+        await tx.run(
+          'INSERT INTO snapshot_blob_refs (snapshot_id, project_id, sha256) VALUES ($1, $2, $3)',
+          [snapshotId, file.project_id, sha],
+        );
+      }
       newSnapshot = true;
     }
   });

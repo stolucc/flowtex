@@ -322,6 +322,15 @@ async function initSchema() {
     ALTER TABLE files ADD COLUMN IF NOT EXISTS binary_mime TEXT;
     CREATE INDEX IF NOT EXISTS idx_files_binary_sha256 ON files(binary_sha256) WHERE binary_sha256 IS NOT NULL;
 
+    -- F4 of the migration audit: enforce the runtime invariant that
+    -- every binary row references a blob. Catches direct SQL writes
+    -- (admin tools, migration scripts) that would otherwise create
+    -- a row the /raw read path refuses to serve.
+    DO $$ BEGIN
+      ALTER TABLE files ADD CONSTRAINT files_binary_has_sha
+        CHECK (is_binary = FALSE OR binary_sha256 IS NOT NULL);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
     CREATE TABLE IF NOT EXISTS project_blobs (
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       sha256 CHAR(64) NOT NULL,
@@ -510,6 +519,45 @@ async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_project_snapshots_project ON project_snapshots(project_id, created_at DESC);
+
+    -- F1 of the migration audit: snapshots hold soft references to
+    -- blobs so a project_blobs row whose only file reference has been
+    -- deleted -- but is still in a snapshot -- isn't GC-collected.
+    -- Each (snapshot_id, sha256) row contributes one to
+    -- project_blobs.ref_count; the trigger below keeps the count
+    -- atomic with insert/delete of these rows. The cascade chain on
+    -- snapshot deletion (per-row -> trigger -> ref_count--) keeps the
+    -- bookkeeping correct whether a snapshot is deleted explicitly,
+    -- by the retention cron, or by ON DELETE CASCADE from the
+    -- project.
+    CREATE TABLE IF NOT EXISTS snapshot_blob_refs (
+      snapshot_id TEXT NOT NULL REFERENCES project_snapshots(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      sha256 CHAR(64) NOT NULL,
+      PRIMARY KEY (snapshot_id, sha256)
+    );
+    CREATE INDEX IF NOT EXISTS idx_snapshot_blob_refs_blob ON snapshot_blob_refs(project_id, sha256);
+
+    CREATE OR REPLACE FUNCTION snapshot_blob_refs_refcount_sync()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        UPDATE project_blobs SET ref_count = ref_count + 1
+         WHERE project_id = NEW.project_id AND sha256 = NEW.sha256;
+        RETURN NEW;
+      ELSIF TG_OP = 'DELETE' THEN
+        UPDATE project_blobs SET ref_count = ref_count - 1
+         WHERE project_id = OLD.project_id AND sha256 = OLD.sha256;
+        RETURN OLD;
+      END IF;
+      RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_snapshot_blob_refs_refcount_sync ON snapshot_blob_refs;
+    CREATE TRIGGER trg_snapshot_blob_refs_refcount_sync
+    AFTER INSERT OR DELETE ON snapshot_blob_refs
+    FOR EACH ROW EXECUTE FUNCTION snapshot_blob_refs_refcount_sync();
 
     -- (Tracked-changes pipeline was removed — to be rebuilt from scratch.)
 

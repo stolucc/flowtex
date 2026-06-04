@@ -16,6 +16,16 @@
 // keyed `quota_<name>` overrides the default below. Asserts read the
 // live value via getEffectiveQuota on every call, so a change takes
 // effect immediately without a server restart.
+//
+// SCOPE NOTE (audit F5 / 2026-06-04): BLOB_BYTES_PER_USER covers
+// binary content only — text in files.content is per-file-bounded
+// by createFile / updateFileContent's 10 MB cap, multiplied by the
+// FILES_PER_PROJECT and PROJECTS_PER_USER caps. So total worst-case
+// per-user text storage is independent of (and not visible in) the
+// blob quota. For a realistic deployment the text cap is rarely the
+// constraint; for an admin who wants total-storage visibility the
+// fix is host-level monitoring (du / pg_total_relation_size), not a
+// new per-user quota.
 
 import db from '../db.js';
 
