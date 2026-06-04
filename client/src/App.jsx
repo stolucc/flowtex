@@ -54,6 +54,7 @@ import useUIState from './hooks/useUIState.js';
 import useClickOutside from './hooks/useClickOutside.js';
 import useEditorActions from './hooks/useEditorActions.js';
 import { formatSyncDate } from './utils/dateFormat.js';
+import { isReadOnlyForUser } from './utils/projectRole.js';
 
 /** Context menu for generated files, allowing download. */
 function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
@@ -1202,6 +1203,15 @@ function AppInner() {
                   <line x1="7" y1="9" x2="17" y2="9" />
                   <line x1="7" y1="13" x2="13" y2="13" />
                 </svg>
+                {/* Active-comment count on the collapsed rail — mirrors
+                    the chat-badge pattern so users see "there are N
+                    threads here" without expanding. commentPositions
+                    already filters out resolved ones. */}
+                {commentPositions?.length > 0 && (
+                  <span className="comments-badge">
+                    {commentPositions.length > 99 ? '99+' : commentPositions.length}
+                  </span>
+                )}
               </button>
             )}
             {ui.showChangesPanel ? (
@@ -1312,15 +1322,14 @@ function AppInner() {
                     currentUserName={user?.name}
                     currentUserId={user?.id}
                     projectId={project?.id}
-                    // Read-only when the user isn't a project editor or owner.
-                    // Server already rejects `changes` WS messages and PUT
-                    // /api/projects/files/:fileId writes from viewers and
-                    // commenters; this stops the editor from accepting
-                    // input that would silently fail.
-                    readOnly={(() => {
-                      const me = members.find((m) => m.id === user?.id);
-                      return me && me.role !== 'editor' && me.role !== 'owner';
-                    })()}
+                    // Read-only for viewers and commenters. Cursor stays
+                    // live (see Editor.jsx -- EditorState.readOnly only,
+                    // no EditorView.editable=false) so they can still
+                    // place their caret, drag-select, and run the
+                    // floating Comment button on a selection. Server is
+                    // the actual gate; this is the "don't let me type
+                    // into the void" affordance.
+                    readOnly={isReadOnlyForUser(members, user?.id)}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
                     onChanges={(changes, tracked, deletions, tcMarks) =>

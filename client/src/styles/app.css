@@ -4662,7 +4662,10 @@ html {
   position: relative;
   width: 18px;
   padding: 8px 0 0 0;
-  overflow: hidden;
+  /* visible so the count badge under the icon isn't clipped — the
+     dotted markers are position:absolute so they don't push layout
+     either way. */
+  overflow: visible;
   flex-shrink: 0;
 }
 
@@ -4682,6 +4685,25 @@ html {
 
 .comments-rail:hover .comments-rail-marker {
   transform: scale(1.18);
+}
+
+/* Count badge on the collapsed comments rail — sits under the speech-
+   bubble icon. Smaller than the chat-badge because the rail itself is
+   only 18px wide. Mirrors the chat counter so users see "N active
+   threads" at a glance without expanding the panel. */
+.comments-badge {
+  display: block;
+  margin: 2px auto 0;
+  min-width: 16px;
+  padding: 1px 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-align: center;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 
 .comments-empty {

@@ -863,10 +863,16 @@ const Editor = forwardRef(function Editor(
         latexFoldService,
         latexAutocomplete(citeKeysRef, labelKeysRef),
         refHoverTooltip,
-        readOnlyCompartment.current.of([
-          EditorState.readOnly.of(readOnly),
-          EditorView.editable.of(!readOnly),
-        ]),
+        // EditorState.readOnly alone (NOT EditorView.editable.of(false))
+        // blocks every doc-mutating transaction at the state level while
+        // keeping the caret live: the user can still click to position
+        // their cursor, drag-select text, and run the floating Comment
+        // button on a selection. EditorView.editable=false would also
+        // hide the caret entirely, which removes the "I'm reading at
+        // line 47" affordance that's the whole point of a comment-
+        // capable read-only role. Paste/drop still produce transactions
+        // here; readOnly filters them so they're no-ops.
+        readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
         visualModeCompartment.current.of(visualMode ? visualModeExtension(projectFiles, citeKeys) : []),
         fontSizeCompartment.current.of(
@@ -1771,17 +1777,16 @@ const Editor = forwardRef(function Editor(
   }, [wordWrap]);
 
   // Reconfigure read-only when the user's role changes mid-session
-  // (e.g. owner downgrades them, they're removed and added back as a
-  // commenter, etc.). EditorView.editable.of(false) also blocks paste
-  // and drop, not just keystrokes.
+  // (e.g. owner downgrades them mid-edit, they're removed and added
+  // back as a commenter). State-level readOnly blocks every mutating
+  // transaction but keeps the caret live so the user can still see
+  // and move their cursor; see the initial-state comment for why we
+  // don't combine this with EditorView.editable.of(false).
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: readOnlyCompartment.current.reconfigure([
-        EditorState.readOnly.of(readOnly),
-        EditorView.editable.of(!readOnly),
-      ]),
+      effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly]);
 
