@@ -90,7 +90,23 @@ export async function checkMembership(projectId, userId) {
 export async function checkEditor(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
-  if (member.role === 'viewer') return { error: 'Viewers cannot modify this project', status: 403 };
+  // Editors and owners can modify files; viewers and commenters cannot.
+  // Commenters can post/reply/react/edit-own/delete-own comments via
+  // the comment routes (checkCommenter), but file content is off-limits.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return { error: 'Only editors can modify this project', status: 403 };
+  }
+  return { member };
+}
+
+/** Verify a user has commenter-or-better access; returns {member} or {error, status}.
+ *  Commenter sits between viewer and editor: read + post/reply/react/edit-own/
+ *  delete-own comments, but no file content changes. Used by the comment
+ *  routes so a project can grant feedback access without exposing files. */
+export async function checkCommenter(projectId, userId) {
+  const member = await isProjectMember(projectId, userId);
+  if (!member) return { error: 'No access to this project', status: 403 };
+  if (member.role === 'viewer') return { error: 'Viewers cannot comment on this project', status: 403 };
   return { member };
 }
 
@@ -2136,7 +2152,11 @@ export async function inviteMember(projectId, email, role, inviterId) {
     );
   }
 
-  const VALID_ROLES = ['editor', 'viewer'];
+  // commenter sits between viewer and editor: read + post/reply/react/
+  // edit-own/delete-own comments, but cannot modify files. The role
+  // exists so projects can grant feedback access (e.g. external
+  // reviewers) without exposing file content to silent corruption.
+  const VALID_ROLES = ['editor', 'commenter', 'viewer'];
   const assignedRole = VALID_ROLES.includes(role) ? role : 'editor';
 
   const existingInvite = await db.get(

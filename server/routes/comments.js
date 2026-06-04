@@ -33,8 +33,9 @@ function pushMentionNotifications(app, mentions, { mentionerName }) {
   }
 }
 
-/** Verify the user has access to the file's project; optionally require editor role. Returns the file or null. */
-async function requireFileAccess(fileId, userId, res, { requireEditor = false } = {}) {
+/** Verify the user has access to the file's project; optionally require
+ *  commenter-or-better role (rejects viewer). Returns the file or null. */
+async function requireFileAccess(fileId, userId, res, { requireCommenter = false } = {}) {
   const file = await db.get('SELECT id, project_id, path FROM files WHERE id = $1', [fileId]);
   if (!file) {
     res.status(404).json({ error: 'File not found' });
@@ -45,11 +46,26 @@ async function requireFileAccess(fileId, userId, res, { requireEditor = false } 
     res.status(403).json({ error: 'No access to this project' });
     return null;
   }
-  if (requireEditor && member.role === 'viewer') {
+  if (requireCommenter && member.role === 'viewer') {
     res.status(403).json({ error: 'Viewers cannot modify comments' });
     return null;
   }
   return file;
+}
+
+/** Server-originated WS broadcast helper. The HTTP comment routes
+ *  drive the broadcast directly so peer clients see the authoritative
+ *  view of what was just persisted -- the old pattern where the
+ *  sender's WS broadcast was trusted let a malicious editor (or a
+ *  commenter in the new role) emit comment-delete / comment-edit
+ *  for comments they didn't own. originId comes from the request so
+ *  the sender's other tabs can filter their own echoes. */
+function broadcastCommentEvent(app, projectId, payload) {
+  try {
+    app.locals.broadcastToRoom?.(projectId, payload);
+  } catch (err) {
+    logger.warn({ err, projectId, type: payload?.type }, 'Comment broadcast failed');
+  }
 }
 
 /** Verify the user has access to the comment's file/project. Returns the comment or null. */
@@ -140,7 +156,7 @@ router.get('/:fileId', async (req, res) => {
 
 /** POST /api/comments/:fileId -- Add a new comment at a text range in a file. */
 router.post('/:fileId', async (req, res) => {
-  if (!(await requireFileAccess(req.params.fileId, req.session.userId, res, { requireEditor: true }))) return;
+  if (!(await requireFileAccess(req.params.fileId, req.session.userId, res, { requireCommenter: true }))) return;
 
   const { from_pos, to_pos, text, assigned_to } = req.body;
   if (!Number.isInteger(from_pos) || !Number.isInteger(to_pos) || from_pos < 0 || to_pos < 0) {
@@ -207,15 +223,35 @@ router.post('/:fileId', async (req, res) => {
 
   const comment = await db.get('SELECT * FROM comments WHERE id = $1', [id]);
   comment.replies = [];
+  // Server-originated broadcast (closes the trust gap where a sender-
+  // driven WS broadcast could lie about what was persisted; pairs with
+  // removal of handleComment in websocket.js).
+  if (file) {
+    broadcastCommentEvent(req.app, file.project_id, {
+      type: 'comment',
+      fileId: req.params.fileId,
+      comment,
+    });
+  }
   res.json(comment);
 });
 
 /** PATCH /api/comments/:commentId/resolve -- Toggle the resolved status of a comment. */
 router.patch('/:commentId/resolve', async (req, res) => {
-  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
+  const comment = await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireCommenter: true });
+  if (!comment) return;
 
   const { resolved } = req.body;
-  await db.run('UPDATE comments SET resolved = $1 WHERE id = $2', [!!resolved, req.params.commentId]);
+  const next = !!resolved;
+  await db.run('UPDATE comments SET resolved = $1 WHERE id = $2', [next, req.params.commentId]);
+  const fileRow = await db.get('SELECT project_id FROM files WHERE id = $1', [comment.file_id]);
+  if (fileRow) {
+    broadcastCommentEvent(req.app, fileRow.project_id, {
+      type: 'comment-resolve',
+      commentId: req.params.commentId,
+      resolved: next,
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -231,13 +267,22 @@ router.patch('/:commentId', async (req, res) => {
   if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 10000) {
     return res.status(400).json({ error: 'Comment text must be 1-10000 characters' });
   }
-  await db.run('UPDATE comments SET text = $1 WHERE id = $2', [text.trim(), req.params.commentId]);
-  res.json({ ok: true, text: text.trim() });
+  const trimmed = text.trim();
+  await db.run('UPDATE comments SET text = $1 WHERE id = $2', [trimmed, req.params.commentId]);
+  const fileRow = await db.get('SELECT project_id FROM files WHERE id = $1', [comment.file_id]);
+  if (fileRow) {
+    broadcastCommentEvent(req.app, fileRow.project_id, {
+      type: 'comment-edit',
+      commentId: req.params.commentId,
+      text: trimmed,
+    });
+  }
+  res.json({ ok: true, text: trimmed });
 });
 
 /** POST /api/comments/:commentId/reply -- Add a reply to an existing comment. */
 router.post('/:commentId/reply', async (req, res) => {
-  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireEditor: true }))) return;
+  if (!(await requireCommentAccess(req.params.commentId, req.session.userId, res, { requireCommenter: true }))) return;
 
   const { text } = req.body;
   if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 10000) {
@@ -273,6 +318,13 @@ router.post('/:commentId/reply', async (req, res) => {
   }
 
   const reply = await db.get('SELECT * FROM comment_replies WHERE id = $1', [id]);
+  if (parentComment) {
+    broadcastCommentEvent(req.app, parentComment.project_id, {
+      type: 'comment-reply',
+      commentId: req.params.commentId,
+      reply,
+    });
+  }
   res.json(reply);
 });
 
@@ -285,6 +337,13 @@ router.delete('/:commentId', async (req, res) => {
   }
 
   await db.run('DELETE FROM comments WHERE id = $1', [req.params.commentId]);
+  const fileRow = await db.get('SELECT project_id FROM files WHERE id = $1', [comment.file_id]);
+  if (fileRow) {
+    broadcastCommentEvent(req.app, fileRow.project_id, {
+      type: 'comment-delete',
+      commentId: req.params.commentId,
+    });
+  }
   res.json({ ok: true });
 });
 

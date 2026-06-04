@@ -31,11 +31,6 @@ const {
   unsignCookie,
   handleChanges,
   handleCursor,
-  handleComment,
-  handleCommentReply,
-  handleCommentResolve,
-  handleCommentDelete,
-  handleCommentEdit,
   handleChat,
   handleChatReact,
   handleCommentReact,
@@ -43,6 +38,7 @@ const {
   handleTyping,
   handleJoin,
   writeTypes,
+  isAllowedWriteRole,
   projectRooms,
   broadcastToRoom,
   getRoom,
@@ -381,174 +377,38 @@ describe('handleCursor', () => {
   });
 });
 
-// ── handleComment ────────────────────────────────────────────────────────
+// handleComment / handleCommentReply / handleCommentResolve /
+// handleCommentDelete / handleCommentEdit tests removed when those
+// WS handlers moved to server-originated broadcasts from the HTTP
+// comment routes. Their coverage lives with the routes now; the
+// trust gap they exposed (sender-supplied payloads driving
+// broadcasts) no longer exists.
 
-describe('handleComment', () => {
-  it('drops message if comment JSON exceeds 10000 chars', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
+// ── isAllowedWriteRole ───────────────────────────────────────────────────
 
-    const bigComment = { text: 'x'.repeat(10000) };
-    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment: bigComment }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+describe('isAllowedWriteRole', () => {
+  it('rejects viewers for every write type', () => {
+    for (const type of ['changes', 'comment-react', 'reply-react', 'chat', 'chat-react']) {
+      expect(isAllowedWriteRole(type, 'viewer')).toBe(false);
+    }
   });
 
-  it('drops message if comment is falsy', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment: null }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  it('rejects commenters for editor-only types (changes)', () => {
+    expect(isAllowedWriteRole('changes', 'commenter')).toBe(false);
   });
 
-  it('broadcasts valid comment to room', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    const comment = { id: 'c1', text: 'Great work!' };
-    await handleComment({ type: 'comment', fileId: TEST_FILE_IDS.f1, comment }, state, ws);
-
-    expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('comment');
-    expect(sent.comment).toEqual(comment);
-    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
-  });
-});
-
-// ── handleCommentReply ───────────────────────────────────────────────────
-
-describe('handleCommentReply', () => {
-  it('drops message if reply JSON exceeds 10000 chars', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentReply({ type: 'comment-reply', commentId: 'c1', reply: { text: 'x'.repeat(10000) } }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  it('allows commenters for comment + chat types', () => {
+    for (const type of ['comment-react', 'reply-react', 'chat', 'chat-react']) {
+      expect(isAllowedWriteRole(type, 'commenter')).toBe(true);
+    }
   });
 
-  it('drops message if reply is falsy', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentReply({ type: 'comment-reply', commentId: 'c1', reply: null }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid reply', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentReply({ type: 'comment-reply', commentId: 'c1', reply: { text: 'Thanks!' } }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('comment-reply');
-    expect(sent.commentId).toBe('c1');
-  });
-});
-
-// ── handleCommentResolve ─────────────────────────────────────────────────
-
-describe('handleCommentResolve', () => {
-  it('drops message if resolved is not a boolean', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentResolve({ type: 'comment-resolve', commentId: 'c1', resolved: 'yes' }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid resolve', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentResolve({ type: 'comment-resolve', commentId: 'c1', resolved: true }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('comment-resolve');
-    expect(sent.resolved).toBe(true);
-  });
-});
-
-// ── handleCommentDelete ──────────────────────────────────────────────────
-
-describe('handleCommentDelete', () => {
-  it('drops message if commentId is falsy', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentDelete({ type: 'comment-delete', commentId: '' }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid delete', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentDelete({ type: 'comment-delete', commentId: 'c1' }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('comment-delete');
-    expect(sent.commentId).toBe('c1');
-  });
-});
-
-// ── handleCommentEdit ────────────────────────────────────────────────────
-
-describe('handleCommentEdit', () => {
-  it('drops message if text is not a string', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentEdit({ type: 'comment-edit', commentId: 'c1', text: 123 }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('drops message if text exceeds 10000 chars', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentEdit({ type: 'comment-edit', commentId: 'c1', text: 'x'.repeat(10001) }, state, ws);
-    expect(mockPeer.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('broadcasts valid edit', async () => {
-    const ws = makeWs();
-    const state = makeState();
-    state.clientEntry.ws = ws;
-    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
-    setupRoom('project-123', [state.clientEntry, mockPeer]);
-
-    handleCommentEdit({ type: 'comment-edit', commentId: 'c1', text: 'updated' }, state, ws);
-    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
-    expect(sent.type).toBe('comment-edit');
-    expect(sent.text).toBe('updated');
+  it('allows editors and owners for every write type', () => {
+    for (const role of ['editor', 'owner']) {
+      for (const type of ['changes', 'comment-react', 'reply-react', 'chat', 'chat-react']) {
+        expect(isAllowedWriteRole(type, role)).toBe(true);
+      }
+    }
   });
 });
 

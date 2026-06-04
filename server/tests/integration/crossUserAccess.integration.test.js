@@ -27,14 +27,19 @@ async function makeScene() {
   const alice = await seedUser();
   const bob = await seedUser();
   const carol = await seedUser();
+  const dave = await seedUser();
   const project = await seedProject(alice.id);
   await db.run(
     `INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'viewer')`,
     [project.id, carol.id],
   );
+  await db.run(
+    `INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'commenter')`,
+    [project.id, dave.id],
+  );
   const textFile = await seedFile(project.id, 'main.tex', '\\documentclass{article}');
   const binary = await uploadBinaryFile(project.id, 'cover.png', Buffer.from('PNG bytes'));
-  return { alice, bob, carol, project, textFile, binary };
+  return { alice, bob, carol, dave, project, textFile, binary };
 }
 
 describe('getRawFile — INNER JOIN against project_members', () => {
@@ -110,7 +115,21 @@ describe('getFileWithAccess — edit path', () => {
     const { carol, textFile } = await makeScene();
     const out = await getFileWithAccess(textFile.id, carol.id, { edit: true });
     expect(out.status).toBe(403);
-    expect(out.error).toMatch(/Viewers cannot modify/i);
+    expect(out.error).toMatch(/Only editors can modify/i);
+  });
+
+  it('denies a commenter from file edits (commenters can comment, not modify files)', async () => {
+    const { dave, textFile } = await makeScene();
+    const out = await getFileWithAccess(textFile.id, dave.id, { edit: true });
+    expect(out.status).toBe(403);
+    expect(out.error).toMatch(/Only editors can modify/i);
+  });
+
+  it('grants a commenter file read access', async () => {
+    const { dave, textFile } = await makeScene();
+    const out = await getFileWithAccess(textFile.id, dave.id);
+    expect(out.error).toBeUndefined();
+    expect(out.member.role).toBe('commenter');
   });
 
   it('denies a non-member with 403', async () => {

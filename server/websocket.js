@@ -269,33 +269,19 @@ async function handleCursor(msg, state, ws) {
   );
 }
 
-/** Broadcast a new comment to other clients in the room. */
-async function handleComment(msg, state, ws) {
-  if (!msg.comment || JSON.stringify(msg.comment).length > 10000) return;
-  if (!(await isFileInProject(state, msg.fileId))) return;
-  broadcastToRoom(state.projectId, { type: 'comment', fileId: msg.fileId, comment: msg.comment }, ws);
-}
-
-/** Broadcast a comment reply to other clients in the room. */
-function handleCommentReply(msg, state, ws) {
-  if (!msg.reply || JSON.stringify(msg.reply).length > 10000) return;
-  broadcastToRoom(state.projectId, { type: 'comment-reply', commentId: msg.commentId, reply: msg.reply }, ws);
-}
-
-function handleCommentResolve(msg, state, ws) {
-  if (typeof msg.resolved !== 'boolean') return;
-  broadcastToRoom(state.projectId, { type: 'comment-resolve', commentId: msg.commentId, resolved: msg.resolved }, ws);
-}
-
-function handleCommentDelete(msg, state, ws) {
-  if (!msg.commentId) return;
-  broadcastToRoom(state.projectId, { type: 'comment-delete', commentId: msg.commentId }, ws);
-}
-
-function handleCommentEdit(msg, state, ws) {
-  if (typeof msg.text !== 'string' || msg.text.length > 10000) return;
-  broadcastToRoom(state.projectId, { type: 'comment-edit', commentId: msg.commentId, text: msg.text }, ws);
-}
+// (Removed 2026-06-04) handleComment / handleCommentReply /
+// handleCommentResolve / handleCommentDelete / handleCommentEdit
+// used to rebroadcast sender-supplied payloads on these message
+// types. The actual persistence lives in /api/comments routes which
+// enforce author-only / commenter-or-better access; the WS broadcast
+// was a UX optimisation but trusted the sender to describe what was
+// persisted. A malicious editor (or commenter, with the new role)
+// could emit a `comment-delete` for any commentId in their project
+// and other clients would hide it from local state until refresh.
+// Replaced by server-originated broadcasts from the HTTP routes
+// (see broadcastCommentEvent in routes/comments.js). Older client
+// builds keep sending these types; the messageHandlers lookup just
+// no-ops them.
 
 // (Removed 2026-05-16) The old WS handlers `tracked-change`,
 // `tracked-change-resolve`, `tracked-change-delete`, `tc-delete-mark`
@@ -550,6 +536,16 @@ async function handleChatRead(_msg, state) {
   }
 }
 
+// Message types that mutate project state. Each is gated by a role
+// check on the sending connection (see writeRoleFor below). `changes`
+// is editor-only (modifies file content). `comment-react` /
+// `reply-react` / `chat` / `chat-react` are commenter-or-better
+// (project conversation, not file content). The legacy `comment` /
+// `comment-reply` / `comment-resolve` / `comment-delete` /
+// `comment-edit` types are no longer dispatched (broadcasts now
+// come from the HTTP routes), but old client builds still send
+// them — keep them on the list so any future re-introduction
+// inherits the role check by default.
 const writeTypes = new Set([
   'changes',
   'comment',
@@ -559,10 +555,20 @@ const writeTypes = new Set([
   'comment-edit',
   'comment-react',
   'reply-react',
-  // chat persists to chat_messages; viewers should be read-only.
   'chat',
   'chat-react',
 ]);
+
+// Per-message minimum role. Editor-only types (changes) must be
+// rejected for commenters; commenter-or-better types are rejected
+// only for viewers. The login-time membership check already covers
+// "not a member at all".
+const editorOnlyWriteTypes = new Set(['changes']);
+function isAllowedWriteRole(type, role) {
+  if (role === 'viewer') return false;
+  if (role === 'commenter' && editorOnlyWriteTypes.has(type)) return false;
+  return true;
+}
 
 /** Broadcast a typing indicator to other clients in the room. */
 function handleTyping(msg, state, ws) {
@@ -580,11 +586,10 @@ function handleTyping(msg, state, ws) {
 const messageHandlers = {
   changes: handleChanges,
   cursor: handleCursor,
-  comment: handleComment,
-  'comment-reply': handleCommentReply,
-  'comment-resolve': handleCommentResolve,
-  'comment-delete': handleCommentDelete,
-  'comment-edit': handleCommentEdit,
+  // comment / comment-reply / comment-resolve / comment-delete /
+  // comment-edit handlers were removed when their broadcasts moved
+  // to the HTTP routes (see routes/comments.js). Older client builds
+  // may still send these types; falling through here is intentional.
   'comment-react': handleCommentReact,
   'reply-react': handleReplyReact,
   chat: handleChat,
@@ -896,16 +901,18 @@ export function initWebSocket(server, app, sessionSecret) {
 
         if (!state.projectId || !state.clientEntry) return;
 
-        // Viewers can only send cursor updates. For write-types we
-        // re-check membership against the 5 s-TTL cache (cheap when
-        // hot, refreshes after invalidateMembership). This closes the
-        // "user role downgraded while WS open" gap without making the
-        // cursor path pay for the lookup — cursor frames are by far
-        // the chattiest message type and the membership was already
-        // verified at join time.
+        // Viewers can only send cursor / typing updates. For
+        // write-types we re-check membership against the 5 s-TTL
+        // cache (cheap when hot, refreshes after invalidateMembership).
+        // This closes the "user role downgraded while WS open" gap
+        // without making the cursor path pay for the lookup — cursor
+        // frames are by far the chattiest message type and the
+        // membership was already verified at join time. The
+        // commenter role can use comment-react / reply-react / chat
+        // / chat-react but NOT changes.
         if (writeTypes.has(msg.type)) {
           const member = await isProjectMember(state.projectId, state.authenticatedUserId);
-          if (!member || member.role === 'viewer') return;
+          if (!member || !isAllowedWriteRole(msg.type, member.role)) return;
           // Refresh state.memberRole so a future read of it stays current
           // (e.g. handlers that gate on owner-only sub-actions).
           state.memberRole = member.role;
@@ -948,11 +955,9 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   unsignCookie,
   handleChanges,
   handleCursor,
-  handleComment,
-  handleCommentReply,
-  handleCommentResolve,
-  handleCommentDelete,
-  handleCommentEdit,
+  // handleComment / handleCommentReply / handleCommentResolve /
+  // handleCommentDelete / handleCommentEdit were removed when their
+  // broadcasts moved to the HTTP comment routes (see commit notes).
   handleChat,
   handleChatReact,
   handleCommentReact,
@@ -960,6 +965,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleTyping,
   handleJoin,
   writeTypes,
+  isAllowedWriteRole,
   projectRooms,
   broadcastToRoom,
   getRoom,

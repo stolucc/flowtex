@@ -65,6 +65,7 @@ export default function ShareModal({ projectId, onClose }) {
           />
           <select value={role} onChange={(e) => setRole(e.target.value)} className="share-role-select">
             <option value="editor">Editor</option>
+            <option value="commenter">Commenter</option>
             <option value="viewer">Viewer</option>
           </select>
           <button type="submit" className="auth-button">
