@@ -5,6 +5,7 @@ import db, { getWriteStats } from '../db.js';
 import { compileMetrics } from '../compiler.js';
 import { resetTransporter, sendEmail, sendAccountDeletedEmail, sendAccountRestoredEmail } from '../utils/email.js';
 import { encrypt } from '../utils/crypto.js';
+import { verifyPassword } from '../utils/passwordHash.js';
 import {
   adminDeleteUser,
   adminRestoreUser,
@@ -27,6 +28,7 @@ const adminPasswordSchema = z.object({
 }).strict();
 const toggleAdminSchema = z.object({
   isAdmin: z.boolean(),
+  password: z.string().min(1).max(1024),
 }).strict();
 const updateSettingSchema = z.object({
   key: z.string().min(1).max(128),
@@ -488,6 +490,15 @@ router.patch('/users/:userId/admin', validateBody(toggleAdminSchema), async (req
   }
   if (userId === req.session.userId) {
     return res.status(400).json({ error: 'You cannot change your own admin status' });
+  }
+  // Reconfirm the acting admin's password. Granting admin is at least as
+  // consequential as deleting a user (the new admin can then do everything),
+  // so the same step-up that delete + restore use applies here. Closes the
+  // gap where a hijacked admin session could promote a confederate without
+  // a second factor.
+  const acting = await db.get('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
+  if (!acting || !(await verifyPassword(req.body.password, acting.password_hash))) {
+    return res.status(401).json({ error: 'Invalid admin password' });
   }
   const desired = req.body.isAdmin;
   try {

@@ -383,7 +383,22 @@ router.post('/:id/members', async (req, res) => {
     // recipient never sees an in-app banner without ever getting the email
     // link. Prefer APP_URL (set in .env) over the request's host header so
     // a forged Host: can't redirect the invite link to an attacker domain.
-    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    // In production we refuse to send the email if APP_URL is unset: the
+    // fallback would expose the link's host to whoever can spoof the
+    // Host header (depends on the reverse-proxy config), and an invitation
+    // pointing at an attacker domain is a phishing-grade brand impersonation
+    // even before any auth flow runs on the recipient's side.
+    const baseUrl = process.env.APP_URL;
+    if (!baseUrl) {
+      if (process.env.NODE_ENV === 'production') {
+        logger.error('Refusing to send invitation: APP_URL is not configured');
+        return res.status(503).json({
+          error: 'APP_URL is not configured on this server. Invitations cannot be sent until an administrator sets it.',
+        });
+      }
+      // Dev/test: fall back so local flows keep working.
+    }
+    const safeBaseUrl = baseUrl || `${req.protocol}://${req.get('host')}`;
     try {
       if (invitation.recipientHasAccount) {
         // Existing user — they'll see the invitation on their dashboard
@@ -391,8 +406,8 @@ router.post('/:id/members', async (req, res) => {
         await sendProjectInvitationEmail(email, {
           inviterName,
           projectName,
-          baseUrl,
-          inviteUrl: `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
+          baseUrl: safeBaseUrl,
+          inviteUrl: `${safeBaseUrl}/?invite=${encodeURIComponent(invitation.id)}`,
         });
       } else {
         // Unregistered email — different template. The recipient needs
@@ -401,8 +416,8 @@ router.post('/:id/members', async (req, res) => {
         // prefilled + a "you've been invited" banner. The decline link
         // is token-gated and lets them refuse without ever registering;
         // it routes through /api/projects/invitations/by-token/decline.
-        const registerUrl = `${baseUrl}/?invite=${encodeURIComponent(invitation.id)}`;
-        const declineUrl = `${baseUrl}/?invite-decline=${encodeURIComponent(invitation.declineToken)}`;
+        const registerUrl = `${safeBaseUrl}/?invite=${encodeURIComponent(invitation.id)}`;
+        const declineUrl = `${safeBaseUrl}/?invite-decline=${encodeURIComponent(invitation.declineToken)}`;
         await sendUnregisteredInvitationEmail(email, {
           inviterName,
           projectName,

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { get, put, post, del, patch } from '../api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
-import ConfirmDialog from './ConfirmDialog.jsx';
 
 /** Displays a single metric card with a value, label, and optional subtitle. */
 function StatCard({ label, value, sub }) {
@@ -149,23 +148,28 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
   const [toggling, setToggling] = useState(false);
   const [toggleError, setToggleError] = useState('');
-  // When set, a themed ConfirmDialog is shown to confirm revocation.
-  // Promotions skip the dialog (low-risk direction).
-  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  // Toggle flow: either null (no modal), or { desired: bool } with a
+  // password prompt. Promote and revoke both require the acting
+  // admin's password — granting admin is at least as consequential as
+  // delete + restore, which already step up.
+  const [togglePrompt, setTogglePrompt] = useState(null);
+  const [togglePassword, setTogglePassword] = useState('');
   if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
 
   const isSelf = user.id === currentAdminId;
 
-  const performToggle = async (desired) => {
+  const performToggle = async (desired, password) => {
     setToggling(true);
     setToggleError('');
     try {
-      const res = await patch(`/api/admin/users/${user.id}/admin`, { isAdmin: desired });
+      const res = await patch(`/api/admin/users/${user.id}/admin`, { isAdmin: desired, password });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
       onToggleAdmin?.(user.id, desired);
+      setTogglePrompt(null);
+      setTogglePassword('');
     } catch (err) {
       setToggleError(err.message || 'Failed');
     } finally {
@@ -175,15 +179,9 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
 
   const handleToggle = () => {
     if (isSelf || toggling) return;
-    const desired = !user.isAdmin;
-    // Demotion gets a confirm dialog — promotion does not (revoking is
-    // the higher-blast-radius direction; a misclick can lock you out if
-    // the demoted account turns out to be the only other admin).
-    if (!desired) {
-      setShowRevokeConfirm(true);
-    } else {
-      performToggle(true);
-    }
+    setToggleError('');
+    setTogglePassword('');
+    setTogglePrompt({ desired: !user.isAdmin });
   };
 
   return (
@@ -361,17 +359,51 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
         </div>
       </div>
 
-      {showRevokeConfirm && (
-        <ConfirmDialog
-          message={`Revoke admin from ${user.name} (${user.email})? They will lose access to the admin dashboard immediately.`}
-          confirmLabel="Revoke admin"
-          confirmClass="confirm-dialog-delete"
-          onCancel={() => setShowRevokeConfirm(false)}
-          onConfirm={() => {
-            setShowRevokeConfirm(false);
-            performToggle(false);
-          }}
-        />
+      {togglePrompt && (
+        <div className="admin-delete-user-overlay">
+          <form
+            className="admin-delete-user-modal"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!togglePassword || toggling) return;
+              performToggle(togglePrompt.desired, togglePassword);
+            }}
+          >
+            <h3>{togglePrompt.desired ? 'Grant admin' : 'Revoke admin'}</h3>
+            <p>
+              {togglePrompt.desired
+                ? `Make ${user.name} (${user.email}) a server admin? They will gain full access to the admin dashboard, user management, and settings.`
+                : `Revoke admin from ${user.name} (${user.email})? They will lose access to the admin dashboard immediately.`}
+            </p>
+            <label className="admin-delete-user-field">
+              <span>Your admin password:</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={togglePassword}
+                onChange={(e) => setTogglePassword(e.target.value)}
+                autoFocus
+              />
+            </label>
+            {toggleError && <div className="admin-delete-user-error">{toggleError}</div>}
+            <div className="admin-delete-user-actions">
+              <button
+                type="button"
+                onClick={() => { setTogglePrompt(null); setTogglePassword(''); setToggleError(''); }}
+                disabled={toggling}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={togglePrompt.desired ? '' : 'admin-delete-user-confirm'}
+                disabled={!togglePassword || toggling}
+              >
+                {toggling ? '…' : togglePrompt.desired ? 'Grant admin' : 'Revoke admin'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

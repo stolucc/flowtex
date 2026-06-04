@@ -21,29 +21,43 @@ router.get('/status', async (req, res) => {
 /** POST /api/setup/init -- Create the first admin account and save initial settings. Only works when no users exist. */
 router.post('/init', async (req, res) => {
   try {
-    // Guard: only works on a truly fresh install. Checking "no admin exists"
-    // would let any authenticated non-admin re-init themselves as admin if
-    // an operator ever cleared is_admin from every account (e.g. demoting
-    // the sole admin via SQL).
-    const existing = await db.get('SELECT id FROM users LIMIT 1');
-    if (existing) {
-      return res.status(403).json({ error: 'Setup already completed' });
-    }
-
     const { email, name, password, appUrl, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom } = req.body;
 
     if (!email || !name || !password) {
       return res.status(400).json({ error: 'Email, name, and password are required' });
     }
 
-    // Create the admin user (skip email verification)
-    const result = await registerUser(email, name, password);
-    if (result.error) {
-      return res.status(400).json({ error: result.error });
-    }
-
-    // Promote to admin and mark email as verified
-    await db.run('UPDATE users SET is_admin = TRUE, email_verified = TRUE WHERE id = $1', [result.id]);
+    // Serialise concurrent /init calls so two parallel requests on a
+    // fresh install can't both pass the existence check before either
+    // inserts and both end up admin. The advisory lock is held for the
+    // tx; the existence re-check inside the tx is the actual guard.
+    // Checking "no admin exists" instead of "no user exists" would let
+    // any authenticated non-admin re-init themselves as admin if an
+    // operator ever cleared is_admin from every account (e.g. demoting
+    // the sole admin via SQL).
+    const result = await db.transaction(async (tx) => {
+      await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', ['setup:init']);
+      const existing = await tx.get('SELECT id FROM users LIMIT 1');
+      if (existing) {
+        const err = new Error('Setup already completed');
+        err.status = 403;
+        throw err;
+      }
+      // Create the admin user (skip email verification). registerUser
+      // does its own writes via the default pool; that's safe here
+      // because the advisory lock pins the critical region — the
+      // second caller stays blocked until we commit and then loses
+      // the existence re-check above.
+      const reg = await registerUser(email, name, password);
+      if (reg.error) {
+        const err = new Error(reg.error);
+        err.status = 400;
+        throw err;
+      }
+      // Promote to admin and mark email as verified
+      await tx.run('UPDATE users SET is_admin = TRUE, email_verified = TRUE WHERE id = $1', [reg.id]);
+      return reg;
+    });
 
     // Save optional settings
     const settings = [];

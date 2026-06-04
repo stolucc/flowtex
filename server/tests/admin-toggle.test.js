@@ -40,6 +40,12 @@ vi.mock('../utils/crypto.js', () => ({
   encrypt: vi.fn((v) => v),
 }));
 
+vi.mock('../utils/passwordHash.js', () => ({
+  verifyPassword: vi.fn(async () => true),
+  hashPassword: vi.fn(async (p) => p),
+  needsRehash: vi.fn(() => false),
+}));
+
 vi.mock('../services/authService.js', () => ({
   adminDeleteUser: vi.fn(),
   adminRestoreUser: vi.fn(),
@@ -56,6 +62,7 @@ vi.mock('../middleware/errorHandler.js', () => ({
 }));
 
 import { auditLog } from '../utils/audit.js';
+import db from '../db.js';
 import router from '../routes/admin.js';
 
 function getHandler(method, pathPattern) {
@@ -98,6 +105,9 @@ describe('PATCH /users/:userId/admin', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handler = getHandler('patch', '/users/:userId/admin');
+    // Acting-admin password lookup: first top-level db.get in the route.
+    // verifyPassword is mocked to return true, so any password works.
+    db.get.mockResolvedValueOnce({ password_hash: 'hash' });
   });
 
   it('rejects malformed user id', async () => {
@@ -128,7 +138,7 @@ describe('PATCH /users/:userId/admin', () => {
   it('returns 404 when the target user does not exist', async () => {
     mockTx.get.mockResolvedValueOnce(undefined);
     const res = mockRes();
-    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true } }), res);
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true, password: 'pw' } }), res);
     expect(res.statusCode).toBe(404);
   });
 
@@ -137,7 +147,7 @@ describe('PATCH /users/:userId/admin', () => {
       id: TARGET, email: 'them@example.com', name: 'Them', is_admin: false,
     });
     const res = mockRes();
-    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true } }), res);
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true, password: 'pw' } }), res);
     expect(mockTx.run).toHaveBeenCalledWith(
       'UPDATE users SET is_admin = $1 WHERE id = $2',
       [true, TARGET],
@@ -155,7 +165,7 @@ describe('PATCH /users/:userId/admin', () => {
       .mockResolvedValueOnce({ id: TARGET, email: 'them@example.com', name: 'Them', is_admin: true })
       .mockResolvedValueOnce({ n: 2 }); // 2 admins → demotion is safe
     const res = mockRes();
-    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: false } }), res);
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: false, password: 'pw' } }), res);
     expect(mockTx.run).toHaveBeenCalledWith(
       'UPDATE users SET is_admin = $1 WHERE id = $2',
       [false, TARGET],
@@ -172,7 +182,7 @@ describe('PATCH /users/:userId/admin', () => {
       .mockResolvedValueOnce({ id: TARGET, email: 'them@example.com', name: 'Them', is_admin: true })
       .mockResolvedValueOnce({ n: 1 }); // only 1 admin left
     const res = mockRes();
-    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: false } }), res);
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: false, password: 'pw' } }), res);
     expect(res.statusCode).toBe(409);
     expect(res.body.error).toMatch(/last admin/i);
     expect(mockTx.run).not.toHaveBeenCalled();
@@ -184,10 +194,21 @@ describe('PATCH /users/:userId/admin', () => {
       id: TARGET, email: 'them@example.com', name: 'Them', is_admin: true,
     });
     const res = mockRes();
-    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true } }), res);
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true, password: 'pw' } }), res);
     expect(mockTx.run).not.toHaveBeenCalled();
     expect(auditLog).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true, isAdmin: true });
+  });
+
+  it('rejects toggle when password is wrong', async () => {
+    const { verifyPassword } = await import('../utils/passwordHash.js');
+    verifyPassword.mockResolvedValueOnce(false);
+    const res = mockRes();
+    await handler(mockReq({ params: { userId: TARGET }, body: { isAdmin: true, password: 'wrong' } }), res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toMatch(/invalid admin password/i);
+    expect(mockTx.run).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
   });
 });
