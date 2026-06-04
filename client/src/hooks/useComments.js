@@ -47,7 +47,13 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
         assigned_to: assignedTo || undefined,
       });
       const comment = await res.json();
-      setComments((c) => [...c, comment]);
+      // Dedup on id: the server now broadcasts the comment over WS to
+      // the whole room (no sender exclusion). If the WS echo arrives
+      // BEFORE the HTTP response resolves, useWebSocket will have
+      // already added it; this guard stops the HTTP path from doubling
+      // it. The reverse race (HTTP first, then WS echo) is handled by
+      // the matching dedup in useWebSocket.js.
+      setComments((c) => (c.some((existing) => existing.id === comment.id) ? c : [...c, comment]));
       setSelection(null);
       sendWsRef.current?.({ type: 'comment', fileId: activeFile.id, comment });
     },
@@ -76,7 +82,20 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
     async (commentId, text) => {
       const res = await post(`/api/comments/${commentId}/reply`, { text });
       const reply = await res.json();
-      setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, replies: [...(c.replies || []), reply] } : c)));
+      // Same dedup story as handleAddComment: server-originated WS
+      // broadcast can race the HTTP response in either direction.
+      setComments((cs) =>
+        cs.map((c) =>
+          c.id === commentId
+            ? {
+                ...c,
+                replies: (c.replies || []).some((r) => r.id === reply.id)
+                  ? c.replies
+                  : [...(c.replies || []), reply],
+              }
+            : c,
+        ),
+      );
       sendWsRef.current?.({ type: 'comment-reply', commentId, reply });
     },
     [sendWsRef],

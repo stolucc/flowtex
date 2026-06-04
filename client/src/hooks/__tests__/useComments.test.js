@@ -193,4 +193,39 @@ describe('useComments', () => {
       text: 'New text',
     });
   });
+
+  // The HTTP route now broadcasts the new comment over WS (no sender
+  // exclusion). When the WS echo arrives before the HTTP response
+  // resolves, useWebSocket already inserted the comment; without
+  // dedup the HTTP-response handler would append it again, doubling
+  // the local count (and the comments-rail badge). Reproduces the
+  // bug the user hit -- "count goes up by 2, hard refresh fixes it".
+  it('handleAddComment dedups when the same id is already in state (WS echo arrived first)', async () => {
+    const echoed = { id: 'c1', text: 'Fix this', from_pos: 10, to_pos: 20 };
+    // Seed initial GET so the WS echo has already inserted c1.
+    get.mockResolvedValue({ json: () => Promise.resolve([echoed]) });
+    post.mockResolvedValue({ json: () => Promise.resolve(echoed) });
+
+    const { result } = renderHook(() => useComments(activeFile, sendWsRef, editorRef));
+    await waitFor(() => expect(result.current.comments).toHaveLength(1));
+
+    act(() => { result.current.setSelection({ from: 10, to: 20 }); });
+    await act(async () => { await result.current.handleAddComment('Fix this'); });
+
+    expect(result.current.comments).toHaveLength(1);
+  });
+
+  it('handleReplyComment dedups when the same reply id is already present', async () => {
+    const reply = { id: 'r1', text: 'Done', user_id: 'u1' };
+    const existing = [{ id: 'c1', text: 'Fix', replies: [reply] }];
+    get.mockResolvedValue({ json: () => Promise.resolve(existing) });
+    post.mockResolvedValue({ json: () => Promise.resolve(reply) });
+
+    const { result } = renderHook(() => useComments(activeFile, sendWsRef, editorRef));
+    await waitFor(() => expect(result.current.comments).toHaveLength(1));
+
+    await act(async () => { await result.current.handleReplyComment('c1', 'Done'); });
+
+    expect(result.current.comments[0].replies).toHaveLength(1);
+  });
 });
