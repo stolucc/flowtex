@@ -35,7 +35,7 @@ After logging in, you'll see the **Project List** dashboard.
 
 - **Rename**: Click the project name (in the editor toolbar or dashboard) or use **Project → Rename Project…** from the editor menu
 - **Delete**: Click the trash icon (owner only) — this permanently deletes the project and all files
-- **Archive/Trash**: Use the project menu for soft archiving
+- **Archive/Trash**: Use the project menu for soft archiving. Both are reversible and never auto-purge — a trashed project stays in your Trash forever until you click **Permanently delete** from there. Note that trashed and archived projects still count toward your per-user project limit, so if you're at the limit you'll need to permanently delete or restore before creating new ones.
 
 ### Tags
 

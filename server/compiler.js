@@ -346,8 +346,15 @@ export async function compileProject(
   if (files) {
     await syncFilesToDisk(projectId, files);
 
-    // Warn about empty binary files (e.g. failed GitHub imports)
-    const emptyBinaries = files.filter((f) => f.is_binary && (!f.content || f.content.length === 0));
+    // Warn about binary files with no underlying blob (e.g. failed GitHub
+    // imports, or rows from before the per-file blob migration that were
+    // never re-uploaded). Post-Phase-C.3 the bytes live on disk via
+    // binary_sha256; an is_binary row WITHOUT a sha is the "broken
+    // import" case the warning is meant to flag. Pre-C.3 this filter
+    // was `!f.content || f.content.length === 0`, which post-migration
+    // matches EVERY binary (content is always '') and produced a
+    // false-positive warning in every compile log.
+    const emptyBinaries = files.filter((f) => f.is_binary && !f.binary_sha256);
     if (emptyBinaries.length > 0) {
       const names = emptyBinaries.map((f) => f.path).join(', ');
       const msg = `Warning: ${emptyBinaries.length} binary file(s) are empty and may cause compilation to fail: ${names}\n` +

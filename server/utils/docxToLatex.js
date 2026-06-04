@@ -270,6 +270,18 @@ export async function convertDocxToLatex(buffer, options = {}) {
   const CONVERT_TO_PNG = new Set(['gif', 'tiff', 'tif', 'bmp']);
   const NEEDS_LIBREOFFICE = new Set(['wmf', 'emf']);
   const mediaEntries = zip.getEntries().filter(e => e.entryName.startsWith('word/media/'));
+  // Cap to bound the worst-case CPU cost of the per-image conversion
+  // loop: each image up to 30 s of ImageMagick / rsvg-convert /
+  // LibreOffice work. Without this a crafted DOCX with thousands of
+  // tiny media entries could burn hours of CPU before downstream
+  // quotas (FILES_PER_PROJECT) reject the writes. 1000 is generous
+  // for any legitimate document (Word's own author guidance caps
+  // single-doc image counts well below this) and quick to reject in
+  // the rare malicious case.
+  const MAX_DOCX_MEDIA = 1000;
+  if (mediaEntries.length > MAX_DOCX_MEDIA) {
+    throw new Error(`DOCX contains too many media files (${mediaEntries.length}, max ${MAX_DOCX_MEDIA})`);
+  }
   const totalMedia = mediaEntries.length;
   const signal = options.signal; // AbortSignal from client disconnect
   let mediaIdx = 0;

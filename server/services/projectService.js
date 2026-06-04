@@ -1970,6 +1970,22 @@ export async function deleteFolder(projectId, path) {
       `DELETE FROM project_folders WHERE project_id = $1 AND (path = $2 OR path LIKE $3 ESCAPE '\\')`,
       [projectId, normalized, prefix],
     );
+    // Decrement blob refcounts for binary files in the folder BEFORE
+    // dropping the rows -- otherwise the project_blobs row keeps its
+    // (now-overcounted) ref_count, and the GC sweep's "ref_count <= 0
+    // AND no file refs" gate never trips, leaking the blob on disk
+    // permanently. Same family as the gitSync / history-restore /
+    // mergeZipIntoProject fixes; this was the last DELETE FROM files
+    // path that bypassed deleteFile().
+    const binaryRows = await tx.all(
+      `SELECT binary_sha256 FROM files
+        WHERE project_id = $1 AND is_binary = TRUE AND binary_sha256 IS NOT NULL
+          AND path LIKE $2 ESCAPE '\\'`,
+      [projectId, prefix],
+    );
+    for (const r of binaryRows) {
+      await decrementBlobRefcount(tx, projectId, r.binary_sha256);
+    }
     await tx.run(
       `DELETE FROM files WHERE project_id = $1 AND path LIKE $2 ESCAPE '\\'`,
       [projectId, prefix],
@@ -2008,28 +2024,33 @@ export async function renameFolderTree(projectId, oldPath, newPath) {
     }
     // Rewrite folder rows in two updates: the exact match, then descendants
     // (separate so the LIKE pattern only matches descendants, not the root).
+    // The SUBSTRING `FROM` integer is parameterised even though oldNorm.length
+    // is server-derived from a validated path -- avoids the "computed value
+    // interpolated into SQL" smell so a future loosening of the validator
+    // can't silently introduce an injection vector.
+    const fromOffset = oldNorm.length + 1;
     await tx.run(
       'UPDATE project_folders SET path = $1 WHERE project_id = $2 AND path = $3',
       [newNorm, projectId, oldNorm],
     );
     await tx.run(
       `UPDATE project_folders
-         SET path = $1 || substring(path FROM ${oldNorm.length + 1})
+         SET path = $1 || substring(path FROM $4::int)
        WHERE project_id = $2 AND path LIKE $3 ESCAPE '\\'`,
-      [newNorm, projectId, oldPrefix],
+      [newNorm, projectId, oldPrefix, fromOffset],
     );
     // Same shape for files. main_file follows if it lived under the prefix.
     await tx.run(
       `UPDATE files
-         SET path = $1 || substring(path FROM ${oldNorm.length + 1}), updated_at = NOW()
+         SET path = $1 || substring(path FROM $4::int), updated_at = NOW()
        WHERE project_id = $2 AND path LIKE $3 ESCAPE '\\'`,
-      [newNorm, projectId, oldPrefix],
+      [newNorm, projectId, oldPrefix, fromOffset],
     );
     await tx.run(
       `UPDATE projects
-         SET main_file = $1 || substring(main_file FROM ${oldNorm.length + 1}), updated_at = NOW()
+         SET main_file = $1 || substring(main_file FROM $4::int), updated_at = NOW()
        WHERE id = $2 AND main_file LIKE $3 ESCAPE '\\'`,
-      [newNorm, projectId, oldPrefix],
+      [newNorm, projectId, oldPrefix, fromOffset],
     );
     await tx.run(
       `UPDATE projects
