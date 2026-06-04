@@ -1312,6 +1312,15 @@ function AppInner() {
                     currentUserName={user?.name}
                     currentUserId={user?.id}
                     projectId={project?.id}
+                    // Read-only when the user isn't a project editor or owner.
+                    // Server already rejects `changes` WS messages and PUT
+                    // /api/projects/files/:fileId writes from viewers and
+                    // commenters; this stops the editor from accepting
+                    // input that would silently fail.
+                    readOnly={(() => {
+                      const me = members.find((m) => m.id === user?.id);
+                      return me && me.role !== 'editor' && me.role !== 'owner';
+                    })()}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
                     onChanges={(changes, tracked, deletions, tcMarks) =>

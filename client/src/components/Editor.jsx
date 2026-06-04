@@ -144,6 +144,14 @@ const Editor = forwardRef(function Editor(
     visualMode = false,
     onToggleVisualMode,
     spellLang = 'en_US',
+    // readOnly drives both EditorState.readOnly.of and
+    // EditorView.editable.of so neither keystrokes nor paste/drop
+    // mutate the doc. App.jsx computes this from the current user's
+    // project role -- viewers and commenters can read + select +
+    // comment but cannot type. The server already rejects their
+    // `changes` WS messages and file PUTs; this stops the editor
+    // from accepting input that would silently fail.
+    readOnly = false,
   },
   ref,
 ) {
@@ -155,6 +163,7 @@ const Editor = forwardRef(function Editor(
   const fontSizeCompartment = useRef(new Compartment());
   const visualModeCompartment = useRef(new Compartment());
   const tcInlineCompartment = useRef(new Compartment());
+  const readOnlyCompartment = useRef(new Compartment());
   const [fontSize, setFontSize] = useState(() => parseInt(getSetting('font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
   const errorHighlightTimer = useRef(null);
@@ -854,6 +863,10 @@ const Editor = forwardRef(function Editor(
         latexFoldService,
         latexAutocomplete(citeKeysRef, labelKeysRef),
         refHoverTooltip,
+        readOnlyCompartment.current.of([
+          EditorState.readOnly.of(readOnly),
+          EditorView.editable.of(!readOnly),
+        ]),
         wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
         visualModeCompartment.current.of(visualMode ? visualModeExtension(projectFiles, citeKeys) : []),
         fontSizeCompartment.current.of(
@@ -1756,6 +1769,21 @@ const Editor = forwardRef(function Editor(
       effects: wrapCompartment.current.reconfigure(wordWrap ? EditorView.lineWrapping : []),
     });
   }, [wordWrap]);
+
+  // Reconfigure read-only when the user's role changes mid-session
+  // (e.g. owner downgrades them, they're removed and added back as a
+  // commenter, etc.). EditorView.editable.of(false) also blocks paste
+  // and drop, not just keystrokes.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: readOnlyCompartment.current.reconfigure([
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
+      ]),
+    });
+  }, [readOnly]);
 
   // Toggle visual mode
   useEffect(() => {
