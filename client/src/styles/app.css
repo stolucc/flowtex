@@ -4687,6 +4687,34 @@ html {
   transform: scale(1.18);
 }
 
+/* Read-only banner above the editor for commenters and viewers.
+   Non-blocking strip that explains WHY the editor isn't accepting
+   their keystrokes — without it, typing into a read-only editor
+   looks like the app is broken. Commenter variant uses a softer
+   accent (they can still contribute via comments); viewer variant
+   uses a more muted tone (purely read-only). */
+.editor-readonly-banner {
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.editor-readonly-banner-commenter {
+  background: rgba(106, 166, 226, 0.12);
+  color: var(--text-primary);
+}
+.editor-readonly-banner-viewer {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+.editor-readonly-banner strong {
+  font-weight: 600;
+}
+
 /* Count badge on the collapsed comments rail — sits under the speech-
    bubble icon. Smaller than the chat-badge because the rail itself is
    only 18px wide. Mirrors the chat counter so users see "N active

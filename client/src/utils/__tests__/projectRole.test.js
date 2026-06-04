@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { isReadOnlyForUser } from '../projectRole.js';
+import { isReadOnlyForUser, getProjectRole } from '../projectRole.js';
+
+describe('getProjectRole', () => {
+  const ALICE = 'user-alice';
+
+  it.each([['owner'], ['editor'], ['commenter'], ['viewer']])(
+    'returns the %s role string',
+    (role) => {
+      expect(getProjectRole([{ id: ALICE, role }], ALICE)).toBe(role);
+    },
+  );
+
+  it('returns null when members has not loaded', () => {
+    expect(getProjectRole(null, ALICE)).toBe(null);
+    expect(getProjectRole(undefined, ALICE)).toBe(null);
+    expect(getProjectRole([], ALICE)).toBe(null);
+  });
+
+  it('returns null when userId is missing', () => {
+    expect(getProjectRole([{ id: ALICE, role: 'owner' }], null)).toBe(null);
+    expect(getProjectRole([{ id: ALICE, role: 'owner' }], undefined)).toBe(null);
+    expect(getProjectRole([{ id: ALICE, role: 'owner' }], '')).toBe(null);
+  });
+
+  it('returns null when user is not in the members list', () => {
+    expect(getProjectRole([{ id: 'someone', role: 'owner' }], ALICE)).toBe(null);
+  });
+});
 
 describe('isReadOnlyForUser', () => {
   const ALICE = 'user-alice';

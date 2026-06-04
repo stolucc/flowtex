@@ -89,11 +89,29 @@ export default function useWebSocket(
         }));
       } else if (msg.type === 'comment') {
         if (activeFileRef.current?.id === msg.fileId) {
-          setComments((cs) => [...cs, msg.comment]);
+          // Dedup by id: comment broadcasts now originate from the HTTP
+          // routes (see routes/comments.js) which send to the whole
+          // room with no sender exclusion. The author's tab already
+          // added the comment from its own HTTP response, so without
+          // this guard a self-echo would double-count. Other tabs in
+          // the same browser legitimately need the broadcast to pick
+          // up tab-A's comment, which this still allows (their state
+          // doesn't have msg.comment.id yet).
+          setComments((cs) => (cs.some((c) => c.id === msg.comment.id) ? cs : [...cs, msg.comment]));
         }
       } else if (msg.type === 'comment-reply') {
+        // Same dedup story for replies (HTTP-originated broadcast).
         setComments((cs) =>
-          cs.map((c) => (c.id === msg.commentId ? { ...c, replies: [...(c.replies || []), msg.reply] } : c)),
+          cs.map((c) =>
+            c.id === msg.commentId
+              ? {
+                  ...c,
+                  replies: (c.replies || []).some((r) => r.id === msg.reply.id)
+                    ? c.replies
+                    : [...(c.replies || []), msg.reply],
+                }
+              : c,
+          ),
         );
       } else if (msg.type === 'comment-resolve') {
         setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, resolved: msg.resolved ? 1 : 0 } : c)));

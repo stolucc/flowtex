@@ -54,7 +54,7 @@ import useUIState from './hooks/useUIState.js';
 import useClickOutside from './hooks/useClickOutside.js';
 import useEditorActions from './hooks/useEditorActions.js';
 import { formatSyncDate } from './utils/dateFormat.js';
-import { isReadOnlyForUser } from './utils/projectRole.js';
+import { isReadOnlyForUser, getProjectRole } from './utils/projectRole.js';
 
 /** Context menu for generated files, allowing download. */
 function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
@@ -1315,6 +1315,32 @@ function AppInner() {
                 </Suspense>
               ) : (
                 <>
+                  {/* Read-only banner: a non-blocking strip above the
+                      editor that explains WHY typing does nothing.
+                      Otherwise a commenter who clicks into the file
+                      and starts typing sees nothing happen and has no
+                      idea why. The role string drives the message so
+                      commenters know they can still post comments. */}
+                  {(() => {
+                    const role = getProjectRole(members, user?.id);
+                    if (role !== 'commenter' && role !== 'viewer') return null;
+                    return (
+                      <div className={`editor-readonly-banner editor-readonly-banner-${role}`}>
+                        {role === 'commenter' ? (
+                          <span>
+                            You&rsquo;re a <strong>commenter</strong> on this project &mdash;
+                            you can read the file and post comments, but cannot edit the content.
+                            Ask the project owner if you need editor access.
+                          </span>
+                        ) : (
+                          <span>
+                            You&rsquo;re a <strong>viewer</strong> on this project &mdash;
+                            you can read the file but cannot edit it or post comments.
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <Editor
                     ref={editorRef}
                     file={activeFile}

@@ -176,6 +176,52 @@ describe('useWebSocket', () => {
     expect(callbacks.setComments).not.toHaveBeenCalled();
   });
 
+  // Regression cover: HTTP-driven comment broadcasts send to the whole
+  // room (no sender exclusion), so the author's own tab gets the WS
+  // echo right after its HTTP add. Without dedup the count jumped by 2
+  // until a hard refresh. The updater should be a no-op when the
+  // comment id is already in state.
+  it('dedups duplicate comment broadcast (self-echo from HTTP)', () => {
+    renderWsHook();
+    act(() => { vi.runAllTimers(); });
+
+    const ws = mockWsInstances[0];
+    const comment = { id: 'c1', text: 'Fix this' };
+    act(() => {
+      ws.onmessage({ data: JSON.stringify({ type: 'comment', fileId: 'f1', comment }) });
+    });
+
+    // Extract the updater that setComments was called with.
+    const updater = callbacks.setComments.mock.calls[0][0];
+    // If c1 is already in state, the updater returns the same array
+    // (or one with no new entries).
+    const prevWithC1 = [{ id: 'c1', text: 'Fix this' }];
+    expect(updater(prevWithC1)).toHaveLength(1);
+    // If c1 is NOT in state (other-tab case), the updater appends.
+    expect(updater([])).toHaveLength(1);
+    expect(updater([])[0].id).toBe('c1');
+  });
+
+  it('dedups duplicate comment-reply broadcast', () => {
+    renderWsHook();
+    act(() => { vi.runAllTimers(); });
+
+    const ws = mockWsInstances[0];
+    const reply = { id: 'r1', text: 'Done' };
+    act(() => {
+      ws.onmessage({ data: JSON.stringify({ type: 'comment-reply', commentId: 'c1', reply }) });
+    });
+
+    const updater = callbacks.setComments.mock.calls[0][0];
+    // Reply already present -> no duplicate append.
+    const withReply = [{ id: 'c1', replies: [{ id: 'r1', text: 'Done' }] }];
+    expect(updater(withReply)[0].replies).toHaveLength(1);
+    // Reply not present -> appended.
+    const withoutReply = [{ id: 'c1', replies: [] }];
+    expect(updater(withoutReply)[0].replies).toHaveLength(1);
+    expect(updater(withoutReply)[0].replies[0].id).toBe('r1');
+  });
+
   it('sendWsMessage sends JSON through WebSocket', () => {
     const { result } = renderWsHook();
     act(() => {
