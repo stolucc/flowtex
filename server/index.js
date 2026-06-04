@@ -440,9 +440,13 @@ app.use('/api/invitations', publicInvitationsRouter);
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/compile', requireAuth, compileRouter);
 // Per-author comment-create cap (see commentCreateLimiter above). Mounted
-// method-specifically so resolve/edit/delete/reply on existing comments
-// keep using the generic apiLimiter.
+// method-specifically — resolve/edit/delete keep using the generic
+// apiLimiter; replies share this bucket because a reply with @victim
+// generates the same fan-out (mention row + WS push + digest slot) as
+// a top-level comment, and the generic 200/min cap was too loose for
+// that threat shape.
 app.post('/api/comments/:fileId', commentCreateLimiter);
+app.post('/api/comments/:commentId/reply', commentCreateLimiter);
 app.use('/api/comments', requireAuth, commentsRouter);
 app.use('/api/history', requireAuth, historyRouter);
 app.use(

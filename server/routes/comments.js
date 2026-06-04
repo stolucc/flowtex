@@ -168,9 +168,25 @@ router.post('/:fileId', async (req, res) => {
     (await db.get('SELECT name FROM users WHERE id = $1', [req.session.userId]))?.name ||
     'User';
 
+  // Gate assigned_to on project membership: recordMentions already
+  // refuses to notify non-members, but the comment row would still
+  // store an arbitrary user id otherwise. Reject the request so a
+  // tampered body can't seed silent inconsistencies (and can't probe
+  // existence-by-id by watching which ids 400 vs accept).
+  let assignedTo = null;
+  if (assigned_to) {
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    const assigneeIsMember = await db.get(
+      'SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2',
+      [file.project_id, assigned_to],
+    );
+    if (!assigneeIsMember) return res.status(400).json({ error: 'Assignee is not a project member' });
+    assignedTo = assigned_to;
+  }
+
   await db.run(
     'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assigned_to || null],
+    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assignedTo],
   );
 
   // Record @mentions for batched email notification + real-time in-app push.
@@ -212,7 +228,9 @@ router.patch('/:commentId', async (req, res) => {
   }
 
   const { text } = req.body;
-  if (!text || !text.trim()) return res.status(400).json({ error: 'Text required' });
+  if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 10000) {
+    return res.status(400).json({ error: 'Comment text must be 1-10000 characters' });
+  }
   await db.run('UPDATE comments SET text = $1 WHERE id = $2', [text.trim(), req.params.commentId]);
   res.json({ ok: true, text: text.trim() });
 });
