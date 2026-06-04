@@ -369,6 +369,28 @@ router.post('/:id/members', async (req, res) => {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return res.status(400).json({ error: 'Invalid email address' });
   if (!(await requireOwner(req, res))) return;
+
+  // APP_URL is a precondition for sending an invitation email at all
+  // (see the Host-header rationale below). Check it BEFORE persisting
+  // the invitation row -- otherwise every retry in a misconfigured
+  // production silently burns a slot against the per-project membership
+  // cap (50) while no emails ever go out.
+  // Prefer APP_URL (set in .env) over the request's host header so a
+  // forged Host: can't redirect the invite link to an attacker domain.
+  // In production we refuse if APP_URL is unset: the fallback would
+  // expose the link's host to whoever can spoof the Host header
+  // (depends on the reverse-proxy config), and an invitation pointing
+  // at an attacker domain is a phishing-grade brand impersonation even
+  // before any auth flow runs on the recipient's side.
+  const baseUrl = process.env.APP_URL;
+  if (!baseUrl && process.env.NODE_ENV === 'production') {
+    logger.error('Refusing to send invitation: APP_URL is not configured');
+    return res.status(503).json({
+      error: 'APP_URL is not configured on this server. Invitations cannot be sent until an administrator sets it.',
+    });
+  }
+  const safeBaseUrl = baseUrl || `${req.protocol}://${req.get('host')}`;
+
   try {
     const invitation = await projectService.inviteMember(req.params.id, email, role, req.session.userId);
     // Fetch shared data once
@@ -381,24 +403,7 @@ router.post('/:id/members', async (req, res) => {
 
     // Email is a precondition: if SMTP fails, undo the invitation so the
     // recipient never sees an in-app banner without ever getting the email
-    // link. Prefer APP_URL (set in .env) over the request's host header so
-    // a forged Host: can't redirect the invite link to an attacker domain.
-    // In production we refuse to send the email if APP_URL is unset: the
-    // fallback would expose the link's host to whoever can spoof the
-    // Host header (depends on the reverse-proxy config), and an invitation
-    // pointing at an attacker domain is a phishing-grade brand impersonation
-    // even before any auth flow runs on the recipient's side.
-    const baseUrl = process.env.APP_URL;
-    if (!baseUrl) {
-      if (process.env.NODE_ENV === 'production') {
-        logger.error('Refusing to send invitation: APP_URL is not configured');
-        return res.status(503).json({
-          error: 'APP_URL is not configured on this server. Invitations cannot be sent until an administrator sets it.',
-        });
-      }
-      // Dev/test: fall back so local flows keep working.
-    }
-    const safeBaseUrl = baseUrl || `${req.protocol}://${req.get('host')}`;
+    // link.
     try {
       if (invitation.recipientHasAccount) {
         // Existing user — they'll see the invitation on their dashboard

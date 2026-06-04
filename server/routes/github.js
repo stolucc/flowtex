@@ -118,7 +118,9 @@ router.delete('/token', async (req, res) => {
 router.put('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot link a repo' });
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can link a GitHub repo' });
+  }
 
   const { repo, branch } = req.body;
   if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo.trim()))
@@ -152,8 +154,8 @@ router.get('/link/:projectId', async (req, res) => {
 router.patch('/link/:projectId/auto-push', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer') {
-    return res.status(403).json({ error: 'Viewers cannot change auto-push settings' });
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can change auto-push settings' });
   }
 
   const updated = await gh.updateAutoPush(req.params.projectId, req.body.enabled, req.body.interval);
@@ -165,7 +167,9 @@ router.patch('/link/:projectId/auto-push', async (req, res) => {
 router.delete('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot unlink' });
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can unlink the GitHub repo' });
+  }
 
   await gh.unlinkProject(req.params.projectId);
   res.json({ ok: true });
@@ -202,7 +206,12 @@ router.post('/repos', async (req, res) => {
 router.post('/push/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot push to GitHub' });
+  // Push exfiltrates project files to GitHub -- editor-only. A commenter
+  // could otherwise ship the whole project to an attacker-controlled
+  // fork by submitting this route with a previously-linked repo.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can push to GitHub' });
+  }
 
   try {
     const result = await gh.pushProject(req.params.projectId, req.session.userId, req.body.message);
@@ -216,7 +225,10 @@ router.post('/push/:projectId', async (req, res) => {
 router.post('/pull/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot pull from GitHub' });
+  // Pull overwrites file content -- editor-only.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can pull from GitHub' });
+  }
 
   try {
     const result = await gh.pullProject(req.params.projectId, req.session.userId);

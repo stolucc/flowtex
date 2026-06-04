@@ -154,7 +154,12 @@ router.post('/restore/:snapshotId', async (req, res) => {
 
   const member = await isProjectMember(snap.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Only editors can restore snapshots' });
+  // Restore overwrites file content -- editor-only. Commenters get the
+  // same rejection as viewers because the action is about file state,
+  // not comments.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can restore snapshots' });
+  }
 
   const projectId = snap.project_id;
 
@@ -318,7 +323,11 @@ router.delete('/snapshots', async (req, res) => {
 
   const member = await isProjectMember(projectId, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Only editors can delete snapshots' });
+  // Deleting history loses restore points -- editor-only. Commenters
+  // get the same rejection as viewers.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can delete snapshots' });
+  }
 
   // Guard against wiping out every restore point in one call. Use COUNT(*)
   // rather than comparing array lengths so it's correct even if duplicate
@@ -349,7 +358,10 @@ router.delete('/snapshot/:snapshotId', async (req, res) => {
 
   const member = await isProjectMember(snap.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  if (member.role === 'viewer') return res.status(403).json({ error: 'Only editors can delete snapshots' });
+  // Single-snapshot delete: editor-only, same posture as the bulk path.
+  if (member.role === 'viewer' || member.role === 'commenter') {
+    return res.status(403).json({ error: 'Only editors can delete snapshots' });
+  }
 
   // Refuse to delete the project's only restore point.
   const totalRow = await db.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [snap.project_id]);
