@@ -758,15 +758,36 @@ export function initWebSocket(server, app, sessionSecret) {
       try { ws.terminate(); } catch {}
     });
 
-    // Buffer messages that arrive during async auth so they aren't lost
+    // Buffer messages that arrive during async auth so they aren't
+    // lost. Capped (count + per-message size) so a client that
+    // floods bytes during the ~10-100 ms auth window can't blow
+    // node's memory. Origin allowlist on verifyClient gates which
+    // sites can even open the WS, so this is mainly a defence
+    // against a logged-in user DoS'ing the box they're connected to.
+    const MAX_PENDING_MESSAGES = 64;
+    const MAX_PRE_AUTH_MESSAGE_BYTES = 256 * 1024;
     const pendingMessages = [];
+    let preAuthAbort = false;
     let authenticated = false;
     ws.on('message', (raw) => {
-      if (!authenticated) {
-        pendingMessages.push(raw);
-      } else {
+      if (authenticated) {
         handleMessage(raw);
+        return;
       }
+      if (preAuthAbort) return;
+      if (raw.length > MAX_PRE_AUTH_MESSAGE_BYTES) {
+        preAuthAbort = true;
+        pendingMessages.length = 0;
+        try { ws.close(1009, 'Message too large'); } catch { /* already closed */ }
+        return;
+      }
+      if (pendingMessages.length >= MAX_PENDING_MESSAGES) {
+        preAuthAbort = true;
+        pendingMessages.length = 0;
+        try { ws.close(1008, 'Too many pre-auth messages'); } catch { /* already closed */ }
+        return;
+      }
+      pendingMessages.push(raw);
     });
 
     const sess = await getSessionFromRequest(req, sessionSecret);

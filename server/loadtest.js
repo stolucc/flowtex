@@ -425,8 +425,44 @@ This work was supported in part by the Science Foundation Ireland grant No. 13/R
 `;
 }
 
+// ── Safety guard ────────────────────────────────────────────────────────
+// Refuse to run unless the operator has explicitly opted in AND the
+// target DB doesn't look like production. Catches the "accidentally
+// run against the live box" footgun: this script INSERTs synthetic
+// users + session rows that bypass authentication entirely, so a
+// crashed-mid-run loadtest leaves usable backdoor sessions behind.
+async function assertSafeToRun() {
+  if (process.env.LOADTEST_CONFIRM !== '1') {
+    console.error('REFUSED: set LOADTEST_CONFIRM=1 to acknowledge this script writes to the DB.');
+    process.exit(2);
+  }
+  const client = await pool.connect();
+  try {
+    const realUserCountRow = await client.query(
+      `SELECT COUNT(*)::int AS n FROM users
+        WHERE email NOT LIKE 'loadtest_user_%@test.local'
+          AND email NOT LIKE '%@example.test'
+          AND deleted_at IS NULL`,
+    );
+    const realUsers = realUserCountRow.rows[0]?.n ?? 0;
+    const MAX_REAL_USERS_ALLOWED = 50;
+    if (realUsers > MAX_REAL_USERS_ALLOWED) {
+      console.error(
+        `REFUSED: target DB has ${realUsers} real users (> ${MAX_REAL_USERS_ALLOWED}). Looks like production.`,
+      );
+      console.error(
+        'If you really mean to run loadtest here, point at a different DB or temporarily lower the gate.',
+      );
+      process.exit(2);
+    }
+  } finally {
+    client.release();
+  }
+}
+
 // ── Test data setup ─────────────────────────────────────────────────────
 async function setupTestData() {
+  await assertSafeToRun();
   console.log(`Creating ${NUM_USERS} test users, ${NUM_DOCS} projects/files...`);
   const client = await pool.connect();
   try {

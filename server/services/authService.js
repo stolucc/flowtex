@@ -1,4 +1,7 @@
 import { v4 as uuid } from 'uuid';
+import path from 'node:path';
+import { rm as fsRm } from 'node:fs/promises';
+import { PROJECTS_DIR } from '../paths.js';
 // bcrypt is no longer imported directly — hashing + verify go through
 // utils/passwordHash.js, which dispatches legacy bcrypt rows through
 // bcryptjs internally so the lazy-migration period keeps working.
@@ -9,6 +12,7 @@ import QRCode from 'qrcode';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
+import { isUniqueViolation } from '../utils/dbErrors.js';
 import logger from '../logger.js';
 
 const MAX_FAILED_ATTEMPTS = 10;
@@ -607,7 +611,17 @@ export async function changeEmail(userId, password, newEmail) {
   const existing = await db.get('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
   if (existing) throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
 
-  await db.run('UPDATE users SET email = $1, email_verified = FALSE WHERE id = $2', [normalizedEmail, user.id]);
+  // Catch the TOCTOU race between the SELECT above and this UPDATE: a
+  // registration could land the same email in the gap and the unique
+  // constraint would otherwise surface as a generic 500.
+  try {
+    await db.run('UPDATE users SET email = $1, email_verified = FALSE WHERE id = $2', [normalizedEmail, user.id]);
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw Object.assign(new Error('An account with this email already exists'), { status: 409 });
+    }
+    throw err;
+  }
   return { email: normalizedEmail, oldEmail: user.email, name: user.name, needsVerification: true };
 }
 
@@ -652,7 +666,13 @@ async function softDeleteUserInTx(tx, user) {
 /** Permanently delete a user account and all owned data after verifying their password. */
 /** Tear down all rows referencing a user that don't ON-DELETE-CASCADE
  *  cleanly, then delete the user row. Run inside a transaction. Shared by
- *  the self-delete and admin-delete paths so they stay in lock-step. */
+ *  the self-delete and admin-delete paths so they stay in lock-step.
+ *
+ *  Returns the projectIds that were DELETE-FROM-projects'd so the caller
+ *  can `rm -rf server/projects/<id>` after the tx commits. Without
+ *  this, the cron-driven user-purge bypasses deleteProject() and the
+ *  on-disk tree (blob files, LaTeX compile outputs) leaks per
+ *  orphan-owned project the purged user had. */
 async function purgeUserInTx(tx, user) {
   await tx.run('UPDATE comments SET author_id = NULL WHERE author_id = $1', [user.id]);
   await tx.run('UPDATE comment_replies SET author_id = NULL WHERE author_id = $1', [user.id]);
@@ -663,15 +683,19 @@ async function purgeUserInTx(tx, user) {
   await tx.run('UPDATE audit_log SET user_id = NULL WHERE user_id = $1', [user.id]);
   await tx.run('DELETE FROM login_attempts WHERE email = $1', [user.email]);
 
-  // Drop projects where the user is the only member.
-  await tx.run(
-    `DELETE FROM projects WHERE id IN (
-      SELECT p.id FROM projects p JOIN project_members pm ON p.id = pm.project_id
+  // Snapshot the orphan-owned project ids BEFORE the delete so the
+  // caller can clean their on-disk trees post-commit.
+  const orphanRows = await tx.all(
+    `SELECT p.id FROM projects p JOIN project_members pm ON p.id = pm.project_id
       WHERE pm.user_id = $1 AND pm.role = 'owner'
-        AND NOT EXISTS (SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id != $1)
-    )`,
+        AND NOT EXISTS (SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id != $1)`,
     [user.id],
   );
+  const orphanProjectIds = orphanRows.map((r) => r.id);
+  // Drop projects where the user is the only member.
+  if (orphanProjectIds.length > 0) {
+    await tx.run('DELETE FROM projects WHERE id = ANY($1)', [orphanProjectIds]);
+  }
 
   // For projects the user owned where co-members exist, promote the
   // longest-tenured remaining member to owner so the project doesn't end
@@ -694,6 +718,23 @@ async function purgeUserInTx(tx, user) {
   );
 
   await tx.run('DELETE FROM users WHERE id = $1', [user.id]);
+  return { orphanProjectIds };
+}
+
+// rm -rf the on-disk project dir for each id in `projectIds`. Called by
+// the user-purge cron AFTER its tx commits, so a tx rollback can't leave
+// us mid-unlink. Filesystem failures are logged but don't propagate — the
+// blobGc reconciliation walk catches any blob remnants on its next pass.
+async function rmProjectDirs(projectIds) {
+  for (const pid of projectIds) {
+    if (!/^[0-9a-f-]{36}$/i.test(pid)) continue;
+    const dir = path.join(PROJECTS_DIR, pid);
+    try {
+      await fsRm(dir, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn({ err, projectId: pid }, 'purgeUser: failed to remove on-disk project tree');
+    }
+  }
 }
 
 export async function deleteAccount(userId, password) {
@@ -851,9 +892,13 @@ export async function purgeExpiredSoftDeletes() {
   const purgedIds = [];
   for (const user of expired) {
     try {
+      let orphanProjectIds = [];
       await db.transaction(async (tx) => {
-        await purgeUserInTx(tx, user);
+        const result = await purgeUserInTx(tx, user);
+        orphanProjectIds = result?.orphanProjectIds || [];
       });
+      // Tx committed; safe to clean the on-disk trees now.
+      if (orphanProjectIds.length > 0) await rmProjectDirs(orphanProjectIds);
       purgedIds.push(user.id);
     } catch (err) {
       // One bad row shouldn't halt the whole sweep — log + skip.

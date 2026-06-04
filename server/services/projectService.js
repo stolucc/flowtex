@@ -30,6 +30,7 @@ import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
 import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 import { PROJECTS_DIR } from '../paths.js';
+import { isUniqueViolation } from '../utils/dbErrors.js';
 import { writeBlob } from './blobStore.js';
 import { loadFileBytes } from './fileBytes.js';
 import {
@@ -1716,14 +1717,9 @@ export async function decrementBlobRefcount(tx, projectId, blobSha256) {
   );
 }
 
-// Postgres unique-constraint violation. The existence pre-check in
-// createFile / renameFile can be raced past by a concurrent client;
-// the UNIQUE(project_id, path) index then fires and pg returns 23505.
-// Catch it and rethrow with a 409 so the user sees "name already in
-// use" instead of a generic 500.
-function isUniqueViolation(err) {
-  return err?.code === '23505';
-}
+// 409 for the file-path-taken case (raced past the existence pre-check
+// in createFile / renameFile). isUniqueViolation lives in utils so
+// other callers (changeEmail, etc.) can use the same shape.
 const FILE_PATH_TAKEN = () =>
   Object.assign(new Error('A file with that name already exists'), { status: 409 });
 

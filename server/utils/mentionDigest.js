@@ -3,6 +3,12 @@ import { sendMentionDigestEmail } from './email.js';
 import logger from '../logger.js';
 
 const DIGEST_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// Fixed advisory-lock key (arbitrary 64-bit int constant) shared by
+// any process running this cron. Prevents the duplicate-email race
+// when a flush takes longer than DIGEST_INTERVAL (slow SMTP, backed-
+// up queue) and the next setInterval tick fires while the first
+// flush is still running.
+const MENTION_DIGEST_LOCK_KEY = 0x5450_6d65; // 'TPme' arbitrary
 
 /**
  * Periodically send batched @mention notification emails.
@@ -10,6 +16,26 @@ const DIGEST_INTERVAL = 5 * 60 * 1000; // 5 minutes
  */
 export function startMentionDigestJob() {
   async function flush() {
+    // Take a dedicated pg client so the advisory lock acquire and
+    // release land on the same connection — pg tracks
+    // session-scoped advisory locks per connection. Using the pool
+    // (different connection each query) would leak locks.
+    let lockClient;
+    try {
+      lockClient = await db.pool.connect();
+    } catch (err) {
+      logger.warn({ err }, 'Mention digest: could not acquire pg client');
+      return;
+    }
+    const { rows: lockRows } = await lockClient.query(
+      'SELECT pg_try_advisory_lock($1) AS got',
+      [MENTION_DIGEST_LOCK_KEY],
+    );
+    if (!lockRows[0]?.got) {
+      // Another flush is in progress (slow SMTP, horizontal peer).
+      lockClient.release();
+      return;
+    }
     try {
       // Fetch all pending mentions grouped by recipient. Skip chat-mention
       // rows (chat_message_id IS NOT NULL) — chat @-mentions are bell-only by
@@ -70,6 +96,15 @@ export function startMentionDigestJob() {
       }
     } catch (err) {
       logger.error({ err }, 'Mention digest job error');
+    } finally {
+      // Release the advisory lock on the same connection that
+      // acquired it, then return the client to the pool.
+      try {
+        await lockClient.query('SELECT pg_advisory_unlock($1)', [MENTION_DIGEST_LOCK_KEY]);
+      } catch (err) {
+        logger.warn({ err }, 'Mention digest: failed to release advisory lock');
+      }
+      lockClient.release();
     }
   }
 

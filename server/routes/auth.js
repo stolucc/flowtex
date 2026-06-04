@@ -388,6 +388,11 @@ router.post('/change-email', requireAuth, validateBody(changeEmailSchema), async
   if (!password || !newEmail) return res.status(400).json({ error: 'Password and new email are required' });
   try {
     const result = await authService.changeEmail(req.session.userId, password, newEmail);
+    // Mirror change-password / MFA-toggle: email is a primary account
+    // identifier and changing it should kick stale sessions elsewhere
+    // so a hijacked session on another device can't keep operating
+    // under the new email it didn't authorise.
+    await dropOtherSessions(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'email_changed', {
       ip: req.ip,
       oldEmail: result.oldEmail,
