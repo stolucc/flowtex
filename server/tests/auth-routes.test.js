@@ -708,6 +708,30 @@ describe('POST /totp/verify', () => {
     expect(res.body).toEqual({ ok: true });
     expect(auditLog).toHaveBeenCalledWith('user-1', 'mfa_enabled', { ip: '127.0.0.1' });
   });
+
+  // Y3: enforce six-digit shape (mirrors the login schema's totpCodeField).
+  // OTPAuth.validate would reject malformed codes anyway, but a clear 400
+  // here matches login's UX and keeps bogus input out of the downstream
+  // verify + isTotpUsed DB lookups.
+  it.each([
+    ['12345', 'too short'],
+    ['1234567', 'too long'],
+    ['12345a', 'contains a letter'],
+    ['', 'empty string'],
+  ])('returns 400 when code shape is wrong (%s — %s)', async (code) => {
+    const res = mockRes();
+    await handler(mockReq({ body: { code } }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.body.error).toMatch(/6 digits/i);
+    expect(authService.verifyAndEnableTotp).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when code is not a string', async () => {
+    const res = mockRes();
+    await handler(mockReq({ body: { code: 123456 } }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(authService.verifyAndEnableTotp).not.toHaveBeenCalled();
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════

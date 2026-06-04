@@ -593,6 +593,21 @@ router.get('/audit-log', async (req, res) => {
   });
 });
 
+/** Escape a CSV cell so it (a) neutralises spreadsheet-formula
+ *  injection per OWASP and (b) quote-wraps any cell containing commas,
+ *  quotes, or newlines. User-controlled data lands in audit_log.detail
+ *  (e.g. MFA trust-device User-Agent), so an admin opening the export
+ *  could otherwise execute attacker-supplied formulas. Exported for
+ *  testing -- see V1 in the round 7 audit notes. */
+export function escapeCsv(val) {
+  if (val == null) return '';
+  let s = String(val);
+  // Spreadsheet-formula leaders: =, +, -, @, TAB, CR. Prefix a single
+  // quote -- the standard OWASP mitigation across Excel, Calc, Sheets.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 /** GET /api/admin/audit-log/export -- Export full audit log as CSV. */
 router.get('/audit-log/export', async (req, res) => {
   const rows = await db.all(
@@ -602,19 +617,6 @@ router.get('/audit-log/export', async (req, res) => {
      LEFT JOIN users u ON a.user_id = u.id
      ORDER BY a.created_at DESC`,
   );
-
-  const escapeCsv = (val) => {
-    if (val == null) return '';
-    let s = String(val);
-    // Neutralise spreadsheet-formula injection: cells starting with
-    // =/+/-/@/TAB/CR are interpreted as formulas by Excel and Calc.
-    // User-controlled data lands in `detail` (e.g. MFA trust-device
-    // User-Agent), so an admin opening the export could execute
-    // attacker-supplied formulas. Prefix a single quote — the
-    // standard OWASP CSV-injection mitigation.
-    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
-  };
 
   const header = 'ID,User ID,User Name,User Email,Action,Target Type,Target ID,Detail,IP,Created At';
   const lines = rows.map((r) =>

@@ -496,6 +496,19 @@ describe('POST /:projectId/clean', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
+  // A1 regression cover: when the commenter role landed this route
+  // was still letting commenters through.
+  it('A1 — rejects commenters', async () => {
+    requireMember.mockResolvedValueOnce({ role: 'commenter' });
+
+    const res = mockRes();
+    await handler(mockReq({ projectId: 'proj-1' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.body.error).toMatch(/only editors/i);
+    expect(fs.readdirSync).not.toHaveBeenCalled();
+  });
+
   it('returns 403 for non-members', async () => {
     requireMember.mockResolvedValueOnce(null);
 

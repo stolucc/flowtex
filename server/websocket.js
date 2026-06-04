@@ -570,6 +570,22 @@ function isAllowedWriteRole(type, role) {
   return true;
 }
 
+/** Predicate: should this client be disconnected by a "disconnect every
+ *  session except `keepSessionId`" sweep?
+ *
+ *  Hardening: if `keepSessionId` is falsy the caller hasn't named a
+ *  session to keep, so fall back to "disconnect every WS for this
+ *  user" -- safer than silently keeping an unidentified WS (one
+ *  whose `_flowtexSessionId` is also null/undefined) up after a
+ *  privilege change. The real callers always pass req.sessionID so
+ *  this only fires on misuse, but the fail-closed posture matters.
+ */
+export function shouldDisconnectExcept(client, userId, keepSessionId) {
+  if (client._flowtexUserId !== userId) return false;
+  if (!keepSessionId) return true;
+  return client._flowtexSessionId !== keepSessionId;
+}
+
 /** Broadcast a typing indicator to other clients in the room. */
 function handleTyping(msg, state, ws) {
   broadcastToRoom(
@@ -722,7 +738,7 @@ export function initWebSocket(server, app, sessionSecret) {
   // upgraded WS until natural disconnect.
   function disconnectUserSessionsExcept(userId, keepSessionId) {
     for (const client of wss.clients) {
-      if (client._flowtexUserId === userId && client._flowtexSessionId !== keepSessionId) {
+      if (shouldDisconnectExcept(client, userId, keepSessionId)) {
         try {
           client.close(1000, 'session-revoked');
         } catch {
@@ -966,6 +982,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleJoin,
   writeTypes,
   isAllowedWriteRole,
+  shouldDisconnectExcept,
   projectRooms,
   broadcastToRoom,
   getRoom,

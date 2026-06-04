@@ -39,6 +39,7 @@ const {
   handleJoin,
   writeTypes,
   isAllowedWriteRole,
+  shouldDisconnectExcept,
   projectRooms,
   broadcastToRoom,
   getRoom,
@@ -409,6 +410,57 @@ describe('isAllowedWriteRole', () => {
         expect(isAllowedWriteRole(type, role)).toBe(true);
       }
     }
+  });
+});
+
+// ── shouldDisconnectExcept (Y1) ─────────────────────────────────────────
+//
+// Predicate behind disconnectUserSessionsExcept. After a privilege change
+// (password reset, change-email, totp toggle), every WS for the user
+// EXCEPT the calling device's must terminate -- the HTTP path is already
+// killed by `DELETE FROM session WHERE sid != $current`, but WS auth
+// happens at upgrade-time only, so without this predicate an attacker
+// holding a stolen pre-change session would keep editing via their
+// already-upgraded WS.
+
+describe('shouldDisconnectExcept', () => {
+  const make = (userId, sessionId) => ({
+    _flowtexUserId: userId,
+    _flowtexSessionId: sessionId,
+  });
+
+  it('disconnects other-session WS for the same user', () => {
+    const ws = make('user-1', 'sid-old');
+    expect(shouldDisconnectExcept(ws, 'user-1', 'sid-current')).toBe(true);
+  });
+
+  it('keeps the calling-device WS (matching sid)', () => {
+    const ws = make('user-1', 'sid-current');
+    expect(shouldDisconnectExcept(ws, 'user-1', 'sid-current')).toBe(false);
+  });
+
+  it('does not disconnect WS belonging to other users', () => {
+    const ws = make('user-2', 'sid-old');
+    expect(shouldDisconnectExcept(ws, 'user-1', 'sid-current')).toBe(false);
+  });
+
+  it('disconnects untagged WS (null _flowtexSessionId) for the user', () => {
+    // A WS that somehow upgraded without a tagged sid can't be matched
+    // to the calling device, so it must be treated as "other session"
+    // and disconnected. Closes the gap where an older client build
+    // (pre-Y1) would survive a privilege change.
+    const ws = make('user-1', null);
+    expect(shouldDisconnectExcept(ws, 'user-1', 'sid-current')).toBe(true);
+  });
+
+  it('fails closed when keepSessionId is missing (misuse hardening)', () => {
+    // Callers always pass req.sessionID in practice, but if anything
+    // ever invokes this with a falsy keepSessionId we disconnect
+    // every WS for the user rather than silently keeping unidentified
+    // ones up. Safer than fail-open.
+    expect(shouldDisconnectExcept(make('user-1', 'sid-A'), 'user-1', null)).toBe(true);
+    expect(shouldDisconnectExcept(make('user-1', 'sid-A'), 'user-1', undefined)).toBe(true);
+    expect(shouldDisconnectExcept(make('user-1', 'sid-A'), 'user-1', '')).toBe(true);
   });
 });
 

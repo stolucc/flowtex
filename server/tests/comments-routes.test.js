@@ -43,7 +43,7 @@ function mockReq(params = {}, body = {}, session = {}) {
     params,
     body,
     session: { userId: 'user-1', userName: 'Alice', ...session },
-    app: { locals: { sendToUser: vi.fn() } },
+    app: { locals: { sendToUser: vi.fn(), broadcastToRoom: vi.fn() } },
   };
 }
 
@@ -591,5 +591,100 @@ describe('PATCH /:commentId', () => {
     await handler(mockReq({ commentId: 'missing' }, { text: 'hi' }), res);
 
     expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  // W1: PATCH was previously missing the typeof + length cap that POST has.
+  // A non-string `text` threw 500 via .trim(); a 9 MB string slipped past
+  // and landed in the DB.
+  it('W1 — returns 400 when text is not a string (no 500)', async () => {
+    db.get.mockResolvedValueOnce({ id: 'c1', file_id: 'file-1', author_id: 'user-1' });
+    db.get.mockResolvedValueOnce(FILE_ROW);
+    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+
+    const res = mockRes();
+    await handler(mockReq({ commentId: 'c1' }, { text: 12345 }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.body.error).toMatch(/1-10000/i);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('W1 — returns 400 when text exceeds 10000 characters', async () => {
+    db.get.mockResolvedValueOnce({ id: 'c1', file_id: 'file-1', author_id: 'user-1' });
+    db.get.mockResolvedValueOnce(FILE_ROW);
+    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+
+    const res = mockRes();
+    await handler(mockReq({ commentId: 'c1' }, { text: 'x'.repeat(10001) }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  // Server-originated broadcast: the HTTP PATCH should fire
+  // `comment-edit` over WS itself (the old WS handler that trusted
+  // the sender was removed in the commenter-role commit).
+  it('broadcasts comment-edit to the project room after persisting', async () => {
+    db.get.mockResolvedValueOnce({ id: 'c1', file_id: 'file-1', author_id: 'user-1' });
+    db.get.mockResolvedValueOnce(FILE_ROW);
+    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+    db.run.mockResolvedValueOnce({});
+    db.get.mockResolvedValueOnce(FILE_ROW); // re-fetch for project_id
+
+    const req = mockReq({ commentId: 'c1' }, { text: 'updated body' });
+    await handler(req, mockRes());
+
+    expect(req.app.locals.broadcastToRoom).toHaveBeenCalledWith(
+      FILE_ROW.project_id,
+      expect.objectContaining({ type: 'comment-edit', commentId: 'c1', text: 'updated body' }),
+    );
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// W2 — assigned_to must be a project member
+// ═════════════════════════════════════════════════════════════════════════
+describe('POST /:fileId — W2 assigned_to membership check', () => {
+  const handler = getHandler('post', '/:fileId');
+
+  it('returns 400 when assignee is not a project member', async () => {
+    // requireFileAccess
+    db.get.mockResolvedValueOnce(FILE_ROW);
+    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+    // file content lookup (for EOF bound check)
+    db.get.mockResolvedValueOnce({ project_id: 'proj-1', content: 'x'.repeat(100) });
+    // assigned_to membership lookup -> not a member
+    db.get.mockResolvedValueOnce(undefined);
+
+    const res = mockRes();
+    await handler(
+      mockReq({ fileId: 'file-1' }, { from_pos: 0, to_pos: 1, text: 'hi', assigned_to: 'outsider-id' }),
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.body.error).toMatch(/not a project member/i);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('accepts assigned_to when assignee IS a project member', async () => {
+    db.get.mockResolvedValueOnce(FILE_ROW);
+    isProjectMember.mockResolvedValueOnce(MEMBER_EDITOR);
+    db.get.mockResolvedValueOnce({ project_id: 'proj-1', content: 'x'.repeat(100) });
+    db.get.mockResolvedValueOnce({ '?column?': 1 }); // assignee is a member
+    db.run.mockResolvedValueOnce({}); // INSERT comment
+    db.get.mockResolvedValueOnce({ name: 'Alice' }); // possible name lookup
+    db.get.mockResolvedValueOnce({ ...COMMENT, id: 'comment-uuid-1234' }); // re-fetch
+
+    const res = mockRes();
+    await handler(
+      mockReq({ fileId: 'file-1' }, { from_pos: 0, to_pos: 1, text: 'hi', assigned_to: 'member-id' }),
+      res,
+    );
+
+    // INSERT comment INTO ... was called with assignedTo populated.
+    const insertCall = db.run.mock.calls[0];
+    expect(insertCall[0]).toMatch(/INSERT INTO comments/);
+    expect(insertCall[1][7]).toBe('member-id');
   });
 });

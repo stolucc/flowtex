@@ -244,3 +244,57 @@ describe('DELETE /snapshots (bulk)', () => {
     expect(res.body).toEqual({ ok: true, deleted: 2 });
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════
+// A1 — commenter role must be rejected on all three history routes
+// (regression cover for the self-audit finding: when the commenter
+// role landed, these three sites still only rejected viewer).
+// ═════════════════════════════════════════════════════════════════════════
+
+const COMMENTER = { role: 'commenter' };
+
+describe('A1 — commenter rejection on history routes', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('POST /restore/:snapshotId rejects commenter with 403', async () => {
+    const handler = getHandler('post', '/restore/:snapshotId');
+    db.get.mockResolvedValueOnce({ id: 'snap-1', project_id: 'proj-1' });
+    isProjectMember.mockResolvedValueOnce(COMMENTER);
+
+    const res = mockRes();
+    await handler(mockReq({ snapshotId: 'snap-1' }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toMatch(/only editors/i);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /snapshot/:snapshotId rejects commenter with 403', async () => {
+    const handler = getHandler('delete', '/snapshot/:snapshotId');
+    db.get.mockResolvedValueOnce({ id: 'snap-1', project_id: 'proj-1' });
+    isProjectMember.mockResolvedValueOnce(COMMENTER);
+
+    const res = mockRes();
+    await handler(mockReq({ snapshotId: 'snap-1' }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toMatch(/only editors/i);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /snapshots (bulk) rejects commenter with 403', async () => {
+    const handler = getHandler('delete', '/snapshots');
+    db.all.mockResolvedValueOnce([
+      { id: 'a', project_id: 'proj-1' },
+      { id: 'b', project_id: 'proj-1' },
+    ]);
+    isProjectMember.mockResolvedValueOnce(COMMENTER);
+
+    const res = mockRes();
+    await handler(mockReq({}, { ids: ['a', 'b'] }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toMatch(/only editors/i);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+});
