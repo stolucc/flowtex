@@ -7,15 +7,16 @@ import ProjectList from './components/ProjectList.jsx';
 const Editor = lazy(() => import('./components/Editor.jsx'));
 const PdfViewer = lazy(() => import('./components/PdfViewer.jsx'));
 const HistoryView = lazy(() => import('./components/HistoryView.jsx'));
-const ChatPanel = lazy(() => import('./components/ChatPanel.jsx'));
-// Not lazy: kept in the main bundle so toggling the panel doesn't hit
-// the Suspense boundary swap. TrackChangesPanel is also eager for the
-// same reason, and the chunk is small (~8KB). Lazy chat is fine because
-// the chunk fetch happens during the open transition and is invisible
-// to the user, but comments has additional elastic-positioning effects
-// that briefly shift cards into place on mount — adding a Suspense
-// fallback flash on top of that read as "slow."
+// CommentsSidebar + ChatPanel: NOT lazy, even though the route-level
+// pattern is. Both are tiny (~2-3 KB gzipped) and toggled live during
+// a session, so the Suspense boundary swap + lazy-resolve microtask
+// produce a perceptible "slight lag" on first open that users notice.
+// The prefetch-on-auth dance the lazy versions needed (and the inner
+// Suspense wrapping around each) is unnecessary at this size --
+// the chunks would just join the main bundle anyway. TrackChangesPanel
+// is eager for the same reason.
 import CommentsSidebar from './components/CommentsSidebar.jsx';
+import ChatPanel from './components/ChatPanel.jsx';
 const BinaryPreview = lazy(() => import('./components/BinaryPreview.jsx'));
 import FileTree from './components/FileTree.jsx';
 import OutlinePanel from './components/OutlinePanel.jsx';
@@ -118,20 +119,19 @@ function AppInner() {
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
   const [showAccountSettings, setShowAccountSettings] = useState(false);
 
-  // Once the user is authenticated, prefetch the lazy chunks the user
-  // is likely to need shortly. Editor/PdfViewer always paint on project
-  // open; ChatPanel/CommentsSidebar load on first toggle and otherwise
-  // make the layout blink because the outer Suspense (kept for Editor +
-  // PdfViewer) would unmount everything during the chunk fetch — even
-  // though we now wrap each panel in its own inner Suspense, prefetching
-  // means the inner fallback never actually paints. The import promises
-  // are intentionally not awaited; failures fall back to the regular
-  // Suspense fetch on click.
+  // Once the user is authenticated, prefetch the still-lazy chunks the
+  // user is likely to need shortly. Editor and PdfViewer always paint
+  // on project open and their chunks are large enough (~60KB and ~14KB
+  // gzipped) that keeping them lazy is worthwhile -- prefetching here
+  // means the chunk is in cache by the time the user opens a project
+  // so the Suspense fallback rarely paints. Import promises are
+  // intentionally not awaited; failures fall back to the regular
+  // Suspense fetch on click. ChatPanel + CommentsSidebar are now
+  // eagerly imported (tiny chunks) so no prefetch needed.
   useEffect(() => {
     if (!user) return;
     import('./components/Editor.jsx').catch(() => {});
     import('./components/PdfViewer.jsx').catch(() => {});
-    import('./components/ChatPanel.jsx').catch(() => {});
   }, [user]);
 
   // In-editor toasts for invitations that arrive while a user is mid-edit.
@@ -1566,20 +1566,18 @@ function AppInner() {
             />
             )}
             {showChat ? (
-              <Suspense fallback={null}>
-                <ChatPanel
-                  messages={chatMessages}
-                  currentUser={user}
-                  members={members}
-                  readCursors={chatReadCursors}
-                  onSend={(text) => sendWsMessage({ type: 'chat', text })}
-                  onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
-                  onRead={() => sendWsMessage({ type: 'chat-read' })}
-                  onClose={() => setShowChat(false)}
-                  onTyping={() => sendWsMessage({ type: 'typing' })}
-                  typingUsers={typingUsers}
-                />
-              </Suspense>
+              <ChatPanel
+                messages={chatMessages}
+                currentUser={user}
+                members={members}
+                readCursors={chatReadCursors}
+                onSend={(text) => sendWsMessage({ type: 'chat', text })}
+                onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
+                onRead={() => sendWsMessage({ type: 'chat-read' })}
+                onClose={() => setShowChat(false)}
+                onTyping={() => sendWsMessage({ type: 'typing' })}
+                typingUsers={typingUsers}
+              />
             ) : (
               <button
                 className="chat-toggle-btn"
