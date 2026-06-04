@@ -291,13 +291,23 @@ async function dropOtherSessions(userId, keepSessionId) {
 
 /** POST /api/auth/totp/verify -- Verify a TOTP code and enable MFA for the user. */
 router.post('/totp/verify', requireAuth, async (req, res) => {
-  if (!req.body.code) return res.status(400).json({ error: 'Verification code required' });
+  // Mirror the login schema's totpCodeField — accept only six digits.
+  // OTPAuth's validate() would reject malformed input anyway, but
+  // returning a clear 400 here matches the login path's UX and keeps
+  // bogus codes out of subsequent isTotpUsed / DB lookups.
+  if (typeof req.body.code !== 'string' || !/^\d{6}$/.test(req.body.code)) {
+    return res.status(400).json({ error: 'Verification code must be 6 digits' });
+  }
   try {
     await authService.verifyAndEnableTotp(req.session.userId, req.body.code);
     // Privilege envelope changed (now requires TOTP on next sign-in).
     // Invalidate every other session for this user so a pre-existing
-    // session can't keep acting under the old, no-MFA envelope.
+    // session can't keep acting under the old, no-MFA envelope. Then
+    // close every WS belonging to those other sessions — without this
+    // a stolen pre-MFA session's already-upgraded WS would keep
+    // streaming edits indefinitely after the HTTP session was killed.
     await dropOtherSessions(req.session.userId, req.sessionID);
+    req.app?.locals?.disconnectUserSessionsExcept?.(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'mfa_enabled', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
@@ -313,8 +323,11 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
     res.clearCookie('trusted-device', { path: '/' });
     // Same rationale as enable: the envelope changed (no longer
     // requires TOTP). A session that was created before the change
-    // shouldn't keep running silently — force re-auth elsewhere.
+    // shouldn't keep running silently — force re-auth elsewhere, and
+    // close their live WS too so the privilege change actually takes
+    // effect mid-flight.
     await dropOtherSessions(req.session.userId, req.sessionID);
+    req.app?.locals?.disconnectUserSessionsExcept?.(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'mfa_disabled', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
@@ -346,6 +359,12 @@ router.post('/reset-password', validateBody(resetPasswordSchema), async (req, re
     const userId = await authService.resetPassword(token, password);
     // Invalidate all sessions for this user (attacker may hold a stolen session)
     await db.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [userId]);
+    // ASVS V3.5.1: close every live WS for the user too. The HTTP session
+    // is gone, but WS auth happens at upgrade-time only — without this,
+    // an attacker holding a stolen session whose HTTP path was just
+    // killed could keep editing files via their already-upgraded WS.
+    // Reset-password has no calling-device session to preserve.
+    req.app?.locals?.disconnectUserEverywhere?.(userId);
     await auditLog(userId, 'password_reset', { ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
@@ -391,8 +410,11 @@ router.post('/change-email', requireAuth, validateBody(changeEmailSchema), async
     // Mirror change-password / MFA-toggle: email is a primary account
     // identifier and changing it should kick stale sessions elsewhere
     // so a hijacked session on another device can't keep operating
-    // under the new email it didn't authorise.
+    // under the new email it didn't authorise. Close their live WS
+    // too — WS auth happens at upgrade-time only, so a stale session's
+    // already-upgraded WS would otherwise keep streaming.
     await dropOtherSessions(req.session.userId, req.sessionID);
+    req.app?.locals?.disconnectUserSessionsExcept?.(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'email_changed', {
       ip: req.ip,
       oldEmail: result.oldEmail,
@@ -432,9 +454,14 @@ router.post('/change-password', requireAuth, validateBody(changePasswordSchema),
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
   try {
     await authService.changePassword(req.session.userId, currentPassword, newPassword);
-    // Invalidate all other sessions for this user
+    // Invalidate all other sessions for this user, then close every
+    // WS belonging to those other sessions. Without the WS close, an
+    // attacker holding a stolen pre-change session would keep editing
+    // via their already-upgraded WS — the HTTP path gets killed but
+    // WS auth happens at upgrade-time only.
     const currentSid = req.sessionID;
     await db.run(`DELETE FROM session WHERE sess->>'userId' = $1 AND sid != $2`, [req.session.userId, currentSid]);
+    req.app?.locals?.disconnectUserSessionsExcept?.(req.session.userId, currentSid);
     await auditLog(req.session.userId, 'password_changed', { ip: req.ip });
     // Notify user by email
     try {

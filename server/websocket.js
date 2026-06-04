@@ -120,7 +120,11 @@ async function getSessionFromRequest(req, sessionSecret) {
     if (!row) return null;
 
     const sess = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
-    return sess;
+    // Expose the sid alongside the session payload so the WS pump can
+    // tag the connection with it. Used by disconnectUserSessionsExcept
+    // to skip the WS belonging to the session the caller wants to keep
+    // (e.g. the user who just changed their password on this device).
+    return sess ? { ...sess, _sid: sessionId } : null;
   } catch (err) {
     logger.warn({ err }, 'WS session parse error');
     return null;
@@ -702,10 +706,32 @@ export function initWebSocket(server, app, sessionSecret) {
     }
   }
 
+  // Close every WS for `userId` EXCEPT the one tagged with `keepSessionId`.
+  // Used after privilege-envelope changes (change-password,
+  // change-email, totp-enable, totp-disable) where the calling device's
+  // own WS should stay up — the user just authenticated to make the
+  // change — but every OTHER device's WS must terminate, mirroring the
+  // DELETE-FROM-session-WHERE-sid<>current pattern those routes use for
+  // HTTP. Without this, an attacker holding a stolen session whose HTTP
+  // path was just killed could keep editing files via their already-
+  // upgraded WS until natural disconnect.
+  function disconnectUserSessionsExcept(userId, keepSessionId) {
+    for (const client of wss.clients) {
+      if (client._flowtexUserId === userId && client._flowtexSessionId !== keepSessionId) {
+        try {
+          client.close(1000, 'session-revoked');
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   // Expose helpers on app.locals
   app.locals.broadcastToRoom = broadcastToRoom;
   app.locals.disconnectUserFromProject = disconnectUserFromProject;
   app.locals.disconnectUserEverywhere = disconnectUserEverywhere;
+  app.locals.disconnectUserSessionsExcept = disconnectUserSessionsExcept;
   app.locals.sendToUser = sendToUser;
   // Capture for module-scoped use (handleChat pushes mention notifications).
   sendToUserFn = sendToUser;
@@ -818,6 +844,7 @@ export function initWebSocket(server, app, sessionSecret) {
     }
     wsConnectionCounts.set(authenticatedUserId, currentCount + 1);
     ws._flowtexUserId = authenticatedUserId;
+    ws._flowtexSessionId = sess._sid || null;
     ws.on('close', () => {
       const c = (wsConnectionCounts.get(authenticatedUserId) || 1) - 1;
       if (c <= 0) wsConnectionCounts.delete(authenticatedUserId);
