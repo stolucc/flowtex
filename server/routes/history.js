@@ -131,9 +131,19 @@ router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   const previous = await loadPreviousSnapshot(snap.meta.project_id, snap.meta.created_at);
   const prevFile = previous.files.find((f) => f.id === fileId);
 
+  // For binary rows the captured `content` is the empty string (the
+  // bytes live in the blob store). Surface is_binary + binary_sha256
+  // so the client can render "binary content changed" instead of
+  // showing two empty text columns and a misleading "no changes"
+  // diff. Pre-F1 snapshots don't carry binary_sha256 at all and
+  // surface as undefined here -- the client treats absent as text.
   res.json({
     currentContent: curFile?.content || '',
     previousContent: prevFile?.content || '',
+    currentIsBinary: !!curFile?.is_binary,
+    previousIsBinary: !!prevFile?.is_binary,
+    currentBinarySha256: curFile?.binary_sha256 || null,
+    previousBinarySha256: prevFile?.binary_sha256 || null,
   });
 });
 

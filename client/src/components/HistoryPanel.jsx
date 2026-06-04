@@ -216,8 +216,11 @@ function HunkRows({ rows }) {
 
 /** Renders a GitHub-style unified diff with line numbers and inline highlights. */
 function DiffView({ diff }) {
-  const hunks = buildHunks(diff);
   const [expanded, setExpanded] = useState(() => new Set());
+  // Hooks must run unconditionally, so build hunks + collect state
+  // first and branch on the diff shape only at render time.
+  const isBinaryNote = diff.length === 1 && diff[0].type === 'binary';
+  const hunks = isBinaryNote ? [] : buildHunks(diff);
   const toggleHunk = (hi) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -225,6 +228,13 @@ function DiffView({ diff }) {
       return next;
     });
   };
+
+  // Synthetic single-row diff used for binary files (text-line diff is
+  // meaningless — both sides are empty strings since bytes live in the
+  // blob store). Render a plain note instead of going through buildHunks.
+  if (isBinaryNote) {
+    return <div className="gh-diff gh-diff-binary-note">{diff[0].text}</div>;
+  }
 
   return (
     <div className="gh-diff">
@@ -371,6 +381,23 @@ export default function HistoryPanel({
         const res = await get(`/api/history/snapshot/${selected.id}/file/${historyFileId}`);
         const data = await res.json();
         if (cancelled) return;
+        // Binary files: skip the text-line diff (which would compare two
+        // empty strings and lie about "no changes") and instead emit a
+        // single synthetic row describing whether the bytes changed.
+        if (data.currentIsBinary || data.previousIsBinary) {
+          const same = data.currentBinarySha256 === data.previousBinarySha256;
+          const note = same
+            ? 'Binary file — content unchanged.'
+            : data.currentBinarySha256 && data.previousBinarySha256
+            ? 'Binary file — content changed.'
+            : data.currentBinarySha256
+            ? 'Binary file added.'
+            : 'Binary file removed.';
+          const computed = [{ type: 'binary', text: note }];
+          diffCache.current.set(cacheKey, computed);
+          setDiff(computed);
+          return;
+        }
         const computed = lineDiff(data.previousContent, data.currentContent);
         diffCache.current.set(cacheKey, computed);
         setDiff(computed);

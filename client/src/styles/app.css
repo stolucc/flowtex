@@ -1773,6 +1773,14 @@ html {
   line-height: 20px;
 }
 
+.gh-diff-binary-note {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-style: italic;
+}
+
 .gh-diff-hunk {
   border-bottom: 1px solid #30363d;
 }
