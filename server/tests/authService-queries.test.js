@@ -328,12 +328,20 @@ describe('createTrustedDevice queries', () => {
 });
 
 describe('checkTrustedDevice queries', () => {
-  it('SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW()', async () => {
+  it('SELECT ... FOR UPDATE inside a transaction (CC1 race serialisation)', async () => {
     db.get.mockResolvedValueOnce({ id: 'd1' });
+    db.run.mockResolvedValueOnce({});
     await checkTrustedDevice('u', 'cookie');
+
+    // CC1: the rotation must be inside a tx so two parallel logins
+    // can't both pass the un-rotated SELECT. The mock harness collapses
+    // `tx.get` to the same fn as `db.get`, so we assert on the SQL
+    // shape AND that db.transaction was the call site (not bare
+    // db.get).
+    expect(db.transaction).toHaveBeenCalledTimes(1);
     const [sql, params] = db.get.mock.calls[0];
     expect(sql).toBe(
-      'SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW()',
+      'SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW() FOR UPDATE',
     );
     expect(params[1]).toBe('u');
   });

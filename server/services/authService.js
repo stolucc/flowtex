@@ -410,18 +410,30 @@ export async function createTrustedDevice(userId, userAgent) {
 export async function checkTrustedDevice(userId, trustCookie) {
   if (!trustCookie) return null;
   const oldHash = crypto.createHash('sha256').update(trustCookie).digest('hex');
-  const device = await db.get(
-    'SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW()',
-    [oldHash, userId],
-  );
-  if (!device) return null;
-  const newToken = crypto.randomBytes(32).toString('hex');
-  const newHash = crypto.createHash('sha256').update(newToken).digest('hex');
-  await db.run(
-    `UPDATE trusted_devices SET token_hash = $1, expires_at = NOW() + make_interval(days => $2) WHERE id = $3`,
-    [newHash, TRUST_DAYS, device.id],
-  );
-  return { token: newToken, maxAge: TRUST_MS };
+
+  // CC1 (audit round 14): serialise SELECT + UPDATE in one tx with
+  // FOR UPDATE so two parallel logins reusing the same cookie can't
+  // both pass the check. Without this, an attacker holding a stolen
+  // cookie + the real user could both SELECT the un-rotated row, both
+  // bypass MFA on this login, and last-write-wins on the rotation
+  // (giving the loser a dead cookie but ALREADY-USED bypass). With
+  // the lock, only one of them sees the original hash; the other
+  // re-reads after rotation and the WHERE token_hash = $oldHash
+  // filter rejects them.
+  return await db.transaction(async (tx) => {
+    const device = await tx.get(
+      'SELECT id FROM trusted_devices WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW() FOR UPDATE',
+      [oldHash, userId],
+    );
+    if (!device) return null;
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const newHash = crypto.createHash('sha256').update(newToken).digest('hex');
+    await tx.run(
+      `UPDATE trusted_devices SET token_hash = $1, expires_at = NOW() + make_interval(days => $2) WHERE id = $3`,
+      [newHash, TRUST_DAYS, device.id],
+    );
+    return { token: newToken, maxAge: TRUST_MS };
+  });
 }
 
 /** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin, compileLocation, serverFeatures). */
