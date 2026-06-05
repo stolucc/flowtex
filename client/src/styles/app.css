@@ -5470,6 +5470,18 @@ html {
   text-decoration: underline;
 }
 
+/* User-guide link on the auth page mirrors the button-style switcher
+   so it reads as part of the same row of secondary actions. <a> rather
+   than <button> because it opens a real URL in a new tab. */
+.auth-guide-link a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
+.auth-guide-link a:hover {
+  text-decoration: underline;
+}
+
 /* Toolbar extras. .toolbar-right itself is display: contents (see top of
    toolbar block) — its children flow as direct flex items. We use a
    `gap` on the parent .toolbar for spacing between them, and an

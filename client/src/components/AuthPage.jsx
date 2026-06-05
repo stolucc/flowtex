@@ -513,6 +513,16 @@ export default function AuthPage({ onAuth }) {
                 </>
               )}
             </p>
+            {/* User guide link: new users land on /login or /register
+                with no in-app navigation yet, so this is the only place
+                they can discover the manual before signing in. Opens
+                in a new tab so the auth form keeps the user's input. */}
+            <p className="auth-switch auth-guide-link">
+              New to FlowTex?{' '}
+              <a href="/docs/user-guide.html" target="_blank" rel="noopener">
+                Read the user guide
+              </a>
+            </p>
           </>
         )}
       </div>
