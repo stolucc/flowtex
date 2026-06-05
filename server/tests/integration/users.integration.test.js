@@ -236,6 +236,34 @@ describe('users — deletion (soft-delete recovery bin)', () => {
     const still = await db.get('SELECT id FROM users WHERE id = $1', [u.id]);
     expect(still).toBeDefined();
   });
+
+  // BB3 regression cover: the cron used to act on a stale row from its
+  // outer SELECT without re-verifying inside the tx. An admin who
+  // restored the user between the SELECT and the tx start would have
+  // their restore silently undone -- comments NULLed, projects DROPed,
+  // user row deleted. The fix re-checks `deleted_at IS NOT NULL AND
+  // deleted_at < threshold` inside purgeUserInTx with FOR UPDATE.
+  it('BB3 — purge skips a user whose deleted_at was cleared after the cron SELECT', async () => {
+    const email = `it-bb3-${Date.now()}@example.test`;
+    const u = await registerUser(email, 'BB3', 'TestPass1234');
+    await deleteAccount(u.id, 'TestPass1234');
+    // Backdate so the user IS a purge candidate.
+    await db.run(`UPDATE users SET deleted_at = NOW() - INTERVAL '31 days' WHERE id = $1`, [u.id]);
+
+    // Simulate the cron's outer SELECT: we capture the user row, but
+    // BEFORE the tx runs, an admin restores them.
+    const candidate = await db.get('SELECT id, email, name FROM users WHERE id = $1', [u.id]);
+    expect(candidate).toBeDefined();
+    await db.run('UPDATE users SET deleted_at = NULL WHERE id = $1', [u.id]); // restored
+
+    // Now sweep -- the candidate's deleted_at is null at tx time, so
+    // the in-tx re-check skips them. Without the fix, the cron would
+    // have purged the user row anyway.
+    const purged = await purgeExpiredSoftDeletes();
+    expect(purged).not.toContain(u.id);
+    const still = await db.get('SELECT id FROM users WHERE id = $1', [u.id]);
+    expect(still).toBeDefined();
+  });
 });
 
 describe('users — trusted devices', () => {

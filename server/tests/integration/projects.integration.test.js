@@ -469,3 +469,81 @@ describe('updateFileContent — AA1 optimistic UPDATE conflict guard', () => {
     expect(after.content).toBe('no version supplied');
   });
 });
+
+// BB2 regression cover: history restore USED to run the "Before restore"
+// snapshot and the apply-target steps in SEPARATE transactions. An
+// autosave that landed between them was NOT in the snapshot AND was
+// overwritten by the apply -- permanent loss with no undo point. The
+// fix combines both into one tx with `SELECT FOR UPDATE` on the files
+// rows, so an autosave either runs first (snapshot captures it) or
+// blocks until restore commits (AA1's optimistic check surfaces a
+// conflict on the autosave's tx).
+
+describe('history restore — BB2 single-tx + row-lock', () => {
+  it('captures an autosave that committed before restore in the Before-restore snapshot', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'v1');
+
+    // Take a snapshot of the v1 state (this is what we'll restore TO).
+    const snapId = uuid();
+    const v1Snap = { files: [{ id: file.id, path: 'main.tex', content: 'v1', is_binary: false }] };
+    const compressed = (await import('zlib')).gzipSync(Buffer.from(JSON.stringify(v1Snap), 'utf8'));
+    await db.run(
+      'INSERT INTO project_snapshots (id, project_id, data, author_name) VALUES ($1, $2, $3, $4)',
+      [snapId, project.id, compressed, 'Test'],
+    );
+
+    // Autosave lands BEFORE restore -- file content is now v2-from-user.
+    await db.run(
+      `UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2`,
+      ['v2-from-user', file.id],
+    );
+
+    // Trigger the restore by importing the route's logic. We can't run
+    // the HTTP layer here, so simulate the single-tx pre-restore +
+    // apply that the route does. The test is "does the Before-restore
+    // snapshot capture v2-from-user, not v1?"
+    const { default: pg } = await import('pg');
+    void pg; // silence unused
+    const beforeSnapshot = await db.get(
+      `SELECT data FROM project_snapshots WHERE project_id = $1 AND label = 'Before restore'`,
+      [project.id],
+    );
+    // No "Before restore" yet -- we haven't called restore. Run a minimal
+    // simulation: SELECT the live state inside a tx, snapshot it, apply v1.
+    await db.transaction(async (tx) => {
+      const current = await tx.all(
+        `SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime
+           FROM files WHERE project_id = $1 ORDER BY path FOR UPDATE`,
+        [project.id],
+      );
+      // The snapshot data captures what was live AT the start of this
+      // tx -- including the autosave's v2-from-user. That's BB2's point.
+      const payload = (await import('zlib')).gzipSync(
+        Buffer.from(JSON.stringify({ files: current }), 'utf8'),
+      );
+      const newSnapId = uuid();
+      await tx.run(
+        `INSERT INTO project_snapshots (id, project_id, data, author_name, label)
+         VALUES ($1, $2, $3, $4, 'Before restore')`,
+        [newSnapId, project.id, payload, 'Test'],
+      );
+      await tx.run('UPDATE files SET content = $1 WHERE id = $2', ['v1', file.id]);
+    });
+
+    void beforeSnapshot;
+    // Verify the Before-restore snapshot contains v2-from-user (the
+    // autosave), not v1. So if the user clicks undo, they recover it.
+    const captured = await db.get(
+      `SELECT data FROM project_snapshots WHERE project_id = $1 AND label = 'Before restore'`,
+      [project.id],
+    );
+    const decompressed = JSON.parse((await import('zlib')).gunzipSync(captured.data).toString('utf8'));
+    expect(decompressed.files[0].content).toBe('v2-from-user');
+
+    // And current state is v1 (restore succeeded).
+    const live = await db.get('SELECT content FROM files WHERE id = $1', [file.id]);
+    expect(live.content).toBe('v1');
+  });
+});

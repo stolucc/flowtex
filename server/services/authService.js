@@ -674,6 +674,27 @@ async function softDeleteUserInTx(tx, user) {
  *  on-disk tree (blob files, LaTeX compile outputs) leaks per
  *  orphan-owned project the purged user had. */
 async function purgeUserInTx(tx, user) {
+  // BB3 (audit round 13): re-verify deleted_at INSIDE the tx with a row
+  // lock. The cron's outer SELECT may have read a stale row -- an admin
+  // can restore the user (clear deleted_at) between the SELECT and this
+  // tx starting. Without this re-check, the purge would proceed against
+  // a restored account and silently wipe everything (comments NULLed,
+  // projects DROPed, users row deleted). Re-reading FOR UPDATE blocks
+  // any concurrent restore-or-purge from interleaving with this run.
+  const fresh = await tx.get(
+    `SELECT 1 FROM users
+       WHERE id = $1
+         AND deleted_at IS NOT NULL
+         AND deleted_at < NOW() - ($2 || ' days')::interval
+       FOR UPDATE`,
+    [user.id, String(SOFT_DELETE_WINDOW_DAYS)],
+  );
+  if (!fresh) {
+    // Restored (or already purged) between the cron's SELECT and now.
+    // Skip silently; the next sweep will re-evaluate.
+    return { orphanProjectIds: [], skipped: true };
+  }
+
   await tx.run('UPDATE comments SET author_id = NULL WHERE author_id = $1', [user.id]);
   await tx.run('UPDATE comment_replies SET author_id = NULL WHERE author_id = $1', [user.id]);
   await tx.run('UPDATE file_versions SET author_id = NULL WHERE author_id = $1', [user.id]);

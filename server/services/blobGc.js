@@ -66,10 +66,25 @@ export async function sweepOrphanRefcounts({ limit = 500 } = {}) {
       // Delete the row first. If the unlink fails (e.g. disk error), we
       // still have NO DB reference to the file — the reconciliation
       // sweep will pick it up later.
-      await db.run(
+      //
+      // BB1 (audit round 13): the DELETE is gated on `ref_count <= 0`
+      // because a concurrent uploadBinaryFile may have just bumped the
+      // refcount via `ON CONFLICT DO UPDATE` after writeBlob deduped
+      // against this very on-disk file. If the DELETE affects 0 rows,
+      // the blob is now live and we MUST NOT unlink it; doing so would
+      // leave the file row pointing at a missing blob, which the
+      // reconcile sweep can't fix (it only finds on-disk files with
+      // no DB row, not the inverse). Trust the DELETE's rowCount as
+      // the authoritative "this blob is safe to remove" signal.
+      const result = await db.run(
         'DELETE FROM project_blobs WHERE project_id = $1 AND sha256 = $2 AND ref_count <= 0',
         [row.project_id, row.sha256],
       );
+      if (!result || result.rowCount === 0) {
+        // Concurrent write rescued the refcount between SELECT and
+        // DELETE -- blob is live again, leave it on disk.
+        continue;
+      }
       await deleteBlob(row.project_id, row.sha256);
       collected += 1;
     } catch (err) {

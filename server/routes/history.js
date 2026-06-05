@@ -191,21 +191,31 @@ router.post('/restore/:snapshotId', async (req, res) => {
     }
   }
 
-  // First, create a snapshot of the current state so the restore can be undone.
-  const currentFiles = await db.all(
-    'SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime FROM files WHERE project_id = $1 ORDER BY path',
-    [projectId],
-  );
-  await db.transaction(async (tx) => {
-    await createSnapshotWithRefs(tx, currentFiles, 'Before restore');
-  });
-
-  // Decompress the target snapshot
+  // Decompress the target snapshot up front -- pure CPU work, no DB.
   const target = decompressSnapshot(snap.data);
-  const currentById = new Map(currentFiles.map((f) => [f.id, f]));
   const targetById = new Map(target.files.map((f) => [f.id, f]));
 
+  // BB2 (audit round 13): take the pre-restore snapshot AND apply the
+  // target restore in ONE transaction with `SELECT ... FOR UPDATE` so a
+  // concurrent autosave can't slip in between the two steps. Previously
+  // the snapshot tx committed first, an autosave landed, then the
+  // apply tx clobbered that autosave -- and the "Before restore"
+  // snapshot didn't have it either, so it was permanently lost.
+  //
+  // Locking files FOR UPDATE inside the tx blocks any concurrent
+  // updateFileContent (which uses the same FOR UPDATE per the AA1 fix)
+  // until this tx commits. After commit, the autosaving client gets a
+  // baseVersion mismatch and surfaces a conflict, no silent loss.
+  let currentFiles;
   await db.transaction(async (tx) => {
+    currentFiles = await tx.all(
+      `SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime
+         FROM files WHERE project_id = $1 ORDER BY path FOR UPDATE`,
+      [projectId],
+    );
+    await createSnapshotWithRefs(tx, currentFiles, 'Before restore');
+    const currentById = new Map(currentFiles.map((f) => [f.id, f]));
+
     // 1. Delete files in current but not target. Drop the blob ref so the
     //    refcount stays accurate; the snapshot still holds its own ref
     //    via snapshot_blob_refs (created in the pre-restore step above).

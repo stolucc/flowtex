@@ -103,3 +103,10 @@ describe('reconcileOnDiskBlobs', () => {
   });
 });
 
+// BB1 regression cover lives in tests/blobGc-bb1.test.js -- the race
+// (SELECT returns a candidate but DELETE filters it because a
+// concurrent write bumped ref_count) can't be reproduced as a
+// black-box integration test (the SELECT itself skips bumped rows),
+// so the fix is verified by a unit test that mocks db calls to
+// simulate the in-flight rescue.
+
