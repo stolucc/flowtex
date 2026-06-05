@@ -371,8 +371,16 @@ export async function createEmailVerificationToken(userId) {
  */
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  // SELECT includes `t.used` so we can distinguish the idempotent
+  // "already verified, scanner pre-fetched, return success" case from
+  // the FF1 case "this token was used to verify a PREVIOUS email and
+  // the user has since changed to a new one." The latter must reject:
+  // if email_verified is FALSE, the user is in the post-change
+  // pre-reverify state, and a used token from before the change
+  // would otherwise re-verify the NEW address without proof of
+  // control.
   const row = await db.get(
-    `SELECT t.user_id, u.email_verified, u.deleted_at
+    `SELECT t.user_id, t.used, u.email_verified, u.deleted_at
      FROM email_verification_tokens t
      JOIN users u ON u.id = t.user_id
      WHERE t.token_hash = $1 AND t.expires_at > NOW()`,
@@ -388,6 +396,13 @@ export async function verifyEmail(token) {
   // Idempotent path: already verified (either by a previous click or
   // by an email-scanner prefetch). Nothing to do — return success.
   if (row.email_verified) return row.user_id;
+
+  // FF1: a token that's already `used=TRUE` against an UN-verified
+  // user is the email-change race. Reject -- the user must use the
+  // fresh token sent to their new address.
+  if (row.used) {
+    throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
+  }
 
   await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
   // Invalidate all tokens for this user (this one + any siblings)
@@ -804,6 +819,13 @@ export async function changeEmail(userId, password, newEmail) {
     }
     throw err;
   }
+  // FF1 (audit round 17): invalidate any pre-change verification tokens.
+  // Without this, a still-in-window token issued for the OLD email
+  // could be re-clicked after the change and would re-verify the NEW
+  // email (verifyEmail's idempotency path triggers on email_verified =
+  // FALSE -> applies the verify). The user must verify the new email
+  // with the fresh token sent to it.
+  await db.run('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1', [user.id]);
   return { email: normalizedEmail, oldEmail: user.email, name: user.name, needsVerification: true };
 }
 

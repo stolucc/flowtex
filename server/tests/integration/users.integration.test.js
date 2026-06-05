@@ -16,6 +16,9 @@ import {
   purgeExpiredSoftDeletes,
   createTrustedDevice,
   checkTrustedDevice,
+  createEmailVerificationToken,
+  verifyEmail,
+  changeEmail,
 } from '../../services/authService.js';
 
 describe('users — registration and login', () => {
@@ -282,5 +285,63 @@ describe('users — trusted devices', () => {
     const again = await checkTrustedDevice(u.id, rotated.token);
     expect(again).not.toBeNull();
     expect(again.token).not.toBe(rotated.token);
+  });
+});
+
+// FF1 (audit round 17): an email-verification token issued for one
+// address must not be re-usable to verify a NEW address after the
+// user changes their email. The hole was: verifyEmail looked up by
+// token_hash + expires_at WITHOUT filtering on `used`, so a still-in-
+// window token from BEFORE the email change re-verified the NEW
+// address. Two-pronged fix: changeEmail marks all the user's tokens
+// used; verifyEmail rejects used tokens when email_verified=FALSE
+// (the "post-change pre-reverify" state).
+
+describe('verifyEmail — FF1 token re-use after email change', () => {
+  it('does NOT re-verify after email change when the OLD token is clicked', async () => {
+    // Bcrypt of 'TestPass1234' at cost 4 -- matches the seedUser default.
+    const u = await registerUser(`it-ff1-${Date.now()}@example.test`, 'FF1', 'TestPass1234');
+    const originalEmail = (await db.get('SELECT email FROM users WHERE id = $1', [u.id])).email;
+
+    // Issue verification token for the original email; rawToken is the
+    // unhashed value (what would be in the email link).
+    const rawToken = await createEmailVerificationToken(u.id);
+    expect(rawToken).toBeTruthy();
+
+    // First click: legitimate verify. User is now verified.
+    await verifyEmail(rawToken);
+    const afterFirst = await db.get('SELECT email_verified FROM users WHERE id = $1', [u.id]);
+    expect(afterFirst.email_verified).toBe(true);
+
+    // User changes email. This should mark the existing token used AND
+    // flip email_verified back to FALSE pending re-verify.
+    await changeEmail(u.id, 'TestPass1234', `it-ff1-new-${Date.now()}@example.test`);
+    const afterChange = await db.get('SELECT email, email_verified FROM users WHERE id = $1', [u.id]);
+    expect(afterChange.email_verified).toBe(false);
+    expect(afterChange.email).not.toBe(originalEmail);
+
+    // Attacker (or confused user) re-clicks the OLD token. Without
+    // FF1 this would re-verify the NEW email. With the fix it must
+    // throw "Invalid or expired".
+    await expect(verifyEmail(rawToken)).rejects.toThrow(/invalid or expired/i);
+
+    // And the new email remains unverified.
+    const afterReclick = await db.get('SELECT email_verified FROM users WHERE id = $1', [u.id]);
+    expect(afterReclick.email_verified).toBe(false);
+  });
+
+  it('still allows the idempotent scanner-prefetch path for an already-verified user', async () => {
+    // Email scanners often GET verification URLs before the human
+    // clicks. The first GET marks the token used + verifies the user.
+    // The human's subsequent click hits an already-verified user --
+    // verifyEmail returns success (no error) in that case.
+    const u = await registerUser(`it-ff1-idem-${Date.now()}@example.test`, 'Idem', 'TestPass1234');
+    const rawToken = await createEmailVerificationToken(u.id);
+    await verifyEmail(rawToken); // scanner
+
+    // Second click on the SAME token, user already verified -- should
+    // NOT throw (idempotent), should return the userId.
+    const userId = await verifyEmail(rawToken);
+    expect(userId).toBe(u.id);
   });
 });
