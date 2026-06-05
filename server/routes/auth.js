@@ -169,13 +169,13 @@ router.post('/login', validateBody(loginSchema), async (req, res) => {
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  if (await authService.isAccountLocked(normalizedEmail, req.ip)) {
-    return res.status(429).json({ error: 'Too many failed attempts. Please try again in 15 minutes.' });
-  }
-
-  const authResult = await authService.authenticateUser(email, password);
+  // DD1 (audit round 15): attemptLogin wraps the lockout check + auth
+  // + record in one tx with a per-email advisory lock, so N parallel
+  // attempts can't all see the same pre-attempt failure count and all
+  // slip past MAX_FAILED_ATTEMPTS. Returns the same shape as the old
+  // (authenticateUser | { error, status: 429 }) union.
+  const authResult = await authService.attemptLogin(email, password, req.ip);
   if (authResult.error) {
-    await authService.recordLoginAttempt(normalizedEmail, req.ip, false);
     if (authResult.unverified) {
       return res.status(authResult.status).json({ error: authResult.error, unverified: true });
     }

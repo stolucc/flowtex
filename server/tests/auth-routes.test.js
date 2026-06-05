@@ -16,6 +16,7 @@ vi.mock('../services/authService.js', () => ({
   authenticateUser: vi.fn(),
   isAccountLocked: vi.fn(),
   recordLoginAttempt: vi.fn(),
+  attemptLogin: vi.fn(),
   checkTrustedDevice: vi.fn(),
   verifyTotp: vi.fn(),
   createTrustedDevice: vi.fn(),
@@ -226,7 +227,7 @@ describe('POST /login', () => {
   });
 
   it('returns 429 when account is locked', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(true);
+    authService.attemptLogin.mockResolvedValueOnce({ error: 'Too many failed attempts.', status: 429 });
 
     const res = mockRes();
     await handler(mockReq({ body: { email: 'a@b.com', password: 'pass' } }), res);
@@ -235,20 +236,21 @@ describe('POST /login', () => {
     expect(res.body.error).toMatch(/too many/i);
   });
 
-  it('returns error status when authentication fails', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({ error: 'Invalid credentials', status: 401 });
+  it('returns error status when authentication fails (record happens inside attemptLogin)', async () => {
+    authService.attemptLogin.mockResolvedValueOnce({ error: 'Invalid credentials', status: 401 });
 
     const res = mockRes();
     await handler(mockReq({ body: { email: 'a@b.com', password: 'wrong' } }), res);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(authService.recordLoginAttempt).toHaveBeenCalledWith('a@b.com', '127.0.0.1', false);
+    // DD1: recording moved inside attemptLogin (so the count update sits
+    // under the advisory lock). The route no longer calls recordLoginAttempt
+    // for password failures.
+    expect(authService.recordLoginAttempt).not.toHaveBeenCalled();
   });
 
   it('returns unverified flag for unverified accounts', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       error: 'Email not verified',
       status: 403,
       unverified: true,
@@ -262,8 +264,7 @@ describe('POST /login', () => {
   });
 
   it('returns mfaRequired when TOTP is enabled and no code provided', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce(null);
@@ -276,8 +277,7 @@ describe('POST /login', () => {
   });
 
   it('returns TOTP error when code is invalid', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce(null);
@@ -291,8 +291,7 @@ describe('POST /login', () => {
   });
 
   it('sets trusted device cookie when trustDevice is true and TOTP succeeds', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce(null);
@@ -318,8 +317,7 @@ describe('POST /login', () => {
   });
 
   it('skips MFA when device is trusted', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce({ token: 'rotated-tok', maxAge: 604800000 });
@@ -343,8 +341,7 @@ describe('POST /login', () => {
   });
 
   it('sets session and returns user data on successful login (no MFA)', async () => {
-    authService.isAccountLocked.mockResolvedValueOnce(false);
-    authService.authenticateUser.mockResolvedValueOnce({
+    authService.attemptLogin.mockResolvedValueOnce({
       user: { id: 'user-2', email: 'b@c.com', name: 'Bob', totp_enabled: false, is_admin: false },
     });
     authService.recordLoginAttempt.mockResolvedValueOnce(undefined);

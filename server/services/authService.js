@@ -139,6 +139,90 @@ export async function recordLoginAttempt(email, ip, success) {
   if (success) await db.run('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE', [email]);
 }
 
+/**
+ * DD1 (audit round 15): atomic lockout-check + authenticate + record
+ * for one login attempt, serialised per email by a Postgres advisory
+ * xact lock. Without the lock, N concurrent attempts all observe the
+ * same pre-attempt failure count, all proceed, all record -- the
+ * effective per-email lockout (5) silently rises to the auth rate
+ * limit (20/IP). With the lock, the second attempt blocks until the
+ * first commits and then sees the updated count.
+ *
+ * Cost: parallel logins to the same email serialise. This is the
+ * correct security posture -- either the legitimate user is double-
+ * clicking (no perceptible delay) or it's an attacker (whose burst
+ * is exactly what we want to throttle).
+ *
+ * @returns the same shape as authenticateUser, OR
+ *   { error: 'Too many failed attempts...', status: 429 } when locked.
+ */
+export async function attemptLogin(email, password, ip) {
+  const normalizedEmail = email.toLowerCase().trim();
+  return await db.transaction(async (tx) => {
+    // Advisory lock first. Held until the tx ends, serialising all
+    // login attempts to this email.
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`login:${normalizedEmail}`]);
+
+    // Inline lockout check using tx so the count is observed live
+    // against this tx's snapshot. Mirrors isAccountLocked's two-tier
+    // rule (per-email + per-(email,ip) + per-ip).
+    const countQuery = async (sql, params) => {
+      const r = await tx.get(sql, params);
+      return parseInt(r?.cnt || 0);
+    };
+    let failed;
+    if (!ip) {
+      failed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+        [normalizedEmail, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (failed >= MAX_FAILED_ATTEMPTS) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+    } else {
+      failed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND ip = $2 AND success = FALSE AND created_at > NOW() - make_interval(mins => $3)`,
+        [normalizedEmail, ip, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (failed >= MAX_FAILED_ATTEMPTS) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+      const ipFailed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+        [ip, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (ipFailed >= MAX_FAILED_ATTEMPTS * 3) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+    }
+
+    // Authenticate. Calls db.get/db.run on the pool (not tx) for the
+    // user SELECT and the opportunistic rehash UPDATE -- that's fine
+    // because the only concurrency concern is the lockout count, which
+    // is guarded by this advisory lock. The user row read doesn't
+    // need to share the tx's snapshot.
+    const authResult = await authenticateUser(email, password);
+
+    // Record the attempt inside the same tx, so the count change is
+    // visible to the NEXT lock-holder. Match the pre-DD1 behaviour:
+    // only INSERT failures (no success rows to keep the table small),
+    // and on success DELETE prior failures so the user isn't locked
+    // out by their own past typos. (The TOTP step in the route may
+    // call recordLoginAttempt again for a TOTP-fail; that's outside
+    // this tx because we've already committed the password-passed
+    // state by then.)
+    if (authResult.error) {
+      await tx.run(
+        'INSERT INTO login_attempts (email, ip, success) VALUES ($1, $2, $3)',
+        [normalizedEmail, ip || null, false],
+      );
+    } else {
+      await tx.run('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE', [normalizedEmail]);
+    }
+    return authResult;
+  });
+}
+
 async function isTotpUsed(userId, code) {
   const key = `${userId}:${code}`;
   if (usedTotpCodes.has(key)) return true;

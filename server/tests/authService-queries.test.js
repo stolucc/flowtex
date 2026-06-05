@@ -38,6 +38,7 @@ import {
   checkTrustedDevice,
   createPasswordResetToken,
   resetPassword,
+  attemptLogin,
 } from '../services/authService.js';
 
 const TEST_PW = 'Password1234';
@@ -85,6 +86,78 @@ describe('recordLoginAttempt queries', () => {
     const [delSql, delParams] = db.run.mock.calls[1];
     expect(delSql).toBe('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE');
     expect(delParams).toEqual(['e@x']);
+  });
+});
+
+// DD1 (audit round 15): attemptLogin wraps the lockout check + auth +
+// record in one tx with a per-email advisory lock so N parallel attempts
+// can't all see the same pre-attempt failure count and slip past
+// MAX_FAILED_ATTEMPTS. These tests pin the SQL shape: the advisory lock
+// fires FIRST, on the normalised email, before any count read.
+describe('attemptLogin queries — DD1 per-email advisory lock', () => {
+  it('takes pg_advisory_xact_lock on hashtext(login:<email>) as the first tx call', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' }) // per-(email,ip) failure count
+      .mockResolvedValueOnce({ cnt: '0' }) // per-ip failure count
+      .mockResolvedValueOnce(null); // authenticateUser SELECT -> no user
+
+    await attemptLogin('A@B.com', 'pass', '1.2.3.4');
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    // First tx.run is the advisory lock.
+    const [lockSql, lockParams] = db.run.mock.calls[0];
+    expect(lockSql).toBe('SELECT pg_advisory_xact_lock(hashtext($1))');
+    expect(lockParams).toEqual(['login:a@b.com']);
+  });
+
+  it('runs the per-(email,ip) lockout COUNT after the advisory lock', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce(null);
+
+    await attemptLogin('e@x', 'pass', '1.2.3.4');
+
+    const [sql, params] = db.get.mock.calls[0];
+    expect(sql).toContain('SELECT COUNT(*) AS cnt FROM login_attempts');
+    expect(sql).toContain('WHERE email = $1 AND ip = $2 AND success = FALSE');
+    expect(params).toEqual(['e@x', '1.2.3.4', expect.any(Number)]);
+  });
+
+  it('falls back to email-only count when no ip is provided', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce(null);
+
+    await attemptLogin('e@x', 'pass', null);
+
+    const [sql, params] = db.get.mock.calls[0];
+    expect(sql).toContain('WHERE email = $1 AND success = FALSE');
+    expect(sql).not.toContain('ip =');
+    expect(params).toEqual(['e@x', expect.any(Number)]);
+  });
+
+  it('returns 429 when the per-(email,ip) count is at or above MAX_FAILED_ATTEMPTS', async () => {
+    // MAX_FAILED_ATTEMPTS is 10; signal 10 prior failures.
+    db.get.mockResolvedValueOnce({ cnt: '10' });
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).toBe(429);
+    expect(result.error).toMatch(/too many/i);
+  });
+
+  it('records the failure INSIDE the tx (so the next lock-holder sees it)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce(null); // user not found -> auth fails
+
+    await attemptLogin('e@x', 'pass', '1.2.3.4');
+
+    // After the lock (call[0]), the last tx.run is the failure INSERT.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO login_attempts'));
+    expect(insertCall).toBeDefined();
+    expect(insertCall[1]).toEqual(['e@x', '1.2.3.4', false]);
   });
 });
 
