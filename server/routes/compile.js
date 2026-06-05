@@ -762,7 +762,8 @@ router.post('/:projectId/clean', async (req, res) => {
   const projectId = req.params.projectId;
   const member = await requireMember(projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  // Editor-only, fail-closed on unknown roles.
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can clean generated files' });
   }
 

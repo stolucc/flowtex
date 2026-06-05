@@ -559,15 +559,18 @@ const writeTypes = new Set([
   'chat-react',
 ]);
 
-// Per-message minimum role. Editor-only types (changes) must be
-// rejected for commenters; commenter-or-better types are rejected
-// only for viewers. The login-time membership check already covers
-// "not a member at all".
+// Per-message minimum role. Editor-only types (changes) require
+// editor-or-better; commenter-or-better types require commenter,
+// editor, or owner. Enumerates ALLOWED roles, NOT rejected ones,
+// so an unknown future role (or a corrupted row) defaults to denied
+// instead of silently inheriting writer permissions. Mirrors the
+// service-layer EDITOR_ROLES / COMMENTER_OR_BETTER_ROLES sets.
 const editorOnlyWriteTypes = new Set(['changes']);
+const EDITOR_WS_ROLES = new Set(['owner', 'editor']);
+const COMMENTER_WS_ROLES = new Set(['owner', 'editor', 'commenter']);
 function isAllowedWriteRole(type, role) {
-  if (role === 'viewer') return false;
-  if (role === 'commenter' && editorOnlyWriteTypes.has(type)) return false;
-  return true;
+  if (editorOnlyWriteTypes.has(type)) return EDITOR_WS_ROLES.has(role);
+  return COMMENTER_WS_ROLES.has(role);
 }
 
 /** Predicate: should this client be disconnected by a "disconnect every

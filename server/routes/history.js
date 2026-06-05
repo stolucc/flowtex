@@ -154,10 +154,10 @@ router.post('/restore/:snapshotId', async (req, res) => {
 
   const member = await isProjectMember(snap.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  // Restore overwrites file content -- editor-only. Commenters get the
-  // same rejection as viewers because the action is about file state,
-  // not comments.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  // Restore overwrites file content -- editor-only. Enumerate ALLOWED
+  // roles so an unknown future role doesn't silently gain restore
+  // permissions; matches checkEditor's fail-closed posture.
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can restore snapshots' });
   }
 
@@ -323,9 +323,9 @@ router.delete('/snapshots', async (req, res) => {
 
   const member = await isProjectMember(projectId, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  // Deleting history loses restore points -- editor-only. Commenters
-  // get the same rejection as viewers.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  // Deleting history loses restore points -- editor-only. Fail-closed
+  // on unknown roles.
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can delete snapshots' });
   }
 
@@ -358,8 +358,8 @@ router.delete('/snapshot/:snapshotId', async (req, res) => {
 
   const member = await isProjectMember(snap.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
-  // Single-snapshot delete: editor-only, same posture as the bulk path.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  // Single-snapshot delete: editor-only, fail-closed on unknown roles.
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can delete snapshots' });
   }
 

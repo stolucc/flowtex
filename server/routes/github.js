@@ -118,7 +118,7 @@ router.delete('/token', async (req, res) => {
 router.put('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can link a GitHub repo' });
   }
 
@@ -154,7 +154,7 @@ router.get('/link/:projectId', async (req, res) => {
 router.patch('/link/:projectId/auto-push', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can change auto-push settings' });
   }
 
@@ -167,7 +167,7 @@ router.patch('/link/:projectId/auto-push', async (req, res) => {
 router.delete('/link/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can unlink the GitHub repo' });
   }
 
@@ -209,7 +209,7 @@ router.post('/push/:projectId', async (req, res) => {
   // Push exfiltrates project files to GitHub -- editor-only. A commenter
   // could otherwise ship the whole project to an attacker-controlled
   // fork by submitting this route with a previously-linked repo.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can push to GitHub' });
   }
 
@@ -226,7 +226,7 @@ router.post('/pull/:projectId', async (req, res) => {
   const member = await requireMember(req.params.projectId, req.session.userId, res);
   if (!member) return;
   // Pull overwrites file content -- editor-only.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (member.role !== 'editor' && member.role !== 'owner') {
     return res.status(403).json({ error: 'Only editors can pull from GitHub' });
   }
 

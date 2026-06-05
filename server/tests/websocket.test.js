@@ -411,6 +411,21 @@ describe('isAllowedWriteRole', () => {
       }
     }
   });
+
+  // Z1 regression cover: the old isAllowedWriteRole denied viewer/
+  // commenter explicitly and let everything else through. Any unknown
+  // future role (or a corrupted row) silently inherited editor write
+  // perms on the WS channel. Now the function enumerates ALLOWED
+  // roles; unknown is denied for both editor-only and commenter-or-
+  // better message types.
+  it('Z1 — denies an unknown future role on all write types (fail closed)', () => {
+    for (const type of ['changes', 'comment-react', 'reply-react', 'chat', 'chat-react']) {
+      expect(isAllowedWriteRole(type, 'reviewer')).toBe(false);
+      expect(isAllowedWriteRole(type, '')).toBe(false);
+      expect(isAllowedWriteRole(type, null)).toBe(false);
+      expect(isAllowedWriteRole(type, undefined)).toBe(false);
+    }
+  });
 });
 
 // ── shouldDisconnectExcept (Y1) ─────────────────────────────────────────

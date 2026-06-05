@@ -86,14 +86,21 @@ export async function checkMembership(projectId, userId) {
   return isProjectMember(projectId, userId);
 }
 
+// Role hierarchy (highest to lowest privilege):
+//   owner > editor > commenter > viewer
+//
+// Each check enumerates ALLOWED roles, NOT rejected ones. A future role
+// (or a corrupted row, or a schema migration that produces an unexpected
+// value) defaults to the most restrictive posture instead of silently
+// gaining write access. Mirrors the client's isReadOnlyForUser pattern.
+const EDITOR_ROLES = new Set(['owner', 'editor']);
+const COMMENTER_OR_BETTER_ROLES = new Set(['owner', 'editor', 'commenter']);
+
 /** Verify a user has editor (or owner) access; returns {member} or {error, status}. */
 export async function checkEditor(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
-  // Editors and owners can modify files; viewers and commenters cannot.
-  // Commenters can post/reply/react/edit-own/delete-own comments via
-  // the comment routes (checkCommenter), but file content is off-limits.
-  if (member.role === 'viewer' || member.role === 'commenter') {
+  if (!EDITOR_ROLES.has(member.role)) {
     return { error: 'Only editors can modify this project', status: 403 };
   }
   return { member };
@@ -106,7 +113,9 @@ export async function checkEditor(projectId, userId) {
 export async function checkCommenter(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
-  if (member.role === 'viewer') return { error: 'Viewers cannot comment on this project', status: 403 };
+  if (!COMMENTER_OR_BETTER_ROLES.has(member.role)) {
+    return { error: 'Viewers cannot comment on this project', status: 403 };
+  }
   return { member };
 }
 

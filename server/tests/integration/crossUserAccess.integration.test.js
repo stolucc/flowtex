@@ -132,6 +132,28 @@ describe('getFileWithAccess — edit path', () => {
     expect(out.member.role).toBe('commenter');
   });
 
+  // Z1 regression cover: checkEditor used to enumerate REJECTED roles
+  // (viewer, commenter) with fallthrough = allow. Any future role
+  // (e.g. 'reviewer') or a corrupted row would silently inherit editor
+  // permissions. Now the gate enumerates ALLOWED roles; unknown is
+  // denied by default. Mirrors the client's isReadOnlyForUser posture.
+  it('Z1 — denies an unknown future role from file edits (fail closed)', async () => {
+    const { alice, textFile } = await makeScene();
+    const eve = await (await import('./setup.js')).seedUser();
+    // Insert a member row with a role the codebase doesn't know about.
+    await db.run(
+      `INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'reviewer')`,
+      [textFile.project_id, eve.id],
+    );
+    const out = await getFileWithAccess(textFile.id, eve.id, { edit: true });
+    expect(out.status).toBe(403);
+    expect(out.error).toMatch(/only editors/i);
+
+    // Negative control: the owner still passes the same gate.
+    const ownerOut = await getFileWithAccess(textFile.id, alice.id, { edit: true });
+    expect(ownerOut.error).toBeUndefined();
+  });
+
   it('denies a non-member with 403', async () => {
     const { bob, textFile } = await makeScene();
     const out = await getFileWithAccess(textFile.id, bob.id, { edit: true });
