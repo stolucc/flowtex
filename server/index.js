@@ -6,6 +6,7 @@ import pgSession from 'connect-pg-simple';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { isLocalCompileEnabled } from './utils/featureFlags.js';
+import { csrfTokensMatch } from './utils/csrf.js';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -288,9 +289,9 @@ app.use((req, res, next) => {
       // Authenticated paths require a matching CSRF token. Anonymous users
       // hitting a non-exempt state-changing path won't have a csrfToken
       // and are rejected here (defense in depth — requireAuth would also
-      // reject them at the next layer).
-      const token = req.headers['x-csrf-token'];
-      if (!req.session.csrfToken || token !== req.session.csrfToken) {
+      // reject them at the next layer). See csrfTokensMatch below for
+      // why this compares in constant time.
+      if (!csrfTokensMatch(req.headers['x-csrf-token'], req.session.csrfToken)) {
         return res.status(403).json({ error: 'Invalid CSRF token' });
       }
     }

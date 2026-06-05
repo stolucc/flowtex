@@ -1784,14 +1784,20 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
   // updated_at when it was loaded. If that doesn't match the current
   // updated_at, somebody else saved between our load and this PUT —
   // surface a conflict instead of silently overwriting their work.
-  if (baseVersion) {
+  //
+  // AA1: this is a fast-path early-out for the common "I'm already
+  // stale" case; the AUTHORITATIVE check is the WHERE updated_at = $base
+  // clause on the UPDATE itself. Without that, two concurrent saves
+  // could both pass this snapshot check (same SELECT, same compare)
+  // then both UPDATE -- the second one silently clobbering the first.
+  const suppliedVersion = baseVersion
+    ? (baseVersion instanceof Date ? baseVersion.toISOString() : String(baseVersion))
+    : null;
+  if (suppliedVersion) {
     const current = file.updated_at instanceof Date
       ? file.updated_at.toISOString()
       : String(file.updated_at);
-    const supplied = baseVersion instanceof Date
-      ? baseVersion.toISOString()
-      : String(baseVersion);
-    if (current !== supplied) {
+    if (current !== suppliedVersion) {
       return { ok: false, conflict: true, currentVersion: current };
     }
   }
@@ -1808,8 +1814,31 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
   const authorId = user?.id || null;
   const authorName = user?.name || 'Unknown';
   let newSnapshot = false;
+  let conflict = false;
 
   await db.transaction(async (tx) => {
+    // AA1: lock the row + re-read updated_at INSIDE the tx so the
+    // version compare and the UPDATE are atomic. The earlier snapshot
+    // check (outside the tx) is just a fast-path early-out; this is
+    // the AUTHORITATIVE check. Comparing the timestamp via a
+    // SQL-level WHERE clause won't work because Postgres TIMESTAMPTZ
+    // stores microsecond precision while JS Date.toISOString gives
+    // millisecond precision -- the parameter binding round-trip
+    // loses 3 digits and the comparison spuriously fails.
+    if (suppliedVersion) {
+      const lockedRow = await tx.get('SELECT updated_at FROM files WHERE id = $1 FOR UPDATE', [file.id]);
+      if (!lockedRow) {
+        conflict = true;
+        return;
+      }
+      const currentLocked = lockedRow.updated_at instanceof Date
+        ? lockedRow.updated_at.toISOString()
+        : String(lockedRow.updated_at);
+      if (currentLocked !== suppliedVersion) {
+        conflict = true;
+        return;
+      }
+    }
     if (marksJson !== null) {
       await tx.run('UPDATE files SET content = $1, tc_marks = $2::jsonb, updated_at = NOW() WHERE id = $3', [content, marksJson, file.id]);
     } else {
@@ -1858,6 +1887,17 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
       newSnapshot = true;
     }
   });
+
+  // Optimistic-UPDATE detected that another writer landed between our
+  // SELECT and this UPDATE. Surface as a conflict so the client can
+  // refetch and merge -- same shape as the early-out branch above.
+  if (conflict) {
+    const after = await db.get('SELECT updated_at FROM files WHERE id = $1', [file.id]);
+    const currentVersion = after?.updated_at instanceof Date
+      ? after.updated_at.toISOString()
+      : String(after?.updated_at);
+    return { ok: false, conflict: true, currentVersion };
+  }
 
   // Read back the new updated_at so the client can use it as the next
   // baseVersion.

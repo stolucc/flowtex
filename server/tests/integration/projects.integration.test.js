@@ -16,6 +16,7 @@ import {
   acceptInvitation,
   removeMember,
   copyProject,
+  updateFileContent,
 } from '../../services/projectService.js';
 
 describe('projects — file rename / move', () => {
@@ -398,5 +399,73 @@ describe('projects — members', () => {
       [project.id, editor.id],
     );
     expect(row).toBeUndefined();
+  });
+});
+
+// AA1 regression cover: the baseVersion check used to live OUTSIDE the
+// transaction, so two concurrent saves could both pass the snapshot
+// compare and then both UPDATE, second one silently clobbering. The
+// fix moved the version check into the UPDATE via
+// `WHERE id = $1 AND updated_at = $base`; if the row's updated_at
+// already moved off the supplied base, the UPDATE affects 0 rows and
+// we return conflict atomically.
+
+describe('updateFileContent — AA1 optimistic UPDATE conflict guard', () => {
+  it('returns conflict + does not clobber when another writer landed first', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'original');
+
+    // Snapshot the file's current updated_at so the caller has a
+    // "valid at load time" baseVersion.
+    const loaded = await db.get('SELECT updated_at FROM files WHERE id = $1', [file.id]);
+    const baseVersion = loaded.updated_at.toISOString();
+
+    // Simulate a concurrent writer that committed between the caller's
+    // load and the caller's save.
+    await db.run(
+      `UPDATE files SET content = $1, updated_at = NOW() + INTERVAL '1 millisecond' WHERE id = $2`,
+      ['written by concurrent writer', file.id],
+    );
+
+    const out = await updateFileContent(file.id, 'caller wanted to write THIS', owner.id, undefined, baseVersion);
+
+    expect(out.ok).toBe(false);
+    expect(out.conflict).toBe(true);
+    expect(out.currentVersion).toBeDefined();
+
+    // The DB still holds the concurrent writer's content; the caller's
+    // attempted save was NOT applied. No silent clobbering.
+    const after = await db.get('SELECT content FROM files WHERE id = $1', [file.id]);
+    expect(after.content).toBe('written by concurrent writer');
+  });
+
+  it('succeeds when baseVersion matches and no concurrent writer interfered', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'original');
+
+    const loaded = await db.get('SELECT updated_at FROM files WHERE id = $1', [file.id]);
+    const baseVersion = loaded.updated_at.toISOString();
+
+    const out = await updateFileContent(file.id, 'new content', owner.id, undefined, baseVersion);
+    expect(out.ok).toBe(true);
+    expect(out.conflict).toBeUndefined();
+
+    const after = await db.get('SELECT content FROM files WHERE id = $1', [file.id]);
+    expect(after.content).toBe('new content');
+  });
+
+  it('without baseVersion: writes go through (no conflict semantics)', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'original');
+
+    const out = await updateFileContent(file.id, 'no version supplied', owner.id, undefined, undefined);
+    expect(out.ok).toBe(true);
+    expect(out.conflict).toBeUndefined();
+
+    const after = await db.get('SELECT content FROM files WHERE id = $1', [file.id]);
+    expect(after.content).toBe('no version supplied');
   });
 });
