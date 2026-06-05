@@ -39,6 +39,7 @@ import {
   createPasswordResetToken,
   resetPassword,
   attemptLogin,
+  verifyTotpWithLockout,
 } from '../services/authService.js';
 
 const TEST_PW = 'Password1234';
@@ -517,5 +518,47 @@ describe('resetPassword queries', () => {
     const dev = db.run.mock.calls.find((c) => c[0].includes('DELETE FROM trusted_devices'));
     expect(dev[0]).toBe('DELETE FROM trusted_devices WHERE user_id = $1');
     expect(dev[1]).toEqual(['u']);
+  });
+});
+
+// EE2 (audit round 16): verifyTotpWithLockout wraps verifyTotp +
+// lockout-aware record in one tx with the same per-email advisory
+// lock as attemptLogin. These tests pin the SQL shape. The decrypt
+// mock at the top of this file strips the 'encrypted:' prefix, so
+// any valid base32 string with that prefix is a valid secret for
+// OTPAuth's decoder.
+const VALID_BASE32_SECRET = 'encrypted:JBSWY3DPEHPK3PXP';
+
+describe('verifyTotpWithLockout queries — EE2 per-email advisory lock', () => {
+  it('takes pg_advisory_xact_lock on the same login:<email> key as attemptLogin', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' }) // per-(email,ip)
+      .mockResolvedValueOnce({ cnt: '0' }); // per-ip
+    // '000000' will (almost certainly) fail OTPAuth.validate, so
+    // verifyTotp returns an Invalid error before the claim INSERT.
+    // That's fine -- we only assert on the advisory lock being the
+    // first tx.run call.
+    await verifyTotpWithLockout('user-id', '000000', VALID_BASE32_SECRET, 'A@B.com', '1.2.3.4');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const [lockSql, lockParams] = db.run.mock.calls[0];
+    expect(lockSql).toBe('SELECT pg_advisory_xact_lock(hashtext($1))');
+    expect(lockParams).toEqual(['login:a@b.com']);
+  });
+
+  it('returns 429 when the lockout count is at or above MAX_FAILED_ATTEMPTS', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '10' });
+
+    const result = await verifyTotpWithLockout('user-id', '000000', VALID_BASE32_SECRET, 'e@x', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  it('records the failure INSIDE the tx after a TOTP fail', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' }) // per-(email,ip)
+      .mockResolvedValueOnce({ cnt: '0' }); // per-ip
+    await verifyTotpWithLockout('user-id', '000000', VALID_BASE32_SECRET, 'e@x', '1.2.3.4');
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO login_attempts'));
+    expect(insertCall).toBeDefined();
+    expect(insertCall[1]).toEqual(['e@x', '1.2.3.4', false]);
   });
 });

@@ -199,9 +199,15 @@ router.post('/login', validateBody(loginSchema), async (req, res) => {
     } else {
       if (!totpCode) return res.status(200).json({ mfaRequired: true });
 
-      const totpResult = await authService.verifyTotp(user.id, totpCode, user.totp_secret);
+      // EE2: verifyTotpWithLockout wraps the TOTP verify + lockout
+      // record in one tx with the per-email advisory lock (same key
+      // as the password attemptLogin), so N parallel TOTP submissions
+      // can't slip past MAX_FAILED_ATTEMPTS the way the bare
+      // verifyTotp + recordLoginAttempt sequence used to.
+      const totpResult = await authService.verifyTotpWithLockout(
+        user.id, totpCode, user.totp_secret, normalizedEmail, req.ip,
+      );
       if (totpResult.error) {
-        await authService.recordLoginAttempt(normalizedEmail, req.ip, false);
         return res.status(totpResult.status).json({ error: totpResult.error });
       }
 

@@ -223,24 +223,41 @@ export async function attemptLogin(email, password, ip) {
   });
 }
 
-async function isTotpUsed(userId, code) {
+/**
+ * EE1 (audit round 16): atomically claim a TOTP code. Returns true on
+ * successful claim (the code was unused), false if it was already used.
+ *
+ * Previously the path was `isTotpUsed -> markTotpUsed` -- check then
+ * act, with no atomicity. Two parallel verifies of the same code both
+ * saw "not used" and both completed login. INSERT ... ON CONFLICT DO
+ * NOTHING with rowCount as the signal makes the claim the single
+ * authoritative check.
+ *
+ * The in-memory `usedTotpCodes` Map is kept as a same-process
+ * fast-path -- it's only set AFTER a successful DB INSERT, so it
+ * never reports unused codes as used. Across processes, the DB INSERT
+ * is the synchronisation point.
+ *
+ * Errors fail-CLOSED (return false / "already used") so a transient
+ * DB failure during TOTP verify is treated as a reject. The user
+ * sees a misleading message but doesn't get an unintended bypass.
+ */
+async function tryClaimTotpCode(userId, code) {
   const key = `${userId}:${code}`;
-  if (usedTotpCodes.has(key)) return true;
-  const row = await db
-    .get('SELECT 1 FROM used_totp_codes WHERE user_id = $1 AND code = $2 AND expires_at > NOW()', [userId, code])
-    .catch((e) => { console.warn('TOTP usage check failed:', e.message); return null; });
-  return !!row;
-}
-
-async function markTotpUsed(userId, code) {
-  const key = `${userId}:${code}`;
-  usedTotpCodes.set(key, Date.now() + 90000);
-  await db
-    .run(
+  if (usedTotpCodes.has(key)) return false;
+  let result;
+  try {
+    result = await db.run(
       "INSERT INTO used_totp_codes (user_id, code, expires_at) VALUES ($1, $2, NOW() + INTERVAL '90 seconds') ON CONFLICT DO NOTHING",
       [userId, code],
-    )
-    .catch((e) => console.warn('Failed to persist TOTP usage:', e.message));
+    );
+  } catch (err) {
+    logger.warn({ err, userId }, 'TOTP claim DB error -- treating as already-used (fail-closed)');
+    return false;
+  }
+  if (!result || result.rowCount === 0) return false;
+  usedTotpCodes.set(key, Date.now() + 90000);
+  return true;
 }
 
 // --- Core auth operations ---
@@ -459,9 +476,78 @@ export async function verifyTotp(userId, code, totpSecret) {
   });
   const delta = totp.validate({ token: code, window: 1 });
   if (delta === null) return { error: 'Invalid verification code', status: 401 };
-  if (await isTotpUsed(userId, code)) return { error: 'Verification code already used', status: 401 };
-  await markTotpUsed(userId, code);
+  // EE1: atomic claim instead of check-then-act. Returns false if the
+  // code was already used in this 30s window; only ONE concurrent
+  // verifier of the same code can win.
+  if (!(await tryClaimTotpCode(userId, code))) {
+    return { error: 'Verification code already used', status: 401 };
+  }
   return { ok: true };
+}
+
+/**
+ * EE2 (audit round 16): verifyTotp + lockout-aware recording, all
+ * inside one tx with a per-email advisory lock. Mirrors attemptLogin's
+ * structure so the TOTP failure path can't bypass the per-email
+ * lockout by submitting N parallel codes against the same
+ * just-passed-password session.
+ *
+ * The lockout count is shared with the password path (same
+ * login_attempts table, same lock key), so 10 TOTP failures count
+ * the same as 10 password failures.
+ *
+ * @returns the same shape as verifyTotp, OR
+ *   { error: 'Too many failed attempts...', status: 429 } when locked.
+ */
+export async function verifyTotpWithLockout(userId, code, totpSecret, email, ip) {
+  const normalizedEmail = email.toLowerCase().trim();
+  return await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`login:${normalizedEmail}`]);
+
+    // Mirror the per-email/-(email,ip)/-ip lockout check from
+    // attemptLogin so this path uses the same threshold.
+    const countQuery = async (sql, params) => {
+      const r = await tx.get(sql, params);
+      return parseInt(r?.cnt || 0);
+    };
+    let failed;
+    if (!ip) {
+      failed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+        [normalizedEmail, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (failed >= MAX_FAILED_ATTEMPTS) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+    } else {
+      failed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND ip = $2 AND success = FALSE AND created_at > NOW() - make_interval(mins => $3)`,
+        [normalizedEmail, ip, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (failed >= MAX_FAILED_ATTEMPTS) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+      const ipFailed = await countQuery(
+        `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
+        [ip, LOCKOUT_WINDOW_MINUTES],
+      );
+      if (ipFailed >= MAX_FAILED_ATTEMPTS * 3) {
+        return { error: 'Too many failed attempts. Please try again in 15 minutes.', status: 429 };
+      }
+    }
+
+    const totpResult = await verifyTotp(userId, code, totpSecret);
+
+    if (totpResult.error) {
+      await tx.run(
+        'INSERT INTO login_attempts (email, ip, success) VALUES ($1, $2, $3)',
+        [normalizedEmail, ip || null, false],
+      );
+    } else {
+      await tx.run('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE', [normalizedEmail]);
+    }
+    return totpResult;
+  });
 }
 
 // MFA-bypass cookie lifetime. Was 30 days; shortened to 7 because the

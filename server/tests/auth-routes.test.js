@@ -19,6 +19,7 @@ vi.mock('../services/authService.js', () => ({
   attemptLogin: vi.fn(),
   checkTrustedDevice: vi.fn(),
   verifyTotp: vi.fn(),
+  verifyTotpWithLockout: vi.fn(),
   createTrustedDevice: vi.fn(),
   getCurrentUser: vi.fn(),
   setupTotp: vi.fn(),
@@ -281,13 +282,16 @@ describe('POST /login', () => {
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce(null);
-    authService.verifyTotp.mockResolvedValueOnce({ error: 'Invalid code', status: 401 });
+    authService.verifyTotpWithLockout.mockResolvedValueOnce({ error: 'Invalid code', status: 401 });
 
     const res = mockRes();
     await handler(mockReq({ body: { email: 'a@b.com', password: 'pass', totpCode: '000000' } }), res);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(authService.recordLoginAttempt).toHaveBeenCalledWith('a@b.com', '127.0.0.1', false);
+    // EE2: recording moved inside verifyTotpWithLockout (under the
+    // advisory lock). The route no longer calls recordLoginAttempt
+    // for TOTP failures.
+    expect(authService.recordLoginAttempt).not.toHaveBeenCalled();
   });
 
   it('sets trusted device cookie when trustDevice is true and TOTP succeeds', async () => {
@@ -295,7 +299,7 @@ describe('POST /login', () => {
       user: { id: 'user-1', email: 'a@b.com', name: 'A', totp_enabled: true, totp_secret: 'secret' },
     });
     authService.checkTrustedDevice.mockResolvedValueOnce(null);
-    authService.verifyTotp.mockResolvedValueOnce({});
+    authService.verifyTotpWithLockout.mockResolvedValueOnce({});
     authService.createTrustedDevice.mockResolvedValueOnce({ token: 'trust-tok', maxAge: 2592000000 });
     authService.recordLoginAttempt.mockResolvedValueOnce(undefined);
 

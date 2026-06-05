@@ -473,18 +473,16 @@ describe('verifyTotp', () => {
   });
 
   it('succeeds with a valid code', async () => {
-    // db.get returns undefined => code not used yet
-    db.get.mockResolvedValue(undefined);
-    db.run.mockResolvedValue(undefined);
+    // EE1: claim INSERT returns rowCount=1 on success.
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
 
-    const result = await verifyTotp('u1', validCode, 'encrypted:' + testSecret);
+    const result = await verifyTotp('u-succeeds-valid-code', validCode, 'encrypted:' + testSecret);
     expect(result).toEqual({ ok: true });
   });
 
   it('rejects a replayed code (in-memory cache)', async () => {
-    // First call succeeds
-    db.get.mockResolvedValue(undefined);
-    db.run.mockResolvedValue(undefined);
+    // First call succeeds (INSERT claims the code; rowCount=1).
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
 
     const result1 = await verifyTotp('u1', validCode, 'encrypted:' + testSecret);
     expect(result1).toEqual({ ok: true });
@@ -494,14 +492,24 @@ describe('verifyTotp', () => {
     expect(result2).toEqual({ error: 'Verification code already used', status: 401 });
   });
 
-  it('rejects a replayed code (db-based check)', async () => {
-    // Simulate the code existing in the database (isTotpUsed db check returns a row)
-    // but not in the in-memory map (fresh test). We need OTPAuth to validate first.
-    // On the first call, isTotpUsed checks in-memory (miss), then db.
-    // We make db.get return a row so isTotpUsed returns true.
-    db.get.mockResolvedValue({ 1: 1 });
+  // EE1 (audit round 16): the replay-protection check is now the
+  // atomic INSERT ... ON CONFLICT DO NOTHING. A concurrent process
+  // that already claimed the code lands an INSERT that returns
+  // rowCount=0 -- this side of the race must reject without
+  // bypassing.
+  it('EE1 — rejects a replayed code via INSERT rowCount=0 (cross-process race)', async () => {
+    // Use a unique user id so the in-memory Map doesn't short-circuit
+    // before the INSERT is attempted (the Map is process-local).
+    db.run.mockResolvedValueOnce({ rowCount: 0 });
 
-    const result = await verifyTotp('u1', validCode, 'encrypted:' + testSecret);
+    const result = await verifyTotp('u-cross-process-race', validCode, 'encrypted:' + testSecret);
+    expect(result).toEqual({ error: 'Verification code already used', status: 401 });
+  });
+
+  it('EE1 — fails closed (treats as already-used) when the INSERT errors', async () => {
+    db.run.mockRejectedValueOnce(new Error('DB blip'));
+
+    const result = await verifyTotp('u-db-blip', validCode, 'encrypted:' + testSecret);
     expect(result).toEqual({ error: 'Verification code already used', status: 401 });
   });
 });

@@ -533,17 +533,18 @@ describe('verifyTotp', () => {
   });
 
   it('persists TOTP usage with a forward-in-time expiry (catches a flipped sign)', async () => {
-    // Generate a real, currently-valid TOTP token so the validator passes
-    // and we hit the markTotpUsed code path (Date.now() + 90000).
+    // EE1 (audit round 16): the claim INSERT is what gates success.
+    // rowCount=1 signals "claimed, not previously used"; the path then
+    // returns ok.
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
     const OTPAuth = await import('otpauth');
     const secret = OTPAuth.Secret.fromBase32('JBSWY3DPEHPK3PXP');
     const totp = new OTPAuth.TOTP({ secret, algorithm: 'SHA1', digits: 6, period: 30 });
     const code = totp.generate();
     const before = Date.now();
-    const r = await verifyTotp('u', code, 'encrypted:JBSWY3DPEHPK3PXP');
+    const r = await verifyTotp('u-persists-totp', code, 'encrypted:JBSWY3DPEHPK3PXP');
     expect(r.ok).toBe(true);
-    // The persisted insert SQL fixes a 90-second window via
-    // INTERVAL '90 seconds'; verify the SQL is the documented one.
+    // The claim INSERT SQL fixes a 90-second window via INTERVAL '90 seconds'.
     const insertCall = db.run.mock.calls.find((c) => c[0].includes('used_totp_codes'));
     expect(insertCall[0]).toContain("INTERVAL '90 seconds'");
     expect(Date.now()).toBeGreaterThanOrEqual(before);
