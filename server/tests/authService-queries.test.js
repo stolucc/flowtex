@@ -21,7 +21,6 @@ vi.mock('../utils/crypto.js', () => ({
 
 import db from '../db.js';
 import {
-  isAccountLocked,
   recordLoginAttempt,
   registerUser,
   authenticateUser,
@@ -51,28 +50,10 @@ beforeEach(() => {
   db.run.mockResolvedValue(undefined);
 });
 
-describe('isAccountLocked queries', () => {
-  it('email query selects COUNT(*) AS cnt with success=FALSE and a created_at window', async () => {
-    db.get.mockResolvedValueOnce({ cnt: '0' });
-    await isAccountLocked('a@b.com');
-    const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toMatch(/SELECT COUNT\(\*\) AS cnt FROM login_attempts/);
-    expect(sql).toContain('email = $1');
-    expect(sql).toContain('success = FALSE');
-    expect(sql).toContain('created_at > NOW()');
-    expect(sql).toContain('make_interval(mins => $2)');
-    expect(params).toEqual(['a@b.com', 15]);
-  });
-
-  it('IP query has the same shape, parameterised on ip and the same window', async () => {
-    db.get.mockResolvedValueOnce({ cnt: '0' }).mockResolvedValueOnce({ cnt: '0' });
-    await isAccountLocked('a@b.com', '9.9.9.9');
-    const [sql, params] = db.get.mock.calls[1];
-    expect(sql).toMatch(/SELECT COUNT\(\*\) AS cnt FROM login_attempts/);
-    expect(sql).toContain('ip = $1');
-    expect(params).toEqual(['9.9.9.9', 15]);
-  });
-});
+// isAccountLocked describe removed in audit round 19 (HH3): the
+// function is gone. The same SQL count shapes are now exercised by
+// attemptLogin's inline lockout check; see the
+// "attemptLogin queries -- DD1 per-email advisory lock" block below.
 
 describe('recordLoginAttempt queries', () => {
   it('insert SQL is INSERT INTO login_attempts (email, ip, success) VALUES ($1, $2, $3)', async () => {

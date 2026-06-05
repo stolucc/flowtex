@@ -21,7 +21,6 @@ import {
   validatePassword,
   authenticateUser,
   registerUser,
-  isAccountLocked,
   recordLoginAttempt,
   decryptTotpSecret,
   getCurrentUser,
@@ -225,65 +224,12 @@ describe('registerUser', () => {
   });
 });
 
-// ─── isAccountLocked ─────────────────────────────────────────────────
-
-describe('isAccountLocked', () => {
-  it('returns false when below threshold', async () => {
-    db.get.mockResolvedValue({ cnt: '5' });
-
-    const result = await isAccountLocked('user@test.com', '1.2.3.4');
-    expect(result).toBe(false);
-  });
-
-  it('returns true when at MAX_FAILED_ATTEMPTS (10)', async () => {
-    db.get.mockResolvedValue({ cnt: '10' });
-
-    const result = await isAccountLocked('user@test.com');
-    expect(result).toBe(true);
-  });
-
-  it('returns true when above MAX_FAILED_ATTEMPTS', async () => {
-    db.get.mockResolvedValue({ cnt: '15' });
-
-    const result = await isAccountLocked('user@test.com');
-    expect(result).toBe(true);
-  });
-
-  it('returns false when result is null/undefined', async () => {
-    db.get.mockResolvedValue(undefined);
-
-    const result = await isAccountLocked('user@test.com');
-    expect(result).toBe(false);
-  });
-
-  it('checks IP-based lockout at 3x threshold (30)', async () => {
-    // First call (email check) returns below threshold
-    // Second call (IP check) returns at 3x threshold
-    db.get
-      .mockResolvedValueOnce({ cnt: '5' }) // email: below 10
-      .mockResolvedValueOnce({ cnt: '30' }); // IP: at 30 (10 * 3)
-
-    const result = await isAccountLocked('user@test.com', '1.2.3.4');
-    expect(result).toBe(true);
-  });
-
-  it('does not check IP if ip is not provided', async () => {
-    db.get.mockResolvedValue({ cnt: '5' });
-
-    await isAccountLocked('user@test.com');
-    // Only one db.get call (email check), no IP check
-    expect(db.get).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns false when IP is below 3x threshold', async () => {
-    db.get
-      .mockResolvedValueOnce({ cnt: '5' }) // email: below 10
-      .mockResolvedValueOnce({ cnt: '29' }); // IP: below 30
-
-    const result = await isAccountLocked('user@test.com', '1.2.3.4');
-    expect(result).toBe(false);
-  });
-});
+// isAccountLocked tests were removed in audit round 19 (HH3): the
+// standalone function was dead code after DD1 inlined the
+// race-protected check into attemptLogin. The lockout threshold +
+// IP-3x rule behaviour is now covered by attemptLogin tests in
+// authService-queries.test.js, which exercise the same SQL count
+// queries inside the advisory-lock tx.
 
 // ─── recordLoginAttempt ──────────────────────────────────────────────
 

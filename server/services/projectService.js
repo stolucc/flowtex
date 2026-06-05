@@ -2182,25 +2182,6 @@ export async function inviteMember(projectId, email, role, inviterId) {
     if (existing) throw Object.assign(new Error('User is already a member'), { status: 409 });
   }
 
-  // Per-project membership cap (members + pending invitations). The
-  // per-user invite rate limit caps overall fan-out; this caps the
-  // per-project blast radius so a single attacker-owned project
-  // can't be used to invite thousands of addresses.
-  const sizeRow = await db.get(
-    `SELECT
-       (SELECT COUNT(*) FROM project_members WHERE project_id = $1) +
-       (SELECT COUNT(*) FROM project_invitations
-         WHERE project_id = $1 AND status = 'pending' AND expires_at > NOW()) AS total`,
-    [projectId],
-  );
-  const total = parseInt(sizeRow?.total || 0, 10);
-  if (total >= PROJECT_MEMBERSHIP_CAP) {
-    throw Object.assign(
-      new Error(`Project membership cap reached (${PROJECT_MEMBERSHIP_CAP}). Remove an existing member or cancel a pending invitation first.`),
-      { status: 409 },
-    );
-  }
-
   // commenter sits between viewer and editor: read + post/reply/react/
   // edit-own/delete-own comments, but cannot modify files. The role
   // exists so projects can grant feedback access (e.g. external
@@ -2208,11 +2189,12 @@ export async function inviteMember(projectId, email, role, inviterId) {
   const VALID_ROLES = ['editor', 'commenter', 'viewer'];
   const assignedRole = VALID_ROLES.includes(role) ? role : 'editor';
 
-  const existingInvite = await db.get(
-    "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending' AND expires_at > NOW()",
-    [projectId, normalizedEmail],
-  );
-  if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
+  // HH2 (audit round 19): the cap check (COUNT members + pending
+  // invites) and the INSERT used to be separate db calls. N parallel
+  // invites all observed total < cap and all INSERTed, breaching the
+  // 50-member ceiling. Wrap the cap check + duplicate-invite check
+  // + INSERT in one tx with a per-project advisory lock so the count
+  // is observed live by each lock-holder.
 
   // For unregistered users we generate a single-use-style decline
   // token that the email's "Decline" link carries. Registered users
@@ -2227,14 +2209,39 @@ export async function inviteMember(projectId, email, role, inviterId) {
   }
 
   const id = uuid();
-  await db.run(
-    `INSERT INTO project_invitations (id, project_id, email, role, inviter_id, decline_token_hash)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (project_id, email)
-       DO UPDATE SET role = $4, inviter_id = $5, status = 'pending',
-                     decline_token_hash = $6, expires_at = NOW() + INTERVAL '30 days'`,
-    [id, projectId, normalizedEmail, assignedRole, inviterId, declineTokenHash],
-  );
+  await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`invite:${projectId}`]);
+
+    const sizeRow = await tx.get(
+      `SELECT
+         (SELECT COUNT(*) FROM project_members WHERE project_id = $1) +
+         (SELECT COUNT(*) FROM project_invitations
+           WHERE project_id = $1 AND status = 'pending' AND expires_at > NOW()) AS total`,
+      [projectId],
+    );
+    const total = parseInt(sizeRow?.total || 0, 10);
+    if (total >= PROJECT_MEMBERSHIP_CAP) {
+      throw Object.assign(
+        new Error(`Project membership cap reached (${PROJECT_MEMBERSHIP_CAP}). Remove an existing member or cancel a pending invitation first.`),
+        { status: 409 },
+      );
+    }
+
+    const existingInvite = await tx.get(
+      "SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2 AND status = 'pending' AND expires_at > NOW()",
+      [projectId, normalizedEmail],
+    );
+    if (existingInvite) throw Object.assign(new Error('Invitation already pending'), { status: 409 });
+
+    await tx.run(
+      `INSERT INTO project_invitations (id, project_id, email, role, inviter_id, decline_token_hash)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (project_id, email)
+         DO UPDATE SET role = $4, inviter_id = $5, status = 'pending',
+                       decline_token_hash = $6, expires_at = NOW() + INTERVAL '30 days'`,
+      [id, projectId, normalizedEmail, assignedRole, inviterId, declineTokenHash],
+    );
+  });
   return {
     id,
     email,

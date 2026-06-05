@@ -25,7 +25,6 @@ vi.mock('../utils/crypto.js', () => ({
 
 import db from '../db.js';
 import {
-  isAccountLocked,
   recordLoginAttempt,
   registerUser,
   authenticateUser,
@@ -57,50 +56,12 @@ beforeEach(() => {
   db.run.mockResolvedValue(undefined);
 });
 
-// ─── isAccountLocked: SQL params and IP-branch boundary ──────────────
-
-describe('isAccountLocked SQL/params', () => {
-  it('queries login_attempts by email with the LOCKOUT window in minutes', async () => {
-    db.get.mockResolvedValueOnce({ cnt: '0' }); // email check
-    await isAccountLocked('a@b.com');
-    const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toContain('FROM login_attempts');
-    expect(sql).toContain('email = $1');
-    expect(sql).toContain('success = FALSE');
-    expect(params).toEqual(['a@b.com', 15]);
-  });
-
-  it('queries by IP using the same lockout window', async () => {
-    db.get
-      .mockResolvedValueOnce({ cnt: '0' })   // email check below threshold
-      .mockResolvedValueOnce({ cnt: '0' });  // ip check below threshold
-    await isAccountLocked('a@b.com', '1.2.3.4');
-    const [, ipParams] = db.get.mock.calls[1];
-    expect(ipParams).toEqual(['1.2.3.4', 15]);
-  });
-
-  it('returns false when ipResult is null (optional chaining branch)', async () => {
-    db.get
-      .mockResolvedValueOnce({ cnt: '0' })   // email
-      .mockResolvedValueOnce(null);           // ip null → cnt is treated as 0
-    const result = await isAccountLocked('a@b.com', '1.1.1.1');
-    expect(result).toBe(false);
-  });
-
-  it('returns true when IP attempts hit exactly 3*MAX (30)', async () => {
-    db.get
-      .mockResolvedValueOnce({ cnt: '0' })    // email
-      .mockResolvedValueOnce({ cnt: '30' });  // IP at exactly 3x
-    expect(await isAccountLocked('a@b.com', '1.1.1.1')).toBe(true);
-  });
-
-  it('returns false when IP attempts are at 29 (just under 3*MAX)', async () => {
-    db.get
-      .mockResolvedValueOnce({ cnt: '0' })
-      .mockResolvedValueOnce({ cnt: '29' });
-    expect(await isAccountLocked('a@b.com', '1.1.1.1')).toBe(false);
-  });
-});
+// isAccountLocked tests removed in audit round 19 (HH3): the function
+// itself is gone -- the lockout SELECT now lives inline inside
+// attemptLogin under the per-email advisory lock added by DD1.
+// SQL-shape coverage for the count queries (per-email, per-(email,ip),
+// per-ip-3x) still exists in authService-queries.test.js's
+// attemptLogin describe block.
 
 // ─── recordLoginAttempt: param order ──────────────────────────────────
 

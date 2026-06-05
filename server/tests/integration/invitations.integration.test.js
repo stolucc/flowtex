@@ -136,3 +136,41 @@ describe('V4 — acceptInvitation idempotency', () => {
     expect(members).toHaveLength(1);
   });
 });
+
+// HH2 (audit round 19): inviteMember's COUNT(members + pending) + INSERT
+// used to be separate calls, so N parallel invites all saw total < cap
+// and all INSERTed past the 50-member ceiling. The fix wraps the cap
+// check + duplicate-invite check + INSERT in one tx with a per-project
+// advisory lock. The savepoint-based integration harness can't simulate
+// real parallelism, but it CAN verify the cap is enforced inside the tx
+// (the second invite after the cap is reached must reject) and that the
+// duplicate-invite guard still fires.
+
+describe('inviteMember — HH2 cap check inside tx', () => {
+  it('rejects with 409 when the project is already at the membership cap', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+
+    // Backfill 49 additional pending invitations so the project is at
+    // 50 (owner + 49 = 50). The 51st invite must hit the cap.
+    for (let i = 0; i < 49; i++) {
+      const inv = `cap-${i}-${Date.now()}@example.test`;
+      await inviteMember(project.id, inv, 'editor', owner.id);
+    }
+
+    await expect(
+      inviteMember(project.id, `over-cap-${Date.now()}@example.test`, 'editor', owner.id),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects duplicate pending invitation with 409 (existingInvite guard inside tx)', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const dupEmail = `dup-${Date.now()}@example.test`;
+    await inviteMember(project.id, dupEmail, 'editor', owner.id);
+
+    await expect(
+      inviteMember(project.id, dupEmail, 'editor', owner.id),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+});

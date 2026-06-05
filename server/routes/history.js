@@ -339,16 +339,22 @@ router.delete('/snapshots', async (req, res) => {
     return res.status(403).json({ error: 'Only editors can delete snapshots' });
   }
 
-  // Guard against wiping out every restore point in one call. Use COUNT(*)
-  // rather than comparing array lengths so it's correct even if duplicate
-  // ids were submitted.
-  const totalRow = await db.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [projectId]);
+  // HH1 (audit round 19): wrap the count + delete in one tx with a
+  // per-project advisory lock. Without it, two parallel deletes can
+  // both observe count > foundIds.length, both DELETE, and leave the
+  // project with zero restore points -- violating the "keep at least
+  // one" invariant that the explicit COUNT check exists to enforce.
   const foundIds = rows.map((r) => r.id);
-  if (Number(totalRow.count) <= foundIds.length) {
-    return res.status(409).json({ error: 'Cannot delete every snapshot of a project' });
-  }
-
-  await db.run('DELETE FROM project_snapshots WHERE id = ANY($1)', [foundIds]);
+  const deleted = await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`snapshots:${projectId}`]);
+    const totalRow = await tx.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [projectId]);
+    if (Number(totalRow.count) <= foundIds.length) {
+      return { error: 'Cannot delete every snapshot of a project', status: 409 };
+    }
+    await tx.run('DELETE FROM project_snapshots WHERE id = ANY($1)', [foundIds]);
+    return { ok: true };
+  });
+  if (deleted.error) return res.status(deleted.status).json({ error: deleted.error });
   for (const id of foundIds) snapshotCache.delete(id);
 
   await auditLog(req.session.userId, 'snapshots_bulk_deleted', {
@@ -373,13 +379,18 @@ router.delete('/snapshot/:snapshotId', async (req, res) => {
     return res.status(403).json({ error: 'Only editors can delete snapshots' });
   }
 
-  // Refuse to delete the project's only restore point.
-  const totalRow = await db.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [snap.project_id]);
-  if (Number(totalRow.count) <= 1) {
-    return res.status(409).json({ error: 'Cannot delete the only remaining snapshot' });
-  }
-
-  await db.run('DELETE FROM project_snapshots WHERE id = $1', [snap.id]);
+  // HH1: same atomicity story as the bulk path. Lock + count + delete
+  // in one tx so two parallel deletes can't both pass count > 1.
+  const result = await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`snapshots:${snap.project_id}`]);
+    const totalRow = await tx.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [snap.project_id]);
+    if (Number(totalRow.count) <= 1) {
+      return { error: 'Cannot delete the only remaining snapshot', status: 409 };
+    }
+    await tx.run('DELETE FROM project_snapshots WHERE id = $1', [snap.id]);
+    return { ok: true };
+  });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   snapshotCache.delete(snap.id);
 
   await auditLog(req.session.userId, 'snapshot_deleted', {

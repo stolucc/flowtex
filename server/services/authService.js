@@ -112,26 +112,13 @@ export async function checkPasswordNotBreached(password) {
  *  fall back to the email-only lock so we don't ship an "IP missing →
  *  no lockout" hole.
  */
-export async function isAccountLocked(email, ip) {
-  if (!ip) {
-    const result = await db.get(
-      `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
-      [email, LOCKOUT_WINDOW_MINUTES],
-    );
-    return parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS;
-  }
-  const result = await db.get(
-    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE email = $1 AND ip = $2 AND success = FALSE AND created_at > NOW() - make_interval(mins => $3)`,
-    [email, ip, LOCKOUT_WINDOW_MINUTES],
-  );
-  if (parseInt(result?.cnt || 0) >= MAX_FAILED_ATTEMPTS) return true;
-  const ipResult = await db.get(
-    `SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip = $1 AND success = FALSE AND created_at > NOW() - make_interval(mins => $2)`,
-    [ip, LOCKOUT_WINDOW_MINUTES],
-  );
-  if (parseInt(ipResult?.cnt || 0) >= MAX_FAILED_ATTEMPTS * 3) return true;
-  return false;
-}
+// HH3 (audit round 19): isAccountLocked was removed -- the standalone
+// "am I locked?" SELECT had no follow-up tx/lock and was therefore
+// the racy precursor to recordLoginAttempt that DD1 closed. The
+// race-protected check now lives INLINE inside attemptLogin /
+// verifyTotpWithLockout under the per-email advisory lock. Keeping
+// the un-protected function around as a public export was an
+// invitation for a future caller to reintroduce the gap.
 
 /** Record a login attempt; on success, clear previous failures for that email. */
 export async function recordLoginAttempt(email, ip, success) {

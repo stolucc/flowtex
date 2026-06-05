@@ -14,7 +14,6 @@ vi.mock('../services/authService.js', () => ({
   createEmailVerificationToken: vi.fn(),
   verifyEmail: vi.fn(),
   authenticateUser: vi.fn(),
-  isAccountLocked: vi.fn(),
   recordLoginAttempt: vi.fn(),
   attemptLogin: vi.fn(),
   checkTrustedDevice: vi.fn(),

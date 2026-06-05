@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../db.js', () => ({
-  default: {
-    get: vi.fn(),
-    all: vi.fn(),
-    run: vi.fn(),
-  },
-}));
+vi.mock('../db.js', () => {
+  const mock = { get: vi.fn(), all: vi.fn(), run: vi.fn() };
+  // HH1: history routes wrap snapshot count + delete in a tx; collapse
+  // tx.get/tx.run to the same mocks so existing assertions on db.get /
+  // db.run still observe the calls.
+  mock.transaction = vi.fn(async (fn) => fn({ get: mock.get, run: mock.run, all: mock.all }));
+  return { default: mock };
+});
 
 vi.mock('../middleware/auth.js', () => ({
   isProjectMember: vi.fn(),
@@ -108,7 +109,9 @@ describe('DELETE /snapshot/:snapshotId', () => {
     await handler(mockReq({ snapshotId: 'snap-1' }), res);
     expect(res.statusCode).toBe(409);
     expect(res.body).toEqual({ error: 'Cannot delete the only remaining snapshot' });
-    expect(db.run).not.toHaveBeenCalled();
+    // HH1: the first db.run is the advisory lock; assert no DELETE happened.
+    const deleteCall = db.run.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM project_snapshots'));
+    expect(deleteCall).toBeUndefined();
   });
 
   it('deletes the snapshot and writes an audit-log entry', async () => {
@@ -119,16 +122,33 @@ describe('DELETE /snapshot/:snapshotId', () => {
     db.run.mockResolvedValueOnce(undefined);
     const res = mockRes();
     await handler(mockReq({ snapshotId: 'snap-1' }), res);
-    expect(db.run).toHaveBeenCalledWith(
-      'DELETE FROM project_snapshots WHERE id = $1',
-      ['snap-1'],
-    );
+    // HH1: DELETE happens inside the tx after the advisory lock.
+    const deleteCall = db.run.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM project_snapshots'));
+    expect(deleteCall).toBeDefined();
+    expect(deleteCall[1]).toEqual(['snap-1']);
     expect(auditLog).toHaveBeenCalledWith(
       'user-1',
       'snapshot_deleted',
       expect.objectContaining({ targetId: 'proj-1', detail: 'snap-1' }),
     );
     expect(res.body).toEqual({ ok: true });
+  });
+
+  // HH1: the snapshot count + delete must run inside a tx with a per-
+  // project advisory lock so two parallel single-deletes can't both
+  // observe count > 1 and both delete -- leaving the project with zero
+  // restore points. This test pins the lock SQL + key.
+  it('HH1 — takes pg_advisory_xact_lock on hashtext(snapshots:<projectId>) before the count', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'snap-1', project_id: 'proj-1' })
+      .mockResolvedValueOnce({ count: '5' });
+    isProjectMember.mockResolvedValueOnce(EDITOR);
+    db.run.mockResolvedValueOnce(undefined);
+    await handler(mockReq({ snapshotId: 'snap-1' }), mockRes());
+
+    const lockCall = db.run.mock.calls.find(([sql]) => sql.startsWith('SELECT pg_advisory_xact_lock'));
+    expect(lockCall).toBeDefined();
+    expect(lockCall[1]).toEqual(['snapshots:proj-1']);
   });
 });
 
@@ -218,7 +238,24 @@ describe('DELETE /snapshots (bulk)', () => {
     await handler(mockReq({}, { ids: ['a', 'b'] }), res);
     expect(res.statusCode).toBe(409);
     expect(res.body).toEqual({ error: 'Cannot delete every snapshot of a project' });
-    expect(db.run).not.toHaveBeenCalled();
+    // HH1: the first db.run is the advisory lock; assert no DELETE happened.
+    const deleteCall = db.run.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM project_snapshots'));
+    expect(deleteCall).toBeUndefined();
+  });
+
+  it('HH1 — bulk path takes pg_advisory_xact_lock on hashtext(snapshots:<projectId>)', async () => {
+    db.all.mockResolvedValueOnce([
+      { id: 'a', project_id: 'proj-1' },
+      { id: 'b', project_id: 'proj-1' },
+    ]);
+    db.get.mockResolvedValueOnce({ count: '10' });
+    isProjectMember.mockResolvedValueOnce(EDITOR);
+    db.run.mockResolvedValueOnce(undefined);
+    await handler(mockReq({}, { ids: ['a', 'b'] }), mockRes());
+
+    const lockCall = db.run.mock.calls.find(([sql]) => sql.startsWith('SELECT pg_advisory_xact_lock'));
+    expect(lockCall).toBeDefined();
+    expect(lockCall[1]).toEqual(['snapshots:proj-1']);
   });
 
   it('deletes the requested rows and audit-logs once for the batch', async () => {
@@ -231,10 +268,9 @@ describe('DELETE /snapshots (bulk)', () => {
     db.run.mockResolvedValueOnce(undefined);
     const res = mockRes();
     await handler(mockReq({}, { ids: ['a', 'b'] }), res);
-    expect(db.run).toHaveBeenCalledWith(
-      'DELETE FROM project_snapshots WHERE id = ANY($1)',
-      [['a', 'b']],
-    );
+    const deleteCall = db.run.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM project_snapshots'));
+    expect(deleteCall).toBeDefined();
+    expect(deleteCall[1]).toEqual([['a', 'b']]);
     expect(auditLog).toHaveBeenCalledTimes(1);
     expect(auditLog).toHaveBeenCalledWith(
       'user-1',
