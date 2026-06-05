@@ -51,6 +51,14 @@ export function isValidFilePath(filePath) {
   if (filePath.startsWith('/') || filePath.startsWith('\\')) return false;
   const parts = filePath.split(/[/\\]/);
   if (parts.some((p) => p === '..' || p === '')) return false;
+  // JJ1 (audit round 21): reject any path segment starting with `-`.
+  // A file named `-shell-escape.tex` would otherwise pass every other
+  // check but get interpreted as a CLI flag when handed to spawned
+  // tools (latexmk, etc.). The compiler now uses `--` to terminate
+  // option parsing, but defence-in-depth: forbid the filename at
+  // creation/rename time so the unsafe shape never lands in the
+  // project. Real filenames in LaTeX projects never start with `-`.
+  if (parts.some((p) => p.startsWith('-'))) return false;
   if (filePath.length > 500) return false;
   return true;
 }

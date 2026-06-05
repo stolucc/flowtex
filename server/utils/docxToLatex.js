@@ -3673,6 +3673,13 @@ function parseEndNoteCitations(instrText, ctx) {
     attributeNamePrefix: '@_',
     preserveOrder: false,
     trimValues: false,
+    // JJ2 (audit round 21): match the entity-expansion caps used by
+    // the other DOCX parsers in this file (createParser /
+    // createOrderedParser). A crafted DOCX with billion-laughs-style
+    // nested entity declarations in an EndNote citation could
+    // otherwise trigger quadratic blowup. Caps generous enough for
+    // any legitimate citation; cheap enough that we shouldn't notice.
+    processEntities: { maxEntityCount: 100000, maxTotalExpansions: 100000 },
   });
   let parsed;
   try {

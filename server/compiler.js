@@ -539,6 +539,13 @@ async function _doCompile(
         ...profileOverrides,
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
+        // JJ1 (audit round 21): `--` terminates option parsing so a
+        // mainFile like `-shell-escape.tex` (which isValidFilePath used
+        // to allow) is treated as a positional filename rather than
+        // re-enabling shell escape and overriding our explicit
+        // `--no-shell-escape` upstream. Also hardened isValidFilePath
+        // to reject leading `-` so the file can't even be created.
+        '--',
         mainFile,
       ];
       // On Linux with prlimit available, wrap the invocation in

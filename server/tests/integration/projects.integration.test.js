@@ -44,6 +44,20 @@ describe('projects — file rename / move', () => {
     expect(isValidFilePath('ok/fine.tex')).toBe(true);
   });
 
+  // JJ1 (audit round 21): paths whose segments start with `-` would
+  // get parsed as CLI flags by latexmk / other spawned tools. The
+  // compiler now passes `--` before mainFile to terminate option
+  // parsing, but defence-in-depth rejects the unsafe shape at the
+  // filename validation layer so it can't even be created.
+  it('JJ1 — rejects path segments starting with -', async () => {
+    expect(isValidFilePath('-shell-escape.tex')).toBe(false);
+    expect(isValidFilePath('-rf-tmp.tex')).toBe(false);
+    expect(isValidFilePath('chapters/-injection.tex')).toBe(false);
+    // negative control: hyphens elsewhere in the name are fine.
+    expect(isValidFilePath('my-chapter.tex')).toBe(true);
+    expect(isValidFilePath('chapters/my-file.tex')).toBe(true);
+  });
+
   it('renaming the main file updates the project pointer', async () => {
     const u = await seedUser();
     const p = await seedProject(u.id, { main_file: 'main.tex' });
