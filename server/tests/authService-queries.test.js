@@ -322,6 +322,19 @@ describe('changeEmail queries', () => {
 });
 
 describe('createEmailVerificationToken queries', () => {
+  // GG3 (audit round 18): the rate-limit COUNT + INSERT now runs
+  // inside a tx with a per-user advisory lock so N concurrent calls
+  // can't all see cnt < 3 and all INSERT.
+
+  it('GG3 — takes pg_advisory_xact_lock on hashtext(verify-token:<userId>) FIRST', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '0' });
+    await createEmailVerificationToken('u');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const [lockSql, lockParams] = db.run.mock.calls[0];
+    expect(lockSql).toBe('SELECT pg_advisory_xact_lock(hashtext($1))');
+    expect(lockParams).toEqual(['verify-token:u']);
+  });
+
   it('rate-limit query selects COUNT(*) AS cnt from email_verification_tokens', async () => {
     db.get.mockResolvedValueOnce({ cnt: '0' });
     await createEmailVerificationToken('u');
@@ -333,39 +346,55 @@ describe('createEmailVerificationToken queries', () => {
   });
 
   it('insert SQL writes id, user_id, token_hash, expires_at with 1-hour expiry', async () => {
-    // Window deliberately tightened from 24h → 1h: the verify endpoint
-    // is now idempotent (mail-scanner GETs don't lock out the human),
-    // so the token is reusable inside its window. Smaller window =
-    // smaller exposure if the user's inbox is ever compromised. Users
-    // who let it lapse hit Resend (rate-limited at 3/hour).
     db.get.mockResolvedValueOnce({ cnt: '0' });
     await createEmailVerificationToken('u');
-    const [sql, params] = db.run.mock.calls[0];
-    expect(sql).toMatch(/INSERT INTO email_verification_tokens/);
+    // After the advisory lock (calls[0]), the INSERT is calls[1].
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO email_verification_tokens'));
+    expect(insertCall).toBeDefined();
+    const [sql, params] = insertCall;
     expect(sql).toContain('(id, user_id, token_hash, expires_at)');
     expect(sql).toContain("INTERVAL '1 hour'");
-    // params: [uuid, userId, tokenHash]
     expect(params[1]).toBe('u');
     expect(params).toHaveLength(3);
+  });
+
+  it('GG3 — returns null when 3 tokens issued in last hour (count observed inside tx)', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '3' });
+    const token = await createEmailVerificationToken('u');
+    expect(token).toBeNull();
+    // No INSERT happened.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO email_verification_tokens'));
+    expect(insertCall).toBeUndefined();
   });
 });
 
 describe('verifyEmail queries', () => {
-  it('SELECT joins token + user.email_verified for an idempotency check', async () => {
-    // Updated lookup: a JOIN that surfaces the user's current verified
-    // state. The old UPDATE…RETURNING was single-use, so email-scanner
-    // prefetches (Outlook Safe Links etc.) consumed the token before
-    // the human clicked.
-    db.get.mockResolvedValueOnce({ user_id: 'u', email_verified: false });
+  it('SELECT joins token + user, includes used + FOR UPDATE OF u (GG1)', async () => {
+    // GG1 (audit round 18): the whole verify runs in a tx with
+    // FOR UPDATE OF u to close FF1's concurrent gap with changeEmail.
+    db.get.mockResolvedValueOnce({ user_id: 'u', used: false, email_verified: false });
     await verifyEmail('rawtoken');
+    expect(db.transaction).toHaveBeenCalled();
     const [sql, params] = db.get.mock.calls[0];
     expect(sql).toMatch(/SELECT[\s\S]+email_verification_tokens/);
     expect(sql).toMatch(/JOIN users/);
     expect(sql).toContain('token_hash = $1');
     expect(sql).toContain('expires_at > NOW()');
-    // params is the SHA-256 hash of 'rawtoken'
+    expect(sql).toContain('t.used'); // FF1: read the used flag
+    expect(sql).toContain('FOR UPDATE OF u'); // GG1: lock the user row
     expect(params).toHaveLength(1);
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('GG1/FF1 — rejects when row.used=TRUE and email_verified=FALSE (post-change pre-reverify state)', async () => {
+    db.get.mockResolvedValueOnce({ user_id: 'u', used: true, email_verified: false });
+    await expect(verifyEmail('rawtoken')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('idempotent: returns user_id when already verified (scanner-prefetch path)', async () => {
+    db.get.mockResolvedValueOnce({ user_id: 'u', used: true, email_verified: true });
+    const result = await verifyEmail('rawtoken');
+    expect(result).toBe('u');
   });
 
   it('UPDATE users SET email_verified = TRUE WHERE id = $1', async () => {
@@ -446,12 +475,37 @@ describe('createPasswordResetToken queries', () => {
       .mockResolvedValueOnce({ id: 'u', email: 'e@x' })
       .mockResolvedValueOnce({ cnt: '0' });
     await createPasswordResetToken('e@x');
-    const [sql, params] = db.run.mock.calls[0];
-    expect(sql).toMatch(/INSERT INTO password_reset_tokens/);
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO password_reset_tokens'));
+    expect(insertCall).toBeDefined();
+    const [sql, params] = insertCall;
     expect(sql).toContain('(id, user_id, token_hash, expires_at)');
     expect(sql).toContain("INTERVAL '1 hour'");
     expect(params).toHaveLength(3);
     expect(params[1]).toBe('u');
+  });
+
+  // GG2 (audit round 18): rate-limit COUNT + INSERT now run inside a tx
+  // with a per-user advisory lock so concurrent forgot-password
+  // submissions can't all see cnt < 3 and all email out.
+  it('GG2 — takes pg_advisory_xact_lock on hashtext(reset-token:<userId>) before COUNT', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'u', email: 'e@x' })
+      .mockResolvedValueOnce({ cnt: '0' });
+    await createPasswordResetToken('e@x');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const lockCall = db.run.mock.calls.find(([sql]) => sql.startsWith('SELECT pg_advisory_xact_lock'));
+    expect(lockCall).toBeDefined();
+    expect(lockCall[1]).toEqual(['reset-token:u']);
+  });
+
+  it('GG2 — returns null when 3 tokens issued in last hour (count observed inside tx)', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'u', email: 'e@x' })
+      .mockResolvedValueOnce({ cnt: '3' });
+    const out = await createPasswordResetToken('e@x');
+    expect(out).toBeNull();
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO password_reset_tokens'));
+    expect(insertCall).toBeUndefined();
   });
 });
 

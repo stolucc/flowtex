@@ -317,8 +317,9 @@ describe('createEmailVerificationToken', () => {
   it('stores the SHA-256 hash of the token, not the raw token', async () => {
     db.get.mockResolvedValueOnce({ cnt: '0' });
     const token = await createEmailVerificationToken('u');
-    const [, params] = db.run.mock.calls[0];
-    const tokenHash = params[2];
+    // GG3: the first db.run is the advisory lock; the INSERT follows.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO email_verification_tokens'));
+    const tokenHash = insertCall[1][2];
     expect(tokenHash).not.toBe(token);
     expect(tokenHash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -326,7 +327,9 @@ describe('createEmailVerificationToken', () => {
   it('returns null when 3 tokens have been issued in the last hour', async () => {
     db.get.mockResolvedValueOnce({ cnt: '3' });
     expect(await createEmailVerificationToken('u')).toBeNull();
-    expect(db.run).not.toHaveBeenCalled();
+    // GG3: the advisory lock fires before the COUNT, but no INSERT happens.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO email_verification_tokens'));
+    expect(insertCall).toBeUndefined();
   });
 
   it('still returns null at boundary count = 3', async () => {
@@ -565,7 +568,9 @@ describe('createPasswordResetToken', () => {
       .mockResolvedValueOnce({ id: 'u', email: 'e@x' })
       .mockResolvedValueOnce({ cnt: '3' });
     expect(await createPasswordResetToken('e@x')).toBeNull();
-    expect(db.run).not.toHaveBeenCalled();
+    // GG2: the advisory lock fires before the COUNT, but no INSERT happens.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO password_reset_tokens'));
+    expect(insertCall).toBeUndefined();
   });
 
   it('handles a null recentTokens row (optional chaining branch)', async () => {
@@ -590,8 +595,9 @@ describe('createPasswordResetToken', () => {
       .mockResolvedValueOnce({ id: 'u', email: 'e@x' })
       .mockResolvedValueOnce({ cnt: '0' });
     const r = await createPasswordResetToken('e@x');
-    const [, insertParams] = db.run.mock.calls[0];
-    expect(insertParams[2]).not.toBe(r.token);
+    // GG2: first db.run is the advisory lock; INSERT follows.
+    const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO password_reset_tokens'));
+    expect(insertCall[1][2]).not.toBe(r.token);
   });
 
   it('normalises email (lowercase + trim) before lookup', async () => {

@@ -319,28 +319,33 @@ export async function registerUser(email, name, password) {
  * @returns {string|null} The raw token, or null if rate-limited.
  */
 export async function createEmailVerificationToken(userId) {
-  // Rate limit: max 3 tokens per hour
-  const recent = await db.get(
-    `SELECT COUNT(*) AS cnt FROM email_verification_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
-    [userId],
-  );
-  if (parseInt(recent?.cnt || 0) >= 3) return null;
-
+  // GG3 (audit round 18): same DD1-shape race -- COUNT + INSERT
+  // without serialisation, so N concurrent calls all see cnt < 3 and
+  // all INSERT. Wrap in a tx with a per-user advisory lock so the
+  // count is observed live by each lock-holder.
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  // Window is deliberately short — the verifyEmail() endpoint is now
-  // idempotent (so an email-scanner GET followed by the human's click
-  // both succeed), which made the token reusable within its window.
-  // Tightening the window from 24h → 1h limits exposure if the user's
-  // inbox is ever compromised, archived, or forwarded — without
-  // breaking the scanner-then-human race (which resolves within
-  // seconds) or a normal user clicking from a second device. Users
-  // who let it lapse hit Resend (rate-limited at 3/hour).
-  await db.run(
-    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
-    [uuid(), userId, tokenHash],
-  );
-  return token;
+  return await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`verify-token:${userId}`]);
+    const recent = await tx.get(
+      `SELECT COUNT(*) AS cnt FROM email_verification_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [userId],
+    );
+    if (parseInt(recent?.cnt || 0) >= 3) return null;
+    // Window is deliberately short — the verifyEmail() endpoint is now
+    // idempotent (so an email-scanner GET followed by the human's click
+    // both succeed), which made the token reusable within its window.
+    // Tightening the window from 24h → 1h limits exposure if the user's
+    // inbox is ever compromised, archived, or forwarded — without
+    // breaking the scanner-then-human race (which resolves within
+    // seconds) or a normal user clicking from a second device. Users
+    // who let it lapse hit Resend (rate-limited at 3/hour).
+    await tx.run(
+      `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
+      [uuid(), userId, tokenHash],
+    );
+    return token;
+  });
 }
 
 /**
@@ -371,45 +376,51 @@ export async function createEmailVerificationToken(userId) {
  */
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  // SELECT includes `t.used` so we can distinguish the idempotent
-  // "already verified, scanner pre-fetched, return success" case from
-  // the FF1 case "this token was used to verify a PREVIOUS email and
-  // the user has since changed to a new one." The latter must reject:
-  // if email_verified is FALSE, the user is in the post-change
-  // pre-reverify state, and a used token from before the change
-  // would otherwise re-verify the NEW address without proof of
-  // control.
-  const row = await db.get(
-    `SELECT t.user_id, t.used, u.email_verified, u.deleted_at
-     FROM email_verification_tokens t
-     JOIN users u ON u.id = t.user_id
-     WHERE t.token_hash = $1 AND t.expires_at > NOW()`,
-    [tokenHash],
-  );
-  if (!row) throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
-  if (row.deleted_at) {
-    // The account is in the recovery bin; clicking a stale verification
-    // link must not silently re-activate it.
-    throw Object.assign(new Error('This account has been deleted.'), { status: 410 });
-  }
+  // GG1 (audit round 18): wrap the whole verify in one tx with
+  // SELECT ... FOR UPDATE OF u to close FF1's concurrent gap. The
+  // FF1 fix made changeEmail mark tokens used=TRUE and made
+  // verifyEmail reject used tokens for unverified users -- but
+  // those guards were across SEPARATE statements, so a
+  // changeEmail that landed between verifyEmail's SELECT and its
+  // UPDATE could still slip the OLD token's verify through. With
+  // the row lock on u, a concurrent changeEmail's UPDATE on the
+  // user row blocks until this tx commits; the inverse ordering
+  // (changeEmail first) re-reads inside the locked SELECT and
+  // hits the row.used = TRUE rejection added by FF1.
+  return await db.transaction(async (tx) => {
+    const row = await tx.get(
+      `SELECT t.user_id, t.used, u.email_verified, u.deleted_at
+       FROM email_verification_tokens t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = $1 AND t.expires_at > NOW()
+       FOR UPDATE OF u`,
+      [tokenHash],
+    );
+    if (!row) throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
+    if (row.deleted_at) {
+      // The account is in the recovery bin; clicking a stale verification
+      // link must not silently re-activate it.
+      throw Object.assign(new Error('This account has been deleted.'), { status: 410 });
+    }
 
-  // Idempotent path: already verified (either by a previous click or
-  // by an email-scanner prefetch). Nothing to do — return success.
-  if (row.email_verified) return row.user_id;
+    // Idempotent path: already verified (either by a previous click or
+    // by an email-scanner prefetch). Nothing to do — return success.
+    if (row.email_verified) return row.user_id;
 
-  // FF1: a token that's already `used=TRUE` against an UN-verified
-  // user is the email-change race. Reject -- the user must use the
-  // fresh token sent to their new address.
-  if (row.used) {
-    throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
-  }
+    // FF1: a token that's already `used=TRUE` against an UN-verified
+    // user is the email-change race. Reject -- the user must use the
+    // fresh token sent to their new address.
+    if (row.used) {
+      throw Object.assign(new Error('Invalid or expired verification link'), { status: 400 });
+    }
 
-  await db.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
-  // Invalidate all tokens for this user (this one + any siblings)
-  // so a future re-verify can't run against a stale token after the
-  // user changes their email.
-  await db.run('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1', [row.user_id]);
-  return row.user_id;
+    await tx.run('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
+    // Invalidate all tokens for this user (this one + any siblings)
+    // so a future re-verify can't run against a stale token after the
+    // user changes their email.
+    await tx.run('UPDATE email_verification_tokens SET used = TRUE WHERE user_id = $1', [row.user_id]);
+    return row.user_id;
+  });
 }
 
 /**
@@ -739,18 +750,27 @@ export async function createPasswordResetToken(email) {
   if (!user) return null; // Don't reveal user existence
   if (user.deleted_at) return null; // Soft-deleted accounts can't reset their own password
 
-  const recentTokens = await db.get(
-    `SELECT COUNT(*) AS cnt FROM password_reset_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
-    [user.id],
-  );
-  if (parseInt(recentTokens?.cnt || 0) >= 3) return null;
-
+  // GG2 (audit round 18): same DD1-shape race -- COUNT + INSERT
+  // without serialisation, so N concurrent calls all see cnt < 3 and
+  // all INSERT. Wrap in a tx with a per-user advisory lock so the
+  // count is observed live by each lock-holder; legitimate "forgot
+  // password" double-clicks serialise harmlessly.
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  await db.run(
-    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
-    [uuid(), user.id, tokenHash],
-  );
+  const issued = await db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`reset-token:${user.id}`]);
+    const recentTokens = await tx.get(
+      `SELECT COUNT(*) AS cnt FROM password_reset_tokens WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [user.id],
+    );
+    if (parseInt(recentTokens?.cnt || 0) >= 3) return false;
+    await tx.run(
+      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
+      [uuid(), user.id, tokenHash],
+    );
+    return true;
+  });
+  if (!issued) return null;
   return { token, userId: user.id, email: user.email };
 }
 
