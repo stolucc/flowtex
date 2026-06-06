@@ -11,6 +11,7 @@
 import { EditorView, Decoration, ViewPlugin, WidgetType, keymap, hoverTooltip } from '@codemirror/view';
 import { EditorState, StateField, StateEffect } from '@codemirror/state';
 import { parse as parseLatex, N, parseTable, TABLE_ENVS, findMatchingBrace } from './latexParser.js';
+import { isSafeWebUrl } from './urlSafety.js';
 
 // ── Formatting command → CSS class map ──────────────────────────────────────
 
@@ -1412,9 +1413,17 @@ function decorateHref(node, from, to, offset, decos /* doc */) {
     decos.push(Decoration.replace({}).range(from, textFrom));
   }
   if (textFrom < textTo) {
+    // KK1: only stamp data-href (which the click handler dereferences
+    // into window.open) when the URL passes the safe-scheme allowlist.
+    // A collaborator-authored \href{javascript:...}{innocent text} would
+    // otherwise turn into a click-to-execute trap. The title still shows
+    // the raw URL so the reader can see something is off.
+    const rawUrl = urlArg.text || '';
+    const attributes = { title: `${rawUrl} (Ctrl+Click to open)` };
+    if (isSafeWebUrl(rawUrl)) attributes['data-href'] = rawUrl;
     decos.push(Decoration.mark({
       class: 'cm-vm-link',
-      attributes: { title: `${urlArg.text || ''} (Ctrl+Click to open)`, 'data-href': urlArg.text || '' },
+      attributes,
     }).range(textFrom, textTo));
   }
   if (textTo < textArg.to + offset) {
@@ -3003,7 +3012,13 @@ const hrefClickHandler = EditorView.domEventHandlers({
     while (el && el !== view.dom) {
       const href = el.getAttribute?.('data-href');
       if (href) {
-        window.open(href, '_blank', 'noopener');
+        // KK1: belt-and-braces against a stale data-href that slipped
+        // past decorateHref (e.g. extension re-ordering, future call
+        // site). Same allowlist applied here so the unsafe URL can
+        // never reach window.open even if the DOM somehow has it.
+        if (isSafeWebUrl(href)) {
+          window.open(href, '_blank', 'noopener');
+        }
         event.preventDefault();
         return true;
       }
