@@ -4,6 +4,8 @@ import db from '../db.js';
 import logger from '../logger.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { recordMentions } from '../utils/mentions.js';
+import { makeAnchorBytes, resolveAnchor } from '../services/yjsAnchors.js';
+import { _peekRoom } from '../services/yjsRoom.js';
 
 const router = Router();
 
@@ -85,6 +87,37 @@ router.get('/:fileId', async (req, res) => {
   if (!(await requireFileAccess(req.params.fileId, req.session.userId, res))) return;
 
   const comments = await db.all('SELECT * FROM comments WHERE file_id = $1 ORDER BY from_pos', [req.params.fileId]);
+
+  // YJS-MIGRATION phase 4: if a Y.Doc room is currently active for
+  // this file, resolve any stored relative-position anchors to their
+  // current absolute indices and overwrite from_pos / to_pos in the
+  // response. Rows without anchors (NULL bytes -- either pre-phase-4
+  // or created while no room was active) fall through to the legacy
+  // integer columns. Resolution failures (e.g. anchor item was
+  // garbage-collected or the doc structure changed) also fall back.
+  if (comments.length > 0) {
+    // Look up the file's project_id once -- needed to peek the room.
+    const fileRow = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
+    const room = fileRow ? _peekRoom(fileRow.project_id, req.params.fileId) : null;
+    if (room && room.ydoc) {
+      for (const c of comments) {
+        if (c.anchor_start_yjs) {
+          const idx = resolveAnchor(room.ydoc, c.anchor_start_yjs);
+          if (idx !== null) c.from_pos = idx;
+        }
+        if (c.anchor_end_yjs) {
+          const idx = resolveAnchor(room.ydoc, c.anchor_end_yjs);
+          if (idx !== null) c.to_pos = idx;
+        }
+      }
+    }
+    // Strip the raw BYTEA columns from the response payload -- clients
+    // don't need them and they balloon the JSON size.
+    for (const c of comments) {
+      delete c.anchor_start_yjs;
+      delete c.anchor_end_yjs;
+    }
+  }
 
   // Batch-fetch replies for all comments (avoids N+1)
   if (comments.length > 0) {
@@ -200,9 +233,25 @@ router.post('/:fileId', async (req, res) => {
     assignedTo = assigned_to;
   }
 
+  // YJS-MIGRATION phase 4: if a Y.Doc room is currently active for
+  // this file, capture relative-position anchors so concurrent edits
+  // don't drift the highlighted span. When no room is active (no one
+  // currently editing collaboratively) the anchor columns stay NULL
+  // and from_pos/to_pos remain authoritative. The end anchor uses
+  // side='left' so typing immediately after the comment doesn't
+  // auto-extend the highlighted range.
+  let anchorStart = null;
+  let anchorEnd = null;
+  const room = file ? _peekRoom(file.project_id, req.params.fileId) : null;
+  if (room && room.ydoc) {
+    const ytext = room.ydoc.getText('content');
+    anchorStart = makeAnchorBytes(ytext, from_pos);
+    anchorEnd = makeAnchorBytes(ytext, to_pos, { side: 'left' });
+  }
+
   await db.run(
-    'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assignedTo],
+    'INSERT INTO comments (id, file_id, from_pos, to_pos, text, author, author_id, assigned_to, anchor_start_yjs, anchor_end_yjs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+    [id, req.params.fileId, from_pos, to_pos, text, author, req.session.userId, assignedTo, anchorStart, anchorEnd],
   );
 
   // Record @mentions for batched email notification + real-time in-app push.

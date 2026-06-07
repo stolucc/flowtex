@@ -93,16 +93,33 @@ Default behaviour is unchanged. The flag defaults OFF.
   sync. The plain column lags the Y.Doc by at most one snapshot
   debounce window (2 s).
 
-### Phase 4 — Comments anchored on `Y.RelativePosition`
+### Phase 4 — Comments anchored on `Y.RelativePosition` ✓ (foundations)
 
 - New columns `comments.anchor_start_yjs BYTEA`,
   `comments.anchor_end_yjs BYTEA` storing the encoded relative
   positions.
-- Comment-create paths capture the relative position at creation time.
-- Comment render paths resolve relative positions to absolute offsets
-  on demand.
-- Migration: re-anchor existing comments at the time the project's
-  Y.Doc is initialised in phase 3.
+- `services/yjsAnchors.js` -- two pure helpers (`makeAnchorBytes`,
+  `resolveAnchor`) wrap `Y.createRelativePositionFromTypeIndex` /
+  `Y.encodeRelativePosition` / `Y.decodeRelativePosition` /
+  `Y.createAbsolutePositionFromRelativePosition`. `side` option
+  controls left vs right binding: end-of-span anchors use
+  `side='left'` so typing immediately after a comment doesn't
+  auto-extend the highlighted range.
+- `routes/comments.js` POST captures anchors when a Y.Doc room is
+  active for the file; rows with no active room save NULL anchors
+  and rely on the legacy `from_pos` / `to_pos` integers (rows are
+  re-anchored later by phase 5 / phase 6 or on next create when a
+  room is present).
+- `routes/comments.js` GET resolves stored anchors against the
+  active room and overwrites `from_pos` / `to_pos` in the response.
+  Resolution failures (item garbage-collected, etc.) silently fall
+  back to the legacy integers.
+- **Deferred to phase 4.5**: a one-shot pass to anchor existing
+  comments whose rows pre-date phase 4. The migration script in
+  phase 3 already brings up the Y.Doc; phase 4.5 will additionally
+  capture anchors from that fresh Y.Doc for the existing
+  unanchored rows. Until then those rows keep using the legacy
+  integers and behave exactly as before.
 
 ### Phase 5 — Tracked changes on `Y.RelativePosition`
 

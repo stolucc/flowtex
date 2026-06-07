@@ -386,6 +386,14 @@ async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- YJS-MIGRATION phase 4: anchor a comment to a Y.RelativePosition
+    -- pair so concurrent edits in the same file don't drift the
+    -- highlighted range. from_pos/to_pos remain the legacy absolute
+    -- offsets and stay authoritative until a row is anchored; the
+    -- yjs columns take precedence when both are present.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_start_yjs BYTEA;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_end_yjs BYTEA;
+
     CREATE TABLE IF NOT EXISTS comment_replies (
       id TEXT PRIMARY KEY,
       comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
