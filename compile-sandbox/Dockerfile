@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         texlive-science \
         texlive-pictures \
         texlive-pstricks \
+        texlive-publishers \
         texlive-luatex \
         texlive-xetex \
         biber \
@@ -52,6 +53,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
              /usr/share/doc/* \
              /usr/share/locale/* \
              /usr/share/man/*
+
+# texlive-publishers: IEEEtran, ACM, Springer/LNCS, Elsevier, AAAI,
+# and most other journal/conference document classes academic users
+# care about. Found missing during the first real compile against
+# the sandbox -- the integration tests used \\documentclass{article}
+# and so never exercised \\documentclass{IEEEtran}. Worth ~80 MB of
+# extra image size to make the sandbox a drop-in for typical CS /
+# engineering papers.
 
 # A locked-down non-root user for the actual compile. uid:gid 1000:1000
 # matches the SANDBOX_DEFAULTS in services/dockerCompileSandbox.js;
