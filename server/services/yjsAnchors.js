@@ -25,6 +25,8 @@
 // migration scripts).
 
 import * as Y from 'yjs';
+import db from '../db.js';
+import logger from '../logger.js';
 
 /**
  * Serialise a Y.RelativePosition for the given index of the
@@ -88,6 +90,58 @@ export function makeAnchorBytes(ytext, index, opts = {}) {
  * @param {Y.Doc} ydoc
  * @param {Buffer|Uint8Array|null} bytes
  */
+/**
+ * Phase 4.5 -- back-fill anchor_start_yjs / anchor_end_yjs for any
+ * comment rows on this file that don't have them yet, using the
+ * just-loaded Y.Doc and the row's existing from_pos / to_pos.
+ *
+ * Runs once per acquireRoom (the first time the Y.Doc is brought into
+ * memory). Idempotent: the UPDATE predicates on the anchor columns
+ * still being NULL, so a concurrent comment-create that supplied its
+ * own anchors won't be overwritten.
+ *
+ * Failures are logged but never propagated -- this is opportunistic
+ * upgrade-on-touch; if it fails the row keeps using the legacy
+ * integer offsets and the GET path falls back transparently.
+ */
+export async function backfillCommentAnchors(projectId, fileId, ydoc) {
+  if (!projectId || !fileId || !ydoc) return 0;
+  let rows;
+  try {
+    rows = await db.all(
+      `SELECT id, from_pos, to_pos
+         FROM comments
+        WHERE file_id = $1
+          AND (anchor_start_yjs IS NULL OR anchor_end_yjs IS NULL)`,
+      [fileId],
+    );
+  } catch (err) {
+    logger.warn({ err, projectId, fileId }, 'yjsAnchors: backfill SELECT failed');
+    return 0;
+  }
+  if (!rows || rows.length === 0) return 0;
+  const ytext = ydoc.getText('content');
+  let migrated = 0;
+  for (const row of rows) {
+    const startBytes = makeAnchorBytes(ytext, row.from_pos);
+    const endBytes = makeAnchorBytes(ytext, row.to_pos, { side: 'left' });
+    if (!startBytes || !endBytes) continue;
+    try {
+      await db.run(
+        `UPDATE comments
+            SET anchor_start_yjs = $1, anchor_end_yjs = $2
+          WHERE id = $3
+            AND (anchor_start_yjs IS NULL OR anchor_end_yjs IS NULL)`,
+        [startBytes, endBytes, row.id],
+      );
+      migrated += 1;
+    } catch (err) {
+      logger.warn({ err, commentId: row.id }, 'yjsAnchors: backfill UPDATE failed');
+    }
+  }
+  return migrated;
+}
+
 export function resolveAnchor(ydoc, bytes) {
   if (!ydoc || !bytes) return null;
   let arr;

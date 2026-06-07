@@ -1,6 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../db.js', () => ({
+  default: { get: vi.fn(), run: vi.fn(), all: vi.fn() },
+}));
+vi.mock('../logger.js', () => ({
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+import db from '../db.js';
 import * as Y from 'yjs';
-import { makeAnchorBytes, resolveAnchor } from '../services/yjsAnchors.js';
+import { makeAnchorBytes, resolveAnchor, backfillCommentAnchors } from '../services/yjsAnchors.js';
+
+beforeEach(() => { vi.clearAllMocks(); });
 
 function freshDocWith(text) {
   const ydoc = new Y.Doc();
@@ -168,5 +179,86 @@ describe('anchor survival under concurrent edits', () => {
     // 'c' is now at index 4, 'e' at index 6.
     expect(resolveAnchor(ydoc, start)).toBe(4);
     expect(resolveAnchor(ydoc, end)).toBe(6);
+  });
+});
+
+describe('backfillCommentAnchors (phase 4.5)', () => {
+  const P = 'project-A';
+  const F = 'file-A';
+
+  it('captures anchors for rows missing them and round-trips through resolveAnchor', async () => {
+    const ydoc = freshDocWith('the quick brown fox jumped');
+    db.all.mockResolvedValueOnce([
+      { id: 'c1', from_pos: 4, to_pos: 9 },   // "quick"
+      { id: 'c2', from_pos: 16, to_pos: 19 }, // "fox"
+    ]);
+    db.run.mockResolvedValue(undefined);
+
+    const migrated = await backfillCommentAnchors(P, F, ydoc);
+    expect(migrated).toBe(2);
+    expect(db.run).toHaveBeenCalledTimes(2);
+
+    // Each UPDATE supplies (startBytes, endBytes, id) -- decode the
+    // first row's anchors and verify they resolve back to the same
+    // indices.
+    const [, params1] = db.run.mock.calls[0];
+    const startIdx = resolveAnchor(ydoc, params1[0]);
+    const endIdx = resolveAnchor(ydoc, params1[1]);
+    expect(startIdx).toBe(4);
+    expect(endIdx).toBe(9);
+  });
+
+  it('writes idempotent UPDATE that refuses to overwrite existing anchors', async () => {
+    const ydoc = freshDocWith('abc');
+    db.all.mockResolvedValueOnce([{ id: 'c1', from_pos: 0, to_pos: 3 }]);
+    db.run.mockResolvedValue(undefined);
+
+    await backfillCommentAnchors(P, F, ydoc);
+    const [sql] = db.run.mock.calls[0];
+    // Race-safety: even after our SELECT identified a NULL-anchor row,
+    // a concurrent comment-create could fill it. The UPDATE filter
+    // makes that case a no-op rather than a clobber.
+    expect(sql).toMatch(/anchor_start_yjs IS NULL OR anchor_end_yjs IS NULL/);
+  });
+
+  it('returns 0 and does no UPDATE when nothing needs back-filling', async () => {
+    const ydoc = freshDocWith('abc');
+    db.all.mockResolvedValueOnce([]);
+    const migrated = await backfillCommentAnchors(P, F, ydoc);
+    expect(migrated).toBe(0);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('logs and returns 0 when the SELECT throws -- never propagates', async () => {
+    const ydoc = freshDocWith('abc');
+    db.all.mockRejectedValueOnce(new Error('boom'));
+    const migrated = await backfillCommentAnchors(P, F, ydoc);
+    expect(migrated).toBe(0);
+  });
+
+  it('returns 0 immediately when ydoc / projectId / fileId is falsy', async () => {
+    expect(await backfillCommentAnchors(null, F, freshDocWith('abc'))).toBe(0);
+    expect(await backfillCommentAnchors(P, null, freshDocWith('abc'))).toBe(0);
+    expect(await backfillCommentAnchors(P, F, null)).toBe(0);
+    expect(db.all).not.toHaveBeenCalled();
+  });
+
+  it('survives concurrent edits -- anchored row resolves to the right character after a merge', async () => {
+    const a = freshDocWith('the quick fox');
+    db.all.mockResolvedValueOnce([{ id: 'c1', from_pos: 10, to_pos: 13 }]);
+    db.run.mockResolvedValue(undefined);
+
+    await backfillCommentAnchors(P, F, a);
+    const [, params] = db.run.mock.calls[0];
+    const startBytes = params[0];
+    const endBytes = params[1];
+
+    // Peer inserts "brown " before "fox".
+    a.getText('content').insert(10, 'brown ');
+    expect(a.getText('content').toString()).toBe('the quick brown fox');
+
+    // Anchors should follow the original "fox" characters (now at 16..19).
+    expect(resolveAnchor(a, startBytes)).toBe(16);
+    expect(resolveAnchor(a, endBytes)).toBe(19);
   });
 });

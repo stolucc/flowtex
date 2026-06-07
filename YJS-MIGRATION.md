@@ -114,12 +114,20 @@ Default behaviour is unchanged. The flag defaults OFF.
   active room and overwrites `from_pos` / `to_pos` in the response.
   Resolution failures (item garbage-collected, etc.) silently fall
   back to the legacy integers.
-- **Deferred to phase 4.5**: a one-shot pass to anchor existing
-  comments whose rows pre-date phase 4. The migration script in
-  phase 3 already brings up the Y.Doc; phase 4.5 will additionally
-  capture anchors from that fresh Y.Doc for the existing
-  unanchored rows. Until then those rows keep using the legacy
-  integers and behave exactly as before.
+### Phase 4.5 — Anchor backfill for legacy comment rows ✓
+
+- `services/yjsAnchors.backfillCommentAnchors(projectId, fileId, ydoc)`
+  -- runs once on first `acquireRoom`, captures anchors for every
+  comment row on the file whose anchor_start_yjs or anchor_end_yjs
+  is still NULL using the row's existing from_pos / to_pos against
+  the just-loaded Y.Doc.
+- Idempotent + race-safe: the UPDATE predicates on the anchor
+  columns still being NULL, so a comment-create that supplies its
+  own anchors in parallel isn't clobbered.
+- Failures are logged and swallowed -- legacy from_pos / to_pos
+  remain authoritative for unmigrated rows; the GET path falls
+  back transparently. Phase 6 cutover will retire the legacy
+  columns once enough rooms have acquired to drain unanchored rows.
 
 ### Phase 5 — Tracked changes on `Y.RelativePosition`
 
