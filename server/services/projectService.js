@@ -33,6 +33,8 @@ import { PROJECTS_DIR } from '../paths.js';
 import { isUniqueViolation } from '../utils/dbErrors.js';
 import { writeBlob } from './blobStore.js';
 import { loadFileBytes } from './fileBytes.js';
+import { captureTcMarkAnchors, resolveTcMarkAnchors } from './yjsAnchors.js';
+import { _peekRoom } from './yjsRoom.js';
 import {
   assertProjectCountUnderLimit,
   assertFileCountUnderLimit,
@@ -1569,7 +1571,7 @@ export async function getProjectFiles(projectId) {
   // the same. Null out binary `content` here so the initial response
   // ships file metadata + text content only. Cuts the JSON for a
   // typical project from MBs to KBs.
-  return db.all(
+  const rows = await db.all(
     `SELECT id, project_id, path, is_binary, tc_marks, updated_at, created_at,
             CASE WHEN is_binary THEN NULL ELSE content END AS content
        FROM files
@@ -1577,6 +1579,18 @@ export async function getProjectFiles(projectId) {
       ORDER BY path`,
     [projectId],
   );
+  // YJS-MIGRATION phase 5: resolve tc_mark anchors against the live
+  // Y.Doc so the client sees CRDT-aware from / to instead of values
+  // that may have drifted under concurrent edits since the row was
+  // last saved. Rows without anchors fall through unchanged.
+  for (const row of rows) {
+    if (!Array.isArray(row.tc_marks) || row.tc_marks.length === 0) continue;
+    const room = _peekRoom(row.project_id, row.id);
+    if (room && room.ydoc) {
+      row.tc_marks = resolveTcMarkAnchors(room.ydoc, row.tc_marks);
+    }
+  }
+  return rows;
 }
 
 // Binary uploads land in the per-project blob store (bytes on disk,
@@ -1810,7 +1824,20 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
     }
   }
 
-  const marksJson = tcMarks === undefined ? null : JSON.stringify(tcMarks);
+  // YJS-MIGRATION phase 5: if a Y.Doc room is currently active for
+  // this file, derive Y.RelativePosition anchors for each tc_mark
+  // entry from its from/to before persisting. Concurrent edits by
+  // other users will keep the entry pinned to the same characters
+  // regardless of intervening insertions / deletions. When no room
+  // is active, the legacy from/to integers are persisted verbatim.
+  let tcMarksToPersist = tcMarks;
+  if (Array.isArray(tcMarks) && tcMarks.length > 0) {
+    const room = _peekRoom(file.project_id, file.id);
+    if (room && room.ydoc) {
+      tcMarksToPersist = captureTcMarkAnchors(room.ydoc.getText('content'), tcMarks);
+    }
+  }
+  const marksJson = tcMarksToPersist === undefined ? null : JSON.stringify(tcMarksToPersist);
   const sameContent = file.content === content;
   const sameMarks = marksJson === null || marksJson === JSON.stringify(file.tc_marks ?? []);
   if (sameContent && sameMarks) {

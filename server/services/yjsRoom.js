@@ -28,7 +28,7 @@
 import * as Y from 'yjs';
 import db from '../db.js';
 import logger from '../logger.js';
-import { backfillCommentAnchors } from './yjsAnchors.js';
+import { backfillCommentAnchors, backfillTcMarkAnchors } from './yjsAnchors.js';
 
 const SNAPSHOT_DEBOUNCE_MS = 2000;
 // Defensive ceiling on the BYTEA we persist. A pathological Y.Doc
@@ -114,13 +114,17 @@ export async function acquireRoom(projectId, fileId) {
   };
   rooms.set(k, room);
   if (dirty) scheduleSnapshot(room);
-  // YJS-MIGRATION phase 4.5: opportunistically anchor any
-  // pre-phase-4 comment rows now that the Y.Doc is loaded. Runs once
-  // per room (we just created it). Failures here are logged inside
-  // backfillCommentAnchors and never propagated -- legacy from_pos /
-  // to_pos remain authoritative for unanchored rows.
+  // YJS-MIGRATION phase 4.5 + 5: opportunistically anchor any
+  // pre-phase-4 comment rows AND pre-phase-5 tc_marks entries now
+  // that the Y.Doc is loaded. Runs once per room (we just created
+  // it). Failures here are logged inside the helpers and never
+  // propagated -- legacy from_pos / to_pos / from / to remain
+  // authoritative for unanchored rows.
   backfillCommentAnchors(projectId, fileId, ydoc).catch((err) =>
     logger.warn({ err, projectId, fileId }, 'yjsRoom: backfillCommentAnchors threw'),
+  );
+  backfillTcMarkAnchors(projectId, fileId, ydoc).catch((err) =>
+    logger.warn({ err, projectId, fileId }, 'yjsRoom: backfillTcMarkAnchors threw'),
   );
   return room;
 }

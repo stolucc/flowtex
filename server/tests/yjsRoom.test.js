@@ -72,14 +72,18 @@ describe('acquireRoom', () => {
     expect(room.dirty).toBe(false);
   });
 
-  it('increments refCount on repeated acquire', async () => {
-    db.get.mockResolvedValueOnce({ content_yjs: null, content: '' });
+  it('increments refCount on repeated acquire (second acquire skips DB)', async () => {
+    db.get.mockResolvedValue({ content_yjs: null, content: '' });
     const r1 = await acquireRoom(P, F);
+    const dbGetBefore = db.get.mock.calls.length;
     const r2 = await acquireRoom(P, F);
     expect(r1).toBe(r2);
     expect(r1.refCount).toBe(2);
-    // Only one DB lookup -- second acquire hit the cache.
-    expect(db.get).toHaveBeenCalledTimes(1);
+    // Second acquire hits the cache -- no additional db.get on the
+    // hot path. (The first acquire fires backfill helpers that also
+    // call db.get; counting the delta isolates the cache-hit
+    // assertion from those.)
+    expect(db.get.mock.calls.length).toBe(dbGetBefore);
   });
 });
 

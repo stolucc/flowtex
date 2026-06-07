@@ -114,6 +114,7 @@ Default behaviour is unchanged. The flag defaults OFF.
   active room and overwrites `from_pos` / `to_pos` in the response.
   Resolution failures (item garbage-collected, etc.) silently fall
   back to the legacy integers.
+
 ### Phase 4.5 — Anchor backfill for legacy comment rows ✓
 
 - `services/yjsAnchors.backfillCommentAnchors(projectId, fileId, ydoc)`
@@ -129,12 +130,32 @@ Default behaviour is unchanged. The flag defaults OFF.
   back transparently. Phase 6 cutover will retire the legacy
   columns once enough rooms have acquired to drain unanchored rows.
 
-### Phase 5 — Tracked changes on `Y.RelativePosition`
+### Phase 5 — Tracked changes on `Y.RelativePosition` ✓
 
-- Same pattern as comments: relative-position anchors for each
-  `TcEntry` (added/removed/range). The current absolute-offset model
-  is what produces the worst class of TC drift bugs under concurrent
-  edits; this phase eliminates the class.
+- tc_marks lives in `files.tc_marks` JSONB, so anchors are
+  base64-encoded and ride along inside each entry rather than as
+  separate columns. New per-entry fields: `anchorStart`, `anchorEnd`
+  (both `string|undefined`). Legacy `from` / `to` remain fallbacks.
+- `services/yjsAnchors.{captureTcMarkAnchors, resolveTcMarkAnchors,
+  serializeAnchorB64, deserializeAnchorB64}` -- the JSON-friendly
+  layer over `makeAnchorBytes` / `resolveAnchor`.
+- `services/projectService.saveFile` -- when persisting tc_marks
+  with an active Y.Doc room, captures anchors per entry before
+  serialising. No-op when no room is active; the integer columns
+  remain authoritative.
+- `services/projectService.getProjectFiles` -- when serving project
+  files, walks tc_marks for each file and resolves anchors against
+  the active room, overwriting `from` / `to` with CRDT-aware
+  values. Entries without anchors fall through.
+- `services/yjsAnchors.backfillTcMarkAnchors` -- runs on first
+  `acquireRoom` (same place as the comments backfill). Captures
+  anchors for tc_marks entries that lack them, race-safe (only
+  writes if at least one entry was actually upgraded).
+
+Together with phase 4, this eliminates the largest correctness gap
+in the legacy collaborative model: both comments and tracked
+changes now follow the characters they're attached to, regardless
+of how aggressively other users edit the surrounding text.
 
 ### Phase 6 — Cut over and remove legacy
 

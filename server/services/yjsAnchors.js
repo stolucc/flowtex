@@ -142,6 +142,146 @@ export async function backfillCommentAnchors(projectId, fileId, ydoc) {
   return migrated;
 }
 
+// ── tc_marks anchors (phase 5) ─────────────────────────────────────────────
+//
+// tc_marks lives in a JSONB column (one array per file), so the
+// anchor bytes are base64-encoded to ride along inside the JSON
+// rather than being stored in separate BYTEA columns. The shape
+// each entry adopts (additive, backwards compatible):
+//
+//   {
+//     id, type: 'ins'|'del', from, to, authorId, authorName,
+//     timestamp,                           // legacy fields
+//     anchorStart: <base64 of Y.RelativePosition>?,  // phase 5
+//     anchorEnd:   <base64 of Y.RelativePosition>?,  // phase 5
+//   }
+//
+// `from` / `to` remain the integer fallback that the client and the
+// LaTeX compile pipeline read directly. When a Y.Doc room is
+// active, the server resolves the anchors into fresh from / to
+// values BEFORE handing the JSON to the consumer, so CRDT-driven
+// drift never reaches the wire.
+
+/** Encode a Y.RelativePosition for storage inside JSON. */
+export function serializeAnchorB64(ytext, index, opts) {
+  const bytes = makeAnchorBytes(ytext, index, opts);
+  if (!bytes) return null;
+  return bytes.toString('base64');
+}
+
+/** Decode a base64-encoded Y.RelativePosition and resolve it against ydoc. */
+export function deserializeAnchorB64(ydoc, b64) {
+  if (typeof b64 !== 'string' || b64.length === 0) return null;
+  let bytes;
+  try { bytes = Buffer.from(b64, 'base64'); } catch { return null; }
+  return resolveAnchor(ydoc, bytes);
+}
+
+/**
+ * Return a copy of the tc_marks array with anchorStart / anchorEnd
+ * captured for every entry (re-deriving each time so the anchors
+ * always reflect the entry's current from / to in the active doc).
+ *
+ * Entries that don't pass shape validation are passed through
+ * unmodified. The end-of-span uses side='left' so typing right
+ * after a tracked change doesn't extend the highlighted region.
+ */
+export function captureTcMarkAnchors(ytext, marks) {
+  if (!Array.isArray(marks) || !ytext) return marks;
+  return marks.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    if (typeof m.from !== 'number' || typeof m.to !== 'number') return m;
+    const anchorStart = serializeAnchorB64(ytext, m.from);
+    const anchorEnd = serializeAnchorB64(ytext, m.to, { side: 'left' });
+    if (!anchorStart || !anchorEnd) return m;
+    return { ...m, anchorStart, anchorEnd };
+  });
+}
+
+/**
+ * Return a copy of the tc_marks array with from / to overwritten by
+ * resolving the stored anchors against ydoc. Entries without
+ * anchors, or whose anchors fail to resolve, fall through with
+ * their legacy from / to intact.
+ */
+export function resolveTcMarkAnchors(ydoc, marks) {
+  if (!Array.isArray(marks) || !ydoc) return marks;
+  return marks.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    let from = m.from;
+    let to = m.to;
+    if (typeof m.anchorStart === 'string') {
+      const idx = deserializeAnchorB64(ydoc, m.anchorStart);
+      if (idx !== null) from = idx;
+    }
+    if (typeof m.anchorEnd === 'string') {
+      const idx = deserializeAnchorB64(ydoc, m.anchorEnd);
+      if (idx !== null) to = idx;
+    }
+    if (from === m.from && to === m.to) return m;
+    return { ...m, from, to };
+  });
+}
+
+/**
+ * Phase 5 backfill: SELECT tc_marks for the file, capture anchors
+ * for any entries that lack them, write back if anything changed.
+ * Same race/idempotency posture as backfillCommentAnchors --
+ * failures are logged + swallowed; the UPDATE is a JSONB-replace so
+ * a concurrent saveFile that wrote different marks won't be lost
+ * here (we only UPDATE when the row's tc_marks JSON equals what we
+ * read, via the `updated_at` guard already on saveFile -- this
+ * function intentionally skips that guard because it's
+ * upgrade-on-touch, not a save).
+ */
+export async function backfillTcMarkAnchors(projectId, fileId, ydoc) {
+  if (!projectId || !fileId || !ydoc) return 0;
+  let row;
+  try {
+    row = await db.get(
+      'SELECT tc_marks FROM files WHERE id = $1 AND project_id = $2',
+      [fileId, projectId],
+    );
+  } catch (err) {
+    logger.warn({ err, projectId, fileId }, 'yjsAnchors: tc_marks backfill SELECT failed');
+    return 0;
+  }
+  if (!row) return 0;
+  const marks = Array.isArray(row.tc_marks) ? row.tc_marks : [];
+  if (marks.length === 0) return 0;
+  const needsAny = marks.some(
+    (m) => m && typeof m === 'object' && (typeof m.anchorStart !== 'string' || typeof m.anchorEnd !== 'string'),
+  );
+  if (!needsAny) return 0;
+  const ytext = ydoc.getText('content');
+  const upgraded = marks.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    if (typeof m.anchorStart === 'string' && typeof m.anchorEnd === 'string') return m;
+    if (typeof m.from !== 'number' || typeof m.to !== 'number') return m;
+    const anchorStart = serializeAnchorB64(ytext, m.from);
+    const anchorEnd = serializeAnchorB64(ytext, m.to, { side: 'left' });
+    if (!anchorStart || !anchorEnd) return m;
+    return { ...m, anchorStart, anchorEnd };
+  });
+  // Count how many entries we actually changed. If the only entries
+  // that "needed" anchors were ones we couldn't anchor (bad shape,
+  // non-numeric from/to), skip the UPDATE -- writing a no-op
+  // tc_marks just bumps fragments and rewrites the JSONB for no
+  // gain.
+  const changedCount = upgraded.reduce((n, m, i) => (m !== marks[i] ? n + 1 : n), 0);
+  if (changedCount === 0) return 0;
+  try {
+    await db.run(
+      'UPDATE files SET tc_marks = $1::jsonb WHERE id = $2 AND project_id = $3',
+      [JSON.stringify(upgraded), fileId, projectId],
+    );
+    return changedCount;
+  } catch (err) {
+    logger.warn({ err, projectId, fileId }, 'yjsAnchors: tc_marks backfill UPDATE failed');
+    return 0;
+  }
+}
+
 export function resolveAnchor(ydoc, bytes) {
   if (!ydoc || !bytes) return null;
   let arr;

@@ -9,7 +9,16 @@ vi.mock('../logger.js', () => ({
 
 import db from '../db.js';
 import * as Y from 'yjs';
-import { makeAnchorBytes, resolveAnchor, backfillCommentAnchors } from '../services/yjsAnchors.js';
+import {
+  makeAnchorBytes,
+  resolveAnchor,
+  backfillCommentAnchors,
+  serializeAnchorB64,
+  deserializeAnchorB64,
+  captureTcMarkAnchors,
+  resolveTcMarkAnchors,
+  backfillTcMarkAnchors,
+} from '../services/yjsAnchors.js';
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -260,5 +269,145 @@ describe('backfillCommentAnchors (phase 4.5)', () => {
     // Anchors should follow the original "fox" characters (now at 16..19).
     expect(resolveAnchor(a, startBytes)).toBe(16);
     expect(resolveAnchor(a, endBytes)).toBe(19);
+  });
+});
+
+describe('serialize / deserialize anchor base64 (phase 5)', () => {
+  it('round-trips an index through base64 encoding', () => {
+    const ydoc = freshDocWith('hello world');
+    const b64 = serializeAnchorB64(ydoc.getText('content'), 6);
+    expect(typeof b64).toBe('string');
+    expect(b64.length).toBeGreaterThan(0);
+    expect(deserializeAnchorB64(ydoc, b64)).toBe(6);
+  });
+
+  it('returns null for empty / non-string input', () => {
+    const ydoc = freshDocWith('abc');
+    expect(deserializeAnchorB64(ydoc, '')).toBeNull();
+    expect(deserializeAnchorB64(ydoc, null)).toBeNull();
+    expect(deserializeAnchorB64(ydoc, 42)).toBeNull();
+  });
+});
+
+describe('captureTcMarkAnchors + resolveTcMarkAnchors (phase 5)', () => {
+  it('captures anchors and round-trips through resolve', () => {
+    const ydoc = freshDocWith('the quick brown fox');
+    const marks = [
+      { id: 'm1', type: 'ins', from: 4, to: 9, authorId: 'u1', authorName: 'Alice' },
+    ];
+    const captured = captureTcMarkAnchors(ydoc.getText('content'), marks);
+    expect(captured[0].anchorStart).toBeDefined();
+    expect(captured[0].anchorEnd).toBeDefined();
+
+    const resolved = resolveTcMarkAnchors(ydoc, captured);
+    expect(resolved[0].from).toBe(4);
+    expect(resolved[0].to).toBe(9);
+  });
+
+  it('keeps anchors stable across concurrent edits before the mark', () => {
+    const ydoc = freshDocWith('the quick fox');
+    const marks = [{ id: 'm1', type: 'ins', from: 10, to: 13 }]; // "fox"
+    const captured = captureTcMarkAnchors(ydoc.getText('content'), marks);
+
+    // Peer inserts "brown " before "fox".
+    ydoc.getText('content').insert(10, 'brown ');
+
+    const resolved = resolveTcMarkAnchors(ydoc, captured);
+    expect(resolved[0].from).toBe(16);
+    expect(resolved[0].to).toBe(19);
+  });
+
+  it('end anchor uses side=left so typing right after the mark does not extend it', () => {
+    const ydoc = freshDocWith('alpha bravo charlie');
+    const marks = [{ id: 'm1', type: 'ins', from: 6, to: 11 }]; // "bravo"
+    const captured = captureTcMarkAnchors(ydoc.getText('content'), marks);
+
+    // Insert at the right boundary.
+    ydoc.getText('content').insert(11, ' XXX');
+
+    const resolved = resolveTcMarkAnchors(ydoc, captured);
+    expect(resolved[0].from).toBe(6);
+    expect(resolved[0].to).toBe(11);
+  });
+
+  it('passes through entries with missing or invalid shape', () => {
+    const ydoc = freshDocWith('abc');
+    const marks = [null, 'not-an-object', { id: 'x' /* no from/to */ }];
+    const captured = captureTcMarkAnchors(ydoc.getText('content'), marks);
+    expect(captured).toEqual(marks);
+  });
+
+  it('falls back to legacy from/to when anchorStart fails to resolve', () => {
+    const ydoc = freshDocWith('abc');
+    // Construct a mark with an anchorStart that won't decode cleanly.
+    const marks = [
+      { id: 'm1', from: 0, to: 3, anchorStart: '!!!not-base64!!!', anchorEnd: '!!!' },
+    ];
+    const resolved = resolveTcMarkAnchors(ydoc, marks);
+    expect(resolved[0].from).toBe(0);
+    expect(resolved[0].to).toBe(3);
+  });
+
+  it('returns the input unmodified on non-array input', () => {
+    const ydoc = freshDocWith('abc');
+    expect(captureTcMarkAnchors(ydoc.getText('content'), null)).toBeNull();
+    expect(resolveTcMarkAnchors(ydoc, null)).toBeNull();
+    expect(captureTcMarkAnchors(ydoc.getText('content'), 'nope')).toBe('nope');
+  });
+});
+
+describe('backfillTcMarkAnchors (phase 5)', () => {
+  const P = 'project-A';
+  const F = 'file-A';
+
+  it('captures anchors for entries missing them and writes back', async () => {
+    const ydoc = freshDocWith('the quick fox');
+    db.get.mockResolvedValueOnce({
+      tc_marks: [{ id: 'm1', type: 'ins', from: 10, to: 13 }],
+    });
+    db.run.mockResolvedValue(undefined);
+
+    const migrated = await backfillTcMarkAnchors(P, F, ydoc);
+    expect(migrated).toBe(1);
+    expect(db.run).toHaveBeenCalledTimes(1);
+    const [sql, params] = db.run.mock.calls[0];
+    expect(sql).toMatch(/UPDATE files SET tc_marks/);
+    const upgraded = JSON.parse(params[0]);
+    expect(upgraded[0].anchorStart).toBeDefined();
+    expect(upgraded[0].anchorEnd).toBeDefined();
+  });
+
+  it('does nothing when every entry already has anchors', async () => {
+    const ydoc = freshDocWith('abc');
+    db.get.mockResolvedValueOnce({
+      tc_marks: [{ id: 'm1', from: 0, to: 3, anchorStart: 'AA==', anchorEnd: 'AA==' }],
+    });
+    const migrated = await backfillTcMarkAnchors(P, F, ydoc);
+    expect(migrated).toBe(0);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('skips entries with non-numeric from/to', async () => {
+    const ydoc = freshDocWith('abc');
+    db.get.mockResolvedValueOnce({
+      tc_marks: [{ id: 'bad', from: 'oops', to: 'oops' }],
+    });
+    const migrated = await backfillTcMarkAnchors(P, F, ydoc);
+    expect(migrated).toBe(0);
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('logs and returns 0 when the SELECT throws', async () => {
+    const ydoc = freshDocWith('abc');
+    db.get.mockRejectedValueOnce(new Error('boom'));
+    const migrated = await backfillTcMarkAnchors(P, F, ydoc);
+    expect(migrated).toBe(0);
+  });
+
+  it('returns 0 immediately on falsy ydoc / ids', async () => {
+    expect(await backfillTcMarkAnchors(null, F, freshDocWith('abc'))).toBe(0);
+    expect(await backfillTcMarkAnchors(P, null, freshDocWith('abc'))).toBe(0);
+    expect(await backfillTcMarkAnchors(P, F, null)).toBe(0);
+    expect(db.get).not.toHaveBeenCalled();
   });
 });
