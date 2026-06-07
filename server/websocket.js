@@ -750,6 +750,24 @@ const wsConnectionCounts = new Map();
  * @returns {{wss: WebSocketServer, redisPub: Redis|null, redisSub: Redis|null}}
  */
 export function initWebSocket(server, app, sessionSecret) {
+  // SAAS-FOUNDATIONS item 4: in cluster mode Redis pub/sub is the
+  // only thing keeping broadcasts from diverging across instances.
+  // Refuse to boot a clustered node without it so a misconfigured
+  // multi-instance deploy fails loudly at start rather than silently
+  // delivering different room state to clients pinned to different
+  // backends.
+  const instanceMode = (process.env.FLOWTEX_INSTANCE_MODE || 'single').toLowerCase();
+  if (instanceMode === 'cluster' && !process.env.REDIS_URL) {
+    logger.error(
+      { instanceMode },
+      'FLOWTEX_INSTANCE_MODE=cluster requires REDIS_URL to be set ' +
+      '(WebSocket broadcasts would diverge across instances without it).',
+    );
+    throw new Error(
+      'FLOWTEX_INSTANCE_MODE=cluster requires REDIS_URL',
+    );
+  }
+
   // Redis setup
   if (process.env.REDIS_URL) {
     redisPub = new Redis(process.env.REDIS_URL);
@@ -774,7 +792,15 @@ export function initWebSocket(server, app, sessionSecret) {
     redisPub.on('error', (err) => logger.error({ err }, 'Redis pub error'));
     redisSub.on('error', (err) => logger.error({ err }, 'Redis sub error'));
 
-    logger.info('Redis pub/sub enabled for WebSocket scaling');
+    logger.info(
+      { instanceMode },
+      'Redis pub/sub enabled for WebSocket scaling',
+    );
+  } else {
+    logger.info(
+      { instanceMode },
+      'No REDIS_URL set; running single-instance WebSocket broadcasts',
+    );
   }
 
   // Verify Origin header to prevent cross-site WebSocket hijacking
