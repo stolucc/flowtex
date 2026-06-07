@@ -11,7 +11,7 @@ ceiling.
 
 ## Items in order
 
-### Item 1 — Docker compile sandbox (CLSI-shape)
+### Item 1 — Docker compile sandbox (CLSI-shape) ✓
 
 The only outright security blocker to letting untrusted users compile.
 Lifts compile into a separate Node service that spawns a sibling Docker
@@ -20,6 +20,20 @@ keeps its in-process `compiler.js` as the trusted-tenant default; the
 Docker path is selected per-request via a config flag, so SaaS deployments
 can demand sandbox while self-hosted academic groups keep the lightweight
 path.
+
+**Phase 1** (commit `c87c462`): `services/dockerCompileSandbox.js`,
+`compile-sandbox/Dockerfile`, `run-latexmk.sh`, `README.md`. The
+locked-down runner and image were ready but unused by `compiler.js`.
+
+**Phase 1.5** (commit pending): `compiler.js` wired through the
+sandbox. `onCompilerExit` extracted so both spawn paths (host
+`execFile` + prlimit; Docker sibling-container) route into the same
+exit handler. Translator maps `runDockerCompile`'s
+`{exitCode, signal, stdout, stderr}` into the legacy `(error, stdout,
+stderr)` shape the rest of `compileProject` expects. `activeCompilations`
+gets a `{child: null}` entry on the Docker path so the count stays
+correct without exposing a process handle. Enable with
+`FLOWTEX_COMPILE_SANDBOX=docker` + `FLOWTEX_COMPILE_IMAGE=<tag>`.
 
 ### Item 2 — Blob storage abstraction (object-persistor shape)
 

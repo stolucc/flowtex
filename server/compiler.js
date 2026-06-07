@@ -8,6 +8,10 @@ import db from './db.js';
 import logger from './logger.js';
 import { analyzeRebuild, checkBuildCache, findStaleBibOutputToTouch } from './utils/rebuildAnalyzer.js';
 import { loadFileBytes } from './services/fileBytes.js';
+import {
+  isDockerSandboxEnabled,
+  runDockerCompile,
+} from './services/dockerCompileSandbox.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { PROJECTS_DIR } from './paths.js';
@@ -564,11 +568,11 @@ async function _doCompile(
             ...latexmkArgs,
           ]
         : latexmkArgs;
-      child = execFile(
-        exe,
-        args,
-        { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
-        (error, stdout, stderr) => {
+      // SAAS-FOUNDATIONS item 1 (phase 1.5): the on-exit handling is
+      // the same regardless of whether the spawn was a host-side
+      // execFile or a Docker sibling-container run. Name it once so
+      // both spawn paths route into the same callback shape.
+      const onCompilerExit = (error, stdout, stderr) => {
           if (callbackFired) return; // safety timer already fired
           callbackFired = true;
           clearTimeout(safetyTimer);
@@ -626,8 +630,54 @@ async function _doCompile(
           recordCompile(false, duration);
           reject(new Error(finalLog || stdout || stderr || 'Compilation failed'));
         }
-      },
-    );
+      };
+
+      if (isDockerSandboxEnabled()) {
+        // SAAS-FOUNDATIONS item 1: Docker sibling-container path.
+        // The compile-sandbox image runs latexmk as PID 1 inside a
+        // network-less, read-only, capability-stripped container
+        // with memory/cpu/pids caps. This is the only safe model
+        // for untrusted multi-tenant compilation; the
+        // host-execFile-with-prlimit path is fine for self-hosted
+        // groups where all users are trusted, but a host-level
+        // TeX exploit would otherwise own the VPS.
+        //
+        // Differences vs the execFile path:
+        //   - No `child` handle is set, so the fatal-pattern early-
+        //     kill below is a no-op. The container's own caps
+        //     (cpu / memory / pids / --stop-timeout) are the kill
+        //     mechanism instead.
+        //   - `activeCompilations.set` runs without the child --
+        //     just enough to satisfy the count + the exit promise.
+        //   - On Docker-side failures (daemon unreachable, image
+        //     missing, etc.) runDockerCompile rejects; we surface
+        //     it to onCompilerExit as a regular error.
+        activeCompilations.set(projectId, { child: null, exitPromise });
+        runDockerCompile({
+          projectDir,
+          latexmkArgs,
+          timeoutMs,
+          env,
+        })
+          .then((result) => {
+            const error = result.exitCode === 0
+              ? null
+              : Object.assign(
+                  new Error(`compile-sandbox latexmk exited ${result.exitCode}`),
+                  { code: result.exitCode, signal: result.signal },
+                );
+            onCompilerExit(error, result.stdout, result.stderr);
+          })
+          .catch((err) => onCompilerExit(err, '', ''));
+        return;
+      }
+
+      child = execFile(
+        exe,
+        args,
+        { cwd: projectDir, timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 },
+        onCompilerExit,
+      );
 
     } catch (spawnErr) {
       // execFile failed synchronously (e.g. latexmk not found)
