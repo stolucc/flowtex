@@ -120,6 +120,7 @@ NEEDS_CLIENT_BUILD=0
 NEEDS_SERVER_RESTART=0
 NEEDS_NPM_CI_SERVER=0
 NEEDS_NPM_CI_CLIENT=0
+NEEDS_SANDBOX_REBUILD=0
 
 # Rebuild on every HEAD move — not just `client/` changes. The build
 # bakes VITE_BUILD_SHA = `git rev-parse --short HEAD` into the bundle,
@@ -140,11 +141,22 @@ fi
 if echo "$CHANGED_FILES" | grep -q '^client/package-lock\.json$'; then
   NEEDS_NPM_CI_CLIENT=1
 fi
+# Rebuild the compile-sandbox image only when its inputs changed AND
+# the operator actually runs the Docker compile path (skip the
+# rebuild for self-hosted in-process deploys -- they don't have
+# Docker installed). Probe both: do we have docker, and is the
+# image already present locally?
+if echo "$CHANGED_FILES" | grep -qE '^compile-sandbox/'; then
+  if command -v docker >/dev/null 2>&1 && docker image inspect flowtex/compile-sandbox:tl-2022 >/dev/null 2>&1; then
+    NEEDS_SANDBOX_REBUILD=1
+  fi
+fi
 
 echo "  Client rebuild needed:  $( [ $NEEDS_CLIENT_BUILD -eq 1 ]  && echo yes || echo no )"
 echo "  Server restart needed:  $( [ $NEEDS_SERVER_RESTART -eq 1 ] && echo yes || echo no )"
 echo "  Server npm ci needed:   $( [ $NEEDS_NPM_CI_SERVER -eq 1 ]  && echo yes || echo no )"
 echo "  Client npm ci needed:   $( [ $NEEDS_NPM_CI_CLIENT -eq 1 ]  && echo yes || echo no )"
+echo "  Sandbox image rebuild:  $( [ $NEEDS_SANDBOX_REBUILD -eq 1 ] && echo yes || echo no )"
 echo
 
 # ── 3. Apply the pull ───────────────────────────────────────────────
@@ -177,6 +189,20 @@ if [ $NEEDS_CLIENT_BUILD -eq 1 ]; then
   ok "New bundle: $BUNDLE"
 else
   warn "Nothing to build — skipping rebuild."
+fi
+
+# ── 5.5. Rebuild compile-sandbox image (if compile-sandbox/ changed) ──
+if [ $NEEDS_SANDBOX_REBUILD -eq 1 ]; then
+  say "Rebuilding compile-sandbox image (compile-sandbox/ changed)"
+  # Layer cache means this is usually fast unless the Dockerfile's
+  # apt step itself changed; tag matches whatever the operator picks
+  # in .env (default flowtex/compile-sandbox:tl-2022).
+  TAG="$(grep -oE '^FLOWTEX_COMPILE_IMAGE=[^[:space:]]+' "$APP_DIR/server/.env" 2>/dev/null | cut -d= -f2 || true)"
+  TAG="${TAG:-flowtex/compile-sandbox:tl-2022}"
+  docker build -t "$TAG" "$APP_DIR/compile-sandbox"
+  ok "Rebuilt $TAG"
+else
+  : # silent when nothing to do (avoid noisy logs)
 fi
 
 # ── 6. Restart server ───────────────────────────────────────────────
@@ -222,6 +248,7 @@ echo
 say "Rollback (if you need it):"
 echo "  sudo -u $APP_USER bash -c 'cd $APP_DIR && git reset --hard $PREV_SHA'"
 [ $NEEDS_CLIENT_BUILD -eq 1 ]    && echo "  sudo -u $APP_USER bash -c 'cd $APP_DIR/client && npm run build'"
+[ $NEEDS_SANDBOX_REBUILD -eq 1 ] && echo "  docker build -t flowtex/compile-sandbox:tl-2022 $APP_DIR/compile-sandbox"
 [ $NEEDS_SERVER_RESTART -eq 1 ]  && echo "  systemctl restart $SERVICE"
 
 echo

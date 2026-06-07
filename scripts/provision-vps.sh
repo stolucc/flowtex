@@ -27,6 +27,14 @@
 #   WITH_REDIS   install + wire Redis     (default: 0 — only for multi-instance)
 #   WITH_DOCX    install LibreOffice/IM + Microsoft core fonts (default: 1)
 #                — image conversion + Arial/Times/Courier for DOCX docs.
+#   WITH_DOCKER  install Docker + build the compile-sandbox image (default: 0)
+#                — only needed if you plan to set
+#                  FLOWTEX_COMPILE_SANDBOX=docker (multi-tenant /
+#                  untrusted-user deploys). The host execFile + prlimit
+#                  path is the default for trusted-tenant single-VPS
+#                  deploys and does not need Docker.
+#   COMPILE_IMAGE_TAG  tag for the locally-built sandbox image
+#                      (default: flowtex/compile-sandbox:tl-2022)
 #
 # OPTIONAL ENV — SMTP (email). Supply SMTP_HOST to bake email config into the
 # generated .env. Without it the app logs emails instead of sending them, and
@@ -52,6 +60,8 @@ APP_DIR="${APP_DIR:-/opt/flowtex}"
 APP_USER="${APP_USER:-flowtex}"
 WITH_REDIS="${WITH_REDIS:-0}"
 WITH_DOCX="${WITH_DOCX:-1}"
+WITH_DOCKER="${WITH_DOCKER:-0}"
+COMPILE_IMAGE_TAG="${COMPILE_IMAGE_TAG:-flowtex/compile-sandbox:tl-2022}"
 
 log()  { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -146,6 +156,39 @@ if [ "$WITH_REDIS" = "1" ]; then
   log "Installing Redis"
   apt-get install -y redis-server
   systemctl enable --now redis-server
+fi
+
+# ── Docker + compile-sandbox image (optional — for multi-tenant deploys) ─
+# Default OFF. The host execFile + prlimit compile path is the right
+# answer for self-hosted single-VPS deploys where all users are trusted;
+# turning this on adds a ~2.5 GB image and an extra service to maintain.
+# Operators who plan to flip FLOWTEX_COMPILE_SANDBOX=docker in their
+# .env should opt in here.
+if [ "$WITH_DOCKER" = "1" ]; then
+  log "Installing Docker engine + CLI"
+  # Debian-bundled `docker.io` is sufficient for our use (sibling
+  # containers, no swarm, no compose v2 features). Operators who need a
+  # specific Docker version can swap in upstream docker-ce per
+  # https://docs.docker.com/engine/install/debian/.
+  apt-get install -y docker.io
+  systemctl enable --now docker
+
+  # The FlowTex service account needs to talk to the Docker socket.
+  # Group membership only takes effect on next login -- the systemd
+  # unit picks it up on next start (handled at the bottom of the
+  # script).
+  usermod -aG docker "$APP_USER" || true
+
+  log "Building compile-sandbox image ($COMPILE_IMAGE_TAG)"
+  # ~5-10 min on first build (TeX Live download). Subsequent runs of
+  # this script are no-ops thanks to docker's layer cache.
+  if [ -d "$APP_DIR/compile-sandbox" ]; then
+    docker build -t "$COMPILE_IMAGE_TAG" "$APP_DIR/compile-sandbox"
+  else
+    log "WARN: $APP_DIR/compile-sandbox not present yet; skipping image build."
+    log "      Build manually after first checkout:"
+    log "        docker build -t $COMPILE_IMAGE_TAG $APP_DIR/compile-sandbox"
+  fi
 fi
 
 # ── Service account ─────────────────────────────────────────────────────
@@ -245,6 +288,39 @@ ${SMTP_ENV_BLOCK}
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
 $([ "$WITH_REDIS" = "1" ] && echo "REDIS_URL=redis://localhost:6379" || echo "# REDIS_URL=redis://localhost:6379")
+
+# ── Multi-instance mode (cluster) ─────────────────────────────────────
+# Set FLOWTEX_INSTANCE_MODE=cluster only when running multiple web
+# instances behind a load balancer. Requires REDIS_URL above. The
+# server refuses to boot in cluster mode without it.
+# FLOWTEX_INSTANCE_MODE=cluster
+
+# ── Compile sandbox (Docker per-compile) ──────────────────────────────
+# Default is the in-process host execFile + prlimit path (right for
+# trusted-tenant single-VPS deploys). Flip to docker if you host
+# untrusted users.
+$([ "$WITH_DOCKER" = "1" ] \
+  && echo -e "# FLOWTEX_COMPILE_SANDBOX=docker\n# FLOWTEX_COMPILE_IMAGE=$COMPILE_IMAGE_TAG" \
+  || echo -e "# FLOWTEX_COMPILE_SANDBOX=docker\n# FLOWTEX_COMPILE_IMAGE=flowtex/compile-sandbox:tl-2022")
+
+# ── Blob storage backend ──────────────────────────────────────────────
+# Default 'fs' (on-disk under server/projects/<id>/_blobs/). Switch to
+# 's3' only when you move to multi-instance and need a shared blob
+# store. Requires npm install @aws-sdk/client-s3 in server/ and the
+# AWS_* env vars below.
+# FLOWTEX_BLOB_BACKEND=s3
+# FLOWTEX_BLOB_FALLBACK_BACKEND=fs   # during an FS -> S3 migration
+# AWS_REGION=auto
+# AWS_S3_BUCKET=
+# AWS_S3_ENDPOINT=                   # optional, for R2 / MinIO
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+
+# ── Y.js worker tier ──────────────────────────────────────────────────
+# Default in-process. Enable when you split the Y.Doc rooms into a
+# dedicated worker process (run \`node server/yjsWorker.js\` as its
+# own systemd service). Requires REDIS_URL above.
+# FLOWTEX_YJS_WORKER=enabled
 ENV
   chown "$APP_USER:$APP_USER" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
