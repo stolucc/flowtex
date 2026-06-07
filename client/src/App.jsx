@@ -34,6 +34,7 @@ import { get, post, patch, upload } from './api.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
+import { shouldShowRailMarker } from './utils/commentsRail.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
 import { AlertProvider, useAlert } from './contexts/AlertContext.jsx';
@@ -1163,11 +1164,14 @@ function AppInner() {
                   : 'Show comments'}
                 aria-label="Show comments"
               >
-                {commentPositions?.map((p) => (
+                {/* Hide markers whose y would land inside the rail's
+                    header zone (icon + count badge) — otherwise a
+                    scrolled-up comment marker paints on top of them. */}
+                {commentPositions?.filter((p) => shouldShowRailMarker(p.top)).map((p) => (
                   <svg
                     key={p.id}
                     className="comments-rail-marker"
-                    style={{ top: Math.max(0, p.top) }}
+                    style={{ top: p.top }}
                     width="12"
                     height="12"
                     viewBox="0 0 24 24"
