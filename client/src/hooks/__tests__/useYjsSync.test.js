@@ -32,8 +32,10 @@ afterEach(() => {
 });
 
 function setFlag(on) {
-  if (on) localStorageStub.setItem('flowtex-yjs-sync', '1');
-  else localStorageStub.removeItem('flowtex-yjs-sync');
+  // Phase 6 cutover: the flag defaults to ON. "Off" requires an
+  // explicit opt-out marker; "on" just clears any opt-out.
+  if (on) localStorageStub.removeItem('flowtex-yjs-sync');
+  else localStorageStub.setItem('flowtex-yjs-sync', '0');
 }
 
 describe('useYjsSync', () => {

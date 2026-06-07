@@ -30,30 +30,38 @@ const FLAG_STORAGE_KEY = 'flowtex-yjs-sync';
 const FLAG_URL_PARAM = 'yjs';
 
 /**
- * Returns true iff Y.js sync is enabled in this browser. The flag may
- * be set by:
- *   - `localStorage.setItem('flowtex-yjs-sync', '1')` (persistent)
- *   - `?yjs=1` in the page URL (per-tab opt-in / opt-out)
+ * Returns true iff Y.js sync is enabled in this browser.
  *
- * Defaults to OFF so this branch can land without changing default
- * behaviour for any user.
+ * Phase 6 of YJS-MIGRATION flipped this default to TRUE -- new
+ * sessions now use CRDT sync end-to-end. The flag may still be
+ * explicitly disabled by:
+ *   - `?yjs=0` in the page URL (per-tab opt-out, e.g. to debug the
+ *     legacy `changes` relay path that remains in the codebase as a
+ *     hot-pluggable fallback)
+ *   - `localStorage.setItem('flowtex-yjs-sync', '0')` (persistent
+ *     opt-out, e.g. while we observe production behaviour over the
+ *     first few days after cutover)
+ *
+ * Recognised values:
+ *   '0' / 'false' -> disabled
+ *   anything else (incl. unset, '1', 'true') -> enabled
  */
 export function isYjsSyncEnabled() {
   try {
     if (typeof window !== 'undefined' && window.location?.search) {
       const params = new URLSearchParams(window.location.search);
       const val = params.get(FLAG_URL_PARAM);
-      if (val === '1' || val === 'true') return true;
       if (val === '0' || val === 'false') return false;
+      if (val === '1' || val === 'true') return true;
     }
   } catch { /* malformed URL — fall through to storage */ }
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(FLAG_STORAGE_KEY);
-      return stored === '1' || stored === 'true';
+      if (stored === '0' || stored === 'false') return false;
     }
-  } catch { /* private mode — treat as disabled */ }
-  return false;
+  } catch { /* private mode — treat as enabled (the new default) */ }
+  return true;
 }
 
 /**

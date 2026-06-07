@@ -157,15 +157,35 @@ in the legacy collaborative model: both comments and tracked
 changes now follow the characters they're attached to, regardless
 of how aggressively other users edit the surrounding text.
 
-### Phase 6 — Cut over and remove legacy
+### Phase 6 — Cut over ✓ (default flipped)
 
-- Default `isYjsSyncEnabled()` to true.
-- Remove the `changes` message type from the dispatcher and from the
-  client's `EditorView.updateListener` broadcast.
-- Remove the absolute-offset comment / TC code paths.
-- Bump a "minimum-client" version on the server so older clients are
-  refused (they would otherwise produce a divergent document by
-  bypassing the CRDT layer).
+- `isYjsSyncEnabled()` now defaults to **true**. New sessions use
+  CRDT sync end-to-end. Opt-out is explicit:
+  - `?yjs=0` in the URL (per-tab, e.g. for debugging the legacy
+    relay path)
+  - `localStorage.setItem('flowtex-yjs-sync', '0')` (persistent)
+- The legacy `changes` relay path stays in place as a hot-pluggable
+  fallback. Removing the dispatcher entry, the client's
+  `EditorView.updateListener` broadcast, and the absolute-offset
+  comment / TC code is deferred to **phase 6.5** so we can monitor
+  the production cutover without burning the bridge in the same
+  commit.
+
+### Phase 6.5 — Legacy retirement (pending)
+
+- Once two or three production deploys have passed without anyone
+  flipping to `?yjs=0`, remove:
+  - `changes` from `messageHandlers`, `writeTypes`,
+    `editorOnlyWriteTypes`
+  - the editor's `onChanges` invocation when not in tracked-changes
+    mode (TC marks still ride the `changes` frame because their
+    sync moved to anchors but the broadcast didn't)
+  - the legacy fall-through in `getProjectFiles` /
+    `routes/comments.js` GET that used integer `from`/`to` when
+    no anchors were present
+- Bump a "minimum-client" version on the server so a very stale
+  browser tab can't send `changes` that would produce a divergent
+  document by bypassing the CRDT layer.
 
 ## Risks and decisions
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { createYjsBinding, isYjsSyncEnabled, __testing } from '../yjsBinding.js';
 
-describe('isYjsSyncEnabled', () => {
+describe('isYjsSyncEnabled (post-phase-6 default = ON)', () => {
   const origWindow = globalThis.window;
   beforeEach(() => {
     globalThis.window = { location: { search: '' }, localStorage: { store: {} } };
@@ -11,30 +11,35 @@ describe('isYjsSyncEnabled', () => {
   });
   afterEach(() => { globalThis.window = origWindow; });
 
-  it('defaults to false when no flag is set', () => {
+  it('defaults to TRUE when no flag is set (phase 6 cutover)', () => {
+    expect(isYjsSyncEnabled()).toBe(true);
+  });
+
+  it('honours ?yjs=0 as an explicit per-tab opt-out', () => {
+    globalThis.window.location.search = '?yjs=0';
     expect(isYjsSyncEnabled()).toBe(false);
   });
 
-  it('honours ?yjs=1 in the URL', () => {
+  it('?yjs=1 keeps it enabled (the new default, so this is just an explicit yes)', () => {
     globalThis.window.location.search = '?yjs=1';
     expect(isYjsSyncEnabled()).toBe(true);
   });
 
-  it('honours ?yjs=0 in the URL, even when localStorage says enabled', () => {
+  it('URL ?yjs=0 wins over a localStorage opt-in', () => {
     globalThis.window.location.search = '?yjs=0';
     globalThis.window.localStorage.setItem('flowtex-yjs-sync', '1');
     expect(isYjsSyncEnabled()).toBe(false);
   });
 
-  it('honours localStorage flag', () => {
-    globalThis.window.localStorage.setItem('flowtex-yjs-sync', '1');
-    expect(isYjsSyncEnabled()).toBe(true);
+  it('localStorage flowtex-yjs-sync=0 is the persistent opt-out', () => {
+    globalThis.window.localStorage.setItem('flowtex-yjs-sync', '0');
+    expect(isYjsSyncEnabled()).toBe(false);
   });
 
-  it('does not throw when localStorage access fails', () => {
+  it('does not throw when localStorage access fails and stays ON', () => {
     globalThis.window.localStorage.getItem = () => { throw new Error('private mode'); };
     expect(() => isYjsSyncEnabled()).not.toThrow();
-    expect(isYjsSyncEnabled()).toBe(false);
+    expect(isYjsSyncEnabled()).toBe(true);
   });
 });
 
