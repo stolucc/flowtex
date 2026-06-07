@@ -1274,7 +1274,7 @@ export async function uploadZipToProject(projectId, buffer) {
           await tx.run(
             `UPDATE files SET content = $1, is_binary = FALSE,
                               binary_sha256 = NULL, binary_size = NULL, binary_mime = NULL,
-                              updated_at = NOW()
+                              content_yjs = NULL, updated_at = NOW()
               WHERE id = $2`,
             [utf, existing.id],
           );
@@ -1702,7 +1702,7 @@ async function landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime
       `UPDATE files
           SET content = '', is_binary = TRUE,
               binary_sha256 = $1, binary_size = $2, binary_mime = $3,
-              updated_at = NOW()
+              content_yjs = NULL, updated_at = NOW()
         WHERE id = $4`,
       [sha256, size, mime, existing.id],
     );
@@ -1847,10 +1847,21 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
         return;
       }
     }
+    // YJS-MIGRATION phase 3: any plain-text write to `content` must
+    // also invalidate `content_yjs` so the next yjs-enabled open
+    // re-seeds the Y.Doc from the latest text. Without this, a
+    // refresh / non-yjs save would silently revert when a yjs client
+    // re-connected and applied the stale persisted Y.Doc state.
     if (marksJson !== null) {
-      await tx.run('UPDATE files SET content = $1, tc_marks = $2::jsonb, updated_at = NOW() WHERE id = $3', [content, marksJson, file.id]);
+      await tx.run(
+        'UPDATE files SET content = $1, tc_marks = $2::jsonb, content_yjs = NULL, updated_at = NOW() WHERE id = $3',
+        [content, marksJson, file.id],
+      );
     } else {
-      await tx.run('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2', [content, file.id]);
+      await tx.run(
+        'UPDATE files SET content = $1, content_yjs = NULL, updated_at = NOW() WHERE id = $2',
+        [content, file.id],
+      );
     }
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
 

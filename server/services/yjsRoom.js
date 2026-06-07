@@ -199,9 +199,15 @@ async function persistSnapshot(room) {
     );
     return;
   }
+  // YJS-MIGRATION phase 3: also write the current text view back to
+  // `content` so non-yjs read paths (HTTP file GET, compile, export
+  // ZIP, GitHub push, search) see the latest collaborative content.
+  // Both columns end up consistent; the plain-text column lags the
+  // Y.Doc by at most SNAPSHOT_DEBOUNCE_MS.
+  const text = room.ydoc.getText('content').toString();
   await db.run(
-    'UPDATE files SET content_yjs = $1 WHERE id = $2 AND project_id = $3',
-    [Buffer.from(bytes), room.fileId, room.projectId],
+    'UPDATE files SET content_yjs = $1, content = $2, updated_at = NOW() WHERE id = $3 AND project_id = $4',
+    [Buffer.from(bytes), text, room.fileId, room.projectId],
   );
   room.dirty = false;
 }

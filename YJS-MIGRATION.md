@@ -68,13 +68,30 @@ Default behaviour is unchanged. The flag defaults OFF.
 - On client open: server sends current Y.Doc state as a single
   `yjs-state` message; client merges into local `Y.Doc`.
 
-### Phase 3 — Migration of existing projects
+### Phase 3 — Migration of existing projects ✓
 
-- On first open of a project whose `files.content_yjs` is NULL,
-  initialise the Y.Doc from `files.content` and persist on the next
-  snapshot tick. One-time, idempotent.
-- Add a backfill script `server/migrate-yjs-init.js` for operators who
-  want to seed at deploy time rather than lazily.
+- **Lazy migration** (landed in phase 2): on first acquireRoom of a
+  file with NULL content_yjs, the server seeds the Y.Doc from
+  `files.content` and schedules a snapshot. Idempotent — the row is
+  written exactly once per file because the seed only runs on the
+  NULL branch.
+- **Eager migration**: `server/migrate-yjs-init.js` is a one-shot
+  CLI for operators who would rather pay the migration cost at
+  deploy time than on the first interactive open. Paginated by id,
+  filters `content_yjs IS NULL AND is_binary = FALSE`, scopes to a
+  single project on `argv[2]` if supplied, safe to re-run.
+- **Drift prevention**: every plain-text write to `files.content`
+  also sets `content_yjs = NULL`, so the next yjs read re-seeds from
+  the latest text. Applies to:
+  - `services/projectService.saveFile` (the editor save path)
+  - `services/projectService` ZIP import + convert-to-binary
+  - `routes/history.js` restore-from-snapshot
+  - `utils/gitSync.js` GitHub pull
+- **Two-way coherence**: the Y.Doc snapshot path now also writes the
+  current text view back to `files.content` so non-yjs read paths
+  (HTTP file GET, compile, ZIP export, GitHub push, search) stay in
+  sync. The plain column lags the Y.Doc by at most one snapshot
+  debounce window (2 s).
 
 ### Phase 4 — Comments anchored on `Y.RelativePosition`
 
@@ -115,10 +132,10 @@ Default behaviour is unchanged. The flag defaults OFF.
   snapshot path in phase 2 implicitly bounds it (snapshot, drop
   history, restart the Y.Doc from the snapshot). A more sophisticated
   GC is unnecessary at FlowTex's scale.
-- **Awareness.** `yCollab` accepts an `awareness` parameter for cursor
-  + selection broadcast. Phase 1 passes `null` because FlowTex already
-  has a working `cursor` message type. We can migrate cursors in a
-  future phase if it simplifies the dispatcher.
+- **Awareness.** `yCollab` accepts an `awareness` parameter for
+  cursor and selection broadcast. Phase 1 passes `null` because
+  FlowTex already has a working `cursor` message type. We can
+  migrate cursors in a future phase if it simplifies the dispatcher.
 - **Bandwidth.** Y.js updates are larger than the equivalent plain
   CodeMirror change descriptions because they carry HLC metadata, but
   they are bounded per keystroke and the relay only sends them once

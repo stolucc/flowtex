@@ -263,11 +263,15 @@ router.post('/restore/:snapshotId', async (req, res) => {
       }
 
       if (cur) {
+        // YJS-MIGRATION phase 3: restoring from history is a plain-
+        // text overwrite -- clear content_yjs so the next yjs read
+        // re-seeds from the restored text instead of replaying a
+        // stale Y.Doc history.
         if (targetIsBinary) {
           await tx.run(
             `UPDATE files SET content = '', path = $1, is_binary = TRUE,
                               binary_sha256 = $2, binary_size = $3, binary_mime = $4,
-                              updated_at = NOW()
+                              content_yjs = NULL, updated_at = NOW()
                           WHERE id = $5`,
             [f.path, f.binary_sha256, f.binary_size, f.binary_mime, f.id],
           );
@@ -275,7 +279,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
           await tx.run(
             `UPDATE files SET content = $1, path = $2, is_binary = FALSE,
                               binary_sha256 = NULL, binary_size = NULL, binary_mime = NULL,
-                              updated_at = NOW()
+                              content_yjs = NULL, updated_at = NOW()
                           WHERE id = $3`,
             [f.content ?? '', f.path, f.id],
           );

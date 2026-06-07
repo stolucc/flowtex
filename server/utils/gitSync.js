@@ -167,10 +167,12 @@ async function readDiskFilesToProject(projectId, repoDir) {
           logger.warn({ err, projectId, path: relPath }, 'gitSync: skipping unimportable binary');
         }
       } else if (dbPathMap.has(relPath)) {
-        await tx.run('UPDATE files SET content = $1, is_binary = FALSE, updated_at = NOW() WHERE id = $2', [
-          fs.readFileSync(fullPath, 'utf8'),
-          dbPathMap.get(relPath),
-        ]);
+        // YJS-MIGRATION phase 3: GitHub pull overwrites plain text;
+        // clear content_yjs so the next yjs read re-seeds.
+        await tx.run(
+          'UPDATE files SET content = $1, is_binary = FALSE, content_yjs = NULL, updated_at = NOW() WHERE id = $2',
+          [fs.readFileSync(fullPath, 'utf8'), dbPathMap.get(relPath)],
+        );
       } else {
         await tx.run(
           'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',

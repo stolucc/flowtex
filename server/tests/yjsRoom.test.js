@@ -136,13 +136,39 @@ describe('releaseRoom snapshot semantics', () => {
     expect(db.run).toHaveBeenCalledTimes(1);
     const [sql, params] = db.run.mock.calls[0];
     expect(sql).toMatch(/UPDATE files SET content_yjs/);
-    expect(params[1]).toBe(F);
-    expect(params[2]).toBe(P);
+    // Phase 3: snapshot also writes the plain `content` column so
+    // non-yjs reads stay in sync. params now have 4 entries:
+    //   [content_yjs blob, plain text, fileId, projectId]
+    expect(sql).toMatch(/content = \$2/);
+    expect(params).toHaveLength(4);
+    expect(params[1]).toBe('seed');
+    expect(params[2]).toBe(F);
+    expect(params[3]).toBe(P);
     expect(Buffer.isBuffer(params[0])).toBe(true);
     // The persisted blob should reconstruct the seed when loaded.
     const fresh = new Y.Doc();
     Y.applyUpdateV2(fresh, new Uint8Array(params[0]));
     expect(fresh.getText('content').toString()).toBe('seed');
+  });
+
+  it('snapshot also writes the live text after applied updates', async () => {
+    db.get.mockResolvedValueOnce({ content_yjs: null, content: 'before' });
+    await acquireRoom(P, F);
+
+    // Apply a peer update that REPLACES the content with "after".
+    const peer = new Y.Doc();
+    Y.applyUpdateV2(peer, Y.encodeStateAsUpdateV2(_peekRoom(P, F).ydoc));
+    peer.getText('content').delete(0, peer.getText('content').length);
+    peer.getText('content').insert(0, 'after');
+    applyUpdate(P, F, Y.encodeStateAsUpdateV2(peer));
+
+    db.run.mockResolvedValue(undefined);
+    await releaseRoom(P, F);
+
+    // The single final snapshot should reflect "after", not "before".
+    const finalRunCall = db.run.mock.calls.find(([sql]) => /UPDATE files SET content_yjs/.test(sql));
+    expect(finalRunCall).toBeDefined();
+    expect(finalRunCall[1][1]).toBe('after');
   });
 
   it('does not flush a final snapshot when the room is clean', async () => {
