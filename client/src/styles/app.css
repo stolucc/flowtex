@@ -4661,29 +4661,51 @@ html {
 .comments-rail {
   position: relative;
   width: 18px;
-  padding: 8px 0 0 0;
-  /* visible so the count badge under the icon isn't clipped — the
-     dotted markers are position:absolute so they don't push layout
-     either way. */
+  /* Padding moves into .comments-rail-header so the header's opaque
+     background covers the rail from y=0 down — otherwise markers at
+     top: 0-7 would peek through the rail's padding zone ABOVE the
+     header. */
+  padding: 0;
   overflow: visible;
   flex-shrink: 0;
-  /* .comments-toggle-btn is `display: flex` with the default `row`
-     direction (intended for the bare toggle); stack children in a
-     column on the rail variant so the count badge lands under the
-     speech-bubble icon instead of beside it. */
   flex-direction: column;
   align-items: center;
 }
 
+/* Opaque header that always sits at the top of the rail and visually
+   cuts off any marker whose y lands in this zone. Markers are painted
+   FIRST in DOM order and have no explicit z-index; this header has
+   z-index: 2 and an opaque background that matches the surrounding
+   panel — together that guarantees a marker can never poke out above
+   the count badge, regardless of whether the rail's top edge and the
+   editor viewport's top edge happen to align in this layout. */
+.comments-rail-header {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Match the surrounding rail panel so the header occludes opaquely.
+     var(--bg-primary) is the same token the editor toolbar uses for
+     this column, so the header blends in with no seam. */
+  background: var(--bg-primary);
+}
+
 .comments-rail-icon {
   position: relative;
-  z-index: 1;
   margin: 0 auto;
 }
 
 .comments-rail-marker {
   position: absolute;
   left: 3px;
+  /* Explicit z-index below the header — without this, the marker has
+     z-index: auto and the rule "positioned z-index: 1 paints above
+     positioned z-index: auto" is fragile under stacking-context
+     changes elsewhere in the rail. */
+  z-index: 0;
   color: var(--accent, #6aa6e2);
   pointer-events: none;
   transition: transform 80ms ease-out;

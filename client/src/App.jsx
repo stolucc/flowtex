@@ -1164,9 +1164,12 @@ function AppInner() {
                   : 'Show comments'}
                 aria-label="Show comments"
               >
-                {/* Hide markers whose y would land inside the rail's
-                    header zone (icon + count badge) — otherwise a
-                    scrolled-up comment marker paints on top of them. */}
+                {/* Per-comment markers rendered first so they paint
+                    BENEATH the opaque rail-header below. The filter
+                    drops markers whose y is in the header zone before
+                    rendering; the header's opaque background then acts
+                    as a visual hard-stop for anything that slips past
+                    (e.g. markers landing right at the boundary). */}
                 {commentPositions?.filter((p) => shouldShowRailMarker(p.top)).map((p) => (
                   <svg
                     key={p.id}
@@ -1188,34 +1191,40 @@ function AppInner() {
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   </svg>
                 ))}
-                {/* Speech bubble with inner text lines — reads as "annotation"
-                    (i.e., comments tied to specific text in the document), to
-                    distinguish from the chat icon which is a multi-bubble
-                    conversation glyph. */}
-                <svg
-                  className="comments-rail-icon"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  <line x1="7" y1="9" x2="17" y2="9" />
-                  <line x1="7" y1="13" x2="13" y2="13" />
-                </svg>
-                {/* Active-comment count on the collapsed rail — mirrors
-                    the chat-badge pattern so users see "there are N
-                    threads here" without expanding. commentPositions
-                    already filters out resolved ones. */}
-                {commentPositions?.length > 0 && (
-                  <span className="comments-badge">
-                    {commentPositions.length > 99 ? '99+' : commentPositions.length}
-                  </span>
-                )}
+                {/* Header (icon + count badge). Wrapped in an opaque
+                    sticky div so it always occludes any marker that
+                    visually lands in the header zone — independent of
+                    whether the rail and editor top edges align. */}
+                <div className="comments-rail-header">
+                  {/* Speech bubble with inner text lines — reads as "annotation"
+                      (i.e., comments tied to specific text in the document), to
+                      distinguish from the chat icon which is a multi-bubble
+                      conversation glyph. */}
+                  <svg
+                    className="comments-rail-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    <line x1="7" y1="9" x2="17" y2="9" />
+                    <line x1="7" y1="13" x2="13" y2="13" />
+                  </svg>
+                  {/* Active-comment count on the collapsed rail — mirrors
+                      the chat-badge pattern so users see "there are N
+                      threads here" without expanding. commentPositions
+                      already filters out resolved ones. */}
+                  {commentPositions?.length > 0 && (
+                    <span className="comments-badge">
+                      {commentPositions.length > 99 ? '99+' : commentPositions.length}
+                    </span>
+                  )}
+                </div>
               </button>
             )}
             {ui.showChangesPanel ? (
