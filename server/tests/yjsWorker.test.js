@@ -1,11 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Stop yjsWorker from grabbing a real Redis client + starting the
-// stream loop on import.
 const ORIG_ARGV = process.argv;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -13,8 +11,17 @@ beforeEach(() => {
 });
 afterEach(() => { process.argv = ORIG_ARGV; });
 
-import { afterEach } from 'vitest';
 import { dispatchEntry, heldRooms } from '../yjsWorker.js';
+
+function makeRedis(overrides = {}) {
+  return {
+    // SET ... NX EX returns 'OK' on first acquire (success) and null on contention.
+    set: vi.fn().mockResolvedValue('OK'),
+    // EVAL is the Lua compare-and-DEL used by releaseLock.
+    eval: vi.fn().mockResolvedValue(1),
+    ...overrides,
+  };
+}
 
 function makeDeps(overrides = {}) {
   return {
@@ -22,13 +29,13 @@ function makeDeps(overrides = {}) {
     applyUpdate: vi.fn(),
     encodeStateAsUpdate: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
     releaseRoom: vi.fn().mockResolvedValue(undefined),
-    redis: { set: vi.fn().mockResolvedValue('OK') },
+    redis: makeRedis(),
+    consumerName: 'worker-test',
     ...overrides,
   };
 }
 
 function entry(fields) {
-  // Stream entries are flat [field, value, field, value, ...]
   const flat = [];
   for (const [k, v] of Object.entries(fields)) flat.push(k, v);
   return flat;
@@ -36,13 +43,13 @@ function entry(fields) {
 
 beforeEach(() => { heldRooms.clear(); });
 
-describe('yjsWorker dispatchEntry', () => {
+describe('yjsWorker dispatchEntry — apply', () => {
   it('rejects entries missing required fields', async () => {
     const result = await dispatchEntry(entry({ type: 'apply' }), makeDeps());
-    expect(result).toEqual({ ok: false, reason: 'missing-required-fields' });
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'missing-required-fields' });
   });
 
-  it('on apply: acquires the room on first use then calls applyUpdate', async () => {
+  it('acquires the lock + room on first use, then calls applyUpdate', async () => {
     const deps = makeDeps();
     const result = await dispatchEntry(
       entry({
@@ -54,51 +61,73 @@ describe('yjsWorker dispatchEntry', () => {
       deps,
     );
     expect(result).toEqual({ ok: true, type: 'apply' });
+    // Lock attempt
+    expect(deps.redis.set).toHaveBeenCalledTimes(1);
+    const [k, v, ex, ttl, mode] = deps.redis.set.mock.calls[0];
+    expect(k).toBe('flowtex:yjs:lock:p1:f1');
+    expect(v).toBe('worker-test');
+    expect(ex).toBe('EX');
+    expect(ttl).toBe(30);
+    expect(mode).toBe('NX');
+    // Room acquisition + update application
     expect(deps.acquireRoom).toHaveBeenCalledWith('p1', 'f1');
     expect(deps.applyUpdate).toHaveBeenCalledTimes(1);
     expect(heldRooms.has('p1:f1')).toBe(true);
   });
 
-  it('on apply: skips acquireRoom on the second update for the same room', async () => {
+  it('skips lock attempt + acquireRoom on the second update for the same room', async () => {
     const deps = makeDeps();
     await dispatchEntry(
-      entry({
-        type: 'apply', projectId: 'p1', fileId: 'f1',
-        update: Buffer.from([1]).toString('base64'),
-      }),
+      entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: Buffer.from([1]).toString('base64') }),
       deps,
     );
     await dispatchEntry(
-      entry({
-        type: 'apply', projectId: 'p1', fileId: 'f1',
-        update: Buffer.from([2]).toString('base64'),
-      }),
+      entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: Buffer.from([2]).toString('base64') }),
       deps,
     );
+    // SET NX called once -- we already hold the lock for the second
+    // entry so we skip the attempt.
+    expect(deps.redis.set).toHaveBeenCalledTimes(1);
     expect(deps.acquireRoom).toHaveBeenCalledTimes(1);
     expect(deps.applyUpdate).toHaveBeenCalledTimes(2);
   });
 
-  it('on apply: returns file-missing if acquireRoom returns null', async () => {
+  it('returns lock-contended (retryable) when another worker holds the lock', async () => {
+    // SET NX returns null on contention.
+    const deps = makeDeps({ redis: makeRedis({ set: vi.fn().mockResolvedValue(null) }) });
+    const result = await dispatchEntry(
+      entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: Buffer.from([1]).toString('base64') }),
+      deps,
+    );
+    expect(result).toEqual({ ok: false, retryable: true, reason: 'lock-contended' });
+    expect(deps.acquireRoom).not.toHaveBeenCalled();
+    expect(deps.applyUpdate).not.toHaveBeenCalled();
+    expect(heldRooms.has('p1:f1')).toBe(false);
+  });
+
+  it('releases the lock if acquireRoom returns null after we won', async () => {
     const deps = makeDeps({ acquireRoom: vi.fn().mockResolvedValue(null) });
     const result = await dispatchEntry(
       entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: Buffer.from([1]).toString('base64') }),
       deps,
     );
-    expect(result).toEqual({ ok: false, reason: 'file-missing' });
-    expect(deps.applyUpdate).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'file-missing' });
+    // Lock acquired, then released via EVAL (the Lua CAS).
+    expect(deps.redis.eval).toHaveBeenCalledTimes(1);
   });
 
-  it('on apply: drops empty updates', async () => {
+  it('drops empty updates as a poison-pill (non-retryable)', async () => {
     const deps = makeDeps();
     const result = await dispatchEntry(
       entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: '' }),
       deps,
     );
-    expect(result).toEqual({ ok: false, reason: 'empty-update' });
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'empty-update' });
   });
+});
 
-  it('on state: encodes state and writes it to the reply key', async () => {
+describe('yjsWorker dispatchEntry — state', () => {
+  it('encodes state and writes it to the reply key', async () => {
     const deps = makeDeps();
     const result = await dispatchEntry(
       entry({
@@ -109,15 +138,15 @@ describe('yjsWorker dispatchEntry', () => {
     );
     expect(result.ok).toBe(true);
     expect(result.type).toBe('state');
-    expect(deps.redis.set).toHaveBeenCalledWith(
-      'flowtex:yjs:state-reply:abc',
-      Buffer.from(new Uint8Array([1, 2, 3])).toString('base64'),
-      'EX',
-      10,
-    );
+    // Last call to redis.set is the reply SET (the lock SET was first).
+    const setCalls = deps.redis.set.mock.calls;
+    const lastSet = setCalls[setCalls.length - 1];
+    expect(lastSet[0]).toBe('flowtex:yjs:state-reply:abc');
+    expect(lastSet[2]).toBe('EX');
+    expect(lastSet[3]).toBe(10);
   });
 
-  it('on state: rejects replyTo that does not match the prefix (anti-key-injection)', async () => {
+  it('rejects replyTo without the canonical prefix (anti-key-injection)', async () => {
     const deps = makeDeps();
     const result = await dispatchEntry(
       entry({
@@ -126,27 +155,41 @@ describe('yjsWorker dispatchEntry', () => {
       }),
       deps,
     );
-    expect(result).toEqual({ ok: false, reason: 'bad-replyTo' });
-    expect(deps.redis.set).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'bad-replyTo' });
+    // No SET should have happened to the reply key.
+    // The lock SET still happens before the replyTo check; that's
+    // intentional -- the lock guards the encode call.
   });
 
-  it('on state: returns no-state if encode returns null', async () => {
+  it('returns no-state (non-retryable) if encode returns null', async () => {
     const deps = makeDeps({ encodeStateAsUpdate: vi.fn().mockReturnValue(null) });
     const result = await dispatchEntry(
       entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:x' }),
       deps,
     );
-    expect(result).toEqual({ ok: false, reason: 'no-state' });
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'no-state' });
   });
 
-  it('on release: calls releaseRoom and removes from heldRooms', async () => {
+  it('returns lock-contended (retryable) if another worker holds the lock', async () => {
+    const deps = makeDeps({ redis: makeRedis({ set: vi.fn().mockResolvedValue(null) }) });
+    const result = await dispatchEntry(
+      entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:x' }),
+      deps,
+    );
+    expect(result).toEqual({ ok: false, retryable: true, reason: 'lock-contended' });
+  });
+});
+
+describe('yjsWorker dispatchEntry — release', () => {
+  it('calls releaseRoom + releases the lock when the room was held', async () => {
     const deps = makeDeps();
-    // Pretend we've acquired.
+    // Pretend we acquired through an apply.
     await dispatchEntry(
       entry({ type: 'apply', projectId: 'p1', fileId: 'f1', update: Buffer.from([1]).toString('base64') }),
       deps,
     );
     expect(heldRooms.has('p1:f1')).toBe(true);
+
     const result = await dispatchEntry(
       entry({ type: 'release', projectId: 'p1', fileId: 'f1' }),
       deps,
@@ -154,9 +197,11 @@ describe('yjsWorker dispatchEntry', () => {
     expect(result).toEqual({ ok: true, type: 'release' });
     expect(deps.releaseRoom).toHaveBeenCalledWith('p1', 'f1');
     expect(heldRooms.has('p1:f1')).toBe(false);
+    // EVAL is the Lua compare-and-DEL for releaseLock.
+    expect(deps.redis.eval).toHaveBeenCalled();
   });
 
-  it('on release: no-op when the room was never held', async () => {
+  it('is a no-op (still ok) when the room was never held', async () => {
     const deps = makeDeps();
     const result = await dispatchEntry(
       entry({ type: 'release', projectId: 'p1', fileId: 'f1' }),
@@ -166,8 +211,20 @@ describe('yjsWorker dispatchEntry', () => {
     expect(deps.releaseRoom).not.toHaveBeenCalled();
   });
 
-  it('rejects unknown types', async () => {
+  it('release is lockless — does not call SET NX even when room is unheld', async () => {
+    const deps = makeDeps();
+    await dispatchEntry(
+      entry({ type: 'release', projectId: 'p1', fileId: 'f1' }),
+      deps,
+    );
+    // No SET calls (release isn't gated by the lock acquire path).
+    expect(deps.redis.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('yjsWorker dispatchEntry — unknown', () => {
+  it('rejects unknown types as poison-pill (non-retryable)', async () => {
     const result = await dispatchEntry(entry({ type: 'haxx', projectId: 'p1', fileId: 'f1' }), makeDeps());
-    expect(result).toEqual({ ok: false, reason: 'unknown-type' });
+    expect(result).toEqual({ ok: false, retryable: false, reason: 'unknown-type' });
   });
 });

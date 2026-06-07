@@ -73,15 +73,28 @@ transfer doesn't lose state.
 metrics on the new path, graceful shutdown coordination. The flag
 defaults OFF; phase 1 ships the wiring as latent code.
 
-### Phase 2 — Ownership protocol + multi-worker
+### Phase 2 — Ownership protocol + multi-worker ✓
 
-- Per-room Redis lock with TTL renewal.
-- Consumer groups on the Stream so multiple workers share the
-  inbound traffic but ownership of any single room belongs to one.
-- Handover-on-restart: a worker shutting down releases its locks
-  gracefully; the next update picks up the room on whichever worker
-  is available.
-- Tests for: lock contention, lock expiry, handover.
+- **Consumer group** `flowtex-yjs-workers` on the
+  `flowtex:yjs:updates` Stream so each entry is delivered to
+  exactly one worker (`XREADGROUP` + `XACK`).
+- **Per-room Redis lock** `flowtex:yjs:lock:<projectId>:<fileId>`,
+  acquired via `SET NX EX 30`, renewed every 10 s via `SET XX`,
+  released via Lua compare-and-DEL so a slow worker never unlinks
+  the new owner's key.
+- **Lock-contention behaviour**: if a worker receives an entry for
+  a room it doesn't own and can't acquire the lock, it deliberately
+  *doesn't* `XACK`. The entry stays in the consumer group's PEL
+  (pending entries list). An `XAUTOCLAIM` after 30 s hands it to
+  whoever the lock-holder is by then.
+- **Graceful shutdown**: SIGTERM / SIGINT releases every held lock
+  (Lua CAS, never unlinks anyone else's), `releaseRoom` flushes
+  snapshots to PG, then exit 0.
+- **Tests** (24 cases): lock-key shape, SET NX semantics, SET XX
+  renewal, Lua CAS rejecting cross-worker releases, two-worker
+  contention scenario, fail-soft on Redis errors, lock-aware
+  dispatch in the worker, releaseLock on file-missing, release
+  entry is lockless, unknown-type as poison pill.
 
 ### Phase 3 — Cutover
 
