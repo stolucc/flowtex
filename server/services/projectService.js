@@ -31,7 +31,7 @@ import { BINARY_EXTS } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 import { PROJECTS_DIR } from '../paths.js';
 import { isUniqueViolation } from '../utils/dbErrors.js';
-import { writeBlob } from './blobStore.js';
+import { writeBlob } from './blobPersistor.js';
 import { loadFileBytes } from './fileBytes.js';
 import { captureTcMarkAnchors, resolveTcMarkAnchors } from './yjsAnchors.js';
 import { _peekRoom } from './yjsRoom.js';

@@ -23,7 +23,15 @@ import path from 'node:path';
 import db from '../db.js';
 import logger from '../logger.js';
 import { PROJECTS_DIR } from '../paths.js';
-import { deleteBlob, blobsDir } from './blobStore.js';
+// SAAS-FOUNDATIONS item 2 phase 2.5: deleteBlob routes through the
+// persistor so the active backend (FS or S3) handles the unlink.
+import { deleteBlob } from './blobPersistor.js';
+// blobsDir stays imported directly from the FS backend: the on-disk
+// staging-sweep below is inherently FS-specific (S3 has no concept of
+// a local _tmp directory). The S3 backend manages its own _tmp keys
+// internally during writeBlob's two-stage upload, so no equivalent is
+// needed there.
+import { blobsDir } from './blobStore.js';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_HEX_RE = /^[0-9a-f-]{36}$/i;

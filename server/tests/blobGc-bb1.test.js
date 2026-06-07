@@ -19,13 +19,23 @@ vi.mock('../db.js', () => ({
     run: vi.fn(),
   },
 }));
-vi.mock('../services/blobStore.js', () => ({
+// SAAS-FOUNDATIONS item 2 phase 2.5: blobGc.js now imports deleteBlob
+// from services/blobPersistor.js rather than the FS-backend module.
+// Mock the persistor so this BB1 unit test still intercepts the
+// delete call at the boundary the production code uses.
+vi.mock('../services/blobPersistor.js', () => ({
   deleteBlob: vi.fn(async () => {}),
+}));
+// blobsDir still comes from the FS backend directly (FS-specific
+// staging-sweep). Stub it so the import doesn't pull the real impl
+// during unit tests.
+vi.mock('../services/blobStore.js', () => ({
+  blobsDir: vi.fn(() => '/tmp/test-blobs'),
 }));
 vi.mock('../logger.js', () => ({ default: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
 import db from '../db.js';
-import { deleteBlob } from '../services/blobStore.js';
+import { deleteBlob } from '../services/blobPersistor.js';
 import { sweepOrphanRefcounts } from '../services/blobGc.js';
 
 const FIXTURE = {

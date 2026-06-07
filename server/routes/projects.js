@@ -6,7 +6,7 @@ import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
 import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import * as projectService from '../services/projectService.js';
-import { statBlob, readBlobStream } from '../services/blobStore.js';
+import { statBlob, readBlobStream } from '../services/blobPersistor.js';
 import { loadFileBytes } from '../services/fileBytes.js';
 import { sendError } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -591,7 +591,16 @@ router.get('/files/:fileId/raw', async (req, res) => {
     return res.status(404).json({ error: 'File data unavailable' });
   }
   res.set('Content-Length', blobStat.size);
-  readBlobStream(file.project_id, file.binary_sha256)
+  // SAAS-FOUNDATIONS item 2 phase 2.5: readBlobStream now returns a
+  // promise so a future S3-backed persistor can resolve a request to
+  // the appropriate backend (FS or remote) at call time.
+  const stream = await readBlobStream(file.project_id, file.binary_sha256);
+  if (!stream) {
+    // Defensive: statBlob said the blob existed but the read couldn't
+    // open it. Treat as the same 404 as the blob-missing case.
+    return res.status(404).json({ error: 'File data unavailable' });
+  }
+  stream
     .on('error', (err) => {
       logger.error({ err, fileId: file.id }, 'blob stream error');
       if (!res.headersSent) res.status(500).end();

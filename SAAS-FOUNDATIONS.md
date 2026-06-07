@@ -35,12 +35,32 @@ gets a `{child: null}` entry on the Docker path so the count stays
 correct without exposing a process handle. Enable with
 `FLOWTEX_COMPILE_SANDBOX=docker` + `FLOWTEX_COMPILE_IMAGE=<tag>`.
 
-### Item 2 — Blob storage abstraction (object-persistor shape)
+### Item 2 — Blob storage abstraction (object-persistor shape) ✓
 
 Pluggable backend behind `writeBinaryFileInTx` / `loadFileBytes`. FS
 backend is the current `server/projects/<id>/_blobs/` layout; new S3
-backend supports R2 / MinIO / AWS S3 with the same interface. 404-fallback
-chain so an in-flight migration FS → S3 keeps reads working from either.
+backend supports R2 / MinIO / AWS S3 with the same interface.
+404-fallback chain so an in-flight migration FS → S3 keeps reads
+working from either.
+
+**Phase 1** (commit `06aecd0`): selector + FS + S3 backends as
+standalone modules. Existing call sites still imported
+`blobStore.js` directly.
+
+**Phase 2.5** (commit pending): all four direct callers migrated to
+the persistor — `projectService.writeBlob`,
+`routes/projects.statBlob/readBlobStream`,
+`fileBytes.loadBlobBytes` (replaces the old
+`readFile(blobPath(…))` pattern), `blobGc.deleteBlob`. The
+FS-specific `blobsDir` stays imported directly by `blobGc` for the
+on-disk staging-sweep (S3 has no equivalent concept and the S3
+backend manages its own _tmp keys internally during `writeBlob`'s
+two-stage upload). 404-fallback chain added: when
+`FLOWTEX_BLOB_FALLBACK_BACKEND` is set, `statBlob` and
+`readBlobStream` consult the fallback when the primary returns
+null. Writes only ever target the primary — the fallback is
+read-only, used during an FS → S3 rollout to keep old blobs
+reachable until a separate migrator promotes them.
 
 ### Item 3 — Y.Doc service split (deferred)
 
