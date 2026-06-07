@@ -42,6 +42,9 @@ export default function useYjsSync(file, sendWs, originId) {
       initialText: typeof file.content === 'string' ? file.content : '',
       sendWs,
       originId,
+      // sync defaults to phase2 inside createYjsBinding -- be
+      // explicit here so a future rename is obvious.
+      sync: 'phase2',
     });
     setBinding(b);
 
@@ -50,10 +53,17 @@ export default function useYjsSync(file, sendWs, originId) {
       if (!msg || msg.fileId !== file.id) return;
       b.applyRemoteUpdate(msg.update, msg.originId);
     };
+    const onWsYjsState = (e) => {
+      const msg = e?.detail;
+      if (!msg || msg.fileId !== file.id) return;
+      b.applyRemoteState(msg.state);
+    };
     window.addEventListener('ws:yjs-update', onWsYjsUpdate);
+    window.addEventListener('ws:yjs-state', onWsYjsState);
 
     return () => {
       window.removeEventListener('ws:yjs-update', onWsYjsUpdate);
+      window.removeEventListener('ws:yjs-state', onWsYjsState);
       setBinding(null);
       b.destroy();
     };

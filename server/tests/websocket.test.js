@@ -24,6 +24,17 @@ vi.mock('ioredis', () => ({
   default: vi.fn(),
 }));
 
+// Phase-2 of YJS-MIGRATION: handleYjsUpdate now calls into yjsRoom.
+// Mock the service so unit tests of the relay don't need a real
+// Y.Doc / PG round-trip.
+vi.mock('../services/yjsRoom.js', () => ({
+  acquireRoom: vi.fn().mockResolvedValue({ refCount: 1 }),
+  applyUpdate: vi.fn(),
+  encodeStateAsUpdate: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+  releaseRoom: vi.fn().mockResolvedValue(undefined),
+  _peekRoom: vi.fn().mockReturnValue(null),
+}));
+
 import db from '../db.js';
 import { _testing } from '../websocket.js';
 
@@ -31,6 +42,8 @@ const {
   unsignCookie,
   handleChanges,
   handleYjsUpdate,
+  handleYjsRequestState,
+  releaseYjsRoomsForState,
   handleCursor,
   handleChat,
   handleChatReact,
@@ -426,6 +439,71 @@ describe('handleYjsUpdate', () => {
 
     expect(ws.send).not.toHaveBeenCalled();
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── handleYjsRequestState ────────────────────────────────────────────────
+
+describe('handleYjsRequestState', () => {
+  it('replies just to the requesting client with a yjs-state frame', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsRequestState({ type: 'yjs-request-state', fileId: TEST_FILE_IDS.f1 }, state, ws);
+
+    // Sent only to the requester, not broadcast to peers.
+    expect(ws.send).toHaveBeenCalledTimes(1);
+    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+    const sent = JSON.parse(ws.send.mock.calls[0][0]);
+    expect(sent.type).toBe('yjs-state');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
+    expect(typeof sent.state).toBe('string');
+  });
+
+  it('drops the request when fileId is not in the project', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    setupRoom('project-123', [state.clientEntry]);
+
+    await handleYjsRequestState(
+      { type: 'yjs-request-state', fileId: '00000000-0000-4000-8000-000000000099' },
+      state,
+      ws,
+    );
+    expect(ws.send).not.toHaveBeenCalled();
+  });
+
+  it('tracks the held room on state so a later release can clean it up', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    setupRoom('project-123', [state.clientEntry]);
+
+    await handleYjsRequestState({ type: 'yjs-request-state', fileId: TEST_FILE_IDS.f1 }, state, ws);
+    expect(state.yjsRoomsHeld).toBeInstanceOf(Set);
+    expect(state.yjsRoomsHeld.has(TEST_FILE_IDS.f1)).toBe(true);
+  });
+});
+
+// ── releaseYjsRoomsForState ──────────────────────────────────────────────
+
+describe('releaseYjsRoomsForState', () => {
+  it('releases every held room and clears the set', async () => {
+    const state = makeState();
+    state.yjsRoomsHeld = new Set([TEST_FILE_IDS.f1, TEST_FILE_IDS.f2]);
+    await releaseYjsRoomsForState(state);
+    expect(state.yjsRoomsHeld.size).toBe(0);
+  });
+
+  it('is a no-op when state has no held rooms', async () => {
+    const state = makeState();
+    await releaseYjsRoomsForState(state);
+    // No throw, no error -- the function is happy with an absent set.
+    expect(state.yjsRoomsHeld).toBeUndefined();
   });
 });
 

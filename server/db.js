@@ -363,6 +363,16 @@ async function initSchema() {
     -- survive a project copy.
     ALTER TABLE files ADD COLUMN IF NOT EXISTS tc_marks JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+    -- YJS-MIGRATION phase 2: binary encoding of the Y.Doc state for
+    -- this file. NULL until the first client touches the file with
+    -- the yjs feature flag enabled (phase 3 will lazily initialise
+    -- from the plain content column on first open). The server holds
+    -- a Y.Doc per (project_id, file_id) in memory while at least one
+    -- client is connected, and snapshots into this column on a
+    -- debounce so a late joiner / server restart can resume from the
+    -- durable state.
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS content_yjs BYTEA;
+
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
       file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,

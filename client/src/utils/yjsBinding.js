@@ -85,17 +85,23 @@ export function isYjsSyncEnabled() {
  *   destroy: () => void,
  * }}
  */
-export function createYjsBinding({ fileId, initialText, sendWs, originId }) {
+export function createYjsBinding({ fileId, initialText, sendWs, originId, sync = 'phase2' }) {
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText('content');
 
-  // Seed the doc with the file's known text content. Done inside a
-  // transaction tagged with a sentinel origin so the update listener
-  // below can recognise the seed and refuse to broadcast it (other
-  // peers either seeded the same way from their own copy, or will
-  // receive the real update stream from this client).
+  // Phase-1 behaviour: each binding seeds its own Y.Doc from the
+  // file's plain text. Phase-2 behaviour: the server seeds (once) on
+  // first acquireRoom and serves the canonical state via yjs-state,
+  // so multiple clients converge instead of producing N separate
+  // copies of the seed under their own client-ids. The `sync` arg
+  // selects between the two; tests that don't exercise the server
+  // round-trip stay on phase-1 seeding.
   const SEED_ORIGIN = Symbol('flowtex.yjs.seed');
-  if (typeof initialText === 'string' && initialText.length > 0) {
+  const wantsLocalSeed =
+    sync === 'phase1' &&
+    typeof initialText === 'string' &&
+    initialText.length > 0;
+  if (wantsLocalSeed) {
     ydoc.transact(() => {
       if (ytext.length === 0) {
         ytext.insert(0, initialText);
@@ -136,17 +142,32 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId }) {
     Y.applyUpdateV2(ydoc, bytes, REMOTE_ORIGIN);
   };
 
+  // Apply the server's encodeStateAsUpdateV2 payload sent in reply to
+  // yjs-request-state. Same mechanism as applyRemoteUpdate (Y.js
+  // states ARE updates) but conceptually the "bring me up to date"
+  // hook rather than the per-keystroke one.
+  const applyRemoteState = (stateB64) => applyRemoteUpdate(stateB64);
+
   // yCollab wires the Y.Text to a CodeMirror EditorView. Awareness is
   // optional (cursors of other users); phase 1 leaves it null because
   // FlowTex already has its own cursor-broadcast path.
   const extension = yCollab(ytext, /* awareness */ null);
+
+  // Phase 2: ask the server for the canonical state immediately.
+  // The server replies with `yjs-state` which the hook routes to
+  // applyRemoteState. Until that response arrives the Y.Doc is empty
+  // and the editor briefly shows no content -- the round-trip is
+  // typically tens of ms over loopback / local LAN.
+  if (sync === 'phase2') {
+    sendWs?.({ type: 'yjs-request-state', fileId });
+  }
 
   const destroy = () => {
     ydoc.off('updateV2', updateHandler);
     ydoc.destroy();
   };
 
-  return { ydoc, ytext, extension, applyRemoteUpdate, destroy, LOCAL_ORIGIN };
+  return { ydoc, ytext, extension, applyRemoteUpdate, applyRemoteState, destroy, LOCAL_ORIGIN };
 }
 
 // ── Base64 helpers ─────────────────────────────────────────────────────────

@@ -86,6 +86,12 @@ export default function useWebSocket(
         // every echoed keystroke after a reconnect.
         if (msg.originId && msg.originId === originIdRef.current) return;
         window.dispatchEvent(new CustomEvent('ws:yjs-update', { detail: msg }));
+      } else if (msg.type === 'yjs-state') {
+        // Y.js phase 2 — server's reply to yjs-request-state. Carries
+        // the room's current encodeStateAsUpdateV2 in base64. No
+        // self-echo concern: the server only sends this to the
+        // requesting client.
+        window.dispatchEvent(new CustomEvent('ws:yjs-state', { detail: msg }));
       } else if (msg.type === 'cursor') {
         // Same self-echo guard as `changes` — own cursor echoes on reconnect
         // would render as a ghost cursor next to the real one.

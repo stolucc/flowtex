@@ -7,6 +7,7 @@ import logger from './logger.js';
 import db from './db.js';
 import { UUID_RE, isProjectMember } from './middleware/auth.js';
 import { recordMentions } from './utils/mentions.js';
+import * as yjsRoom from './services/yjsRoom.js';
 
 // sendToUser is a closure inside createWebSocketServer; the chat handler
 // (module-scoped) needs to push @mention notifications to specific users
@@ -249,26 +250,43 @@ async function handleChanges(msg, state, ws) {
 }
 
 /**
- * Phase-1 relay for Y.js CRDT updates. Mirrors the shape of
- * `handleChanges` for the purposes of room/role checks but does NOT
- * touch persistence — phase 2 of YJS-MIGRATION will route updates
- * through a Y.Doc held server-side and snapshot to files.content_yjs.
+ * Phase-2 relay+apply for Y.js CRDT updates. Mirrors `handleChanges`
+ * for room/role checks, plus:
+ *   - Decodes the base64 payload and applies it to the server-side
+ *     Y.Doc held by yjsRoom (which schedules a debounced snapshot to
+ *     files.content_yjs).
+ *   - Then broadcasts the original base64 payload unchanged to room
+ *     peers. Peers reconstruct the same Y.Doc state from this update;
+ *     the server-side apply keeps the room canonical for late
+ *     joiners and survives a restart.
  *
- * Hardening notes (kept identical to the legacy `changes` path so the
- * trust boundary is the same):
- *   - Caller is already auth + role-gated via writeTypes/isAllowedWriteRole
- *     (handler is registered under editorOnlyWriteTypes).
- *   - fileId must belong to the project the WS is joined to.
- *   - update payload is bounded to MAX_YJS_UPDATE_B64 bytes so a hostile
- *     client can't blow up memory across other room members.
- *   - originId is opaque sender-supplied text (capped) — used by the
- *     sending tab to filter its own echo on reconnect.
+ * Hardening (unchanged from phase 1):
+ *   - Caller is auth + role-gated via writeTypes/isAllowedWriteRole.
+ *   - fileId must belong to the project.
+ *   - update payload capped at MAX_YJS_UPDATE_B64.
+ *   - originId capped at 64 chars.
  */
 const MAX_YJS_UPDATE_B64 = 256 * 1024; // 256 KB base64 ≈ 192 KB of Y.js update bytes
 async function handleYjsUpdate(msg, state, ws) {
   if (typeof msg.update !== 'string') return;
   if (msg.update.length === 0 || msg.update.length > MAX_YJS_UPDATE_B64) return;
   if (!(await isFileInProject(state, msg.fileId))) return;
+
+  // Make sure this WS holds a reference to the room so the in-memory
+  // Y.Doc stays alive at least until disconnect. Tracked per-WS so
+  // we know how many releases to issue on close.
+  if (!(await ensureRoomSubscribed(state, msg.fileId))) return;
+
+  // Decode base64 -> Uint8Array and apply to the server-side room.
+  // Malformed base64 is treated as a dropped frame (no broadcast).
+  let bytes;
+  try {
+    const buf = Buffer.from(msg.update, 'base64');
+    bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  } catch {
+    return;
+  }
+  yjsRoom.applyUpdate(state.projectId, msg.fileId, bytes);
 
   broadcastToRoom(
     state.projectId,
@@ -283,6 +301,65 @@ async function handleYjsUpdate(msg, state, ws) {
     },
     ws,
   );
+}
+
+/**
+ * Phase-2 catch-up for Y.js late joiners. Client sends
+ *   { type: 'yjs-request-state', fileId }
+ * after opening a file with the yjs flag on. Server replies just
+ * to that client with
+ *   { type: 'yjs-state', fileId, state }
+ * containing a base64 of the room's current encodeStateAsUpdateV2.
+ * The client merges that into its local Y.Doc, which is the correct
+ * way to bring an empty doc up to room state in one round-trip.
+ *
+ * If there's no active room (no one else editing) the server first
+ * acquires the room from PG (loads files.content_yjs) so the client
+ * still gets the durable state, then immediately releases it.
+ */
+async function handleYjsRequestState(msg, state, ws) {
+  if (!(await isFileInProject(state, msg.fileId))) return;
+  // The client is about to start editing this file -- hold a room
+  // reference for the rest of the connection. handleYjsUpdate would
+  // acquire it anyway on the first keystroke; doing it here means
+  // the late-joiner state we send below already reflects whatever
+  // was persisted to PG even if no one else is editing.
+  if (!(await ensureRoomSubscribed(state, msg.fileId))) return;
+
+  const bytes = yjsRoom.encodeStateAsUpdate(state.projectId, msg.fileId);
+  if (!bytes) return;
+  const b64 = Buffer.from(bytes).toString('base64');
+  if (ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'yjs-state', fileId: msg.fileId, state: b64 }));
+}
+
+/**
+ * Lazy room acquisition keyed on (state.ws, fileId). state.yjsRoomsHeld
+ * tracks the fileIds this connection is responsible for releasing on
+ * close. Returns true on success (room is held), false if the file
+ * row went missing between isFileInProject and acquireRoom.
+ */
+async function ensureRoomSubscribed(state, fileId) {
+  if (!state.yjsRoomsHeld) state.yjsRoomsHeld = new Set();
+  if (state.yjsRoomsHeld.has(fileId)) return true;
+  const room = await yjsRoom.acquireRoom(state.projectId, fileId);
+  if (!room) return false;
+  state.yjsRoomsHeld.add(fileId);
+  return true;
+}
+
+/**
+ * Release every (project, fileId) room this connection acquired.
+ * Called from the WS close handler so the in-memory Y.Doc can be
+ * freed (and a final snapshot flushed) when the last client leaves.
+ */
+export async function releaseYjsRoomsForState(state) {
+  if (!state || !state.yjsRoomsHeld || state.yjsRoomsHeld.size === 0) return;
+  const fileIds = [...state.yjsRoomsHeld];
+  state.yjsRoomsHeld.clear();
+  for (const fileId of fileIds) {
+    await yjsRoom.releaseRoom(state.projectId, fileId);
+  }
 }
 
 /** Broadcast cursor position updates to other clients. */
@@ -643,6 +720,7 @@ function handleTyping(msg, state, ws) {
 const messageHandlers = {
   changes: handleChanges,
   'yjs-update': handleYjsUpdate,
+  'yjs-request-state': handleYjsRequestState,
   cursor: handleCursor,
   // comment / comment-reply / comment-resolve / comment-delete /
   // comment-edit handlers were removed when their broadcasts moved
@@ -1002,6 +1080,12 @@ export function initWebSocket(server, app, sessionSecret) {
           else broadcastPresence(state.projectId);
         }
       }
+      // YJS-MIGRATION phase 2: release every Y.Doc room this
+      // connection was holding. The room service ref-counts these,
+      // so the final close also flushes a snapshot to PG.
+      releaseYjsRoomsForState(state).catch((err) =>
+        logger.warn({ err }, 'releaseYjsRoomsForState failed'),
+      );
     });
   });
 
@@ -1013,6 +1097,9 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   unsignCookie,
   handleChanges,
   handleYjsUpdate,
+  handleYjsRequestState,
+  ensureRoomSubscribed,
+  releaseYjsRoomsForState,
   handleCursor,
   // handleComment / handleCommentReply / handleCommentResolve /
   // handleCommentDelete / handleCommentEdit were removed when their
