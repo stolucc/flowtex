@@ -29,6 +29,7 @@ import * as Y from 'yjs';
 import db from '../db.js';
 import logger from '../logger.js';
 import { backfillCommentAnchors, backfillTcMarkAnchors } from './yjsAnchors.js';
+import { recordYjsApply, setYjsRoomsActive, recordYjsSnapshotBytes } from './metrics.js';
 
 const SNAPSHOT_DEBOUNCE_MS = 2000;
 // Defensive ceiling on the BYTEA we persist. A pathological Y.Doc
@@ -113,6 +114,7 @@ export async function acquireRoom(projectId, fileId) {
     dirty,
   };
   rooms.set(k, room);
+  setYjsRoomsActive(rooms.size);
   if (dirty) scheduleSnapshot(room);
   // YJS-MIGRATION phase 4.5 + 5: opportunistically anchor any
   // pre-phase-4 comment rows AND pre-phase-5 tc_marks entries now
@@ -140,12 +142,18 @@ export async function acquireRoom(projectId, fileId) {
 export function applyUpdate(projectId, fileId, updateBytes) {
   const room = rooms.get(keyFor(projectId, fileId));
   if (!room) return;
+  // SAAS-FOUNDATIONS item 5: observe apply latency so the dashboard
+  // can flag a slow Y.Doc (typically a sign of unbounded history
+  // growth or a deeply-conflicted merge) before users notice.
+  const start = process.hrtime.bigint();
   try {
     Y.applyUpdateV2(room.ydoc, updateBytes, 'client');
   } catch (err) {
     logger.warn({ err, projectId, fileId }, 'yjsRoom: applyUpdate failed');
+    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'err');
     return;
   }
+  recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'ok');
   room.dirty = true;
   scheduleSnapshot(room);
 }
@@ -185,6 +193,7 @@ export async function releaseRoom(projectId, fileId) {
   }
   try { room.ydoc.destroy(); } catch { /* ignore */ }
   rooms.delete(k);
+  setYjsRoomsActive(rooms.size);
 }
 
 function scheduleSnapshot(room) {
@@ -222,5 +231,6 @@ async function persistSnapshot(room) {
     'UPDATE files SET content_yjs = $1, content = $2, updated_at = NOW() WHERE id = $3 AND project_id = $4',
     [Buffer.from(bytes), text, room.fileId, room.projectId],
   );
+  recordYjsSnapshotBytes(bytes.length);
   room.dirty = false;
 }

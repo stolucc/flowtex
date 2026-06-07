@@ -32,6 +32,9 @@ import zoteroRouter from './routes/zotero.js';
 import chatRouter from './routes/chat.js';
 import notificationsRouter from './routes/notifications.js';
 import bugReportsRouter from './routes/bugReports.js';
+import metricsRouter from './routes/metrics.js';
+import { recordHttpRequest } from './services/metrics.js';
+import { errorReporterMiddleware } from './services/errorReporter.js';
 import cookieParser from 'cookie-parser';
 import { requireAuth, requireAdmin } from './middleware/auth.js';
 import { initWebSocket } from './websocket.js';
@@ -154,6 +157,27 @@ app.use(compression({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
+
+// ── Prometheus HTTP duration middleware ──────────────────────────────────
+// SAAS-FOUNDATIONS item 5. Records a histogram observation for every
+// request keyed on (method, mounted-route, status_class). Mounted
+// before request logging so the logger sees the same wall-clock as
+// the metric; recordHttpRequest is a no-throw NOP if the registry is
+// in a bad state, so this can't fail open.
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+    // req.route is only populated after the router matches; for
+    // unmatched requests fall back to the path's first segment so
+    // the cardinality stays bounded.
+    const route =
+      (req.route && req.route.path) ||
+      (req.baseUrl ? req.baseUrl : (req.path.split('/').slice(0, 3).join('/') || '/'));
+    recordHttpRequest(req.method, route, res.statusCode, durationSec);
+  });
+  next();
+});
 
 // ── Request logging ──────────────────────────────────────────────────────
 app.use(
@@ -406,6 +430,10 @@ const inviteLimiter = rateLimit({
   skip: () => skipRateLimit,
 });
 
+// SAAS-FOUNDATIONS item 5: /metrics for Prometheus scrape.
+// Unauthenticated by design (network-perimeter ACL gates it).
+app.use('/metrics', metricsRouter);
+
 // Auth routes (public, rate-limited)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -523,6 +551,13 @@ function renderIndexWithNonce(nonce) {
 // blindly returning "Internal server error" misleads the caller into
 // thinking the bug is server-side. 5xx still get the generic message
 // to avoid leaking implementation details through stack-shaped strings.
+//
+// SAAS-FOUNDATIONS item 5: send each error to the pluggable error
+// reporter BEFORE the response handler runs. The reporter is a NOP
+// by default; SaaS deploys register an implementation at boot
+// (e.g. wrapping @sentry/node). The middleware passes the error
+// through via next, so the response shape is unchanged.
+app.use(errorReporterMiddleware);
 app.use((err, req, res, _next) => {
   logger.error({ err, method: req.method, url: req.url }, 'Unhandled route error');
   if (res.headersSent) return;

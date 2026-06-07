@@ -8,6 +8,14 @@ import db from './db.js';
 import { UUID_RE, isProjectMember } from './middleware/auth.js';
 import { recordMentions } from './utils/mentions.js';
 import * as yjsRoom from './services/yjsRoom.js';
+import { setWsConnectionsActive, recordWsFrame } from './services/metrics.js';
+import { captureException as reportException } from './services/errorReporter.js';
+
+let wsConnectionGauge = 0;
+function bumpConnections(delta) {
+  wsConnectionGauge = Math.max(0, wsConnectionGauge + delta);
+  setWsConnectionsActive(wsConnectionGauge);
+}
 
 // sendToUser is a closure inside createWebSocketServer; the chat handler
 // (module-scoped) needs to push @mention notifications to specific users
@@ -942,6 +950,8 @@ export function initWebSocket(server, app, sessionSecret) {
 
   // Connection handler
   wss.on('connection', async (ws, req) => {
+    bumpConnections(+1);
+    ws.once('close', () => bumpConnections(-1));
     ws.isAlive = true;
     ws.on('pong', () => {
       ws.isAlive = true;
@@ -1082,6 +1092,7 @@ export function initWebSocket(server, app, sessionSecret) {
 
         const handler = messageHandlers[msg.type];
         if (handler) {
+          recordWsFrame(msg.type || 'unknown', 'in');
           await handler(msg, state, ws);
         }
       } catch (err) {
@@ -1089,6 +1100,11 @@ export function initWebSocket(server, app, sessionSecret) {
           { err, msgType: msg.type, userId: state.authenticatedUserId },
           'WS message handler error',
         );
+        reportException(err, {
+          surface: 'ws-handler',
+          msgType: msg?.type,
+          userId: state.authenticatedUserId,
+        });
       }
     }
 
