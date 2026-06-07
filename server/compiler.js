@@ -543,13 +543,19 @@ async function _doCompile(
         ...profileOverrides,
         `-jobname=${jobName}`,
         `-output-directory=${projectDir}`,
-        // JJ1 (audit round 21): `--` terminates option parsing so a
-        // mainFile like `-shell-escape.tex` (which isValidFilePath used
-        // to allow) is treated as a positional filename rather than
-        // re-enabling shell escape and overriding our explicit
-        // `--no-shell-escape` upstream. Also hardened isValidFilePath
-        // to reject leading `-` so the file can't even be created.
-        '--',
+        // JJ1 (audit round 21) HAD added `--` here as a belt-and-
+        // braces against argument injection through filenames
+        // starting with `-`. Removed because every shipping
+        // latexmk version (at least up to 4.87) treats `--` as
+        // "unknown option" -- it's NOT a getopt-style terminator
+        // for this program, despite the convention elsewhere. The
+        // authoritative guard against the original JJ1 threat is
+        // `isValidFilePath` in services/projectService.js, which
+        // rejects path segments starting with `-` so the file
+        // can't even land in a project. The remap shim in the
+        // Docker sandbox path drops `--` for the same reason
+        // (latexmk 4.79 in Bookworm), so this change keeps the two
+        // paths consistent.
         mainFile,
       ];
       // On Linux with prlimit available, wrap the invocation in
