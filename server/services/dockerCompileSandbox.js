@@ -110,11 +110,14 @@ export function remapLatexmkArgsForContainer(latexmkArgs) {
     }
     if (a === '-e' && i + 1 < latexmkArgs.length) {
       const next = latexmkArgs[i + 1];
-      // Profile overrides look like `$pdflatex = q[ /host/path ... ]`
-      // -- strip both the -e and its value when they're host-path
-      // shaped. A user-supplied -e that's NOT a profile wrapper (no
-      // leading absolute path inside q[]) is preserved.
-      if (typeof next === 'string' && /^\$\w+\s*=\s*q\[\s*\//.test(next)) {
+      // Profile overrides look like `$pdflatex = q[ ... ]` where the
+      // q[]-delimited string includes the host-side Node and the
+      // wrapper script path. They reference the host filesystem and
+      // can't run inside the container, so we drop both `-e` and its
+      // value. A user-supplied `-e` whose value is NOT a q[]-wrapped
+      // override (e.g. `-e $max_repeat=4`) is preserved because the
+      // pattern requires `q[` after the `=`.
+      if (typeof next === 'string' && /^\$\w+\s*=\s*q\[/.test(next)) {
         i += 1;
         continue;
       }

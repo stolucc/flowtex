@@ -196,10 +196,17 @@ describe('remapLatexmkArgsForContainer', () => {
     ]);
   });
 
-  it('strips host-side profile wrapper overrides (`-e $pdflatex=q[/abs/...]`)', () => {
+  it('strips host-side profile wrapper overrides (`-e $pdflatex=q[ ... ]`)', () => {
+    // Real profileLatexmkOverrides output single-quotes the host
+    // exec path inside q[...] -- e.g.
+    //   $pdflatex = q[ '/path/to/node' '/path/to/wrap.mjs' --tool=... ]
+    // The earlier regex required a literal `/` after `q[` which the
+    // real output does NOT have because q[ is followed by '. Match
+    // any q[ wrapper now.
     const argv = [
-      '-pdf', '-e', '$pdflatex = q[ /opt/wrap.sh ]',
-      '-e', '$bibtex = q[ /opt/wrap.sh bibtex ]',
+      '-pdf',
+      '-e', "$pdflatex = q['/opt/node' '/opt/wrap.mjs' --tool=pdflatex -- pdflatex %O %S]",
+      '-e', "$bibtex = q['/opt/node' '/opt/wrap.mjs' --tool=bibtex -- bibtex %O %S]",
       'main.tex',
     ];
     expect(remapLatexmkArgsForContainer(argv))
