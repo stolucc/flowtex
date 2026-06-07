@@ -143,6 +143,53 @@ describe('runDockerCompile', () => {
     expect(args[0]).toBe('run');
   });
 
+  it('streams stdout + stderr chunks to onOutput as they arrive', async () => {
+    const fake = new EventEmitter();
+    fake.stdout = new EventEmitter();
+    fake.stderr = new EventEmitter();
+    fake.kill = vi.fn();
+    spawnImpl = vi.fn().mockReturnValue(fake);
+
+    const chunks = [];
+    const p = runDockerCompile({
+      projectDir: '/srv/proj-1',
+      latexmkArgs: ['-pdf', 'main.tex'],
+      timeoutMs: 30000,
+      env: {},
+      onOutput: (chunk) => chunks.push(chunk),
+    });
+
+    fake.stdout.emit('data', Buffer.from('first stdout\n'));
+    fake.stderr.emit('data', Buffer.from('a warning\n'));
+    fake.stdout.emit('data', Buffer.from('second stdout\n'));
+    fake.emit('exit', 0, null);
+
+    await p;
+    expect(chunks).toEqual(['first stdout\n', 'a warning\n', 'second stdout\n']);
+  });
+
+  it('survives a throwing onOutput without crashing the compile', async () => {
+    const fake = new EventEmitter();
+    fake.stdout = new EventEmitter();
+    fake.stderr = new EventEmitter();
+    fake.kill = vi.fn();
+    spawnImpl = vi.fn().mockReturnValue(fake);
+
+    const p = runDockerCompile({
+      projectDir: '/srv/proj-1',
+      latexmkArgs: ['-pdf', 'main.tex'],
+      timeoutMs: 30000,
+      env: {},
+      onOutput: () => { throw new Error('callback bug'); },
+    });
+
+    fake.stdout.emit('data', Buffer.from('chunk\n'));
+    fake.emit('exit', 0, null);
+    const result = await p;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/chunk/);
+  });
+
   it('rejects when the docker CLI itself fails to spawn', async () => {
     const fake = new EventEmitter();
     fake.stdout = new EventEmitter();

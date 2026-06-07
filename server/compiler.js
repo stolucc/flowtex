@@ -664,6 +664,14 @@ async function _doCompile(
           latexmkArgs,
           timeoutMs,
           env,
+          // Thread the streaming callback through so the SSE
+          // compile-stream sees stdout/stderr chunks as they arrive,
+          // matching what the host execFile path does via
+          // child.stdout.on('data'). Without this the client console
+          // sits on the initial "Compiling..." line until the
+          // compile finishes -- looks like the compile is hung even
+          // when it's running.
+          onOutput,
         })
           .then((result) => {
             const error = result.exitCode === 0

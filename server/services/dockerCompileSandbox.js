@@ -182,8 +182,14 @@ export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts =
  * with `{ exitCode, stdout, stderr, durationMs }`. Never throws on
  * compile failure -- only on Docker-itself failures (binary missing,
  * daemon unreachable).
+ *
+ * Optional `onOutput(chunk)` fires for each stdout/stderr chunk as
+ * it arrives, mirroring what the host execFile path does via
+ * `child.stdout.on('data')`. Without this the compile-stream SSE
+ * sees no output between "Compiling..." and the final `done` event,
+ * which looks like the compile is hung even when it's running.
  */
-export async function runDockerCompile({ projectDir, latexmkArgs, timeoutMs, env }) {
+export async function runDockerCompile({ projectDir, latexmkArgs, timeoutMs, env, onOutput }) {
   const cpuLimitSec = Math.ceil(timeoutMs / 1000) + 10;
   const args = buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec });
   const { dockerBin } = SANDBOX_DEFAULTS;
@@ -217,13 +223,21 @@ export async function runDockerCompile({ projectDir, latexmkArgs, timeoutMs, env
     child.stdout.on('data', (chunk) => {
       // Bound stdout/stderr capture at 10 MiB each so a runaway
       // /tmp dump can't OOM the server process.
+      const text = chunk.toString('utf-8');
       if (stdout.length < 10 * 1024 * 1024) {
-        stdout += chunk.toString('utf-8');
+        stdout += text;
+      }
+      if (onOutput) {
+        try { onOutput(text); } catch { /* never let a streaming-callback bug kill the compile */ }
       }
     });
     child.stderr.on('data', (chunk) => {
+      const text = chunk.toString('utf-8');
       if (stderr.length < 10 * 1024 * 1024) {
-        stderr += chunk.toString('utf-8');
+        stderr += text;
+      }
+      if (onOutput) {
+        try { onOutput(text); } catch { /* swallow */ }
       }
     });
 
