@@ -152,6 +152,11 @@ const Editor = forwardRef(function Editor(
     // `changes` WS messages and file PUTs; this stops the editor
     // from accepting input that would silently fail.
     readOnly = false,
+    // YJS-MIGRATION phase 1.5: opaque CodeMirror extensions appended
+    // to the editor's initial config. Used to splice in the yCollab
+    // binding from useYjsSync when the feature flag is on. Default is
+    // an empty array so behaviour is unchanged on default builds.
+    extraExtensions = [],
   },
   ref,
 ) {
@@ -164,6 +169,12 @@ const Editor = forwardRef(function Editor(
   const visualModeCompartment = useRef(new Compartment());
   const tcInlineCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
+  // YJS-MIGRATION phase 1.5: extraExtensions arrives one render AFTER
+  // a file becomes active (useYjsSync's useEffect runs post-render and
+  // setState triggers a re-render with the extension). A Compartment
+  // lets us reconfigure the editor in-place when that happens, instead
+  // of rebuilding the EditorState and losing cursor/scroll/history.
+  const extraExtCompartment = useRef(new Compartment());
   const [fontSize, setFontSize] = useState(() => parseInt(getSetting('font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
   const errorHighlightTimer = useRef(null);
@@ -821,6 +832,7 @@ const Editor = forwardRef(function Editor(
     wrapCompartment.current = new Compartment();
     visualModeCompartment.current = new Compartment();
     tcInlineCompartment.current = new Compartment();
+    extraExtCompartment.current = new Compartment();
 
     const state = EditorState.create({
       doc: file.content || '',
@@ -1016,6 +1028,11 @@ const Editor = forwardRef(function Editor(
         spellGutterField,
         spellGutterExtension,
         citeKeyHighlighter,
+        // YJS-MIGRATION phase 1.5: caller-supplied extensions
+        // (yCollab when useYjsSync is enabled), held in a Compartment
+        // so the binding can be spliced in on a later render without
+        // tearing down the EditorState.
+        extraExtCompartment.current.of(extraExtensions || []),
         EditorView.updateListener.of((update) => {
           // Detect mark-only mutations from accept/reject so the save
           // scheduler runs even when the doc didn't change (§6.1/§6.2).
@@ -1808,6 +1825,18 @@ const Editor = forwardRef(function Editor(
       effects: tcInlineCompartment.current.reconfigure(showTrackedChangesInline ? tcMarksInlineDecorations : []),
     });
   }, [showTrackedChangesInline]);
+
+  // YJS-MIGRATION phase 1.5: when extraExtensions changes (typically
+  // when useYjsSync's binding finishes constructing), splice the new
+  // extension array into the Compartment without rebuilding the
+  // EditorState.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: extraExtCompartment.current.reconfigure(extraExtensions || []),
+    });
+  }, [extraExtensions]);
 
   useEffect(() => {
     const view = viewRef.current;

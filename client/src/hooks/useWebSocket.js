@@ -79,6 +79,13 @@ export default function useWebSocket(
         // locally, and re-applying it would duplicate the text.
         if (msg.originId && msg.originId === originIdRef.current) return;
         window.dispatchEvent(new CustomEvent('ws:changes', { detail: msg }));
+      } else if (msg.type === 'yjs-update') {
+        // Y.js phase 1.5 — same self-echo guard as 'changes'. The binding
+        // also re-checks origin in applyRemoteUpdate (defence in depth),
+        // but filtering here saves a base64 decode + transact() on
+        // every echoed keystroke after a reconnect.
+        if (msg.originId && msg.originId === originIdRef.current) return;
+        window.dispatchEvent(new CustomEvent('ws:yjs-update', { detail: msg }));
       } else if (msg.type === 'cursor') {
         // Same self-echo guard as `changes` — own cursor echoes on reconnect
         // would render as a ghost cursor next to the real one.
@@ -258,7 +265,7 @@ export default function useWebSocket(
     // Stamp our origin on outgoing edit/cursor frames so the server's
     // broadcast can echo it back unchanged and we can filter our own echoes
     // on receive (defends against the zombie-ws scenario on reconnect).
-    const stamped = msg.type === 'changes' || msg.type === 'cursor'
+    const stamped = msg.type === 'changes' || msg.type === 'cursor' || msg.type === 'yjs-update'
       ? { ...msg, originId: originIdRef.current }
       : msg;
     const payload = JSON.stringify(stamped);
@@ -287,5 +294,9 @@ export default function useWebSocket(
     setTypingUsers,
     sendWsMessage,
     wsConnected,
+    // Per-tab originId — exposed so useYjsSync can configure its
+    // binding's self-echo filter with the same value that
+    // sendWsMessage stamps on outgoing frames.
+    originId: originIdRef.current,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import ProjectList from './components/ProjectList.jsx';
 // Editor/PdfViewer/HistoryView/ChatPanel/CommentsSidebar/BinaryPreview
 // only render once a project is loaded. Lazy-loading them keeps the
@@ -42,6 +42,7 @@ import { EditorRefProvider } from './contexts/EditorRefContext.jsx';
 import { ProjectProvider } from './contexts/ProjectContext.jsx';
 import useProject from './hooks/useProject.js';
 import useWebSocket from './hooks/useWebSocket.js';
+import useYjsSync from './hooks/useYjsSync.js';
 import useCompilation from './hooks/useCompilation.js';
 import useHelperStatus from './hooks/useHelperStatus.js';
 import { HelperStatusProvider } from './contexts/HelperStatusContext.jsx';
@@ -245,9 +246,20 @@ function AppInner() {
     typingUsers,
     sendWsMessage,
     wsConnected,
+    originId: wsOriginId,
   } = useWebSocket(user, project, activeFileRef, { setComments, setHistoryVersion });
 
   sendWsRef.current = sendWsMessage;
+
+  // YJS-MIGRATION phase 1.5: when the feature flag is on, create a
+  // Y.js binding for the active file. The hook is a no-op (returns
+  // enabled=false, extension=null) when the flag is off, so the
+  // legacy `changes` flow runs unchanged on default builds.
+  const yjs = useYjsSync(activeFile, sendWsMessage, wsOriginId);
+  const editorExtraExtensions = useMemo(
+    () => (yjs.enabled && yjs.extension ? [yjs.extension] : []),
+    [yjs.enabled, yjs.extension],
+  );
 
   const {
     mentions: notifMentions,
@@ -1369,18 +1381,31 @@ function AppInner() {
                     // the actual gate; this is the "don't let me type
                     // into the void" affordance.
                     readOnly={isReadOnlyForUser(members, user?.id)}
+                    extraExtensions={editorExtraExtensions}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
-                    onChanges={(changes, tracked, deletions, tcMarks) =>
+                    onChanges={(changes, tracked, deletions, tcMarks) => {
+                      // YJS-MIGRATION phase 1.5: when Y.js sync is on,
+                      // doc text already flows over the `yjs-update`
+                      // channel — broadcasting `changes` too would
+                      // double-apply. Still send tracked-changes mark
+                      // mutations though: those are out of the Y.Doc's
+                      // scope until phase 5 re-anchors them, so the
+                      // legacy broadcast keeps them in sync.
+                      if (yjs.enabled && (!tcMarks || tcMarks.added.length + tcMarks.removed.length === 0)) {
+                        return;
+                      }
                       sendWsMessage({
                         type: 'changes',
                         fileId: activeFile?.id,
-                        changes,
+                        // Drop doc-content changes when yjs is on; only
+                        // the tcMarks payload is relevant here.
+                        changes: yjs.enabled ? [] : changes,
                         ...(tracked ? { tracked: true } : {}),
                         ...(deletions ? { deletions } : {}),
                         ...(tcMarks ? { tcMarks } : {}),
-                      })
-                    }
+                      });
+                    }}
                     onCursorChange={(head, anchor) =>
                       sendWsMessage({ type: 'cursor', fileId: activeFile?.id, head, anchor })
                     }
