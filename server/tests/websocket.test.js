@@ -30,6 +30,7 @@ import { _testing } from '../websocket.js';
 const {
   unsignCookie,
   handleChanges,
+  handleYjsUpdate,
   handleCursor,
   handleChat,
   handleChatReact,
@@ -304,6 +305,126 @@ describe('handleChanges', () => {
     setupRoom('project-123', [state.clientEntry, mockPeer]);
 
     await handleChanges({ type: 'changes', fileId: TEST_FILE_IDS.f1, changes: [] }, state, ws);
+    expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── handleYjsUpdate ──────────────────────────────────────────────────────
+
+describe('handleYjsUpdate', () => {
+  it('drops message if update is not a string', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate({ type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: null }, state, ws);
+    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('drops empty update', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate({ type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: '' }, state, ws);
+    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('drops oversize update (defends room peers from memory blow-up)', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    const tooBig = 'A'.repeat(256 * 1024 + 1);
+    await handleYjsUpdate({ type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: tooBig }, state, ws);
+    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('drops message when fileId does not belong to the project', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate(
+      { type: 'yjs-update', fileId: '00000000-0000-4000-8000-000000000099', update: 'abc' },
+      state, ws,
+    );
+    expect(mockPeer.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts a valid update to other clients in the room', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate(
+      { type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: 'base64payload' },
+      state, ws,
+    );
+
+    expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect(sent.type).toBe('yjs-update');
+    expect(sent.fileId).toBe(TEST_FILE_IDS.f1);
+    expect(sent.update).toBe('base64payload');
+    expect(sent.userId).toBe('user-1');
+  });
+
+  it('preserves a sender-supplied originId', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate(
+      { type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: 'abc', originId: 'tab-uuid-abc' },
+      state, ws,
+    );
+
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect(sent.originId).toBe('tab-uuid-abc');
+  });
+
+  it('drops oversize originId rather than echoing untrusted text', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate(
+      { type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: 'abc', originId: 'x'.repeat(65) },
+      state, ws,
+    );
+
+    const sent = JSON.parse(mockPeer.ws.send.mock.calls[0][0]);
+    expect(sent.originId).toBeUndefined();
+  });
+
+  it('does NOT echo the update back to the sending ws', async () => {
+    const ws = makeWs();
+    const state = makeState();
+    state.clientEntry.ws = ws;
+    const mockPeer = { ws: makeWs(), userId: 'user-2', userName: 'Bob' };
+    setupRoom('project-123', [state.clientEntry, mockPeer]);
+
+    await handleYjsUpdate(
+      { type: 'yjs-update', fileId: TEST_FILE_IDS.f1, update: 'abc' },
+      state, ws,
+    );
+
+    expect(ws.send).not.toHaveBeenCalled();
     expect(mockPeer.ws.send).toHaveBeenCalledTimes(1);
   });
 });

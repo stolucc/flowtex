@@ -248,6 +248,43 @@ async function handleChanges(msg, state, ws) {
   );
 }
 
+/**
+ * Phase-1 relay for Y.js CRDT updates. Mirrors the shape of
+ * `handleChanges` for the purposes of room/role checks but does NOT
+ * touch persistence — phase 2 of YJS-MIGRATION will route updates
+ * through a Y.Doc held server-side and snapshot to files.content_yjs.
+ *
+ * Hardening notes (kept identical to the legacy `changes` path so the
+ * trust boundary is the same):
+ *   - Caller is already auth + role-gated via writeTypes/isAllowedWriteRole
+ *     (handler is registered under editorOnlyWriteTypes).
+ *   - fileId must belong to the project the WS is joined to.
+ *   - update payload is bounded to MAX_YJS_UPDATE_B64 bytes so a hostile
+ *     client can't blow up memory across other room members.
+ *   - originId is opaque sender-supplied text (capped) — used by the
+ *     sending tab to filter its own echo on reconnect.
+ */
+const MAX_YJS_UPDATE_B64 = 256 * 1024; // 256 KB base64 ≈ 192 KB of Y.js update bytes
+async function handleYjsUpdate(msg, state, ws) {
+  if (typeof msg.update !== 'string') return;
+  if (msg.update.length === 0 || msg.update.length > MAX_YJS_UPDATE_B64) return;
+  if (!(await isFileInProject(state, msg.fileId))) return;
+
+  broadcastToRoom(
+    state.projectId,
+    {
+      type: 'yjs-update',
+      fileId: msg.fileId,
+      update: msg.update,
+      userId: state.clientEntry.userId,
+      ...(typeof msg.originId === 'string' && msg.originId.length <= 64
+        ? { originId: msg.originId }
+        : {}),
+    },
+    ws,
+  );
+}
+
 /** Broadcast cursor position updates to other clients. */
 async function handleCursor(msg, state, ws) {
   if (typeof msg.head !== 'number' || typeof msg.anchor !== 'number') return;
@@ -548,6 +585,7 @@ async function handleChatRead(_msg, state) {
 // inherits the role check by default.
 const writeTypes = new Set([
   'changes',
+  'yjs-update',
   'comment',
   'comment-reply',
   'comment-resolve',
@@ -565,7 +603,7 @@ const writeTypes = new Set([
 // so an unknown future role (or a corrupted row) defaults to denied
 // instead of silently inheriting writer permissions. Mirrors the
 // service-layer EDITOR_ROLES / COMMENTER_OR_BETTER_ROLES sets.
-const editorOnlyWriteTypes = new Set(['changes']);
+const editorOnlyWriteTypes = new Set(['changes', 'yjs-update']);
 const EDITOR_WS_ROLES = new Set(['owner', 'editor']);
 const COMMENTER_WS_ROLES = new Set(['owner', 'editor', 'commenter']);
 function isAllowedWriteRole(type, role) {
@@ -604,6 +642,7 @@ function handleTyping(msg, state, ws) {
 
 const messageHandlers = {
   changes: handleChanges,
+  'yjs-update': handleYjsUpdate,
   cursor: handleCursor,
   // comment / comment-reply / comment-resolve / comment-delete /
   // comment-edit handlers were removed when their broadcasts moved
@@ -973,6 +1012,7 @@ export function initWebSocket(server, app, sessionSecret) {
 export const _testing = process.env.NODE_ENV === 'test' ? {
   unsignCookie,
   handleChanges,
+  handleYjsUpdate,
   handleCursor,
   // handleComment / handleCommentReply / handleCommentResolve /
   // handleCommentDelete / handleCommentEdit were removed when their
