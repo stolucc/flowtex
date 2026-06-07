@@ -1,0 +1,201 @@
+// SAAS-FOUNDATIONS item 1 -- Docker-based compile sandbox.
+//
+// Spawns latexmk inside a sibling container per compile. The image
+// is a tiny TeX Live layer (compile-sandbox/Dockerfile) running as a
+// non-root user with no network, a read-only root, a writeable bind
+// mount on the project's working directory, and memory / CPU /
+// process caps applied via `docker run` flags. This is the model
+// Overleaf uses in services/clsi -- see CLSI's SANDBOXED_COMPILES
+// flag -- and the only safe model for untrusted tenants.
+//
+// Selection is per-process via FLOWTEX_COMPILE_SANDBOX:
+//
+//   in-process (default) -- existing prlimit-flagged latexmk; the
+//     right answer for self-hosted academic groups where all users
+//     are trusted.
+//
+//   docker -- this runner; the right answer for SaaS / public
+//     deploys. Requires the Docker daemon to be reachable from the
+//     server process and the FLOWTEX_COMPILE_IMAGE env var to point
+//     at a built sandbox image.
+//
+// Build the image once with:
+//
+//   docker build -t flowtex/compile-sandbox:tl-2025 compile-sandbox/
+//
+// Caps applied to every run:
+//   --network=none           no outbound calls; sandboxes any \input{|...}
+//                            escape route TeX has historically had
+//   --read-only              root fs is read-only; only the bind mount
+//                            and /tmp are writeable
+//   --tmpfs /tmp:size=512M   bounded ephemeral tmp
+//   --memory                 RSS cap (default 2 GiB)
+//   --memory-swap            equal to --memory so swap can't be used
+//   --pids-limit             prevents fork bombs in TeX macro hell
+//   --cpus                   CPU cap matched to the JS timeout window
+//   --user 1000:1000         non-root inside the container
+//   --cap-drop ALL           drop every Linux capability
+//   --security-opt no-new-privileges
+//   --rm                     never leave dead containers behind
+//
+// The bind mount is the project's working directory under
+// PROJECTS_DIR. We rely on the same path validation the in-process
+// compiler does (isValidFilePath rejects ../ and leading -, jobName
+// is alphanumeric). The image's runner script (compile-sandbox/
+// run-latexmk.sh) is the entrypoint, so the only attack surface is
+// the argv list we pass.
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import logger from '../logger.js';
+
+const PROJECTS_DIR_RE = /^[/\w.-]+$/;
+
+const SANDBOX_DEFAULTS = {
+  memory: process.env.FLOWTEX_COMPILE_MEMORY || '2g',
+  pidsLimit: parseInt(process.env.FLOWTEX_COMPILE_PIDS_LIMIT || '256', 10),
+  cpus: process.env.FLOWTEX_COMPILE_CPUS || '2.0',
+  tmpfsSize: process.env.FLOWTEX_COMPILE_TMPFS_SIZE || '512m',
+  user: process.env.FLOWTEX_COMPILE_USER || '1000:1000',
+  dockerBin: process.env.FLOWTEX_DOCKER_BIN || 'docker',
+};
+
+/**
+ * @returns {string} the image to use for compile-sandbox runs.
+ * Throws if the env var is unset -- we never silently fall back to
+ * a "latest" tag because that's the kind of supply-chain footgun
+ * SaaS deploys must not have.
+ */
+function getImage() {
+  const image = process.env.FLOWTEX_COMPILE_IMAGE;
+  if (!image) {
+    throw new Error(
+      'FLOWTEX_COMPILE_SANDBOX=docker requires FLOWTEX_COMPILE_IMAGE ' +
+      '(e.g. flowtex/compile-sandbox:tl-2025).',
+    );
+  }
+  return image;
+}
+
+/**
+ * Build the `docker run` argv that wraps a latexmk invocation. Pure
+ * function; the actual spawn happens in runDockerCompile below. Split
+ * so tests can assert the wrapping without invoking Docker.
+ *
+ * @param {object} args
+ * @param {string} args.projectDir   absolute path on host
+ * @param {string[]} args.latexmkArgs argv that would have been passed
+ *                                    to `latexmk` directly
+ * @param {number} args.cpuLimitSec   CPU time cap (matches the JS
+ *                                    timeout window + a small grace)
+ * @param {object} [opts]             defaults overrides for tests
+ */
+export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts = SANDBOX_DEFAULTS) {
+  if (typeof projectDir !== 'string' || !projectDir.startsWith('/') || !PROJECTS_DIR_RE.test(projectDir)) {
+    throw new Error('buildDockerArgs: projectDir must be an absolute path under PROJECTS_DIR');
+  }
+  if (!Array.isArray(latexmkArgs) || latexmkArgs.some((a) => typeof a !== 'string')) {
+    throw new Error('buildDockerArgs: latexmkArgs must be an array of strings');
+  }
+  const image = getImage();
+  return [
+    'run',
+    '--rm',
+    '--network=none',
+    '--read-only',
+    `--tmpfs=/tmp:size=${opts.tmpfsSize},mode=1777`,
+    `--memory=${opts.memory}`,
+    `--memory-swap=${opts.memory}`,
+    `--pids-limit=${String(opts.pidsLimit)}`,
+    `--cpus=${opts.cpus}`,
+    `--user=${opts.user}`,
+    '--cap-drop=ALL',
+    '--security-opt=no-new-privileges',
+    `--volume=${projectDir}:/workdir:rw`,
+    '--workdir=/workdir',
+    // Stop signal + grace -- latexmk is the entrypoint via the
+    // run-latexmk.sh script; SIGTERM gives it a chance to clean up
+    // .aux files before SIGKILL fires.
+    '--stop-signal=SIGTERM',
+    `--stop-timeout=${Math.max(5, Math.min(60, Math.ceil(cpuLimitSec / 4)))}`,
+    image,
+    ...latexmkArgs,
+  ];
+}
+
+/**
+ * Run a single compile inside a fresh sandbox container. Resolves
+ * with `{ exitCode, stdout, stderr, durationMs }`. Never throws on
+ * compile failure -- only on Docker-itself failures (binary missing,
+ * daemon unreachable).
+ */
+export async function runDockerCompile({ projectDir, latexmkArgs, timeoutMs, env }) {
+  const cpuLimitSec = Math.ceil(timeoutMs / 1000) + 10;
+  const args = buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec });
+  const { dockerBin } = SANDBOX_DEFAULTS;
+  const start = Date.now();
+
+  logger.info(
+    { projectDir, image: process.env.FLOWTEX_COMPILE_IMAGE, timeoutMs },
+    'compile-sandbox: spawning docker run',
+  );
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const child = spawn(dockerBin, args, {
+      env,
+      // The Docker CLI must NOT inherit a tty -- we want clean
+      // pipes for stdout/stderr capture. detached=false so a host-
+      // level kill propagates.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      // Docker also has its own --stop-timeout but if the CLI itself
+      // wedges (rare; daemon unreachable), this is the JS-side
+      // backstop.
+    }, timeoutMs + 5000);
+
+    child.stdout.on('data', (chunk) => {
+      // Bound stdout/stderr capture at 10 MiB each so a runaway
+      // /tmp dump can't OOM the server process.
+      if (stdout.length < 10 * 1024 * 1024) {
+        stdout += chunk.toString('utf-8');
+      }
+    });
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 10 * 1024 * 1024) {
+        stderr += chunk.toString('utf-8');
+      }
+    });
+
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        exitCode: code,
+        signal,
+        stdout,
+        stderr,
+        durationMs: Date.now() - start,
+      });
+    });
+  });
+}
+
+/** True iff Docker is the configured sandbox for this process. */
+export function isDockerSandboxEnabled() {
+  return (process.env.FLOWTEX_COMPILE_SANDBOX || 'in-process').toLowerCase() === 'docker';
+}
