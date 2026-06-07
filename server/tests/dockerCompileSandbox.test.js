@@ -16,6 +16,7 @@ import {
   buildDockerArgs,
   runDockerCompile,
   isDockerSandboxEnabled,
+  remapLatexmkArgsForContainer,
 } from '../services/dockerCompileSandbox.js';
 
 const PRESERVE = [
@@ -54,8 +55,11 @@ describe('buildDockerArgs', () => {
     expect(argv).toContain('--volume=/srv/flowtex/projects/proj-1:/workdir:rw');
     expect(argv).toContain('--workdir=/workdir');
     expect(argv).toContain('flowtex/compile-sandbox:test');
-    // latexmk argv survives the wrap.
-    expect(argv.slice(-4)).toEqual(['-pdf', '--no-shell-escape', '--', 'main.tex']);
+    // latexmk argv survives the wrap, but the `--` separator is
+    // stripped by remapLatexmkArgsForContainer (Bookworm latexmk
+    // 4.79 doesn't recognise it; isValidFilePath rejects
+    // leading-dash filenames upstream as the authoritative guard).
+    expect(argv.slice(-3)).toEqual(['-pdf', '--no-shell-escape', 'main.tex']);
   });
 
   it('threads memory / pids / cpu caps from env', () => {
@@ -175,6 +179,42 @@ describe('runDockerCompile', () => {
     fake.emit('exit', 0, null);
     const result = await p;
     expect(result.stdout.length).toBeLessThanOrEqual(10 * 1024 * 1024 + 1024 * 1024);
+  });
+});
+
+describe('remapLatexmkArgsForContainer', () => {
+  it('strips the `--` separator (latexmk 4.79 in Bookworm rejects it)', () => {
+    expect(remapLatexmkArgsForContainer(['-pdf', '--', 'main.tex']))
+      .toEqual(['-pdf', 'main.tex']);
+  });
+
+  it('rewrites -output-directory=<host path> to /workdir', () => {
+    expect(remapLatexmkArgsForContainer([
+      '-pdf', '-output-directory=/srv/flowtex/projects/proj-1', 'main.tex',
+    ])).toEqual([
+      '-pdf', '-output-directory=/workdir', 'main.tex',
+    ]);
+  });
+
+  it('strips host-side profile wrapper overrides (`-e $pdflatex=q[/abs/...]`)', () => {
+    const argv = [
+      '-pdf', '-e', '$pdflatex = q[ /opt/wrap.sh ]',
+      '-e', '$bibtex = q[ /opt/wrap.sh bibtex ]',
+      'main.tex',
+    ];
+    expect(remapLatexmkArgsForContainer(argv))
+      .toEqual(['-pdf', 'main.tex']);
+  });
+
+  it('preserves a user -e that is not a host-path profile wrapper', () => {
+    const argv = ['-pdf', '-e', '$max_repeat=4', 'main.tex'];
+    expect(remapLatexmkArgsForContainer(argv))
+      .toEqual(['-pdf', '-e', '$max_repeat=4', 'main.tex']);
+  });
+
+  it('non-array input is returned unchanged', () => {
+    expect(remapLatexmkArgsForContainer(null)).toBeNull();
+    expect(remapLatexmkArgsForContainer('hi')).toBe('hi');
   });
 });
 

@@ -78,6 +78,53 @@ function getImage() {
 }
 
 /**
+ * Remap a host-shaped latexmk argv into a container-shaped one.
+ *
+ *   - `-output-directory=<host path>` → `-output-directory=/workdir`
+ *     because the host projectDir is bind-mounted at /workdir; the
+ *     host path doesn't exist inside the container.
+ *   - The `--` option terminator (JJ1's belt-and-braces from audit
+ *     round 21) is stripped because latexmk 4.79 (the version
+ *     Bookworm ships in our sandbox image) doesn't recognise it.
+ *     Argument injection from filenames starting with `-` is still
+ *     prevented by `isValidFilePath` upstream, which is the
+ *     authoritative guard.
+ *   - The host-side profile-wrapper overrides (`-e $pdflatex=q[ /host/...]`)
+ *     reference scripts that live in the host filesystem. They're
+ *     stripped here -- profile capture is a performance / debug
+ *     feature, not a correctness one, and it gracefully degrades to
+ *     "no profile produced" when readCompileProfile finds no file.
+ *
+ * Pure function; unit-tested.
+ */
+export function remapLatexmkArgsForContainer(latexmkArgs) {
+  if (!Array.isArray(latexmkArgs)) return latexmkArgs;
+  const out = [];
+  for (let i = 0; i < latexmkArgs.length; i++) {
+    const a = latexmkArgs[i];
+    if (typeof a !== 'string') { out.push(a); continue; }
+    if (a === '--') continue;
+    if (a.startsWith('-output-directory=')) {
+      out.push('-output-directory=/workdir');
+      continue;
+    }
+    if (a === '-e' && i + 1 < latexmkArgs.length) {
+      const next = latexmkArgs[i + 1];
+      // Profile overrides look like `$pdflatex = q[ /host/path ... ]`
+      // -- strip both the -e and its value when they're host-path
+      // shaped. A user-supplied -e that's NOT a profile wrapper (no
+      // leading absolute path inside q[]) is preserved.
+      if (typeof next === 'string' && /^\$\w+\s*=\s*q\[\s*\//.test(next)) {
+        i += 1;
+        continue;
+      }
+    }
+    out.push(a);
+  }
+  return out;
+}
+
+/**
  * Build the `docker run` argv that wraps a latexmk invocation. Pure
  * function; the actual spawn happens in runDockerCompile below. Split
  * so tests can assert the wrapping without invoking Docker.
@@ -85,7 +132,10 @@ function getImage() {
  * @param {object} args
  * @param {string} args.projectDir   absolute path on host
  * @param {string[]} args.latexmkArgs argv that would have been passed
- *                                    to `latexmk` directly
+ *                                    to `latexmk` directly (host-shape;
+ *                                    remapped to container-shape inside
+ *                                    this function -- see
+ *                                    remapLatexmkArgsForContainer)
  * @param {number} args.cpuLimitSec   CPU time cap (matches the JS
  *                                    timeout window + a small grace)
  * @param {object} [opts]             defaults overrides for tests
@@ -98,6 +148,7 @@ export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts =
     throw new Error('buildDockerArgs: latexmkArgs must be an array of strings');
   }
   const image = getImage();
+  const containerArgs = remapLatexmkArgsForContainer(latexmkArgs);
   return [
     'run',
     '--rm',
@@ -119,7 +170,7 @@ export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts =
     '--stop-signal=SIGTERM',
     `--stop-timeout=${Math.max(5, Math.min(60, Math.ceil(cpuLimitSec / 4)))}`,
     image,
-    ...latexmkArgs,
+    ...containerArgs,
   ];
 }
 
