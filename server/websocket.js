@@ -7,8 +7,13 @@ import logger from './logger.js';
 import db from './db.js';
 import { UUID_RE, isProjectMember } from './middleware/auth.js';
 import { recordMentions } from './utils/mentions.js';
-import * as yjsRoom from './services/yjsRoom.js';
-import { isWorkerSplitEnabled } from './services/yjsRoomSelector.js';
+import {
+  acquireRoom as yjsAcquireRoom,
+  applyUpdate as yjsApplyUpdate,
+  encodeStateAsUpdate as yjsEncodeStateAsUpdate,
+  releaseRoom as yjsReleaseRoom,
+  isWorkerSplitEnabled,
+} from './services/yjsRoomSelector.js';
 import { setWsConnectionsActive, recordWsFrame } from './services/metrics.js';
 import { captureException as reportException } from './services/errorReporter.js';
 
@@ -295,7 +300,12 @@ async function handleYjsUpdate(msg, state, ws) {
   } catch {
     return;
   }
-  yjsRoom.applyUpdate(state.projectId, msg.fileId, bytes);
+  // Fire-and-forget through the selector. In single-instance the
+  // in-process applyUpdate runs synchronously; in cluster mode the
+  // selector XADDs to Redis and returns a Promise we don't need to
+  // await on this hot path. Errors land in the selector's recorded
+  // metrics + tracing span, not on the WS handler.
+  void yjsApplyUpdate(state.projectId, msg.fileId, bytes);
 
   broadcastToRoom(
     state.projectId,
@@ -335,7 +345,11 @@ async function handleYjsRequestState(msg, state, ws) {
   // was persisted to PG even if no one else is editing.
   if (!(await ensureRoomSubscribed(state, msg.fileId))) return;
 
-  const bytes = yjsRoom.encodeStateAsUpdate(state.projectId, msg.fileId);
+  // encodeStateAsUpdate via the selector: in-process returns
+  // immediately; remote does a Redis round-trip with a poll-key
+  // contract and resolves with the bytes. Must be awaited because
+  // we send the bytes back to the client.
+  const bytes = await yjsEncodeStateAsUpdate(state.projectId, msg.fileId);
   if (!bytes) return;
   const b64 = Buffer.from(bytes).toString('base64');
   if (ws.readyState !== 1) return;
@@ -351,7 +365,7 @@ async function handleYjsRequestState(msg, state, ws) {
 async function ensureRoomSubscribed(state, fileId) {
   if (!state.yjsRoomsHeld) state.yjsRoomsHeld = new Set();
   if (state.yjsRoomsHeld.has(fileId)) return true;
-  const room = await yjsRoom.acquireRoom(state.projectId, fileId);
+  const room = await yjsAcquireRoom(state.projectId, fileId);
   if (!room) return false;
   state.yjsRoomsHeld.add(fileId);
   return true;
@@ -367,7 +381,7 @@ export async function releaseYjsRoomsForState(state) {
   const fileIds = [...state.yjsRoomsHeld];
   state.yjsRoomsHeld.clear();
   for (const fileId of fileIds) {
-    await yjsRoom.releaseRoom(state.projectId, fileId);
+    await yjsReleaseRoom(state.projectId, fileId);
   }
 }
 
