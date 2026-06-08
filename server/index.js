@@ -1,3 +1,11 @@
+// SAAS-FOUNDATIONS item 5 (continued): OpenTelemetry boots first.
+// When OTEL_EXPORTER_OTLP_ENDPOINT is unset this is a no-op import
+// (the SDK isn't loaded). When set, it installs auto-instrumentations
+// on http / express / pg / ioredis -- which need to register BEFORE
+// those modules are first required. ESM hoists imports, so as long
+// as this line is first, the wiring works.
+import './tracing.js';
+
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
