@@ -51,7 +51,12 @@ describe('buildDockerArgs', () => {
     expect(argv).toContain('--read-only');
     expect(argv).toContain('--cap-drop=ALL');
     expect(argv).toContain('--security-opt=no-new-privileges');
-    expect(argv).toContain('--user=1000:1000');
+    // User defaults to the host process's UID:GID so the container
+    // can write to bind-mounted dirs without chmod-777 / chown
+    // gymnastics. Tests run as some real UID, so we assert the
+    // shape, not a specific value.
+    const userArg = argv.find((a) => a.startsWith('--user='));
+    expect(userArg).toMatch(/^--user=\d+:\d+$/);
     expect(argv).toContain('--volume=/srv/flowtex/projects/proj-1:/workdir:rw');
     expect(argv).toContain('--workdir=/workdir');
     expect(argv).toContain('flowtex/compile-sandbox:test');
@@ -60,6 +65,30 @@ describe('buildDockerArgs', () => {
     // 4.79 doesn't recognise it; isValidFilePath rejects
     // leading-dash filenames upstream as the authoritative guard).
     expect(argv.slice(-3)).toEqual(['-pdf', '--no-shell-escape', 'main.tex']);
+  });
+
+  it('user defaults to the host process UID:GID (not a hardcoded 1000:1000)', () => {
+    // The hardcoded 1000:1000 was wrong for any Linux host whose
+    // service user has a different UID -- the container then can't
+    // write to the bind-mounted project dir. The default is now the
+    // host process's UID/GID, which works regardless of how the
+    // service account was created. macOS Docker Desktop tolerates
+    // the older shape too, so this is a pure fix-forward.
+    const argv = buildDockerArgs({
+      projectDir: '/srv/proj-1',
+      latexmkArgs: ['-pdf'],
+      cpuLimitSec: 30,
+    });
+    const userArg = argv.find((a) => a.startsWith('--user='));
+    expect(userArg).toBe(`--user=${process.getuid()}:${process.getgid()}`);
+  });
+
+  it('honours FLOWTEX_COMPILE_USER override', () => {
+    const argv = buildDockerArgs(
+      { projectDir: '/srv/proj-1', latexmkArgs: ['-pdf'], cpuLimitSec: 30 },
+      { memory: '2g', pidsLimit: 256, cpus: '2.0', tmpfsSize: '512m', user: '2000:3000' },
+    );
+    expect(argv).toContain('--user=2000:3000');
   });
 
   it('threads memory / pids / cpu caps from env', () => {

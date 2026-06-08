@@ -272,13 +272,18 @@ function safePath(projectDir, filePath) {
  */
 export function stopCompilation(projectId) {
   const entry = activeCompilations.get(projectId);
-  if (entry) {
-    entry.child.kill('SIGTERM');
-    activeCompilations.delete(projectId);
-    // Return a promise that resolves when the process actually exits
-    return entry.exitPromise;
+  if (!entry) return Promise.resolve(false);
+  // Docker-path compiles store child: null because runDockerCompile
+  // tracks the docker-CLI subprocess internally (and its own
+  // timeoutMs is the kill signal). The route was calling
+  // .kill on a null and throwing TypeError ("Cannot read
+  // properties of null (reading 'kill')"). Be defensive.
+  if (entry.child && typeof entry.child.kill === 'function') {
+    try { entry.child.kill('SIGTERM'); } catch { /* already dead */ }
   }
-  return Promise.resolve(false);
+  activeCompilations.delete(projectId);
+  // Return a promise that resolves when the process actually exits
+  return entry.exitPromise;
 }
 
 /**
@@ -293,7 +298,11 @@ export function stopCompilation(projectId) {
 export async function abortAllCompilations(timeoutMs = 2000) {
   const entries = Array.from(activeCompilations.values());
   for (const entry of entries) {
-    try { entry.child.kill('SIGTERM'); } catch { /* already dead */ }
+    // Same null-guard as stopCompilation: Docker-path entries don't
+    // have a host-side child handle.
+    if (entry.child && typeof entry.child.kill === 'function') {
+      try { entry.child.kill('SIGTERM'); } catch { /* already dead */ }
+    }
   }
   activeCompilations.clear();
   await Promise.all(

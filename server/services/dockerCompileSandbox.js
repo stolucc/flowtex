@@ -51,12 +51,33 @@ import logger from '../logger.js';
 
 const PROJECTS_DIR_RE = /^[/\w.-]+$/;
 
+// Default container UID/GID: match the host process's UID/GID so
+// the container can write into the bind-mounted project dir without
+// chmod-777 gymnastics or chown-ing project dirs to a random UID.
+//
+// macOS Docker Desktop maps UIDs transparently and "any UID inside
+// works" -- which masked the bug for the original integration test
+// run on Mac. On Linux, the container UID must match the host file
+// owner (or have group access), or write attempts ENOSPC/EACCES.
+//
+// The compile-sandbox image was built with a `latex` user at UID
+// 1000 -- but TeX itself doesn't care if the container UID has no
+// /etc/passwd entry, so running as the host's UID works fine.
+// Operators with an unusual setup can override via the env var.
+function defaultContainerUser() {
+  // Both getuid/getgid are POSIX-only; Windows tests can override
+  // via FLOWTEX_COMPILE_USER. On any POSIX host this is the right
+  // default.
+  if (typeof process.getuid !== 'function') return '1000:1000';
+  return `${process.getuid()}:${process.getgid()}`;
+}
+
 const SANDBOX_DEFAULTS = {
   memory: process.env.FLOWTEX_COMPILE_MEMORY || '2g',
   pidsLimit: parseInt(process.env.FLOWTEX_COMPILE_PIDS_LIMIT || '256', 10),
   cpus: process.env.FLOWTEX_COMPILE_CPUS || '2.0',
   tmpfsSize: process.env.FLOWTEX_COMPILE_TMPFS_SIZE || '512m',
-  user: process.env.FLOWTEX_COMPILE_USER || '1000:1000',
+  user: process.env.FLOWTEX_COMPILE_USER || defaultContainerUser(),
   dockerBin: process.env.FLOWTEX_DOCKER_BIN || 'docker',
 };
 
