@@ -419,7 +419,12 @@ User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-ExecStart=/usr/bin/node --env-file=$APP_DIR/.env $APP_DIR/server/index.js
+ExecStart=/usr/bin/node $APP_DIR/server/index.js
+# NB: no --env-file. systemd's EnvironmentFile= above is the single
+# source of truth for env. Node 22's --env-file overrides
+# process.env at startup, which silently defeats systemd's
+# `Environment=PORT=...` overrides (e.g. flowtex-2 instance trying
+# to bind 3001 with PORT=3002 explicitly set on the unit).
 Restart=on-failure
 RestartSec=5
 
@@ -465,7 +470,8 @@ User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-ExecStart=/usr/bin/node --env-file=$APP_DIR/.env $APP_DIR/server/yjsWorker.js
+ExecStart=/usr/bin/node $APP_DIR/server/yjsWorker.js
+# NB: no --env-file. Same reason as flowtex.service ExecStart above.
 # Worker apply path is purely CPU + Redis + in-memory; on transient
 # Redis blips the worker exits, systemd restarts it, it rejoins the
 # consumer group and XAUTOCLAIM picks up any orphaned entries.
