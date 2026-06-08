@@ -70,7 +70,22 @@ die()  { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Run as root (sudo bash provision-vps.sh)."
 [ -f /etc/os-release ] && . /etc/os-release
 [ "${ID:-}" = "ubuntu" ] || die "This script targets Ubuntu. Detected: ${ID:-unknown}."
-: "${DOMAIN:?Set DOMAIN=your.domain — Caddy needs it for the TLS cert}"
+
+# Idempotent re-runs (operator passing WITH_REDIS=1 / WITH_DOCKER=1
+# against an already-provisioned box) shouldn't have to re-pass
+# DOMAIN and ADMIN_EMAIL -- they're already baked into the generated
+# .env. If the env vars aren't set but a previous .env exists, read
+# the originals back so the run unblocks cleanly.
+__EXISTING_ENV="${APP_DIR}/.env"
+if [ -z "${DOMAIN:-}" ] && [ -f "$__EXISTING_ENV" ]; then
+  DOMAIN="$(grep -m1 '^APP_URL=' "$__EXISTING_ENV" 2>/dev/null | sed -E 's|^APP_URL=https?://||')"
+  [ -n "$DOMAIN" ] && log "Reusing DOMAIN=$DOMAIN from existing $__EXISTING_ENV"
+fi
+if [ -z "${ADMIN_EMAIL:-}" ] && [ -f "$__EXISTING_ENV" ]; then
+  ADMIN_EMAIL="$(grep -m1 '^ADMIN_EMAIL=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2-)"
+  [ -n "$ADMIN_EMAIL" ] && log "Reusing ADMIN_EMAIL from existing $__EXISTING_ENV"
+fi
+: "${DOMAIN:?Set DOMAIN=your.domain — Caddy needs it for the TLS cert (or re-run on an existing install which has it baked in)}"
 : "${ADMIN_EMAIL:?Set ADMIN_EMAIL=you@example.com — used for the admin account and TLS cert issuance}"
 
 # Optional SMTP config (see header). SMTP_HOST is the trigger; the rest get
