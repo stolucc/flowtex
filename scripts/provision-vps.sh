@@ -100,6 +100,19 @@ SMTP_FROM="${SMTP_FROM:-FlowTex <noreply@${DOMAIN}>}"
 
 log "Provisioning FlowTex on $DOMAIN (Ubuntu $VERSION_ID, user: $APP_USER, dir: $APP_DIR)"
 
+# ── Drop broken apt sources before update ───────────────────────────────
+# Earlier provisioner versions and some manual setups added the
+# `texlive-backports` PPA to get a newer TL than Jammy/Focal shipped.
+# That PPA never published for Noble (24.04), so on Noble it 404s
+# every `apt-get update` and the script aborts before any package
+# install can happen. Ubuntu 24.04's native texlive packages are
+# already TL 2023, which is recent enough that the PPA isn't
+# needed -- so unconditionally remove any stale reference.
+if compgen -G '/etc/apt/sources.list.d/*texlive-backports*' >/dev/null 2>&1; then
+  log "Removing stale texlive-backports PPA (Noble doesn't publish it)"
+  rm -f /etc/apt/sources.list.d/*texlive-backports*
+fi
+
 # ── System packages ─────────────────────────────────────────────────────
 log "Installing system packages (texlive-full is ~7 GB — this is the slow step)"
 export DEBIAN_FRONTEND=noninteractive
