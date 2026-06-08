@@ -60,19 +60,32 @@ describe('acquireLock', () => {
     expect(await acquireLock(redis, 'w', 'p', 'f')).toBe(false);
   });
 
-  it('returns false when redis client is missing', async () => {
-    expect(await acquireLock(null, 'w', 'p', 'f')).toBe(false);
+  it('throws when redis client is missing (precondition violation)', async () => {
+    // Old behavior was silent `return false`; mutation testing flagged
+    // it as equivalent to the catch block (TypeError on null.set
+    // caught, returns false). Throwing makes the precondition
+    // observable AND kills the if-guard mutants.
+    await expect(acquireLock(null, 'w', 'p', 'f')).rejects.toThrow(/redis client is required/);
   });
 });
 
 describe('renewLock', () => {
-  it('re-arms via SET XX with the same consumerId', async () => {
+  it('re-arms via SET XX with the same consumerId + EX ttl', async () => {
     const redis = makeRedis({ setResult: 'OK' });
     const ok = await renewLock(redis, 'worker-1', 'p1', 'f1');
     expect(ok).toBe(true);
     const args = redis.set.mock.calls[0];
+    expect(args[0]).toBe('flowtex:yjs:lock:p1:f1');
     expect(args[1]).toBe('worker-1');
+    // Pin all four SET arguments -- mutation testing surfaced that
+    // 'EX' at args[2] was unpinned (mutation to empty string survived).
+    expect(args[2]).toBe('EX');
+    expect(args[3]).toBe(_testing.DEFAULT_TTL_SEC);
     expect(args[4]).toBe('XX');
+  });
+
+  it('throws when redis client is missing', async () => {
+    await expect(renewLock(null, 'w', 'p', 'f')).rejects.toThrow(/redis client is required/);
   });
 
   it('returns false when the key no longer exists (TTL expired)', async () => {
@@ -113,6 +126,10 @@ describe('releaseLock', () => {
     expect(await releaseLock(makeRedis({ evalResult: '1' }), 'w', 'p', 'f')).toBe(true);
     expect(await releaseLock(makeRedis({ evalResult: 1 }), 'w', 'p', 'f')).toBe(true);
   });
+
+  it('throws when redis client is missing', async () => {
+    await expect(releaseLock(null, 'w', 'p', 'f')).rejects.toThrow(/redis client is required/);
+  });
 });
 
 describe('peekLock', () => {
@@ -130,6 +147,10 @@ describe('peekLock', () => {
   it('returns null (no throw) when Redis errors', async () => {
     const redis = makeRedis({ throwOn: 'get' });
     expect(await peekLock(redis, 'p', 'f')).toBeNull();
+  });
+
+  it('throws when redis client is missing', async () => {
+    await expect(peekLock(null, 'p', 'f')).rejects.toThrow(/redis client is required/);
   });
 });
 

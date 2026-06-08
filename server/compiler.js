@@ -343,6 +343,55 @@ export const COMPILERS = [
 ];
 
 /**
+ * Build the latexmk argv for a compile. Pure function; the actual
+ * execFile happens in _doCompile. Split so the security-critical
+ * flags can be unit-tested without invoking latexmk.
+ *
+ * The argv order matters: latexmk reads positional opts left to
+ * right, so `--no-shell-escape` MUST appear before profile-override
+ * `-e` lines (otherwise an operator-supplied -e could re-enable
+ * shell-escape through a $pdflatex override; --no-shell-escape
+ * earlier wins under latexmk's last-wins-for-flags semantics).
+ *
+ * @param {object} args
+ * @param {string} args.engineFlag      one of '-pdf' / '-xelatex' / '-lualatex'
+ * @param {string} args.jobName         the latexmk -jobname value
+ * @param {string} args.projectDir      absolute output dir on host
+ * @param {string} args.mainFile        the .tex entrypoint (validated upstream)
+ * @param {string[]} args.profileOverrides    extra -e flags from profileLatexmkOverrides
+ * @returns {string[]}
+ */
+export function buildLatexmkArgs({ engineFlag, jobName, projectDir, mainFile, profileOverrides = [] }) {
+  return [
+    engineFlag,
+    '-synctex=1',
+    '-interaction=nonstopmode',
+    '-f',
+    // SECURITY: --no-shell-escape MUST precede profileOverrides so a
+    // hostile $pdflatex override can't enable -shell-escape and survive.
+    '--no-shell-escape',
+    // emit <jobname>.fls listing every input/output for the rebuild explainer
+    '-recorder',
+    '-e', '$max_repeat=4',
+    ...profileOverrides,
+    `-jobname=${jobName}`,
+    `-output-directory=${projectDir}`,
+    // JJ1 (audit round 21) HAD added `--` here as a belt-and-braces
+    // against argument injection through filenames starting with `-`.
+    // Removed because every shipping latexmk version (at least up to
+    // 4.87) treats `--` as "unknown option" -- it's NOT a
+    // getopt-style terminator for this program, despite the convention
+    // elsewhere. The authoritative guard against the original JJ1
+    // threat is `isValidFilePath` in services/projectService.js, which
+    // rejects path segments starting with `-` so the file can't even
+    // land in a project. The remap shim in the Docker sandbox path
+    // drops `--` for the same reason (latexmk 4.79 in Bookworm), so
+    // this change keeps the two paths consistent.
+    mainFile,
+  ];
+}
+
+/**
  * Compile a LaTeX project, syncing files to disk first.
  * @param {string} projectId
  * @param {string} mainFile - Entry .tex file (default 'main.tex').
@@ -561,32 +610,13 @@ async function _doCompile(
         profilePath,
         compiler,
       });
-      const latexmkArgs = [
+      const latexmkArgs = buildLatexmkArgs({
         engineFlag,
-        '-synctex=1',
-        '-interaction=nonstopmode',
-        '-f',
-        '--no-shell-escape',
-        '-recorder', // emit <jobname>.fls listing every input/output for the rebuild explainer
-        '-e', '$max_repeat=4',
-        ...profileOverrides,
-        `-jobname=${jobName}`,
-        `-output-directory=${projectDir}`,
-        // JJ1 (audit round 21) HAD added `--` here as a belt-and-
-        // braces against argument injection through filenames
-        // starting with `-`. Removed because every shipping
-        // latexmk version (at least up to 4.87) treats `--` as
-        // "unknown option" -- it's NOT a getopt-style terminator
-        // for this program, despite the convention elsewhere. The
-        // authoritative guard against the original JJ1 threat is
-        // `isValidFilePath` in services/projectService.js, which
-        // rejects path segments starting with `-` so the file
-        // can't even land in a project. The remap shim in the
-        // Docker sandbox path drops `--` for the same reason
-        // (latexmk 4.79 in Bookworm), so this change keeps the two
-        // paths consistent.
+        jobName,
+        projectDir,
         mainFile,
-      ];
+        profileOverrides,
+      });
       // On Linux with prlimit available, wrap the invocation in
       // address-space, file-size, CPU-time, and process-count caps.
       // CPU time is set slightly above the JS timeout so the kernel

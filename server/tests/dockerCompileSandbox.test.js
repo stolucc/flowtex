@@ -47,10 +47,19 @@ describe('buildDockerArgs', () => {
       cpuLimitSec: 60,
     });
     expect(argv[0]).toBe('run');
+    // Pin every security-critical flag literally. Mutation testing
+    // surfaced gaps where flags like --rm, --stop-signal=SIGTERM, and
+    // --workdir=/workdir weren't asserted -- a string-literal mutation
+    // could swap them for "" and the build-args function would still
+    // produce a non-empty array that passed the existing toContain
+    // assertions. Each flag below now anchored.
+    expect(argv).toContain('--rm');
     expect(argv).toContain('--network=none');
     expect(argv).toContain('--read-only');
     expect(argv).toContain('--cap-drop=ALL');
     expect(argv).toContain('--security-opt=no-new-privileges');
+    expect(argv).toContain('--workdir=/workdir');
+    expect(argv).toContain('--stop-signal=SIGTERM');
     // User defaults to the host process's UID:GID so the container
     // can write to bind-mounted dirs without chmod-777 / chown
     // gymnastics. Tests run as some real UID, so we assert the
@@ -293,6 +302,38 @@ describe('remapLatexmkArgsForContainer', () => {
     const argv = ['-pdf', '-e', '$max_repeat=4', 'main.tex'];
     expect(remapLatexmkArgsForContainer(argv))
       .toEqual(['-pdf', '-e', '$max_repeat=4', 'main.tex']);
+  });
+
+  it('-e at end of array is preserved (no out-of-bounds peek)', () => {
+    // Pins the `i + 1 < latexmkArgs.length` bounds check. Without
+    // it, the strip-attempt would read latexmkArgs[i + 1] off the end
+    // (undefined) and the typeof check would mask the error. A
+    // mutation that bypassed the bounds check (e.g. `< -> <=`) would
+    // survive without this case.
+    const argv = ['-pdf', '-e'];
+    expect(remapLatexmkArgsForContainer(argv)).toEqual(['-pdf', '-e']);
+  });
+
+  it('regex coverage: only strips when value matches /^\\$\\w+\\s*=\\s*q\\[/', () => {
+    // Mutation testing surfaced 3 surviving regex mutants. These
+    // explicit cases pin every alternation in the pattern: the
+    // anchor at start, the word-class \\w+ after $, the optional
+    // whitespace around =, and the q[ literal.
+    //
+    // Not-stripped: missing leading $
+    expect(remapLatexmkArgsForContainer(['-e', 'pdflatex = q[/x/y]'])).toEqual(['-e', 'pdflatex = q[/x/y]']);
+    // Not-stripped: $ followed by digit (not \\w-start? actually \\w
+    // includes digits, but this confirms behaviour). The literal $1
+    // is unusual but should still match.
+    expect(remapLatexmkArgsForContainer(['-e', '$1 = q[/x/y]'])).toEqual([]);
+    // Not-stripped: no q[ after =
+    expect(remapLatexmkArgsForContainer(['-e', '$x = "literal"'])).toEqual(['-e', '$x = "literal"']);
+    // Stripped: tight whitespace
+    expect(remapLatexmkArgsForContainer(['-e', '$x=q[anything]'])).toEqual([]);
+    // Stripped: extra whitespace
+    expect(remapLatexmkArgsForContainer(['-e', '$x   =   q[anything]'])).toEqual([]);
+    // Not-stripped: not anchored at start
+    expect(remapLatexmkArgsForContainer(['-e', 'prefix $x = q[/y]'])).toEqual(['-e', 'prefix $x = q[/y]']);
   });
 
   it('non-array input is returned unchanged', () => {

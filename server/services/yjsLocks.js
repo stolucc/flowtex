@@ -61,7 +61,14 @@ export function lockKey(projectId, fileId) {
  * @returns {Promise<boolean>} true iff we are now the lock-holder
  */
 export async function acquireLock(redis, consumerId, projectId, fileId, ttlSec = DEFAULT_TTL_SEC) {
-  if (!redis) return false;
+  // Null-redis is a programming error (yjsWorker exits at boot if
+  // REDIS_URL is unset, so a null reaching here means a wiring bug).
+  // Throw rather than silently returning false -- the old behavior
+  // was equivalent to the catch-block fallback below and mutation
+  // testing flagged it as unobservable. Failing loud here also
+  // prevents a partial-rollout where the lock module silently
+  // becomes a no-op on a misconfigured deploy.
+  if (!redis) throw new Error('yjsLocks.acquireLock: redis client is required');
   try {
     const r = await redis.set(lockKey(projectId, fileId), consumerId, 'EX', ttlSec, 'NX');
     return r === 'OK';
@@ -77,7 +84,7 @@ export async function acquireLock(redis, consumerId, projectId, fileId, ttlSec =
  * Returns true iff the renewal succeeded (we still own it).
  */
 export async function renewLock(redis, consumerId, projectId, fileId, ttlSec = DEFAULT_TTL_SEC) {
-  if (!redis) return false;
+  if (!redis) throw new Error('yjsLocks.renewLock: redis client is required');
   try {
     const r = await redis.set(lockKey(projectId, fileId), consumerId, 'EX', ttlSec, 'XX');
     return r === 'OK';
@@ -92,7 +99,7 @@ export async function renewLock(redis, consumerId, projectId, fileId, ttlSec = D
  * false in that case.
  */
 export async function releaseLock(redis, consumerId, projectId, fileId) {
-  if (!redis) return false;
+  if (!redis) throw new Error('yjsLocks.releaseLock: redis client is required');
   try {
     const r = await redis.eval(RELEASE_LUA, 1, lockKey(projectId, fileId), consumerId);
     return r === 1 || r === '1';
@@ -106,7 +113,7 @@ export async function releaseLock(redis, consumerId, projectId, fileId) {
  * the consumerId string, or null if no lock is held.
  */
 export async function peekLock(redis, projectId, fileId) {
-  if (!redis) return null;
+  if (!redis) throw new Error('yjsLocks.peekLock: redis client is required');
   try {
     return await redis.get(lockKey(projectId, fileId));
   } catch {
