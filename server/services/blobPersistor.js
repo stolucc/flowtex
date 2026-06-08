@@ -33,6 +33,14 @@
 import { Buffer } from 'node:buffer';
 import logger from '../logger.js';
 import * as fsBackend from './blobStore.js';
+import { withSpan } from '../tracing.js';
+
+// Short sha helper for span attributes -- carry enough to grep the
+// trace back to a specific blob without leaking the full 64-char
+// hash into trace UIs that truncate badly.
+function shortSha(sha) {
+  return typeof sha === 'string' && sha.length >= 8 ? sha.slice(0, 8) : 'unknown';
+}
 
 let activeBackend = null;
 let activeName = null;
@@ -123,10 +131,18 @@ export function getFallbackBackendName() {
 // ── Pass-through convenience exports ───────────────────────────────────
 
 export async function writeBlob(projectId, stream, opts) {
-  const b = await getBlobPersistor();
-  // Writes only ever go to the primary backend. The fallback exists
-  // for read-side migration, not as a write target.
-  return b.writeBlob(projectId, stream, opts);
+  return withSpan('blob.writeBlob', async (span) => {
+    const b = await getBlobPersistor();
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.backend', getActiveBackendName() || 'unknown');
+    // Writes only ever go to the primary backend. The fallback exists
+    // for read-side migration, not as a write target.
+    const result = await b.writeBlob(projectId, stream, opts);
+    if (result?.sha256) span.setAttribute('flowtex.sha256', shortSha(result.sha256));
+    if (typeof result?.size === 'number') span.setAttribute('flowtex.blob_bytes', result.size);
+    if (typeof result?.deduped === 'boolean') span.setAttribute('flowtex.deduped', result.deduped);
+    return result;
+  });
 }
 
 /**
@@ -135,18 +151,32 @@ export async function writeBlob(projectId, stream, opts) {
  * iff neither backend has the blob.
  */
 export async function statBlob(projectId, sha256) {
-  const b = await getBlobPersistor();
-  const primary = await b.statBlob(projectId, sha256);
-  if (primary) return primary;
-  if (fallbackBackend) {
-    try {
-      const fb = await fallbackBackend.statBlob(projectId, sha256);
-      if (fb) return fb;
-    } catch (err) {
-      logger.warn({ err, projectId, sha256 }, 'blob fallback statBlob failed');
+  return withSpan('blob.statBlob', async (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.sha256', shortSha(sha256));
+    span.setAttribute('flowtex.backend', getActiveBackendName() || 'unknown');
+    const b = await getBlobPersistor();
+    const primary = await b.statBlob(projectId, sha256);
+    if (primary) {
+      span.setAttribute('flowtex.fell_back', false);
+      return primary;
     }
-  }
-  return null;
+    if (fallbackBackend) {
+      try {
+        const fb = await fallbackBackend.statBlob(projectId, sha256);
+        if (fb) {
+          span.setAttribute('flowtex.fell_back', true);
+          span.setAttribute('flowtex.fallback_backend', getFallbackBackendName() || 'unknown');
+          return fb;
+        }
+      } catch (err) {
+        logger.warn({ err, projectId, sha256 }, 'blob fallback statBlob failed');
+        span.recordException(err);
+      }
+    }
+    span.setAttribute('flowtex.found', false);
+    return null;
+  });
 }
 
 /**
@@ -162,30 +192,48 @@ export async function statBlob(projectId, sha256) {
  * only correct semantics for "is this blob on this backend?".
  */
 export async function readBlobStream(projectId, sha256) {
-  const b = await getBlobPersistor();
-  if (fallbackBackend) {
-    // Two-backend path: must stat first to choose which to read from,
-    // because a streaming open may not surface ENOENT until first
-    // read.
-    const primary = await b.statBlob(projectId, sha256);
-    if (primary) return b.readBlobStream(projectId, sha256);
-    const fb = await fallbackBackend.statBlob(projectId, sha256);
-    if (fb) return fallbackBackend.readBlobStream(projectId, sha256);
-    return null;
-  }
-  // Single-backend path: defer to the backend's own stream, which
-  // matches the legacy createReadStream behaviour callers already
-  // expect.
-  return b.readBlobStream(projectId, sha256);
+  return withSpan('blob.readBlobStream', async (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.sha256', shortSha(sha256));
+    span.setAttribute('flowtex.backend', getActiveBackendName() || 'unknown');
+    const b = await getBlobPersistor();
+    if (fallbackBackend) {
+      // Two-backend path: must stat first to choose which to read from,
+      // because a streaming open may not surface ENOENT until first
+      // read.
+      const primary = await b.statBlob(projectId, sha256);
+      if (primary) {
+        span.setAttribute('flowtex.fell_back', false);
+        return b.readBlobStream(projectId, sha256);
+      }
+      const fb = await fallbackBackend.statBlob(projectId, sha256);
+      if (fb) {
+        span.setAttribute('flowtex.fell_back', true);
+        span.setAttribute('flowtex.fallback_backend', getFallbackBackendName() || 'unknown');
+        return fallbackBackend.readBlobStream(projectId, sha256);
+      }
+      span.setAttribute('flowtex.found', false);
+      return null;
+    }
+    // Single-backend path: defer to the backend's own stream, which
+    // matches the legacy createReadStream behaviour callers already
+    // expect.
+    return b.readBlobStream(projectId, sha256);
+  });
 }
 
 export async function deleteBlob(projectId, sha256) {
-  const b = await getBlobPersistor();
-  // Delete only the primary copy. During an FS -> S3 rollout, the
-  // separate migrator owns moving blobs over and deleting old ones;
-  // the runtime ref-count path here must NOT silently destroy a copy
-  // the migrator hasn't promoted yet.
-  return b.deleteBlob(projectId, sha256);
+  return withSpan('blob.deleteBlob', async (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.sha256', shortSha(sha256));
+    span.setAttribute('flowtex.backend', getActiveBackendName() || 'unknown');
+    const b = await getBlobPersistor();
+    // Delete only the primary copy. During an FS -> S3 rollout, the
+    // separate migrator owns moving blobs over and deleting old ones;
+    // the runtime ref-count path here must NOT silently destroy a copy
+    // the migrator hasn't promoted yet.
+    return b.deleteBlob(projectId, sha256);
+  });
 }
 
 /**
@@ -196,18 +244,38 @@ export async function deleteBlob(projectId, sha256) {
  * pattern.
  */
 export async function loadBlobBytes(projectId, sha256) {
-  const stream = await readBlobStream(projectId, sha256);
-  if (!stream) return null;
-  // FS-backend createReadStream returns a stream that may ENOENT on
-  // first read rather than the readBlobStream call itself, so handle
-  // that as a missing-blob signal too.
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    stream.on('data', (chunk) => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', (err) => {
-      if (err?.code === 'ENOENT') resolve(null);
-      else reject(err);
+  return withSpan('blob.loadBlobBytes', async (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.sha256', shortSha(sha256));
+    // The inner readBlobStream span is a child of this one (active-
+    // context propagation handles that automatically), so the trace
+    // shows: loadBlobBytes -> readBlobStream -> auto-instrumented FS
+    // or S3 child as nested spans.
+    const stream = await readBlobStream(projectId, sha256);
+    if (!stream) {
+      span.setAttribute('flowtex.found', false);
+      return null;
+    }
+    // FS-backend createReadStream returns a stream that may ENOENT on
+    // first read rather than the readBlobStream call itself, so handle
+    // that as a missing-blob signal too.
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let total = 0;
+      stream.on('data', (chunk) => { chunks.push(chunk); total += chunk.length; });
+      stream.on('end', () => {
+        span.setAttribute('flowtex.blob_bytes', total);
+        resolve(Buffer.concat(chunks));
+      });
+      stream.on('error', (err) => {
+        if (err?.code === 'ENOENT') {
+          span.setAttribute('flowtex.found', false);
+          resolve(null);
+        } else {
+          span.recordException(err);
+          reject(err);
+        }
+      });
     });
   });
 }
