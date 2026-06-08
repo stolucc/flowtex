@@ -39,12 +39,38 @@
 //   start the web tier.
 
 import { writeFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Auto-load .env so the operator doesn't have to remember to pass
+// --env-file=.env or `set -a; source .env`. We look in the standard
+// places in order:
+//   1. $FLOWTEX_ENV_FILE explicitly
+//   2. /opt/flowtex/.env  (the canonical production install path)
+//   3. ../server/.env     (older layout)
+//   4. ../.env            (newer layout)
+// First hit wins. Silent if none is present (operator might have
+// PGPASSWORD set in their shell env).
+function autoLoadEnv() {
+  if (typeof process.loadEnvFile !== 'function') return; // Node < 20.12 / 21.7
+  const candidates = [
+    process.env.FLOWTEX_ENV_FILE,
+    '/opt/flowtex/.env',
+    path.resolve(__dirname, '..', 'server', '.env'),
+    path.resolve(__dirname, '..', '.env'),
+  ].filter(Boolean);
+  for (const file of candidates) {
+    if (existsSync(file)) {
+      try { process.loadEnvFile(file); return; } catch { /* try next */ }
+    }
+  }
+}
+autoLoadEnv();
 
 // Resolve `pg` from server/node_modules regardless of where the
 // script is invoked. The deps are installed under server/, not at
