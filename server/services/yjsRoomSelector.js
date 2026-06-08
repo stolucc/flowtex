@@ -103,11 +103,12 @@ export async function applyUpdate(projectId, fileId, updateBytes) {
 }
 
 export async function encodeStateAsUpdate(projectId, fileId) {
-  const backend = getYjsBackend();
-  if (backend.kind === 'in-process') {
-    return backend.impl.encodeStateAsUpdate(projectId, fileId);
-  }
-  return backend.impl.encodeStateAsUpdate(projectId, fileId);
+  // Both backends expose the same async-resolving signature; the
+  // wrapper exists for future symmetry with custom backends. Dead
+  // `if (backend.kind === 'in-process')` branch removed -- mutation
+  // testing flagged that the two branches were identical and the
+  // condition was unobservable.
+  return getYjsBackend().impl.encodeStateAsUpdate(projectId, fileId);
 }
 
 export async function releaseRoom(projectId, fileId) {

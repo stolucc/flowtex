@@ -16,7 +16,11 @@
     "utils/mentions.js",
     "utils/latexDiff.js",
     "utils/tcMarks.js",
-    "services/authService.js"
+    "services/authService.js",
+    "services/yjsRoomSelector.js",
+    "services/readinessCheck.js",
+    "services/metrics.js",
+    "services/yjsLocks.js"
   ],
   "vitest": {
     "configFile": "vitest.mutation.config.js"

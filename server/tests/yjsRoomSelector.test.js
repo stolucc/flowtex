@@ -121,27 +121,69 @@ describe('yjsRoomSelector', () => {
     const local = await applyUpdate('p1', 'f1', new Uint8Array([1]));
     expect(local).toBe(true);
     expect(inProcess.applyUpdate).toHaveBeenCalled();
+    // Belt-and-braces: the OTHER backend must NOT have been called.
+    // Without this, mutation tests show that "force in-process branch"
+    // and "force remote branch" both survive because the unused
+    // backend's mock returns a value that happens to satisfy the
+    // return-value assertion above. The "not called" check is what
+    // actually pins the routing decision.
+    expect(remote.applyUpdate).not.toHaveBeenCalled();
 
     _resetForTests();
+    vi.clearAllMocks();
     process.env.FLOWTEX_YJS_WORKER = 'enabled';
     const remoteResult = await applyUpdate('p1', 'f1', new Uint8Array([1]));
     expect(remoteResult).toBe(true);
     expect(remote.applyUpdate).toHaveBeenCalled();
+    expect(inProcess.applyUpdate).not.toHaveBeenCalled();
   });
 
   it('encodeStateAsUpdate / releaseRoom dispatch through the active backend', async () => {
     delete process.env.FLOWTEX_YJS_WORKER;
     const local = await encodeStateAsUpdate('p1', 'f1');
     expect(Array.from(local)).toEqual([1]);
+    expect(inProcess.encodeStateAsUpdate).toHaveBeenCalled();
+    expect(remote.encodeStateAsUpdate).not.toHaveBeenCalled();
     await releaseRoom('p1', 'f1');
     expect(inProcess.releaseRoom).toHaveBeenCalled();
+    expect(remote.releaseRoom).not.toHaveBeenCalled();
 
     _resetForTests();
+    vi.clearAllMocks();
     process.env.FLOWTEX_YJS_WORKER = 'enabled';
     const remoteBytes = await encodeStateAsUpdate('p1', 'f1');
     expect(Array.from(remoteBytes)).toEqual([2]);
+    expect(remote.encodeStateAsUpdate).toHaveBeenCalled();
+    expect(inProcess.encodeStateAsUpdate).not.toHaveBeenCalled();
     await releaseRoom('p1', 'f1');
     expect(remote.releaseRoom).toHaveBeenCalled();
+    expect(inProcess.releaseRoom).not.toHaveBeenCalled();
+  });
+
+  it('getYjsBackend caches the routing decision across calls', async () => {
+    // Mutation test surfaced: the `if (active) return active` cache
+    // guard had no test backing it. Without the cache, a mid-process
+    // env-var change would silently flip the routing -- the cached
+    // value is the contract that the decision is set once at first
+    // call and stays.
+    delete process.env.FLOWTEX_YJS_WORKER;
+    expect(getYjsBackend().kind).toBe('in-process');
+    process.env.FLOWTEX_YJS_WORKER = 'enabled';        // would flip without cache
+    expect(getYjsBackend().kind).toBe('in-process');   // still in-process
+    _resetForTests();
+    expect(getYjsBackend().kind).toBe('remote');       // fresh evaluation post-reset
+  });
+
+  it('classifyExplicitFlag: unknown values fall through to env-based logic', async () => {
+    // Mutation testing surfaced: (raw || '').toLowerCase() -- the
+    // empty-string fallback is unobservable without a test that pins
+    // the "no env set" path explicitly. Without this assertion, a
+    // mutation to `(raw || 'enabled')` would silently flip the default.
+    delete process.env.FLOWTEX_YJS_WORKER;
+    expect(isWorkerSplitEnabled()).toBe(false);
+    _resetForTests();
+    process.env.FLOWTEX_YJS_WORKER = 'gibberish';  // unrecognised -> fall through
+    expect(isWorkerSplitEnabled()).toBe(false);    // no cluster mode either -> in-process
   });
 
   it('peekRoom: in-process returns the local room; remote returns null', async () => {
