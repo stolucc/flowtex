@@ -215,6 +215,96 @@ describe.skipIf(!RUN_INTEGRATION)('Docker compile sandbox (live)', () => {
     });
     expect(argv).toContain('--network=none');
   });
+
+  // ─── Realistic fixture: IEEEtran + biblatex + profile wrapper ─────────
+  // Built specifically to exercise the bug surfaces we hit during the
+  // first end-to-end test of the Docker sandbox path. Each `it` below
+  // pins one of the four bugs we lived through.
+
+  async function copyFixture(fixtureName) {
+    const src = path.resolve(__dirname, 'fixtures', fixtureName);
+    const dst = await makeWorkdir();
+    const { readdir, copyFile } = await import('node:fs/promises');
+    const entries = await readdir(src);
+    for (const name of entries) {
+      // Skip dotfiles + nested dirs -- our fixtures are flat.
+      if (name.startsWith('.')) continue;
+      await copyFile(path.join(src, name), path.join(dst, name));
+    }
+    // Match container uid 1000 perms on the bind-mount.
+    await chmod(dst, 0o777);
+    return dst;
+  }
+
+  it('compiles IEEEtran + biber multi-pass to a valid PDF (regression: texlive-publishers, --, q[] override, streaming)', async () => {
+    const dir = await copyFixture('compile-sandbox-ieee');
+    try {
+      const chunks = [];
+
+      // Build host-shaped args the way compiler.js does so the
+      // container-arg remapper actually has things to strip --
+      // mirrors the production path more closely than the trivial
+      // case above.
+      const hostArgs = [
+        '-pdf',
+        '-synctex=1',
+        '-interaction=nonstopmode',
+        '-f',
+        '--no-shell-escape',
+        '-recorder',
+        '-e', '$max_repeat=4',
+        // The two shapes the remapper has to strip on the way into
+        // the container -- the host-path profile wrappers. If the
+        // regex regresses, latexmk inside the container will try to
+        // exec a path that doesn't exist and the compile fails.
+        '-e', "$pdflatex = q['/usr/local/bin/node' '/host/wrap.mjs' --tool=pdflatex -- pdflatex %O %S]",
+        '-e', "$biber = q['/usr/local/bin/node' '/host/wrap.mjs' --tool=biber -- biber %O %S]",
+        '-jobname=main',
+        // host-path output-directory the remapper has to rewrite
+        '-output-directory=' + dir,
+        // The redundant `--` JJ1 separator the remapper has to drop
+        // (latexmk 4.79 in the image doesn't recognise it).
+        '--',
+        'main.tex',
+      ];
+
+      const result = await runDockerCompile({
+        projectDir: dir,
+        latexmkArgs: hostArgs,
+        timeoutMs: 180000,
+        env: process.env,
+        onOutput: (text) => chunks.push(text),
+      });
+
+      // Exit 0 -- all the remapping worked; latexmk found the
+      // documentclass; biber resolved citations.
+      expect(result.exitCode).toBe(0);
+
+      // PDF on disk with magic bytes + a non-trivial size (the
+      // 3-section document with a maketitle + bibliography is at
+      // least a few KB).
+      const pdfBytes = await readFile(path.join(dir, 'main.pdf'));
+      expect(pdfBytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(pdfBytes.length).toBeGreaterThan(10 * 1024);
+
+      // biber produced the .bbl with the resolved entries (PDF
+      // streams are FlateDecode-compressed so the .bbl is the
+      // durable plain-text proof).
+      const bbl = await readFile(path.join(dir, 'main.bbl'), 'utf-8');
+      expect(bbl).toMatch(/Turing/);
+      expect(bbl).toMatch(/Lamport/);
+
+      // Streamed output reached the onOutput callback during the
+      // compile (regression for the "Docker path silently captures
+      // stdout" bug). At least one chunk should be ~kilobytes
+      // because latexmk + pdflatex emit a lot of progress text.
+      expect(chunks.length).toBeGreaterThan(0);
+      const total = chunks.reduce((n, c) => n + c.length, 0);
+      expect(total).toBeGreaterThan(500);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 240000);
 });
 
 // A tiny sentinel suite that ALWAYS runs (no env gate) just to

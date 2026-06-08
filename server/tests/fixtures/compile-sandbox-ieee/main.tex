@@ -1,0 +1,60 @@
+% Realistic compile-sandbox integration fixture.
+%
+% Exercises four things the trivial \documentclass{article} fixture
+% never did, each of which corresponded to a real shipped bug:
+%
+%   1. A non-article document class (IEEEtran) -- texlive-publishers
+%      was missing from the original image.
+%   2. biblatex + biber -- forces latexmk to invoke biber, which
+%      means the $biber profile-wrapper override is exercised. The
+%      regex for stripping host-path overrides was wrong.
+%   3. Multiple latexmk passes (cite + ref) -- the compile takes a
+%      few seconds rather than being instantaneous, so streaming
+%      stdout to onOutput actually matters.
+%   4. The `--` option terminator never reached here because the
+%      args remapper strips it; if it ever stops stripping,
+%      latexmk 4.79 (Bookworm) will reject the whole argv.
+%
+% Build outside the test harness with:
+%   docker run --rm \
+%     -v "$PWD":/workdir:rw --user 1000:1000 \
+%     -w /workdir flowtex/compile-sandbox:tl-2022 \
+%     -pdf -interaction=nonstopmode -f --no-shell-escape \
+%     -jobname=main main.tex
+
+\documentclass{IEEEtran}
+\usepackage[backend=biber]{biblatex}
+\usepackage{hyperref}
+\addbibresource{refs.bib}
+
+\title{Compile-sandbox integration smoke test}
+\author{FlowTex}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document exists only to make latexmk run pdflatex + biber +
+pdflatex + pdflatex (the standard ``two pass'' resolution loop)
+against a non-trivial document class inside the FlowTex compile
+sandbox. The test asserts a valid PDF lands on disk, that the
+.bbl carries the resolved citation, and that the compile takes
+long enough for streamed stdout chunks to arrive.
+\end{abstract}
+
+\section{Introduction}
+The compile sandbox runs latexmk inside a network-less, read-only,
+cap-dropped Docker container per request~\cite{turing1936}. The
+test exercises bibliography resolution
+through biber~\cite{lamport1986}.
+
+\section{Cross-reference test}
+Section~\ref{sec:result} appears later and forces a second pdflatex
+pass to resolve the forward reference.
+
+\section{Result}\label{sec:result}
+If you can read this and Section~\ref{sec:result} above resolves to
+``Section~3'' or similar, the multi-pass compile worked end-to-end.
+
+\printbibliography
+\end{document}
