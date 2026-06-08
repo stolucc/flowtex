@@ -140,7 +140,16 @@ export async function dispatchEntry(rawFields, deps = { acquireRoom, applyUpdate
       return { ok: true, type: 'apply' };
     }
     case 'state': {
-      if (typeof fields.replyTo !== 'string' || !fields.replyTo.startsWith('flowtex:yjs:state-reply:')) {
+      // SECURITY: replyTo controls which Redis key the worker
+      // SETs the encoded Y.Doc state into. Originally only validated
+      // the prefix, but that's still a wide namespace (any
+      // `flowtex:yjs:state-reply:*` key). Narrow to UUID-shaped
+      // suffixes so an attacker with Redis write access can't
+      // overflow into adjacent keys we might add in this namespace
+      // later. yjsRoomClient.encodeStateAsUpdate uses crypto.randomUUID()
+      // exclusively, so legitimate clients always match.
+      const REPLY_TO_RE = /^flowtex:yjs:state-reply:[0-9a-f-]{36}$/i;
+      if (typeof fields.replyTo !== 'string' || !REPLY_TO_RE.test(fields.replyTo)) {
         return { ok: false, retryable: false, reason: 'bad-replyTo' };
       }
       if (!heldRooms.has(keyFor(projectId, fileId))) {

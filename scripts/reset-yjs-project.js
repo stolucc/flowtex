@@ -162,8 +162,24 @@ async function processProject(projectId, { apply }) {
       // 2. Update disk (best-effort -- some operators store text-
       //    files only in PG and don't sync to disk for non-binary
       //    files; that's fine, the next compile will write the
-      //    cleaned content out of the DB into the project dir)
-      const diskPath = path.join(PROJECTS_DIR, projectId, row.path);
+      //    cleaned content out of the DB into the project dir).
+      //
+      // SECURITY: validate that the resolved disk path stays under
+      // PROJECTS_DIR/<projectId>. files.path SHOULD be sanitised by
+      // isValidFilePath in services/projectService.js when files are
+      // created, but this script runs as root (sudo) and trusts the
+      // PG row blindly. A row with path='../../../etc/passwd' would
+      // otherwise let an attacker with DB write access overwrite
+      // arbitrary host files with arbitrary content. Belt-and-braces.
+      const projectRoot = path.resolve(PROJECTS_DIR, projectId);
+      const diskPath = path.resolve(projectRoot, row.path);
+      // Two checks: the resolved path is under projectRoot AND the
+      // join didn't escape via an absolute-path input. Both fired
+      // would catch ./ , ../, and /etc/passwd style inputs.
+      if (!diskPath.startsWith(projectRoot + path.sep) && diskPath !== projectRoot) {
+        console.log(`  REFUSED  ${row.path}  (path traversal: resolved to ${diskPath} which is outside ${projectRoot})`);
+        continue;
+      }
       try {
         await stat(diskPath);                       // exists?
         await writeFile(diskPath, cleaned, 'utf-8');

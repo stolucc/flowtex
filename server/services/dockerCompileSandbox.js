@@ -69,7 +69,22 @@ function defaultContainerUser() {
   // via FLOWTEX_COMPILE_USER. On any POSIX host this is the right
   // default.
   if (typeof process.getuid !== 'function') return '1000:1000';
-  return `${process.getuid()}:${process.getgid()}`;
+  const uid = process.getuid();
+  // SECURITY: refuse to default to UID 0 inside the container.
+  // The systemd unit shipped by provision-vps.sh runs FlowTex as
+  // a non-root flowtex user, so process.getuid()===0 means the
+  // operator is running the server as root (or the unit is
+  // misconfigured). Even with cap_drop=ALL + no-new-privileges,
+  // root-inside-container is enough of a defence-in-depth smell
+  // that we'd rather fail loud than silently weaken the sandbox.
+  // Operators with a real reason can override via FLOWTEX_COMPILE_USER.
+  if (uid === 0) {
+    throw new Error(
+      'dockerCompileSandbox: refusing to default container UID to 0 (root) -- ' +
+      'run FlowTex as a non-root user, or set FLOWTEX_COMPILE_USER=<uid>:<gid> explicitly.',
+    );
+  }
+  return `${uid}:${process.getgid()}`;
 }
 
 const SANDBOX_DEFAULTS = {

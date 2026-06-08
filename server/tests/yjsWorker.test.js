@@ -132,7 +132,7 @@ describe('yjsWorker dispatchEntry — state', () => {
     const result = await dispatchEntry(
       entry({
         type: 'state', projectId: 'p1', fileId: 'f1',
-        replyTo: 'flowtex:yjs:state-reply:abc',
+        replyTo: 'flowtex:yjs:state-reply:550e8400-e29b-41d4-a716-446655440000',
       }),
       deps,
     );
@@ -141,7 +141,7 @@ describe('yjsWorker dispatchEntry — state', () => {
     // Last call to redis.set is the reply SET (the lock SET was first).
     const setCalls = deps.redis.set.mock.calls;
     const lastSet = setCalls[setCalls.length - 1];
-    expect(lastSet[0]).toBe('flowtex:yjs:state-reply:abc');
+    expect(lastSet[0]).toBe('flowtex:yjs:state-reply:550e8400-e29b-41d4-a716-446655440000');
     expect(lastSet[2]).toBe('EX');
     expect(lastSet[3]).toBe(10);
   });
@@ -161,10 +161,39 @@ describe('yjsWorker dispatchEntry — state', () => {
     // intentional -- the lock guards the encode call.
   });
 
+  it('rejects replyTo with the canonical prefix but non-UUID suffix (anti-prefix-overflow)', async () => {
+    // Tightened in the security audit pass: the prefix-only check
+    // (added originally) prevented arbitrary-key writes but still
+    // accepted any `flowtex:yjs:state-reply:*`. Narrowed to require
+    // a 36-char UUID-shaped suffix so a Redis-write-only attacker
+    // can't collide with adjacent keys we might add in this
+    // namespace later. Legitimate clients use crypto.randomUUID()
+    // so they always match.
+    for (const badSuffix of [
+      'abc',
+      '12345',
+      'not-a-uuid',
+      '550e8400-e29b-41d4-a716-44665544000G',          // bad hex
+      '550e8400-e29b-41d4-a716-446655440000-extra',    // overflow
+      '550e8400e29b41d4a716446655440000',              // no dashes
+      '',                                              // empty
+    ]) {
+      const deps = makeDeps();
+      const result = await dispatchEntry(
+        entry({
+          type: 'state', projectId: 'p1', fileId: 'f1',
+          replyTo: `flowtex:yjs:state-reply:${badSuffix}`,
+        }),
+        deps,
+      );
+      expect(result).toEqual({ ok: false, retryable: false, reason: 'bad-replyTo' });
+    }
+  });
+
   it('returns no-state (non-retryable) if encode returns null', async () => {
     const deps = makeDeps({ encodeStateAsUpdate: vi.fn().mockReturnValue(null) });
     const result = await dispatchEntry(
-      entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:x' }),
+      entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:550e8400-e29b-41d4-a716-446655440000' }),
       deps,
     );
     expect(result).toEqual({ ok: false, retryable: false, reason: 'no-state' });
@@ -173,7 +202,7 @@ describe('yjsWorker dispatchEntry — state', () => {
   it('returns lock-contended (retryable) if another worker holds the lock', async () => {
     const deps = makeDeps({ redis: makeRedis({ set: vi.fn().mockResolvedValue(null) }) });
     const result = await dispatchEntry(
-      entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:x' }),
+      entry({ type: 'state', projectId: 'p1', fileId: 'f1', replyTo: 'flowtex:yjs:state-reply:550e8400-e29b-41d4-a716-446655440000' }),
       deps,
     );
     expect(result).toEqual({ ok: false, retryable: true, reason: 'lock-contended' });
