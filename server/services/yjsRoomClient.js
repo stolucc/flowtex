@@ -90,6 +90,23 @@ export async function acquireRoom(projectId, fileId) {
 }
 
 /**
+ * Synchronous "do we have this room's Y.Doc locally?" check. On the
+ * remote backend the Y.Doc lives in another process, so peeking is a
+ * Redis round-trip away -- and callers (comments / tracked-changes
+ * anchor resolution) need this to be synchronous. Returning null
+ * makes the call sites gracefully fall back to the legacy
+ * from_pos/to_pos integer columns, exactly the path they already
+ * take when no room is held in process.
+ *
+ * Phase 3.5 may revisit this with a debounced state cache if anchor
+ * resolution shows up in tracing as hot, but for now the legacy
+ * fallback is the right answer.
+ */
+export function peekRoom(_projectId, _fileId) {
+  return null;
+}
+
+/**
  * applyUpdate -- publish the update to the worker via the Stream.
  * The worker applies + broadcasts; we just enqueue.
  *

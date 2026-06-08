@@ -49,6 +49,18 @@ const keyFor = (projectId, fileId) => `${projectId}:${fileId}`;
 /** For tests / observability. */
 export function _peekRoomCount() { return rooms.size; }
 export function _peekRoom(projectId, fileId) { return rooms.get(keyFor(projectId, fileId)); }
+
+/**
+ * Public "do we have this room cached locally" probe. Same surface
+ * as yjsRoomClient.peekRoom so the selector can route either one --
+ * anchor-resolution call sites (routes/comments, services/projectService)
+ * go through services/yjsRoomSelector rather than importing
+ * `_peekRoom` directly. The underscore-prefixed variants remain for
+ * tests + observability scripts.
+ */
+export function peekRoom(projectId, fileId) {
+  return rooms.get(keyFor(projectId, fileId));
+}
 export function _clearRooms() {
   for (const room of rooms.values()) {
     if (room.snapshotTimer) clearTimeout(room.snapshotTimer);

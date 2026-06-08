@@ -9,6 +9,7 @@ vi.mock('../services/yjsRoom.js', () => ({
   applyUpdate: vi.fn(),
   encodeStateAsUpdate: vi.fn().mockReturnValue(new Uint8Array([1])),
   releaseRoom: vi.fn(),
+  peekRoom: vi.fn().mockReturnValue({ kind: 'in-process-peek', ydoc: { fake: true } }),
 }));
 
 vi.mock('../services/yjsRoomClient.js', () => ({
@@ -16,6 +17,7 @@ vi.mock('../services/yjsRoomClient.js', () => ({
   applyUpdate: vi.fn().mockResolvedValue(true),
   encodeStateAsUpdate: vi.fn().mockResolvedValue(new Uint8Array([2])),
   releaseRoom: vi.fn().mockResolvedValue(undefined),
+  peekRoom: vi.fn().mockReturnValue(null),
 }));
 
 import * as inProcess from '../services/yjsRoom.js';
@@ -25,6 +27,7 @@ import {
   applyUpdate,
   encodeStateAsUpdate,
   releaseRoom,
+  peekRoom,
   isWorkerSplitEnabled,
   getYjsBackend,
   _resetForTests,
@@ -100,5 +103,18 @@ describe('yjsRoomSelector', () => {
     expect(Array.from(remoteBytes)).toEqual([2]);
     await releaseRoom('p1', 'f1');
     expect(remote.releaseRoom).toHaveBeenCalled();
+  });
+
+  it('peekRoom: in-process returns the local room; remote returns null', async () => {
+    delete process.env.FLOWTEX_YJS_WORKER;
+    const local = peekRoom('p1', 'f1');
+    expect(local).toEqual({ kind: 'in-process-peek', ydoc: { fake: true } });
+    expect(inProcess.peekRoom).toHaveBeenCalledWith('p1', 'f1');
+
+    _resetForTests();
+    process.env.FLOWTEX_YJS_WORKER = 'enabled';
+    const remoteResult = peekRoom('p1', 'f1');
+    expect(remoteResult).toBeNull();
+    expect(remote.peekRoom).toHaveBeenCalledWith('p1', 'f1');
   });
 });

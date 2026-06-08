@@ -78,3 +78,15 @@ export async function encodeStateAsUpdate(projectId, fileId) {
 export async function releaseRoom(projectId, fileId) {
   return getYjsBackend().impl.releaseRoom(projectId, fileId);
 }
+
+/**
+ * Synchronous read-only probe. Returns the room object (with .ydoc)
+ * when held locally; returns null on the remote backend because the
+ * Y.Doc lives in another process. Anchor-resolution call sites use
+ * the null return as a signal to fall back to legacy from_pos/to_pos
+ * integer columns -- same path they already take when no room is
+ * held in process.
+ */
+export function peekRoom(projectId, fileId) {
+  return getYjsBackend().impl.peekRoom(projectId, fileId);
+}

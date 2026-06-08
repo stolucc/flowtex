@@ -34,7 +34,7 @@ import { isUniqueViolation } from '../utils/dbErrors.js';
 import { writeBlob } from './blobPersistor.js';
 import { loadFileBytes } from './fileBytes.js';
 import { captureTcMarkAnchors, resolveTcMarkAnchors } from './yjsAnchors.js';
-import { _peekRoom } from './yjsRoom.js';
+import { peekRoom } from './yjsRoomSelector.js';
 import {
   assertProjectCountUnderLimit,
   assertFileCountUnderLimit,
@@ -1585,7 +1585,7 @@ export async function getProjectFiles(projectId) {
   // last saved. Rows without anchors fall through unchanged.
   for (const row of rows) {
     if (!Array.isArray(row.tc_marks) || row.tc_marks.length === 0) continue;
-    const room = _peekRoom(row.project_id, row.id);
+    const room = peekRoom(row.project_id, row.id);
     if (room && room.ydoc) {
       row.tc_marks = resolveTcMarkAnchors(room.ydoc, row.tc_marks);
     }
@@ -1832,7 +1832,7 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
   // is active, the legacy from/to integers are persisted verbatim.
   let tcMarksToPersist = tcMarks;
   if (Array.isArray(tcMarks) && tcMarks.length > 0) {
-    const room = _peekRoom(file.project_id, file.id);
+    const room = peekRoom(file.project_id, file.id);
     if (room && room.ydoc) {
       tcMarksToPersist = captureTcMarkAnchors(room.ydoc.getText('content'), tcMarks);
     }

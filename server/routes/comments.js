@@ -5,7 +5,7 @@ import logger from '../logger.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { recordMentions } from '../utils/mentions.js';
 import { makeAnchorBytes, resolveAnchor } from '../services/yjsAnchors.js';
-import { _peekRoom } from '../services/yjsRoom.js';
+import { peekRoom } from '../services/yjsRoomSelector.js';
 
 const router = Router();
 
@@ -98,7 +98,7 @@ router.get('/:fileId', async (req, res) => {
   if (comments.length > 0) {
     // Look up the file's project_id once -- needed to peek the room.
     const fileRow = await db.get('SELECT project_id FROM files WHERE id = $1', [req.params.fileId]);
-    const room = fileRow ? _peekRoom(fileRow.project_id, req.params.fileId) : null;
+    const room = fileRow ? peekRoom(fileRow.project_id, req.params.fileId) : null;
     if (room && room.ydoc) {
       for (const c of comments) {
         if (c.anchor_start_yjs) {
@@ -242,7 +242,7 @@ router.post('/:fileId', async (req, res) => {
   // auto-extend the highlighted range.
   let anchorStart = null;
   let anchorEnd = null;
-  const room = file ? _peekRoom(file.project_id, req.params.fileId) : null;
+  const room = file ? peekRoom(file.project_id, req.params.fileId) : null;
   if (room && room.ydoc) {
     const ytext = room.ydoc.getText('content');
     anchorStart = makeAnchorBytes(ytext, from_pos);
