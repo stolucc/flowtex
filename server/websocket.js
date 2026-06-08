@@ -14,6 +14,7 @@ import {
   releaseRoom as yjsReleaseRoom,
   isWorkerSplitEnabled,
 } from './services/yjsRoomSelector.js';
+import { setRedisClient as setYjsRoomClientRedis } from './services/yjsRoomClient.js';
 import { setWsConnectionsActive, recordWsFrame } from './services/metrics.js';
 import { captureException as reportException } from './services/errorReporter.js';
 
@@ -823,6 +824,16 @@ export function initWebSocket(server, app, sessionSecret) {
   if (process.env.REDIS_URL) {
     redisPub = new Redis(process.env.REDIS_URL);
     redisSub = new Redis(process.env.REDIS_URL);
+
+    // Wire the same Redis connection into yjsRoomClient so its
+    // XADD calls land somewhere. Without this, every applyUpdate
+    // / encodeStateAsUpdate / releaseRoom in the remote backend
+    // throws "Redis client not configured" -- caught by the
+    // catch() inside the client and logged as a warn, so the
+    // operator sees the WS frame counter tick but the stream
+    // stays at XLEN=0. The 2026-06-08 Shape-2.5 live test surfaced
+    // this gap.
+    setYjsRoomClientRedis(redisPub);
 
     redisSub.subscribe(REDIS_CHANNEL);
     redisSub.on('message', (channel, raw) => {
