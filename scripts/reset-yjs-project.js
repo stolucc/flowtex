@@ -38,12 +38,23 @@
 //   to be running. Recommended sequence: stop the web tier, run this,
 //   start the web tier.
 
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { writeFile, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Resolve `pg` from server/node_modules regardless of where the
+// script is invoked. The deps are installed under server/, not at
+// the repo root, so a bare `import pg from 'pg'` only works if the
+// operator first `cd`s into server/. Using createRequire scoped to
+// the server tree makes the script runnable from anywhere
+// (including via `sudo -u flowtex node /opt/flowtex/scripts/...`).
+const serverRequire = createRequire(path.resolve(__dirname, '..', 'server', 'package.json'));
+const pg = serverRequire('pg');
+
 const PROJECTS_DIR =
   process.env.FLOWTEX_PROJECTS_DIR
   || path.resolve(__dirname, '..', 'server', 'projects');
