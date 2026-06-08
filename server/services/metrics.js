@@ -33,7 +33,14 @@ client.collectDefaultMetrics({ register: registry, prefix: 'flowtex_' });
 const yjsApplyLatencyMs = new client.Histogram({
   name: 'flowtex_yjs_apply_latency_ms',
   help: 'Latency of applying a Y.Doc update to the server-side room.',
-  labelNames: ['result'],
+  // `surface` distinguishes where the apply ran:
+  //   - 'in-process' (default, single-VPS shape)
+  //   - 'worker'     (yjsWorker.js process)
+  //   - 'client'     (yjsRoomClient on the web tier -- represents
+  //                   the XADD-to-stream latency, NOT the apply
+  //                   itself; useful to see the "time to enqueue"
+  //                   tail separately from the worker's apply tail)
+  labelNames: ['result', 'surface'],
   buckets: [0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000],
   registers: [registry],
 });
@@ -98,8 +105,22 @@ const httpRequestDurationSec = new client.Histogram({
 // throw on a hot path. Failure to record a metric is always a
 // silent NOP -- never a 500.
 
-export function recordYjsApply(latencyMs, result = 'ok') {
-  try { yjsApplyLatencyMs.observe({ result }, latencyMs); } catch { /* nop */ }
+// Process-wide default `surface` label for recordYjsApply. The web
+// tier (yjsRoom.applyUpdate) leaves it at 'in-process'; the worker
+// process (yjsWorker.js) calls setDefaultSurface('worker') at boot;
+// the client-side enqueue (yjsRoomClient.applyUpdate) overrides per
+// call with 'client'. Threading the value through every yjsRoom.
+// applyUpdate signature would be noise; a module-level default is
+// the minimal change.
+let defaultSurface = 'in-process';
+export function setDefaultSurface(name) {
+  if (typeof name === 'string' && name.length > 0) defaultSurface = name;
+}
+export function getDefaultSurface() { return defaultSurface; }
+
+export function recordYjsApply(latencyMs, result = 'ok', surface) {
+  const lbl = surface || defaultSurface;
+  try { yjsApplyLatencyMs.observe({ result, surface: lbl }, latencyMs); } catch { /* nop */ }
 }
 
 export function setYjsRoomsActive(count) {

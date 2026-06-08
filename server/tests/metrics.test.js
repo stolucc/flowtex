@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   getRegistry,
   recordYjsApply,
@@ -9,10 +9,14 @@ import {
   setWsConnectionsActive,
   recordWsFrame,
   recordHttpRequest,
+  setDefaultSurface,
+  getDefaultSurface,
   _resetForTests,
 } from '../services/metrics.js';
 
-beforeEach(() => { _resetForTests(); });
+const savedSurface = 'in-process';
+beforeEach(() => { _resetForTests(); setDefaultSurface(savedSurface); });
+afterEach(() => { setDefaultSurface(savedSurface); });
 
 async function scrape() {
   return await getRegistry().metrics();
@@ -34,8 +38,33 @@ describe('metrics registry surface', () => {
     recordYjsApply(50, 'err');
     const text = await scrape();
     expect(text).toMatch(/flowtex_yjs_apply_latency_ms_bucket\{[^}]*result="ok"/);
-    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*result="ok"\} 2/);
-    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*result="err"\} 1/);
+    // Default surface is 'in-process' when no explicit surface is passed
+    // and setDefaultSurface hasn't been called.
+    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*result="ok"[^}]*surface="in-process"\} 2/);
+    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*result="err"[^}]*surface="in-process"\} 1/);
+  });
+
+  it('honours the explicit `surface` argument over the default', async () => {
+    recordYjsApply(2.0, 'ok', 'client');
+    recordYjsApply(5.0, 'ok', 'worker');
+    const text = await scrape();
+    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*surface="client"\} 1/);
+    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*surface="worker"\} 1/);
+  });
+
+  it('setDefaultSurface changes the per-process label until reset', async () => {
+    setDefaultSurface('worker');
+    expect(getDefaultSurface()).toBe('worker');
+    recordYjsApply(3.0, 'ok');                    // no explicit surface
+    const text = await scrape();
+    expect(text).toMatch(/flowtex_yjs_apply_latency_ms_count\{[^}]*surface="worker"\} 1/);
+  });
+
+  it('setDefaultSurface rejects empty / non-string input (keeps prior default)', async () => {
+    setDefaultSurface('worker');
+    setDefaultSurface('');                        // no-op
+    setDefaultSurface(null);                      // no-op
+    expect(getDefaultSurface()).toBe('worker');
   });
 
   it('emits flowtex_yjs_rooms_active as a Gauge', async () => {

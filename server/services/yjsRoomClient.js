@@ -125,10 +125,14 @@ export async function applyUpdate(projectId, fileId, updateBytes) {
       'fileId', fileId,
       'update', Buffer.from(updateBytes).toString('base64'),
     );
-    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'ok');
+    // `surface=client` so the histogram distinguishes the XADD
+    // enqueue latency on the web tier from the actual Y.Doc apply
+    // latency on the worker tier (which records 'surface=worker'
+    // via setDefaultSurface in yjsWorker.js).
+    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'ok', 'client');
     return true;
   } catch (err) {
-    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'err');
+    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'err', 'client');
     logger.warn({ err, projectId, fileId }, 'yjsRoomClient: XADD apply failed');
     return false;
   }

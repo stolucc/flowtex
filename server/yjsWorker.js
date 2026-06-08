@@ -26,6 +26,7 @@
 
 import Redis from 'ioredis';
 import logger from './logger.js';
+import { setDefaultSurface } from './services/metrics.js';
 import {
   acquireRoom,
   applyUpdate,
@@ -341,6 +342,10 @@ if (isMainEntrypoint()) {
     console.error('yjsWorker: REDIS_URL is required.');
     process.exit(2);
   }
+  // Label every Y.Doc apply in this process as `surface=worker` so
+  // the Prometheus dashboard can split worker-tier latency from
+  // web-tier in-process latency in the same histogram.
+  setDefaultSurface('worker');
   redis = new Redis(process.env.REDIS_URL);
   redis.on('error', (err) => logger.error({ err }, 'yjsWorker: Redis error'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
