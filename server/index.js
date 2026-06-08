@@ -24,6 +24,7 @@ import fs from 'fs';
 import pinoHttp from 'pino-http';
 import logger from './logger.js';
 import db from './db.js';
+import { evaluateReadiness } from './services/readinessCheck.js';
 import { abortAllCompilations } from './compiler.js';
 import projectsRouter from './routes/projects.js';
 import publicInvitationsRouter from './routes/publicInvitations.js';
@@ -504,17 +505,46 @@ app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
+//
+// /api/health: liveness. "Is the process alive enough to respond?"
+//   Returns 200 unconditionally while the event loop is responsive.
+//   K8s livenessProbe + most LB health checks point here. Used to
+//   decide "should I restart this pod?"
+//
+// /api/ready: readiness. "Should the LB send NEW traffic here?"
+//   Returns 503 in three cases:
+//     1. DB unreachable.
+//     2. Cluster mode + Redis unreachable (since the WS fan-out and
+//        Y.Doc worker chain depend on it; an instance that can't
+//        reach Redis shouldn't take traffic).
+//     3. Graceful shutdown has started (`draining` flag set by the
+//        SIGTERM handler). The LB stops sending new connections;
+//        existing ones drain naturally over the LB grace period.
+//
+// This split is what lets the web tier roll cleanly behind an LB:
+// the readiness flip happens within a request cycle, the LB removes
+// the instance, then the actual shutdown can take its time draining
+// in-flight requests without rejecting NEW ones at the socket level.
+
+// Set true by the SIGTERM handler. Module-scope so the route can
+// read it; the handler below mutates it.
+let draining = false;
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
 app.get('/api/ready', async (req, res) => {
-  try {
-    await db.get('SELECT 1');
-    res.json({ status: 'ready' });
-  } catch {
-    res.status(503).json({ status: 'not ready', error: 'database unreachable' });
+  const result = await evaluateReadiness({
+    draining,
+    probeDb: () => db.get('SELECT 1'),
+    instanceMode: process.env.FLOWTEX_INSTANCE_MODE,
+    redisClient: redisPub || redisSub || null,
+  });
+  if (!result.ready) {
+    return res.status(503).json(result);
   }
+  res.json({ status: 'ready' });
 });
 
 // Serve built client in production
@@ -623,11 +653,35 @@ process.on('uncaughtException', (err) => {
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully`);
 
-  // Force exit after 10 seconds if graceful shutdown stalls
+  // 0. Flip readiness BEFORE doing anything else so /api/ready
+  //    starts returning 503 immediately. The LB will see the next
+  //    probe fail and stop sending us NEW connections. Existing
+  //    connections continue to drain naturally over the steps
+  //    below.
+  //
+  //    This step is what makes graceful rolling deploys safe behind
+  //    a load balancer -- without it, new HTTP requests would land
+  //    on an instance that's about to close the WS server and
+  //    abort its compiles, even though the LB still thinks we're
+  //    healthy.
+  draining = true;
+
+  // Force exit after 30 seconds if graceful shutdown stalls. Match
+  // the systemd TimeoutStopSec we set in the unit file -- otherwise
+  // systemd kills us with SIGKILL before this watchdog fires and we
+  // never get the "shutdown timeout" log line.
   setTimeout(() => {
     logger.warn('Shutdown timeout — forcing exit');
     process.exit(1);
-  }, 10000).unref();
+  }, 30000).unref();
+
+  // Give the LB a moment to notice readiness flipped (typical probe
+  // interval is 10s; 2s here is enough to let an in-flight probe
+  // observe the new state) before we close listeners. Without this,
+  // requests in-flight at the moment of SIGTERM can race the
+  // server.close() call below and get a connection reset rather
+  // than a clean drain.
+  await new Promise((r) => setTimeout(r, 2000));
 
   // 1. Stop accepting new connections
   server.close(() => logger.info('HTTP server closed'));
