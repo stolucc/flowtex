@@ -115,31 +115,54 @@ if (ENDPOINT) {
  * a real span so any auto-instrumented work it triggers (DB queries,
  * Redis commands, child fetches) is correctly attributed.
  *
- * Spans automatically end after `fn` resolves/throws. Throws are
- * recorded with `span.recordException` and re-thrown.
+ * Polymorphic in sync vs async:
+ *   - If fn returns a thenable, withSpan also returns a thenable
+ *     and ends the span on resolve/reject.
+ *   - If fn returns a plain value, withSpan returns the plain value
+ *     and ends the span before returning.
+ *
+ * This lets sync hot paths (e.g. yjsRoom.applyUpdate) be wrapped
+ * without forcing every caller to `await`.
+ *
+ * Throws (sync or async) are recorded with span.recordException +
+ * ERROR status, then re-thrown.
  *
  * @template T
  * @param {string} name
  * @param {(span: object) => T | Promise<T>} fn
- * @returns {Promise<T>}
+ * @returns {T | Promise<T>}
  */
-export async function withSpan(name, fn) {
+export function withSpan(name, fn) {
   if (!tracer) {
-    // Synchronous no-op pass-through. We still await fn() so the
-    // return value matches a real span'd call.
+    // Pass-through. We do NOT wrap in a Promise so a sync caller
+    // stays sync.
     return fn(NOOP_SPAN);
   }
-  return tracer.startActiveSpan(name, async (span) => {
+  return tracer.startActiveSpan(name, (span) => {
+    let result;
     try {
-      const result = await fn(span);
-      span.end();
-      return result;
+      result = fn(span);
     } catch (err) {
       span.recordException(err);
       span.setStatus({ code: 2, message: err?.message || 'error' });
       span.end();
       throw err;
     }
+    if (result && typeof result.then === 'function') {
+      // Async path -- end the span when the promise settles.
+      return result.then(
+        (value) => { span.end(); return value; },
+        (err) => {
+          span.recordException(err);
+          span.setStatus({ code: 2, message: err?.message || 'error' });
+          span.end();
+          throw err;
+        },
+      );
+    }
+    // Sync path.
+    span.end();
+    return result;
   });
 }
 

@@ -30,6 +30,7 @@ import db from '../db.js';
 import logger from '../logger.js';
 import { backfillCommentAnchors, backfillTcMarkAnchors } from './yjsAnchors.js';
 import { recordYjsApply, setYjsRoomsActive, recordYjsSnapshotBytes } from './metrics.js';
+import { withSpan } from '../tracing.js';
 
 const SNAPSHOT_DEBOUNCE_MS = 2000;
 // Defensive ceiling on the BYTEA we persist. A pathological Y.Doc
@@ -156,18 +157,28 @@ export function applyUpdate(projectId, fileId, updateBytes) {
   if (!room) return;
   // SAAS-FOUNDATIONS item 5: observe apply latency so the dashboard
   // can flag a slow Y.Doc (typically a sign of unbounded history
-  // growth or a deeply-conflicted merge) before users notice.
-  const start = process.hrtime.bigint();
-  try {
-    Y.applyUpdateV2(room.ydoc, updateBytes, 'client');
-  } catch (err) {
-    logger.warn({ err, projectId, fileId }, 'yjsRoom: applyUpdate failed');
-    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'err');
-    return;
-  }
-  recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'ok');
-  room.dirty = true;
-  scheduleSnapshot(room);
+  // growth or a deeply-conflicted merge) before users notice. The
+  // trace span carries the projectId / fileId / update size so a
+  // tail-latency outlier in the histogram can be drilled into the
+  // specific room that hit it.
+  return withSpan('yjs.applyUpdate', (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.file_id', fileId);
+    span.setAttribute('flowtex.update_bytes', updateBytes?.byteLength ?? 0);
+    const start = process.hrtime.bigint();
+    try {
+      Y.applyUpdateV2(room.ydoc, updateBytes, 'client');
+    } catch (err) {
+      logger.warn({ err, projectId, fileId }, 'yjsRoom: applyUpdate failed');
+      recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'err');
+      span.recordException(err);
+      span.setStatus({ code: 2, message: 'Y.applyUpdateV2 threw' });
+      return;
+    }
+    recordYjsApply(Number(process.hrtime.bigint() - start) / 1e6, 'ok');
+    room.dirty = true;
+    scheduleSnapshot(room);
+  });
 }
 
 /**

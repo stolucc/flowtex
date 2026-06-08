@@ -12,6 +12,7 @@ import {
   isDockerSandboxEnabled,
   runDockerCompile,
 } from './services/dockerCompileSandbox.js';
+import { withSpan } from './tracing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { PROJECTS_DIR } from './paths.js';
@@ -340,11 +341,30 @@ export const COMPILERS = [
  * @param {object} [opts] - Extra options: files, onBeforeCompile, userId, texDistribution, compiler.
  * @returns {Promise<{pdfPath: string, log: string, jobName: string}>}
  */
-export async function compileProject(
+export async function compileProject(projectId, mainFile = 'main.tex', onOutput, opts = {}) {
+  // SAAS-FOUNDATIONS item 5: wrap the whole compile in a trace span
+  // so auto-instrumented work it triggers (pg queries for tc_marks,
+  // ioredis for cache hits, child_process for latexmk, docker CLI
+  // when sandboxed) becomes child spans under one named parent. The
+  // span carries enough attributes that an outlier in the compile
+  // duration histogram can be drilled to the project + engine that
+  // hit it without paging through the raw log.
+  return withSpan('compile.project', async (span) => {
+    span.setAttribute('flowtex.project_id', projectId);
+    span.setAttribute('flowtex.main_file', mainFile);
+    span.setAttribute('flowtex.compiler', opts.compiler || 'pdflatex');
+    span.setAttribute('flowtex.tracked_changes', !!opts.tc);
+    span.setAttribute('flowtex.sandbox', isDockerSandboxEnabled() ? 'docker' : 'host');
+    return _compileProjectInner(projectId, mainFile, onOutput, opts, span);
+  });
+}
+
+async function _compileProjectInner(
   projectId,
-  mainFile = 'main.tex',
+  mainFile,
   onOutput,
   { files, onBeforeCompile, userId, texDistribution, compiler, tc = false } = {},
+  _parentSpan,
 ) {
   // Sync files to disk before compiling
   if (files) {
