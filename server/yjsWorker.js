@@ -24,9 +24,10 @@
 //     releaseRoom on each (which flushes the final snapshot), then
 //     exit 0.
 
+import { createServer } from 'node:http';
 import Redis from 'ioredis';
 import logger from './logger.js';
-import { setDefaultSurface } from './services/metrics.js';
+import { setDefaultSurface, getRegistry } from './services/metrics.js';
 import {
   acquireRoom,
   applyUpdate,
@@ -56,6 +57,7 @@ let stopRequested = false;
 let redis;
 let renewTimer = null;
 let reclaimTimer = null;
+let metricsHttpServer = null;
 
 // ── Consumer-group setup ─────────────────────────────────────────────────
 
@@ -329,6 +331,9 @@ async function shutdown(signal) {
   if (redis) {
     try { await redis.quit(); } catch { /* ignore */ }
   }
+  if (metricsHttpServer) {
+    await new Promise((resolve) => metricsHttpServer.close(() => resolve()));
+  }
   logger.info({ remainingRooms: _peekRoomCount() }, 'yjsWorker: shutdown complete');
   process.exit(0);
 }
@@ -365,6 +370,52 @@ if (isMainEntrypoint()) {
   readStreamLoop().catch((err) => {
     logger.error({ err }, 'yjsWorker: stream loop crashed');
     process.exit(1);
+  });
+
+  // Minimal HTTP listener so Prometheus can scrape the worker's
+  // /metrics. Without it the dashboard's surface="worker" panels
+  // stay empty even when the worker is healthy. Two routes only:
+  //   GET /metrics    -- prom-client registry text
+  //   GET /api/health -- "is the worker process alive?" (200 ok)
+  // Anything else returns 404. No Express, no middleware, no auth
+  // -- bind only on the loopback by default so the operator
+  // doesn't accidentally expose worker internals to the
+  // internet.
+  //
+  // FLOWTEX_WORKER_METRICS_PORT (default 3011 -- different from the
+  // web tier 3001/3002 so there's no collision on a single-VPS
+  // Shape-2.5 deploy).
+  // FLOWTEX_WORKER_METRICS_HOST (default 127.0.0.1).
+  const metricsPort = parseInt(process.env.FLOWTEX_WORKER_METRICS_PORT || '3011', 10);
+  const metricsHost = process.env.FLOWTEX_WORKER_METRICS_HOST || '127.0.0.1';
+  metricsHttpServer = createServer(async (req, res) => {
+    if (req.url === '/metrics' && req.method === 'GET') {
+      try {
+        const body = await getRegistry().metrics();
+        res.writeHead(200, { 'Content-Type': getRegistry().contentType });
+        res.end(body);
+      } catch (err) {
+        logger.warn({ err }, 'yjsWorker: /metrics render failed');
+        res.writeHead(500); res.end('error');
+      }
+      return;
+    }
+    if (req.url === '/api/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"status":"ok"}');
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  metricsHttpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.warn({ port: metricsPort }, 'yjsWorker: metrics port busy; continuing without HTTP');
+    } else {
+      logger.warn({ err }, 'yjsWorker: HTTP listener error');
+    }
+  });
+  metricsHttpServer.listen(metricsPort, metricsHost, () => {
+    logger.info({ host: metricsHost, port: metricsPort }, 'yjsWorker: /metrics listening');
   });
 }
 
