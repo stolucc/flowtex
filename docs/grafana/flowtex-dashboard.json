@@ -1,0 +1,214 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/dashboard-schemas/main/schemas/dashboard.json",
+  "annotations": { "list": [] },
+  "description": "FlowTex SaaS operations dashboard. Import via Grafana > Dashboards > New > Import > Paste JSON.",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["flowtex"],
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "query": "prometheus",
+        "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" }
+      },
+      {
+        "type": "query",
+        "name": "instance",
+        "label": "Instance",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(flowtex_yjs_rooms_active, instance)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "FlowTex SaaS",
+  "uid": "flowtex-saas",
+  "version": 1,
+  "panels": [
+    {
+      "type": "row", "id": 100, "title": "Compile",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries", "id": 1, "title": "Compile p50 / p99 duration (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(flowtex_compile_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))",
+          "legendFormat": "p50", "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(flowtex_compile_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))",
+          "legendFormat": "p99", "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries", "id": 2, "title": "Compile success rate",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(flowtex_compile_duration_seconds_count{result=\"ok\",instance=~\"$instance\"}[5m])) / clamp_min(sum(rate(flowtex_compile_duration_seconds_count{instance=~\"$instance\"}[5m])), 0.001)",
+          "legendFormat": "success ratio", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    },
+    {
+      "type": "stat", "id": 3, "title": "Compile queue depth",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(flowtex_compile_queue_depth{instance=~\"$instance\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "colorMode": "background" }
+    },
+
+    {
+      "type": "row", "id": 200, "title": "Y.js collaboration",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries", "id": 11, "title": "Y.Doc apply p99 latency (ms), split by surface",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(flowtex_yjs_apply_latency_ms_bucket{instance=~\"$instance\"}[5m])) by (surface, le))",
+          "legendFormat": "{{surface}}", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "description": "surface=client is XADD enqueue latency on the web tier; surface=worker is the actual Y.Doc apply on the worker process; surface=in-process is single-VPS shape."
+    },
+    {
+      "type": "timeseries", "id": 12, "title": "Active Y.Doc rooms (per instance)",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "flowtex_yjs_rooms_active{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}", "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries", "id": 13, "title": "Snapshot bytes p99",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(flowtex_yjs_snapshot_bytes_bucket{instance=~\"$instance\"}[10m])) by (le))",
+          "legendFormat": "p99", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "description": "Sustained climb indicates unbounded Y.Doc history growth; file_versions table needs a sweep."
+    },
+
+    {
+      "type": "row", "id": 300, "title": "WebSocket",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries", "id": 21, "title": "Active WebSocket connections (per instance)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "flowtex_ws_connections_active{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}", "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries", "id": 22, "title": "WS frame rate (in / out per second)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(rate(flowtex_ws_frames_total{direction=\"in\",instance=~\"$instance\"}[1m]))",
+          "legendFormat": "in", "refId": "A"
+        },
+        {
+          "expr": "sum(rate(flowtex_ws_frames_total{direction=\"out\",instance=~\"$instance\"}[1m]))",
+          "legendFormat": "out", "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "type": "row", "id": 400, "title": "HTTP",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }, "collapsed": false, "panels": []
+    },
+    {
+      "type": "timeseries", "id": 31, "title": "HTTP request rate (by status class)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum by (status_class) (rate(flowtex_http_request_duration_seconds_count{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{status_class}}", "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries", "id": 32, "title": "HTTP p99 latency (by route)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.99, sum(rate(flowtex_http_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (route, le)))",
+          "legendFormat": "{{route}}", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "type": "row", "id": 500, "title": "Node runtime",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 }, "collapsed": true, "panels": []
+    },
+    {
+      "type": "timeseries", "id": 41, "title": "Event loop lag p99 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "flowtex_nodejs_eventloop_lag_p99_seconds{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries", "id": 42, "title": "Resident set (MB)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "flowtex_process_resident_memory_bytes{instance=~\"$instance\"} / 1024 / 1024",
+          "legendFormat": "{{instance}}", "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "mbytes" } }
+    }
+  ]
+}
