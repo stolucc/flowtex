@@ -408,6 +408,61 @@ UNIT
 systemctl daemon-reload
 systemctl enable flowtex
 
+# ── flowtex-yjs-worker.service (optional, multi-instance only) ─────────
+# Runs the dedicated Y.Doc room worker as its own systemd service so
+# the web tier can be stateless (rooms live in the worker, web tier
+# just queues XADD into Redis Streams). NOT started or enabled by
+# default -- a single-VPS deploy with FLOWTEX_YJS_WORKER unset
+# doesn't need it. Operators flip FLOWTEX_YJS_WORKER=enabled in .env
+# AND `systemctl enable --now flowtex-yjs-worker` together.
+#
+# Restart policy is aggressive (Restart=always + short RestartSec)
+# because while the worker is down, room ownership locks expire and
+# clients fall back to the legacy from_pos/to_pos columns -- which
+# works, but loses CRDT-aware anchor resolution.
+log "Installing systemd service: flowtex-yjs-worker.service (optional, multi-instance)"
+cat > /etc/systemd/system/flowtex-yjs-worker.service <<WORKER_UNIT
+[Unit]
+Description=FlowTex Y.Doc room worker
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service
+# Soft dep on redis -- the worker will exit(2) at boot if REDIS_URL
+# is unreachable, which lets systemd's restart loop wait for redis
+# to come up after a reboot.
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=$APP_USER
+Group=$APP_USER
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=/usr/bin/node --env-file=$APP_DIR/.env $APP_DIR/server/yjsWorker.js
+# Worker apply path is purely CPU + Redis + in-memory; on transient
+# Redis blips the worker exits, systemd restarts it, it rejoins the
+# consumer group and XAUTOCLAIM picks up any orphaned entries.
+Restart=always
+RestartSec=3
+# Give graceful shutdown enough time to release ownership locks and
+# snapshot in-progress rooms. SIGTERM handler in yjsWorker.js does
+# both within a couple of seconds; 30s is generous.
+TimeoutStopSec=30
+
+# Same hardening as the web tier. Worker never writes to disk
+# outside its log directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$APP_DIR/server/logs
+
+[Install]
+WantedBy=multi-user.target
+WORKER_UNIT
+systemctl daemon-reload
+# Deliberately NOT enabled -- multi-instance is opt-in. See
+# docs/yjs-worker.md.
+
 # ── Caddy ───────────────────────────────────────────────────────────────
 # Serve the apex domain and (when DNS allows) redirect the www subdomain
 # to it. If DNS for `www.$DOMAIN` doesn't resolve, we omit the www block

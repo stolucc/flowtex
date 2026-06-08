@@ -227,6 +227,22 @@ if [ $NEEDS_SERVER_RESTART -eq 1 ]; then
   else
     warn "No systemd unit named '$SERVICE' found. Restart your process manager manually."
   fi
+
+  # If the operator has enabled the Y.Doc worker tier, restart it
+  # alongside the web tier. Skip silently when the unit doesn't
+  # exist (single-VPS deploys) or isn't enabled (multi-instance
+  # deploys that haven't flipped FLOWTEX_YJS_WORKER yet).
+  if command -v systemctl >/dev/null && systemctl is-enabled --quiet flowtex-yjs-worker 2>/dev/null; then
+    say "Restarting flowtex-yjs-worker"
+    systemctl restart flowtex-yjs-worker
+    sleep 2
+    if systemctl is-active --quiet flowtex-yjs-worker; then
+      ok "flowtex-yjs-worker is running."
+    else
+      systemctl status flowtex-yjs-worker --no-pager | tail -10
+      warn "flowtex-yjs-worker failed to start. Inspect with: journalctl -u flowtex-yjs-worker -n 50"
+    fi
+  fi
 else
   warn "No server/ or shared/ changes — leaving $SERVICE running."
 fi
