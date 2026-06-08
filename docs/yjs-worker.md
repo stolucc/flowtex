@@ -171,6 +171,105 @@ or rooms are being hammered. Add a worker or look for the
 hot-room in traces (`yjs.applyUpdate` span with `project_id` /
 `file_id` attributes).
 
+### Split-brain (multi-instance without the worker tier)
+
+**What it looks like:** boilerplate text appears twice (or N
+times for N web instances) when you create a new document. Edits
+get spuriously duplicated. The editor doesn't crash; it just
+shows wrong content.
+
+**What's happening:** every web instance is broadcasting Y.Doc
+updates via Redis pub/sub (correctly — cluster mode wired this
+up), but each instance is *also* holding its own copy of the
+Y.Doc room in process (incorrectly — the selector should be
+routing to the worker tier instead). When instance A seeds a
+template into its room and broadcasts the result, instance B
+inserts that result as a concurrent insert *on top of* its own
+already-seeded template. Y.js correctly converges them as two
+independent inserts, you see the template twice.
+
+This was the actual failure mode of the 2026-06-08 production
+incident.
+
+**How to prevent it:**
+
+- A boot guard in `websocket.js` (added 2026-06-08) refuses to
+  start in cluster mode without the worker tier being active.
+  You should never get into this state on current code.
+- If you do see this on an older deploy: pull the latest main,
+  the guard will catch the misconfiguration at boot rather than
+  letting it corrupt data.
+
+**How to detect it after the fact** (in case you have a stale
+deploy that pre-dates the guard):
+
+```bash
+# Stream should have entries flowing if cluster is routed
+# correctly to the worker:
+redis-cli XLEN flowtex:yjs:updates
+
+# After a live edit, this should go up. If it stays at 0 while
+# cluster mode is on, web tier is NOT routing to Redis -- which
+# means it's holding rooms in-process, which means split-brain
+# is happening as soon as you have 2+ web instances.
+```
+
+**How to recover:**
+
+1. Stop cluster mode immediately:
+
+   ```bash
+   sudo systemctl disable --now flowtex-2 flowtex-yjs-worker
+   sudo sed -i 's/^FLOWTEX_INSTANCE_MODE=/# FLOWTEX_INSTANCE_MODE=/' /opt/flowtex/.env
+   sudo sed -i 's/^FLOWTEX_YJS_WORKER=/# FLOWTEX_YJS_WORKER=/' /opt/flowtex/.env
+   sudo systemctl restart flowtex
+   ```
+
+2. Identify affected projects (anything edited during the window
+   when both instances were live). Two ways:
+
+   - **By eye**: open each project, look for doubled content.
+   - **By query**: documents with a `\documentclass` line
+     appearing more than once are almost certainly affected:
+
+     ```sql
+     SELECT project_id, path,
+            length(regexp_replace(content, '\\\\documentclass', '', 'g'))
+            < length(content)
+            AS has_documentclass,
+            (length(content) - length(regexp_replace(content, '\\\\documentclass', '', 'g'))) / length('\\documentclass')
+            AS occurrences
+     FROM files
+     WHERE path LIKE '%.tex'
+       AND content ~ '\\\\documentclass.*\\\\documentclass';
+     ```
+
+3. For each affected file, write clean content back. Example
+   for one project's `main.tex`:
+
+   ```bash
+   PROJ=<project-uuid>
+   sudo tee /opt/flowtex/projects/$PROJ/main.tex >/dev/null <<'EOF'
+   \documentclass{article}
+   \begin{document}
+   ...your real content here...
+   \end{document}
+   EOF
+   sudo chown flowtex:flowtex /opt/flowtex/projects/$PROJ/main.tex
+
+   sudo -u postgres psql flowtex -c \
+     "UPDATE files SET content = pg_read_file('/opt/flowtex/projects/$PROJ/main.tex') WHERE project_id = '$PROJ' AND path = 'main.tex';"
+   ```
+
+   Then close all browser tabs for FlowTex, hard refresh, reopen
+   the project. The editor sees the clean content.
+
+4. **Before re-enabling cluster mode**: pull latest `main` so you
+   have the boot guard (`186a45b` or later). After that, the only
+   way to get into split-brain is to explicitly set
+   `FLOWTEX_YJS_WORKER=disabled` while in cluster mode — and the
+   server refuses to boot in that combination.
+
 ## Disabling (rolling back to in-process)
 
 If something goes wrong and you want to bail:

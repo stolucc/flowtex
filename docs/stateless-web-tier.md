@@ -158,6 +158,34 @@ starting point for capacity planning, not a guarantee.
   `Secure` flag and the rate limiter both rely on those headers
   being present.
 
+## Boot guards (fail-fast against split-brain)
+
+Two server-side checks fire at boot. Either failing means you
+land at a clear error instead of silent data corruption.
+
+| Check | Triggers when | Why |
+| --- | --- | --- |
+| `FLOWTEX_INSTANCE_MODE=cluster` requires `REDIS_URL` | Operator sets cluster mode but no Redis | WebSocket broadcasts can't fan out without it; instances would silently diverge. |
+| `FLOWTEX_INSTANCE_MODE=cluster` requires the Y.Doc worker tier | Operator sets cluster mode but no worker (either `FLOWTEX_YJS_WORKER=disabled` explicitly OR the deployed code pre-dates the phase-3 cutover commit `3996223`) | Each web instance would hold its own Y.Doc room while broadcasting updates between them; the inserts converge as concurrent operations, doubling content. The 2026-06-08 incident was exactly this. |
+
+If you see `FLOWTEX_INSTANCE_MODE=cluster requires
+FLOWTEX_YJS_WORKER=enabled` at boot, your fix is one of:
+
+```bash
+# (a) Flip it on (and run the worker unit if you haven't yet):
+echo 'FLOWTEX_YJS_WORKER=enabled' | sudo tee -a /opt/flowtex/.env
+sudo systemctl enable --now flowtex-yjs-worker
+sudo systemctl restart flowtex
+
+# (b) Or back out of cluster mode entirely (single-VPS shape):
+sudo sed -i 's/^FLOWTEX_INSTANCE_MODE=/# FLOWTEX_INSTANCE_MODE=/' /opt/flowtex/.env
+sudo systemctl restart flowtex
+```
+
+The full recovery procedure for projects already corrupted by
+split-brain (boilerplate doubled, edits duplicated, etc.) lives
+in [yjs-worker.md → Split-brain](./yjs-worker.md#split-brain-multi-instance-without-the-worker-tier).
+
 ## Provisioner support
 
 `scripts/provision-vps.sh` ships:
