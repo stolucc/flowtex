@@ -1382,6 +1382,7 @@ function AppInner() {
                     // into the void" affordance.
                     readOnly={isReadOnlyForUser(members, user?.id)}
                     extraExtensions={editorExtraExtensions}
+                    yjsEnabled={yjs.enabled}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
                     onChanges={(changes, tracked, deletions, tcMarks) => {

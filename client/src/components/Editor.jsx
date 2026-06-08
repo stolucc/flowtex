@@ -157,6 +157,14 @@ const Editor = forwardRef(function Editor(
     // binding from useYjsSync when the feature flag is on. Default is
     // an empty array so behaviour is unchanged on default builds.
     extraExtensions = [],
+    // YJS-MIGRATION phase 2 boilerplate-doubling fix: when the Y.Doc
+    // sync is going to take over, CodeMirror must start with an EMPTY
+    // doc -- otherwise the file.content rendered at mount stays in the
+    // editor and the y-codemirror binding INSERTS the Y.Doc state on
+    // top once yjs-state arrives, producing doubled boilerplate. With
+    // yjsEnabled=true we render empty briefly; Y.Doc is the source of
+    // truth and populates the editor within a request-state round trip.
+    yjsEnabled = false,
   },
   ref,
 ) {
@@ -835,7 +843,10 @@ const Editor = forwardRef(function Editor(
     extraExtCompartment.current = new Compartment();
 
     const state = EditorState.create({
-      doc: file.content || '',
+      // Empty when Y.Doc sync is on so the y-codemirror binding's
+      // insert-from-yjs-state doesn't duplicate file.content. The
+      // Y.Doc populates the editor once yjs-state arrives over the WS.
+      doc: yjsEnabled ? '' : (file.content || ''),
       extensions: [
         // Equivalent of `basicSetup` without `closeBrackets()` and its
         // keymap — auto-pairing { → {} or ' → '' interferes with LaTeX
