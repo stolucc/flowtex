@@ -34,10 +34,13 @@ import {
 } from '../services/yjsRoomSelector.js';
 
 const saved = {};
-const PRESERVE = ['FLOWTEX_YJS_WORKER'];
+const PRESERVE = ['FLOWTEX_YJS_WORKER', 'FLOWTEX_INSTANCE_MODE', 'REDIS_URL'];
 
 beforeEach(() => {
   for (const k of PRESERVE) saved[k] = process.env[k];
+  // Each test starts with a clean slate for all three env vars so
+  // tests for one mode aren't influenced by the other.
+  for (const k of PRESERVE) delete process.env[k];
   _resetForTests();
   vi.clearAllMocks();
 });
@@ -50,15 +53,51 @@ afterEach(() => {
 });
 
 describe('yjsRoomSelector', () => {
-  it('defaults to the in-process backend when FLOWTEX_YJS_WORKER is unset', async () => {
-    delete process.env.FLOWTEX_YJS_WORKER;
+  it('defaults to the in-process backend when all env vars are unset (dev / single-VPS)', async () => {
     expect(isWorkerSplitEnabled()).toBe(false);
     expect(getYjsBackend().kind).toBe('in-process');
   });
 
-  it('routes through the remote client when FLOWTEX_YJS_WORKER=enabled', async () => {
+  it('routes through the remote client when FLOWTEX_YJS_WORKER=enabled (explicit opt-in)', async () => {
     process.env.FLOWTEX_YJS_WORKER = 'enabled';
     expect(isWorkerSplitEnabled()).toBe(true);
+  });
+
+  it('uses the remote client by DEFAULT in cluster mode with REDIS_URL set (phase 3 cutover)', async () => {
+    process.env.FLOWTEX_INSTANCE_MODE = 'cluster';
+    process.env.REDIS_URL = 'redis://example:6379/0';
+    expect(isWorkerSplitEnabled()).toBe(true);
+    expect(getYjsBackend().kind).toBe('remote');
+  });
+
+  it('FALLS BACK to in-process in cluster mode if REDIS_URL is missing', async () => {
+    // Defensive: cluster + no Redis is misconfigured. websocket.js
+    // refuses to boot in this state, but the selector should still
+    // pick the safe default rather than failing later in the apply
+    // path with a confusing "no redis client" error.
+    process.env.FLOWTEX_INSTANCE_MODE = 'cluster';
+    delete process.env.REDIS_URL;
+    expect(isWorkerSplitEnabled()).toBe(false);
+  });
+
+  it('honours an explicit FLOWTEX_YJS_WORKER=disabled even in cluster mode', async () => {
+    process.env.FLOWTEX_INSTANCE_MODE = 'cluster';
+    process.env.REDIS_URL = 'redis://example:6379/0';
+    process.env.FLOWTEX_YJS_WORKER = 'disabled';
+    expect(isWorkerSplitEnabled()).toBe(false);
+  });
+
+  it('accepts truthy / falsy variants of FLOWTEX_YJS_WORKER', async () => {
+    for (const truthy of ['enabled', '1', 'true', 'TRUE', 'Enabled']) {
+      _resetForTests();
+      process.env.FLOWTEX_YJS_WORKER = truthy;
+      expect(isWorkerSplitEnabled()).toBe(true);
+    }
+    for (const falsy of ['disabled', '0', 'false', 'FALSE']) {
+      _resetForTests();
+      process.env.FLOWTEX_YJS_WORKER = falsy;
+      expect(isWorkerSplitEnabled()).toBe(false);
+    }
   });
 
   it('routes acquireRoom to the in-process impl by default', async () => {

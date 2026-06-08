@@ -1,19 +1,31 @@
-// YJS-WORKER-SPLIT phase 1 -- selector between in-process and
-// remote Y.Doc rooms.
+// YJS-WORKER-SPLIT phase 3 cutover -- selector between in-process
+// and remote Y.Doc rooms.
 //
-// FLOWTEX_YJS_WORKER=enabled routes every yjsRoom call through the
-// Redis-backed client (services/yjsRoomClient.js) and the dedicated
-// worker (server/yjsWorker.js). Any other value (including unset)
-// keeps the in-process behaviour shipped in YJS-MIGRATION phases
-// 2-6.
+// Selection precedence (first match wins):
+//   1. FLOWTEX_YJS_WORKER=enabled / 1 / true  -> remote
+//   2. FLOWTEX_YJS_WORKER=disabled / 0 / false -> in-process
+//      (lets an operator explicitly opt out even in cluster mode)
+//   3. Cluster mode AND REDIS_URL set -> remote (the phase 3
+//      cutover default: if you're running multi-instance, you
+//      want the worker tier)
+//   4. Anything else -> in-process (single-VPS deploys, dev,
+//      tests with no env)
+//
+// Pre-cutover, only rule (1) was true; in-process was the implicit
+// default for every other case. The new default in (3) makes the
+// worker tier opt-in by infrastructure shape rather than requiring
+// the operator to set TWO env vars (instance mode AND yjs worker).
+// Single-VPS deploys see no change because FLOWTEX_INSTANCE_MODE is
+// unset (defaults to "single"); cluster deploys get the right
+// thing automatically.
 //
 // Why an intermediary selector instead of editing every call site
-// to import-flag-decide:
+// to flag-decide:
 //   - The selector is the single source of truth for the routing
-//     decision -- a future phase 3 cutover flips one boolean here.
+//     decision.
 //   - Callers don't have to know which backend is live; the
 //     interface is identical (acquireRoom / applyUpdate /
-//     encodeStateAsUpdate / releaseRoom).
+//     encodeStateAsUpdate / releaseRoom / peekRoom).
 //   - Tests can swap the selector's internal active reference
 //     without touching call-site mocks.
 
@@ -22,17 +34,40 @@ import * as remote from './yjsRoomClient.js';
 
 let active = null;
 
+function classifyExplicitFlag(raw) {
+  const v = (raw || '').toLowerCase();
+  if (v === 'enabled' || v === '1' || v === 'true') return 'remote';
+  if (v === 'disabled' || v === '0' || v === 'false') return 'in-process';
+  return null;                                  // unset / unknown
+}
+
 /**
- * Pick the backend based on FLOWTEX_YJS_WORKER. Idempotent --
- * subsequent calls return the already-selected backend so the
- * routing decision survives across the request lifecycle.
+ * Pick the backend based on the precedence rules above. Idempotent
+ * within the process lifetime -- subsequent calls return the
+ * already-selected backend so the routing decision survives across
+ * the request lifecycle.
  */
 export function getYjsBackend() {
   if (active) return active;
-  const mode = (process.env.FLOWTEX_YJS_WORKER || '').toLowerCase();
-  active = mode === 'enabled' || mode === '1' || mode === 'true'
-    ? { kind: 'remote', impl: remote }
-    : { kind: 'in-process', impl: inProcess };
+  // 1 + 2: explicit operator decision wins.
+  const explicit = classifyExplicitFlag(process.env.FLOWTEX_YJS_WORKER);
+  if (explicit === 'remote') {
+    active = { kind: 'remote', impl: remote };
+    return active;
+  }
+  if (explicit === 'in-process') {
+    active = { kind: 'in-process', impl: inProcess };
+    return active;
+  }
+  // 3: cutover default for cluster deploys.
+  const clusterMode = (process.env.FLOWTEX_INSTANCE_MODE || 'single').toLowerCase() === 'cluster';
+  const hasRedis = !!process.env.REDIS_URL;
+  if (clusterMode && hasRedis) {
+    active = { kind: 'remote', impl: remote };
+    return active;
+  }
+  // 4: in-process default for single-VPS / dev / tests.
+  active = { kind: 'in-process', impl: inProcess };
   return active;
 }
 
