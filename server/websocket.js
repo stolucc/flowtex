@@ -8,6 +8,7 @@ import db from './db.js';
 import { UUID_RE, isProjectMember } from './middleware/auth.js';
 import { recordMentions } from './utils/mentions.js';
 import * as yjsRoom from './services/yjsRoom.js';
+import { isWorkerSplitEnabled } from './services/yjsRoomSelector.js';
 import { setWsConnectionsActive, recordWsFrame } from './services/metrics.js';
 import { captureException as reportException } from './services/errorReporter.js';
 
@@ -773,6 +774,34 @@ export function initWebSocket(server, app, sessionSecret) {
     );
     throw new Error(
       'FLOWTEX_INSTANCE_MODE=cluster requires REDIS_URL',
+    );
+  }
+  // Belt-and-braces against Y.Doc split-brain:
+  // In cluster mode, EVERY web instance broadcasts Y.Doc updates to
+  // its peers via Redis pub/sub. If the Y.Doc selector ALSO holds
+  // each project's room in-process, peers will each maintain their
+  // own copy of the room and concurrently apply the same updates --
+  // including the initial seed insert for the boilerplate template.
+  // Y.js converges those as concurrent inserts, so you end up with
+  // every initial insert duplicated per instance ("the boilerplate
+  // appeared twice" is the canonical symptom).
+  //
+  // Refuse to boot in this combination so the operator can't
+  // accidentally trip into it. They have two ways out:
+  //   1. Set FLOWTEX_YJS_WORKER=enabled (and run the worker) so the
+  //      selector picks the remote backend.
+  //   2. Take cluster mode off (single-VPS shape).
+  if (instanceMode === 'cluster' && !isWorkerSplitEnabled()) {
+    logger.error(
+      { instanceMode },
+      'FLOWTEX_INSTANCE_MODE=cluster requires the Y.Doc worker tier ' +
+      '(set FLOWTEX_YJS_WORKER=enabled and run server/yjsWorker.js). ' +
+      'Without it, each web instance holds its own copy of every ' +
+      'Y.Doc room and the pub/sub broadcast causes split-brain ' +
+      'duplication (boilerplate text appears N times for N instances).',
+    );
+    throw new Error(
+      'FLOWTEX_INSTANCE_MODE=cluster requires FLOWTEX_YJS_WORKER=enabled (or cluster+REDIS_URL defaults, post-cutover)',
     );
   }
 
