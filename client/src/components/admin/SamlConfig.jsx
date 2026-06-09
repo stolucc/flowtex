@@ -5,9 +5,10 @@
 //   2. List of configured IdPs (toggle enabled, edit, delete)
 //   3. "Add new IdP" button that opens the create/edit modal
 //
-// The modal has two paths -- "Paste metadata XML" (default) and
-// "Field-by-field" (fallback for IdPs whose metadata isn't easy to
-// download).
+// All buttons use the existing admin/modal classes (admin-audit-btn for
+// inline, modal-btn[-primary|-secondary] for modal actions). Delete and
+// rotate use the inline "Are you sure?" pattern that the audit tab
+// uses; per feedback_native_dialogs_banned, no window.confirm/alert.
 
 import React, { useEffect, useState } from 'react';
 import { get, post, patch, del } from '../../api.js';
@@ -26,7 +27,8 @@ export default function SamlConfig() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);  // null | 'new' | <idpId>
-  const [rotateConfirm, setRotateConfirm] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null); // <idpId> | null
+  const [confirmRotate, setConfirmRotate] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -41,7 +43,7 @@ export default function SamlConfig() {
         const data = await listRes.json();
         setIdps(data.idps || []);
       }
-    } catch (e) {
+    } catch {
       setError('Failed to load SAML configuration.');
     } finally {
       setLoading(false);
@@ -65,11 +67,6 @@ export default function SamlConfig() {
   };
 
   const handleDelete = async (idp) => {
-    if (!window.confirm(
-      `Delete the "${idp.display_name}" SSO configuration?\n\n` +
-      `If any users are linked to this IdP, the delete will be refused -- ` +
-      `you'd need to convert them to password auth or reassign first.`
-    )) return;
     try {
       const res = await del(`/api/admin/saml/idps/${idp.id}`);
       if (!res.ok) {
@@ -77,6 +74,7 @@ export default function SamlConfig() {
         setError(data.error || 'Failed to delete.');
         return;
       }
+      setConfirmDelete(null);
       refresh();
     } catch {
       setError('Failed to delete.');
@@ -88,57 +86,59 @@ export default function SamlConfig() {
       const res = await post('/api/admin/saml/sp/rotate', {});
       if (!res.ok) {
         setError('Failed to rotate keypair.');
-        setRotateConfirm(false);
-        return;
       }
-      setRotateConfirm(false);
-      refresh();
     } catch {
       setError('Failed to rotate keypair.');
-      setRotateConfirm(false);
+    } finally {
+      setConfirmRotate(false);
+      refresh();
     }
   };
 
-  if (loading) return <div className="admin-loading">Loading SSO configuration…</div>;
+  if (loading) return <div className="saml-config-loading">Loading SSO configuration…</div>;
 
   return (
-    <div className="admin-saml">
+    <div className="saml-config">
       {error && (
-        <div className="admin-error" style={{ marginBottom: 12 }}>{error}</div>
+        <div className="saml-config-error">{error}</div>
       )}
 
       <SpInfoCard
         spInfo={spInfo}
-        rotateConfirm={rotateConfirm}
-        onRotateRequest={() => setRotateConfirm(true)}
+        confirmRotate={confirmRotate}
+        onRotateRequest={() => setConfirmRotate(true)}
         onRotateConfirm={handleRotate}
-        onRotateCancel={() => setRotateConfirm(false)}
+        onRotateCancel={() => setConfirmRotate(false)}
       />
 
-      <h3 style={{ marginTop: 24 }}>Identity Providers</h3>
+      <h3 className="saml-config-section-title">Identity providers</h3>
       {idps.length === 0 && (
-        <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-          No SSO providers configured. Users sign in with email + password.
+        <p className="saml-config-empty">
+          No SSO providers configured. Users sign in with email and password.
         </p>
       )}
       {idps.map((idp) => (
-        <IdPCard
+        <IdPRow
           key={idp.id}
           idp={idp}
+          confirmDelete={confirmDelete === idp.id}
           onEdit={() => setEditing(idp.id)}
-          onDelete={() => handleDelete(idp)}
+          onDeleteRequest={() => setConfirmDelete(idp.id)}
+          onDeleteConfirm={() => handleDelete(idp)}
+          onDeleteCancel={() => setConfirmDelete(null)}
           onToggleEnabled={() => handleToggleEnabled(idp)}
         />
       ))}
 
-      <button
-        type="button"
-        className="admin-button"
-        style={{ marginTop: 16 }}
-        onClick={() => setEditing('new')}
-      >
-        + Add identity provider
-      </button>
+      <div className="saml-config-actions">
+        <button
+          type="button"
+          className="admin-audit-btn"
+          onClick={() => setEditing('new')}
+        >
+          + Add identity provider
+        </button>
+      </div>
 
       {editing && (
         <IdPEditorModal
@@ -151,17 +151,12 @@ export default function SamlConfig() {
   );
 }
 
-function SpInfoCard({ spInfo, rotateConfirm, onRotateRequest, onRotateConfirm, onRotateCancel }) {
+function SpInfoCard({ spInfo, confirmRotate, onRotateRequest, onRotateConfirm, onRotateCancel }) {
   if (!spInfo) return null;
   return (
-    <div style={{
-      padding: 16,
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)',
-    }}>
-      <h3 style={{ marginTop: 0 }}>FlowTex SP information</h3>
-      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0 }}>
+    <div className="saml-config-card">
+      <h3 className="saml-config-section-title">FlowTex SP information</h3>
+      <p className="saml-config-hint">
         Give these values to your identity provider when configuring SSO.
       </p>
       <CopyField label="SP entityID" value={spInfo.entityId} />
@@ -175,62 +170,40 @@ function SpInfoCard({ spInfo, rotateConfirm, onRotateRequest, onRotateConfirm, o
         value={spInfo.acsUrlTemplate}
         note="Replace <idpId> with the UUID shown next to each IdP below."
       />
-      <div style={{ marginTop: 12, fontSize: 13 }}>
-        <strong>Certificate fingerprint (SHA-256):</strong>{' '}
-        <code style={{ fontSize: 11 }}>{spInfo.fingerprintSha256}</code>
+      <div className="saml-config-meta">
+        <div>
+          <strong>Certificate fingerprint (SHA-256):</strong>{' '}
+          <code className="saml-config-fingerprint">{spInfo.fingerprintSha256}</code>
+        </div>
+        <div className="saml-config-hint">
+          Expires {new Date(spInfo.notValidAfter).toISOString().slice(0, 10)}
+        </div>
       </div>
-      <div style={{ marginTop: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
-        Expires {new Date(spInfo.notValidAfter).toISOString().slice(0, 10)}
-      </div>
-      <details style={{ marginTop: 8 }}>
-        <summary style={{ cursor: 'pointer', fontSize: 13 }}>Show certificate PEM</summary>
-        <pre style={{
-          fontSize: 10,
-          padding: 8,
-          marginTop: 4,
-          background: 'var(--bg-primary)',
-          border: '1px solid var(--border)',
-          borderRadius: 4,
-          overflow: 'auto',
-        }}>{spInfo.certificatePem}</pre>
+      <details className="saml-config-cert-details">
+        <summary>Show certificate PEM</summary>
+        <pre className="saml-config-cert-pem">{spInfo.certificatePem}</pre>
       </details>
-      {!rotateConfirm ? (
-        <button
-          type="button"
-          className="admin-button"
-          style={{ marginTop: 12 }}
-          onClick={onRotateRequest}
-        >
-          Rotate keypair
-        </button>
-      ) : (
-        <div style={{
-          marginTop: 12,
-          padding: 12,
-          background: 'var(--bg-primary)',
-          border: '1px solid var(--err)',
-          borderRadius: 4,
-        }}>
-          <p style={{ margin: 0, fontSize: 13 }}>
-            Rotating the keypair publishes a new certificate. Until your IdPs
-            re-fetch the metadata, signed AuthnRequests will fail verification.
-            Coordinate with each IdP admin first.
-          </p>
-          <div style={{ marginTop: 8 }}>
-            <button type="button" className="admin-button" onClick={onRotateConfirm}>
-              Yes, rotate now
+      <div className="saml-config-actions">
+        {!confirmRotate ? (
+          <button
+            type="button"
+            className="admin-audit-btn"
+            onClick={onRotateRequest}
+          >
+            Rotate keypair
+          </button>
+        ) : (
+          <span className="saml-config-confirm">
+            Rotating publishes a new certificate. IdPs must re-fetch metadata or signed AuthnRequests will fail.
+            <button type="button" className="admin-audit-btn admin-audit-btn-danger" onClick={onRotateConfirm}>
+              Rotate now
             </button>
-            <button
-              type="button"
-              className="admin-button"
-              style={{ marginLeft: 8, background: 'transparent' }}
-              onClick={onRotateCancel}
-            >
+            <button type="button" className="admin-audit-btn" onClick={onRotateCancel}>
               Cancel
             </button>
-          </div>
-        </div>
-      )}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -244,53 +217,32 @@ function CopyField({ label, value, note }) {
     });
   };
   return (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-        <code style={{
-          flex: 1,
-          padding: '4px 8px',
-          fontSize: 12,
-          background: 'var(--bg-primary)',
-          border: '1px solid var(--border)',
-          borderRadius: 4,
-          overflow: 'auto',
-        }}>{value}</code>
-        <button type="button" className="admin-button-small" onClick={onCopy}>
+    <div className="saml-config-copy-field">
+      <div className="saml-config-copy-label">{label}</div>
+      <div className="saml-config-copy-row">
+        <code className="saml-config-copy-value">{value}</code>
+        <button type="button" className="admin-audit-btn" onClick={onCopy}>
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      {note && (
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-          {note}
-        </div>
-      )}
+      {note && <div className="saml-config-hint">{note}</div>}
     </div>
   );
 }
 
-function IdPCard({ idp, onEdit, onDelete, onToggleEnabled }) {
+function IdPRow({ idp, confirmDelete, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleEnabled }) {
   return (
-    <div style={{
-      padding: 12,
-      marginTop: 8,
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-    }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 600 }}>{idp.display_name}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-          ID <code style={{ fontSize: 11 }}>{idp.id}</code>
+    <div className="saml-config-idp-row">
+      <div className="saml-config-idp-info">
+        <div className="saml-config-idp-name">{idp.display_name}</div>
+        <div className="saml-config-idp-meta">
+          ID <code>{idp.id}</code>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+        <div className="saml-config-idp-meta">
           Domains: {(idp.allowed_email_domains || []).join(', ') || '(none)'}
         </div>
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+      <label className="saml-config-toggle">
         <input
           type="checkbox"
           checked={idp.enabled}
@@ -298,15 +250,28 @@ function IdPCard({ idp, onEdit, onDelete, onToggleEnabled }) {
         />
         Enabled
       </label>
-      <button type="button" className="admin-button-small" onClick={onEdit}>Edit</button>
-      <button
-        type="button"
-        className="admin-button-small"
-        style={{ color: 'var(--err)' }}
-        onClick={onDelete}
-      >
-        Delete
-      </button>
+      {!confirmDelete ? (
+        <>
+          <button type="button" className="admin-audit-btn" onClick={onEdit}>Edit</button>
+          <button
+            type="button"
+            className="admin-audit-btn admin-audit-btn-danger"
+            onClick={onDeleteRequest}
+          >
+            Delete
+          </button>
+        </>
+      ) : (
+        <span className="saml-config-confirm">
+          Delete &ldquo;{idp.display_name}&rdquo;?
+          <button type="button" className="admin-audit-btn admin-audit-btn-danger" onClick={onDeleteConfirm}>
+            Yes
+          </button>
+          <button type="button" className="admin-audit-btn" onClick={onDeleteCancel}>
+            Cancel
+          </button>
+        </span>
+      )}
     </div>
   );
 }
@@ -330,7 +295,6 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
   const [error, setError] = useState('');
   const [testPreview, setTestPreview] = useState(null);
 
-  // Load existing if editing.
   useEffect(() => {
     if (isNew) return;
     (async () => {
@@ -341,7 +305,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
         const idp = data.idp || {};
         setForm({
           displayName: idp.display_name || '',
-          metadataXml: '',  // we don't surface the original XML; user can re-paste if needed
+          metadataXml: '',
           entityId: idp.entity_id || '',
           ssoUrl: idp.sso_url || '',
           sloUrl: idp.slo_url || '',
@@ -351,7 +315,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
           jitProvisioning: !!idp.jit_provisioning,
           enabled: !!idp.enabled,
         });
-        setMode('fields');  // editing always lands in fields mode
+        setMode('fields');
       } catch {
         setError('Failed to load IdP details.');
       }
@@ -421,92 +385,62 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-primary)',
-          padding: 24,
-          maxWidth: 720,
-          width: '90%',
-          maxHeight: '90vh',
-          overflow: 'auto',
-          borderRadius: 'var(--radius)',
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>{isNew ? 'Add identity provider' : 'Edit identity provider'}</h3>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="saml-config-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="saml-config-section-title">
+          {isNew ? 'Add identity provider' : 'Edit identity provider'}
+        </h3>
 
         <Field
           label="Display name"
           value={form.displayName}
           onChange={(v) => setForm({ ...form, displayName: v })}
-          placeholder="UCC, TCD, Acme Corp, ..."
+          placeholder="UCC, TCD, Acme Corp, …"
         />
 
         {isNew && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <button
-                type="button"
-                className={`admin-button-small ${mode === 'metadata' ? 'active' : ''}`}
-                onClick={() => setMode('metadata')}
-              >
-                Paste metadata XML
-              </button>
-              <button
-                type="button"
-                className={`admin-button-small ${mode === 'fields' ? 'active' : ''}`}
-                onClick={() => setMode('fields')}
-              >
-                Field-by-field
-              </button>
-            </div>
+          <div className="saml-config-mode-tabs">
+            <button
+              type="button"
+              className={`admin-audit-btn ${mode === 'metadata' ? 'active' : ''}`}
+              onClick={() => setMode('metadata')}
+            >
+              Paste metadata XML
+            </button>
+            <button
+              type="button"
+              className={`admin-audit-btn ${mode === 'fields' ? 'active' : ''}`}
+              onClick={() => setMode('fields')}
+            >
+              Field-by-field
+            </button>
           </div>
         )}
 
         {mode === 'metadata' && isNew ? (
           <>
-            <label style={{ display: 'block', marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Metadata XML</div>
+            <label className="saml-config-field">
+              <div className="saml-config-copy-label">Metadata XML</div>
               <textarea
+                className="saml-config-textarea"
                 value={form.metadataXml}
                 onChange={(e) => setForm({ ...form, metadataXml: e.target.value })}
-                placeholder="<EntityDescriptor xmlns:md=...>..."
+                placeholder="<EntityDescriptor xmlns:md=…>…"
                 rows={10}
-                style={{
-                  width: '100%',
-                  marginTop: 4,
-                  padding: 8,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                }}
               />
             </label>
-            <button
-              type="button"
-              className="admin-button-small"
-              style={{ marginTop: 8 }}
-              onClick={handleTest}
-              disabled={!form.metadataXml}
-            >
-              Test parse
-            </button>
+            <div className="saml-config-actions">
+              <button
+                type="button"
+                className="admin-audit-btn"
+                onClick={handleTest}
+                disabled={!form.metadataXml}
+              >
+                Test parse
+              </button>
+            </div>
             {testPreview && (
-              <div style={{
-                marginTop: 8,
-                padding: 8,
-                fontSize: 12,
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-              }}>
+              <div className="saml-config-preview">
                 <div><strong>entityID:</strong> {testPreview.entityId}</div>
                 <div><strong>SSO URL:</strong> {testPreview.ssoUrl}</div>
                 <div><strong>SLO URL:</strong> {testPreview.sloUrl || '(none)'}</div>
@@ -522,7 +456,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
               onChange={(v) => setForm({ ...form, entityId: v })}
               placeholder="https://idp.ucc.ie/idp/shibboleth"
               disabled={!isNew}
-              note={!isNew ? "Entity ID is immutable -- delete + re-create the IdP if it needs to change." : null}
+              note={!isNew ? 'Entity ID is immutable — delete and re-create the IdP if it needs to change.' : null}
             />
             <Field
               label="SSO URL"
@@ -536,31 +470,25 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
               onChange={(v) => setForm({ ...form, sloUrl: v })}
               placeholder="https://idp.ucc.ie/idp/profile/SAML2/Redirect/SLO"
             />
-            <label style={{ display: 'block', marginTop: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Certificate PEM</div>
+            <label className="saml-config-field">
+              <div className="saml-config-copy-label">Certificate PEM</div>
               <textarea
+                className="saml-config-textarea saml-config-textarea--cert"
                 value={form.certPem}
                 onChange={(e) => setForm({ ...form, certPem: e.target.value })}
-                placeholder="-----BEGIN CERTIFICATE-----..."
+                placeholder="-----BEGIN CERTIFICATE-----…"
                 rows={5}
-                style={{
-                  width: '100%',
-                  marginTop: 4,
-                  padding: 8,
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                }}
               />
             </label>
           </>
         )}
 
-        <label style={{ display: 'block', marginTop: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Attribute mapping</div>
+        <label className="saml-config-field">
+          <div className="saml-config-copy-label">Attribute mapping</div>
           <select
+            className="saml-config-select"
             value={form.attributeMapping}
             onChange={(e) => setForm({ ...form, attributeMapping: e.target.value })}
-            style={{ marginTop: 4, padding: '4px 8px' }}
           >
             {PRESETS.map((p) => (
               <option key={p.value} value={p.value}>{p.label}</option>
@@ -569,14 +497,14 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
         </label>
 
         <Field
-          label="Allowed email domains (comma- or space-separated)"
+          label="Allowed email domains (comma or space separated)"
           value={form.allowedEmailDomains}
           onChange={(v) => setForm({ ...form, allowedEmailDomains: v })}
           placeholder="ucc.ie, cs.ucc.ie"
           note="Users with emails in these domains will be routed to this IdP."
         />
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 14 }}>
+        <label className="saml-config-checkbox">
           <input
             type="checkbox"
             checked={form.jitProvisioning}
@@ -584,7 +512,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
           />
           Just-in-time user provisioning (auto-create accounts on first login)
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 14 }}>
+        <label className="saml-config-checkbox">
           <input
             type="checkbox"
             checked={form.enabled}
@@ -594,15 +522,15 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
         </label>
 
         {error && (
-          <div className="admin-error" style={{ marginTop: 12, fontSize: 13 }}>{error}</div>
+          <div className="saml-config-error">{error}</div>
         )}
 
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" className="admin-button" onClick={onClose} disabled={busy}>
+        <div className="saml-config-modal-footer">
+          <button type="button" className="modal-btn modal-btn-secondary" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="admin-button" onClick={handleSave} disabled={busy}>
-            {busy ? 'Saving...' : (isNew ? 'Create' : 'Save')}
+          <button type="button" className="modal-btn modal-btn-primary" onClick={handleSave} disabled={busy}>
+            {busy ? 'Saving…' : (isNew ? 'Create' : 'Save')}
           </button>
         </div>
       </div>
@@ -612,19 +540,17 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
 
 function Field({ label, value, onChange, placeholder, disabled, note }) {
   return (
-    <label style={{ display: 'block', marginTop: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
+    <label className="saml-config-field">
+      <div className="saml-config-copy-label">{label}</div>
       <input
         type="text"
+        className="saml-config-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        style={{ width: '100%', marginTop: 4, padding: '4px 8px' }}
       />
-      {note && (
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{note}</div>
-      )}
+      {note && <div className="saml-config-hint">{note}</div>}
     </label>
   );
 }
