@@ -36,6 +36,7 @@ import historyRouter from './routes/history.js';
 import githubRouter from './routes/github.js';
 import tagsRouter from './routes/tags.js';
 import adminRouter from './routes/admin.js';
+import adminSamlRouter from './routes/adminSaml.js';
 import setupRouter from './routes/setup.js';
 import bibRouter from './routes/bib.js';
 import zoteroRouter from './routes/zotero.js';
@@ -531,6 +532,11 @@ app.use('/api/bug-reports', requireAuth, bugReportLimiter, bugReportsRouter);
 app.use('/api/bib', requireAuth, bibRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);
+// Same auth gating chain as the main admin router (requireAuth +
+// requireAdmin) but mounted on its own path so future SAML admin
+// additions don't clutter routes/admin.js. The IdP CRUD lives here
+// and rotateSpKeypair too.
+app.use('/api/admin/saml', adminApiLimiter, requireAuth, requireAdmin, adminSamlRouter);
 
 // ── Health check endpoints (before catch-all) ───────────────────────────
 //
