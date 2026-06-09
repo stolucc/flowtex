@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -51,6 +52,16 @@ func TestSaveAndLoadConfig_RoundTrip(t *testing.T) {
 func TestSaveConfig_FileMode0600(t *testing.T) {
 	// Bearer token sits in this file. World-readable would leak it to
 	// any unix user on a shared machine.
+	//
+	// Windows: file modes don't map to Unix permission bits -- os.Stat
+	// reports 0666 regardless of the 0600 we passed to os.OpenFile. The
+	// equivalent protection on Windows is the icacls DACL lockdown
+	// applied in config_windows.go (verified by TestApplyWindowsACL in
+	// config_acl_test.go). So this test is skipped on Windows and the
+	// Windows-specific test covers that path.
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes don't apply on Windows; see TestApplyWindowsACL")
+	}
 	dir := t.TempDir()
 	cfg := &config{
 		Path:        filepath.Join(dir, "config.json"),

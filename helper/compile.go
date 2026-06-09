@@ -276,6 +276,15 @@ func isSafeRelPath(p string) bool {
 	if filepath.IsAbs(p) {
 		return false
 	}
+	// filepath.IsAbs is GOOS-aware: on Windows it accepts forms like
+	// `C:\foo` and rejects a bare `/etc/passwd` (which Windows treats
+	// as relative to the current drive). For security we want to
+	// reject Unix-style absolute paths on every platform -- an attacker
+	// who can supply a path shouldn't be able to bypass the gate by
+	// pretending Windows file semantics. Symmetric for backslash.
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") {
+		return false
+	}
 	// Split on BOTH / and \ regardless of GOOS. Previously this used
 	// filepath.Separator alone, which on Windows is '\'. That meant a
 	// path like "../../etc/passwd" (forward slashes) had no separator
@@ -328,5 +337,14 @@ func stripJobDirPaths(s, jobDir string) string {
 	if jobDir == "" {
 		return s
 	}
-	return strings.ReplaceAll(s, jobDir+string(filepath.Separator), "")
+	// Strip BOTH separator characters. The OS native one
+	// (filepath.Separator) is what most logs we produce will contain,
+	// but logs originating from latexmk or downstream tools sometimes
+	// emit forward slashes even on Windows; and on Unix a stray
+	// backslash isn't impossible either. Doing both is cheap and keeps
+	// shared-screenshot privacy intact regardless of which tool wrote
+	// the path.
+	s = strings.ReplaceAll(s, jobDir+"/", "")
+	s = strings.ReplaceAll(s, jobDir+"\\", "")
+	return s
 }
