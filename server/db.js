@@ -264,6 +264,76 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at) WHERE deleted_at IS NOT NULL;
 
+    -- SAML / multi-tenant SSO. Adding the columns here so the rest of
+    -- the schema can reference saml_idp_config without circular-import
+    -- ordering issues. The actual login routing uses these columns +
+    -- the saml_idp_config table below.
+    --   auth_method  -- 'password' (default, legacy + non-SAML users)
+    --                   or 'saml' (IdP-linked; password_hash is NULL).
+    --   saml_idp_id  -- which IdP they're linked to. Soft FK only:
+    --                   tied via app-level integrity so deleting an
+    --                   IdP can't orphan-cascade an entire institution's
+    --                   user rows. Admin must explicitly handle.
+    --   saml_name_id -- the canonical user identifier from the IdP.
+    --                   Unique per (idp_id, name_id) -- two different
+    --                   IdPs can legitimately produce the same NameID.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_method TEXT NOT NULL DEFAULT 'password';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS saml_name_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS saml_idp_id TEXT;
+    -- password_hash is nullable for SAML users (their password lives
+    -- at the IdP). Existing rows always have a hash; new SAML rows
+    -- set it to NULL on JIT-provision / JIT-link. Idempotent: running
+    -- DROP NOT NULL twice is a no-op on PG.
+    ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+    -- Compound uniqueness: (saml_idp_id, saml_name_id) must be unique
+    -- where both are present. NameIDs across different IdPs may collide;
+    -- within one IdP they're guaranteed unique by the SAML spec.
+    CREATE UNIQUE INDEX IF NOT EXISTS users_saml_name_id_per_idp
+      ON users(saml_idp_id, saml_name_id)
+      WHERE saml_name_id IS NOT NULL;
+
+    -- Single-row table holding the FlowTex SP's signing keypair. Used
+    -- to sign AuthnRequests we send to IdPs and to publish in our SP
+    -- metadata XML. Private key is encrypted via utils/crypto.js's
+    -- encrypt() (AES-256-GCM with the per-install ENCRYPTION_KEY).
+    -- id is always 'default' for now -- multi-SP support would add
+    -- multiple rows.
+    CREATE TABLE IF NOT EXISTS saml_sp_keypair (
+      id TEXT PRIMARY KEY,
+      private_key_encrypted TEXT NOT NULL,
+      certificate_pem TEXT NOT NULL,
+      fingerprint_sha256 TEXT NOT NULL,
+      not_valid_after TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      rotated_at TIMESTAMPTZ
+    );
+
+    -- One row per configured IdP. allowed_email_domains drives the
+    -- login-time routing: a user with email alice@ucc.ie gets
+    -- redirected to the IdP whose allowed_email_domains contains
+    -- 'ucc.ie'. Domain ownership across IdPs must NOT overlap --
+    -- enforced at the application layer (samlService.createIdP).
+    CREATE TABLE IF NOT EXISTS saml_idp_config (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      entity_id TEXT NOT NULL UNIQUE,
+      sso_url TEXT NOT NULL,
+      slo_url TEXT,
+      cert_pem TEXT NOT NULL,
+      attribute_mapping JSONB NOT NULL DEFAULT '{}',
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      jit_provisioning BOOLEAN NOT NULL DEFAULT TRUE,
+      allowed_email_domains TEXT[] NOT NULL DEFAULT '{}',
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- GIN index over the domains array lets the discovery endpoint do
+    -- a fast `'ucc.ie' = ANY(allowed_email_domains)` lookup.
+    CREATE INDEX IF NOT EXISTS saml_idp_config_domains_idx
+      ON saml_idp_config USING gin (allowed_email_domains)
+      WHERE enabled = TRUE;
+
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
