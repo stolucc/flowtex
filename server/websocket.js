@@ -35,6 +35,13 @@ let sendToUserFn = null;
 let redisPub = null;
 let redisSub = null;
 const REDIS_CHANNEL = 'flowtex:ws';
+// Separate control channel for cluster-wide WS commands (kick a user
+// from a project, kick all sessions for a user). Carried on a
+// dedicated channel rather than piggybacking on the broadcast
+// channel so consumers can validate the message shape strictly
+// (vs. the broadcast channel which proxies arbitrary client-facing
+// payloads).
+const REDIS_CONTROL_CHANNEL = 'flowtex:ws:control';
 const SERVER_ID = crypto.randomUUID();
 
 // ── Room management ─────────────────────────────────────────────────────
@@ -77,14 +84,41 @@ function broadcastToRoom(projectId, message, excludeWs) {
   }
 }
 
-/** Close all WebSocket connections for a user in a specific project room. */
-function disconnectUserFromProject(projectId, userId) {
+/** Close all WebSocket connections for a user in a specific project room
+ *  ON THIS INSTANCE. Use disconnectUserFromProjectClusterWide() in cluster
+ *  mode to also kick connections held by peer web instances.
+ */
+function disconnectUserFromProjectLocal(projectId, userId) {
   const room = projectRooms.get(projectId);
   if (!room) return;
   for (const client of room) {
     if (client.userId === userId) {
       client.ws.close(4003, 'Removed from project');
     }
+  }
+}
+
+/**
+ * Cluster-aware variant. Closes the local matches AND publishes a
+ * control message so peer instances do the same. Without this fan-out,
+ * a user removed from a project whose WS is held by a different
+ * instance keeps receiving broadcasts until natural disconnect (real
+ * audit finding 2026-06-09).
+ */
+function disconnectUserFromProject(projectId, userId) {
+  disconnectUserFromProjectLocal(projectId, userId);
+  if (redisPub) {
+    redisPub
+      .publish(
+        REDIS_CONTROL_CHANNEL,
+        JSON.stringify({
+          type: 'kick-user-from-project',
+          projectId,
+          userId,
+          fromServer: SERVER_ID,
+        }),
+      )
+      .catch((e) => logger.warn({ err: e }, 'Redis publish kick failed'));
   }
 }
 
@@ -229,11 +263,21 @@ async function handleChanges(msg, state, ws) {
   if (!(await isFileInProject(state, msg.fileId))) return;
 
   // tcMarks is { added: [TcEntry...], removed: [id...] } — V2 broadcast
-  // for real-time collaborative tracked changes. Validate shape but
-  // trust contents (server doesn't model TC entries beyond pass-through).
+  // for real-time collaborative tracked changes. Validate shape AND
+  // overwrite authorId/authorName on each added entry with the
+  // server-authenticated user. Without this, a malicious client could
+  // forge tracked-change attribution to any other user via the WS
+  // wire (security audit finding 2026-06-09).
   let tcMarks;
   if (msg.tcMarks && typeof msg.tcMarks === 'object') {
-    const added = Array.isArray(msg.tcMarks.added) ? msg.tcMarks.added.slice(0, 1000) : [];
+    const rawAdded = Array.isArray(msg.tcMarks.added) ? msg.tcMarks.added.slice(0, 1000) : [];
+    const added = rawAdded
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => ({
+        ...e,
+        authorId: state.authenticatedUserId,
+        authorName: state.authenticatedUserName,
+      }));
     const removed = Array.isArray(msg.tcMarks.removed)
       ? msg.tcMarks.removed.filter((x) => typeof x === 'string').slice(0, 1000)
       : [];
@@ -836,8 +880,24 @@ export function initWebSocket(server, app, sessionSecret) {
     setYjsRoomClientRedis(redisPub);
 
     redisSub.subscribe(REDIS_CHANNEL);
+    redisSub.subscribe(REDIS_CONTROL_CHANNEL);
     redisSub.on('message', (channel, raw) => {
       try {
+        // Control-channel messages MUST be parsed and validated
+        // strictly. Unlike the broadcast channel (which proxies
+        // arbitrary client-facing payloads), the control channel
+        // takes server-authoritative actions (closing connections),
+        // so an unexpected shape silently does nothing.
+        if (channel === REDIS_CONTROL_CHANNEL) {
+          const ctrl = JSON.parse(raw);
+          if (!ctrl || ctrl.fromServer === SERVER_ID) return;
+          if (ctrl.type === 'kick-user-from-project'
+              && typeof ctrl.projectId === 'string'
+              && typeof ctrl.userId === 'string') {
+            disconnectUserFromProjectLocal(ctrl.projectId, ctrl.userId);
+          }
+          return;
+        }
         const { projectId, message, fromServer } = JSON.parse(raw);
         if (fromServer === SERVER_ID) return;
         const room = projectRooms.get(projectId);
@@ -847,7 +907,7 @@ export function initWebSocket(server, app, sessionSecret) {
           if (client.ws.readyState === 1) client.ws.send(data);
         }
       } catch (err) {
-        logger.warn({ err }, 'Redis message handler error');
+        logger.warn({ err, channel }, 'Redis message handler error');
       }
     });
 

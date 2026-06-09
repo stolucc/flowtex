@@ -125,6 +125,21 @@ export async function dispatchEntry(rawFields, deps = { acquireRoom, applyUpdate
       if (typeof fields.update !== 'string' || fields.update.length === 0) {
         return { ok: false, retryable: false, reason: 'empty-update' };
       }
+      // Defence in depth: the web tier already enforces a 256 KB
+      // base64 cap on yjs-update messages, but the worker is also
+      // reachable from anyone with Redis write access. A 4 MB upper
+      // bound here is generous for legitimate edits (a single keystroke
+      // is dozens of bytes) and gives us an OOM-resistance floor if
+      // the stream is fed by an attacker rather than legitimate web
+      // instances. 4 MB chosen to match MAX_SNAPSHOT_BYTES in yjsRoom.js.
+      const MAX_UPDATE_B64 = 4 * 1024 * 1024;
+      if (fields.update.length > MAX_UPDATE_B64) {
+        logger.warn(
+          { projectId, fileId, size: fields.update.length },
+          'yjsWorker: oversize update -- dropping',
+        );
+        return { ok: false, retryable: false, reason: 'oversize-update' };
+      }
       if (!heldRooms.has(keyFor(projectId, fileId))) {
         const room = await deps.acquireRoom(projectId, fileId);
         if (!room) {
