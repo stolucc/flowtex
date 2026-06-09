@@ -165,6 +165,15 @@ const Editor = forwardRef(function Editor(
     // yjsEnabled=true we render empty briefly; Y.Doc is the source of
     // truth and populates the editor within a request-state round trip.
     yjsEnabled = false,
+    // Companion to yjsEnabled: a `() => boolean` from the binding that
+    // returns true while Y.applyUpdateV2 of a remote update is being
+    // processed. y-codemirror's syncPlugin observes the Y.Doc change
+    // synchronously and dispatches a CodeMirror transaction to insert
+    // the delta into the editor. Without this flag, the TC marks
+    // input filter would treat those inserts as user typing -- so
+    // every project opens with the WHOLE file flagged as tracked-
+    // change inserts. Wired into the TC filter's shouldSkip below.
+    yjsIsApplyingRemote = null,
   },
   ref,
 ) {
@@ -919,6 +928,15 @@ const Editor = forwardRef(function Editor(
           isOn: () => trackChangesModeRef.current,
           getAuthorId: () => currentUserIdRef.current || '',
           getAuthorName: () => currentUserNameRef.current || '',
+          // Skip TC marking while y-codemirror's syncPlugin is
+          // applying a remote Y.Doc update -- these are the inserts
+          // that bring the empty editor up to canonical state on
+          // open. Without this, every project opens with the whole
+          // boilerplate (or full restored content) flagged as a
+          // pending tracked change.
+          shouldSkip: yjsIsApplyingRemote
+            ? () => yjsIsApplyingRemote()
+            : undefined,
         }),
         tableGutterField,
         tableGutterExtension,

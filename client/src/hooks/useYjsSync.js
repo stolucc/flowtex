@@ -77,5 +77,10 @@ export default function useYjsSync(file, sendWs, originId) {
   return {
     enabled,
     extension: binding?.extension ?? null,
+    // Exposed so Editor.jsx's TC marks input filter can ignore
+    // transactions dispatched by y-codemirror's syncPlugin during
+    // a remote-state apply (which would otherwise mark the entire
+    // initial document as user-inserted tracked changes).
+    isApplyingRemote: binding?.isApplyingRemote ?? null,
   };
 }

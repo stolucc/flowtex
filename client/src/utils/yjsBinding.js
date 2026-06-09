@@ -142,12 +142,28 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   };
   ydoc.on('updateV2', updateHandler);
 
+  // Re-entrancy counter set during Y.applyUpdateV2 of remote updates.
+  // y-codemirror's syncPlugin observes the Y.Doc change and dispatches
+  // an immediate (synchronous) CodeMirror transaction to insert the
+  // delta. That transaction must NOT be marked as a tracked-changes
+  // insert -- it's not a user edit, it's the editor catching up to
+  // the canonical CRDT state. The TC marks filter checks
+  // isApplyingRemote() via its shouldSkip predicate (wired in
+  // Editor.jsx).
+  let isApplyingRemoteCount = 0;
+  const isApplyingRemote = () => isApplyingRemoteCount > 0;
+
   const applyRemoteUpdate = (updateB64, fromOriginId) => {
     if (typeof updateB64 !== 'string') return;
     if (fromOriginId && fromOriginId === originId) return; // self-echo
     let bytes;
     try { bytes = base64ToBytes(updateB64); } catch { return; }
-    Y.applyUpdateV2(ydoc, bytes, REMOTE_ORIGIN);
+    isApplyingRemoteCount += 1;
+    try {
+      Y.applyUpdateV2(ydoc, bytes, REMOTE_ORIGIN);
+    } finally {
+      isApplyingRemoteCount -= 1;
+    }
   };
 
   // Apply the server's encodeStateAsUpdateV2 payload sent in reply to
@@ -175,7 +191,13 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
     ydoc.destroy();
   };
 
-  return { ydoc, ytext, extension, applyRemoteUpdate, applyRemoteState, destroy, LOCAL_ORIGIN };
+  return {
+    ydoc, ytext, extension,
+    applyRemoteUpdate, applyRemoteState,
+    isApplyingRemote,
+    destroy,
+    LOCAL_ORIGIN,
+  };
 }
 
 // ── Base64 helpers ─────────────────────────────────────────────────────────

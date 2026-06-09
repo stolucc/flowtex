@@ -1383,6 +1383,7 @@ function AppInner() {
                     readOnly={isReadOnlyForUser(members, user?.id)}
                     extraExtensions={editorExtraExtensions}
                     yjsEnabled={yjs.enabled}
+                    yjsIsApplyingRemote={yjs.isApplyingRemote}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
                     onChanges={(changes, tracked, deletions, tcMarks) => {
