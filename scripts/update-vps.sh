@@ -207,26 +207,49 @@ fi
 
 # ── 6. Restart server ───────────────────────────────────────────────
 if [ $NEEDS_SERVER_RESTART -eq 1 ]; then
-  say "Restarting $SERVICE"
-  # `systemctl cat` is the cheapest "does this unit exist?" probe with
-  # clean exit-code semantics. We previously grepped the output of
-  # `systemctl list-units`, but that output has leading whitespace on
-  # every row — the `^${SERVICE}` anchor never matched, the script
-  # silently skipped the restart, and the health check then failed
-  # because the old code was still running.
-  if command -v systemctl >/dev/null && systemctl cat "$SERVICE" >/dev/null 2>&1; then
-    # Running as root already, so no sudo prefix needed.
-    systemctl restart "$SERVICE"
-    sleep 2
-    if systemctl is-active --quiet "$SERVICE"; then
-      ok "$SERVICE is running."
-    else
-      systemctl status "$SERVICE" --no-pager | tail -20
-      die "$SERVICE failed to start. Restore with: cd $APP_DIR && sudo -u $APP_USER git reset --hard $PREV_SHA && sudo -u $APP_USER bash -c 'cd client && npm run build' && systemctl restart $SERVICE"
+  # Discover ALL flowtex web units up-front so we can restart the
+  # entire set. The main $SERVICE plus any numbered cluster
+  # instances (flowtex-2, flowtex-3, ...). Without this, Caddy
+  # keeps load-balancing requests onto the still-old code on
+  # whichever instance wasn't restarted -- a real incident
+  # 2026-06-09: one instance was on cf14485, another on a commit
+  # before SAML existed; "Continue with SSO" hit JSON 404 about
+  # half the time.
+  #
+  # The regex matches `flowtex-<digits>.service` only. The
+  # trailing -[0-9]+ excludes flowtex-yjs-worker (a worker tier,
+  # restarted in its own block below).
+  CLUSTER_INSTANCES=$(systemctl list-units --type=service --no-pager --no-legend --state=loaded 2>/dev/null \
+    | awk '{print $1}' \
+    | grep -E '^flowtex-[0-9]+\.service$' \
+    || true)
+
+  ALL_WEB_UNITS="$SERVICE"
+  [ -n "$CLUSTER_INSTANCES" ] && ALL_WEB_UNITS="$SERVICE $CLUSTER_INSTANCES"
+
+  say "Restarting web tier: $(echo $ALL_WEB_UNITS | tr '\n' ' ')"
+
+  for unit in $ALL_WEB_UNITS; do
+    # `systemctl cat` is the cheapest "does this unit exist?" probe
+    # with clean exit-code semantics. We previously grepped the
+    # output of `systemctl list-units`, but that output has leading
+    # whitespace on every row -- the `^${SERVICE}` anchor never
+    # matched, the script silently skipped the restart, and the
+    # health check then failed because the old code was still
+    # running. systemctl cat fails cleanly when a unit doesn't exist.
+    if ! systemctl cat "$unit" >/dev/null 2>&1; then
+      warn "No systemd unit named '$unit' found — skipping."
+      continue
     fi
-  else
-    warn "No systemd unit named '$SERVICE' found. Restart your process manager manually."
-  fi
+    systemctl restart "$unit"
+    sleep 2
+    if systemctl is-active --quiet "$unit"; then
+      ok "$unit is running."
+    else
+      systemctl status "$unit" --no-pager | tail -20
+      die "$unit failed to start. Restore: cd $APP_DIR && sudo -u $APP_USER git reset --hard $PREV_SHA && sudo -u $APP_USER bash -c 'cd client && npm run build' && for u in $ALL_WEB_UNITS; do systemctl restart \$u; done"
+    fi
+  done
 
   # If the operator has enabled the Y.Doc worker tier, restart it
   # alongside the web tier. Skip silently when the unit doesn't
@@ -244,7 +267,7 @@ if [ $NEEDS_SERVER_RESTART -eq 1 ]; then
     fi
   fi
 else
-  warn "No server/ or shared/ changes — leaving $SERVICE running."
+  warn "No server/ or shared/ changes — leaving web tier running."
 fi
 
 # ── 7. Health check ─────────────────────────────────────────────────
