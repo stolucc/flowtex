@@ -17,15 +17,22 @@ export default function AuthPage({ onAuth }) {
   //                              creation needed.
   const inviteId = urlParams.get('invite');
   const declineToken = urlParams.get('invite-decline');
+  // The server-side ACS redirects an existing password user to
+  // /login/confirm-saml-link after they've authenticated at the IdP.
+  // We detect that path here and render the interstitial.
+  const isSamlConfirmPath = typeof window !== 'undefined'
+    && window.location.pathname === '/login/confirm-saml-link';
   const initialMode = resetToken
     ? 'reset'
     : verifyToken
       ? 'verifying'
       : declineToken
         ? 'invite-decline'
-        : inviteId
-          ? 'register'
-          : 'login';
+        : isSamlConfirmPath
+          ? 'saml-confirm-link'
+          : inviteId
+            ? 'register'
+            : 'login';
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -46,6 +53,18 @@ export default function AuthPage({ onAuth }) {
   // Outcome of POSTing ?invite-decline=<token>: null = in-flight,
   // 'ok' = declined successfully, an error string on failure.
   const [declineResult, setDeclineResult] = useState(null);
+  // SAML: list of enabled IdPs for the "Continue with <IdP>" buttons.
+  // Empty array when no IdPs configured (no SSO section is rendered).
+  // Loaded once on mount; the login page is a cold-render scenario,
+  // there's no need to react to subsequent config changes.
+  const [samlIdPs, setSamlIdPs] = useState([]);
+  // SAML confirm-link state. When the URL is /login/confirm-saml-link,
+  // we fetch /api/auth/saml/pending-link and stash the result here.
+  // null = not loaded yet; an object once fetched; 'expired' on 404.
+  const [samlPendingLink, setSamlPendingLink] = useState(null);
+  // Set to true while POSTing to /confirm-link or /cancel-link so the
+  // buttons disable and don't double-submit.
+  const [samlConfirmBusy, setSamlConfirmBusy] = useState(false);
 
   // Handle email verification token from URL
   useEffect(() => {
@@ -121,6 +140,87 @@ export default function AuthPage({ onAuth }) {
       window.history.replaceState({}, '', '/');
     })();
   }, [declineToken]);
+
+  // SAML: fetch the public IdP list so the login page can render
+  // "Continue with <IdP>" buttons (Pattern B). Skipped on the
+  // saml-confirm-link path (we never want to show login options on
+  // the confirmation interstitial).
+  useEffect(() => {
+    if (mode === 'saml-confirm-link') return;
+    (async () => {
+      try {
+        const res = await get('/api/auth/saml/list-public');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.idps)) setSamlIdPs(data.idps);
+      } catch {
+        // No IdPs configured / endpoint absent / network failure -> no
+        // SSO section. Don't surface this to the user; SSO not being
+        // available is the normal case for a fresh install.
+      }
+    })();
+  }, []);
+
+  // SAML: on the confirm-link interstitial, fetch the pending link
+  // state. 404 -> expired (or never existed). Anything else means
+  // the user has something to confirm.
+  useEffect(() => {
+    if (mode !== 'saml-confirm-link') return;
+    (async () => {
+      try {
+        const res = await get('/api/auth/saml/pending-link');
+        if (res.status === 404) {
+          setSamlPendingLink('expired');
+          return;
+        }
+        if (!res.ok) {
+          setSamlPendingLink('expired');
+          return;
+        }
+        const data = await res.json();
+        setSamlPendingLink(data);
+      } catch {
+        setSamlPendingLink('expired');
+      }
+    })();
+  }, [mode]);
+
+  const handleSamlConfirm = async () => {
+    if (samlConfirmBusy) return;
+    setSamlConfirmBusy(true);
+    setError('');
+    try {
+      const res = await post('/api/auth/saml/confirm-link', {});
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        // The server already established the session via the cookie.
+        // A full reload lets App.jsx pick up the session and bypass
+        // AuthPage entirely. Using the server-supplied redirect (the
+        // RelayState the SAML flow round-tripped) preserves
+        // "deep-link returns you to the page you wanted."
+        window.location.assign(data.redirect || '/');
+        return;
+      }
+      setError(data.error || 'Account link failed.');
+    } catch {
+      setError('Account link failed. Please try again.');
+    } finally {
+      setSamlConfirmBusy(false);
+    }
+  };
+
+  const handleSamlCancel = async () => {
+    if (samlConfirmBusy) return;
+    setSamlConfirmBusy(true);
+    try {
+      await post('/api/auth/saml/cancel-link', {});
+    } catch {
+      // Even on error, leaving the page is the right UX.
+    }
+    // Take them back to /login. The page already wipes the pending
+    // state server-side; a clean reload presents the normal form.
+    window.location.assign('/login');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -276,6 +376,89 @@ export default function AuthPage({ onAuth }) {
           </>
         ) : mode === 'verifying' ? (
           <p className="auth-subtitle">Verifying your email...</p>
+        ) : mode === 'saml-confirm-link' ? (
+          <>
+            <p className="auth-subtitle">Link your account?</p>
+            {samlPendingLink === null && (
+              <p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Loading…
+              </p>
+            )}
+            {samlPendingLink === 'expired' && (
+              <>
+                <p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  This confirmation link has expired or was already used.
+                </p>
+                <button
+                  className="auth-button"
+                  onClick={() => window.location.assign('/login')}
+                  style={{ marginTop: 16 }}
+                >
+                  Back to sign-in
+                </button>
+              </>
+            )}
+            {samlPendingLink && typeof samlPendingLink === 'object' && (
+              <>
+                <div style={{
+                  padding: '12px 14px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  margin: '8px 0 16px',
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                }}>
+                  <p style={{ margin: 0 }}>
+                    You signed in to{' '}
+                    <strong>{samlPendingLink.idpDisplayName}</strong>{' '}
+                    with the email <strong>{samlPendingLink.email}</strong>.
+                  </p>
+                  <p style={{ margin: '8px 0 0' }}>
+                    An existing FlowTex account uses that email
+                    {samlPendingLink.existingName ? (
+                      <> (<strong>{samlPendingLink.existingName}</strong>)</>
+                    ) : null}.
+                  </p>
+                  <p style={{ margin: '12px 0 0', color: 'var(--text-secondary)' }}>
+                    If you link these accounts, your future sign-ins will go
+                    through {samlPendingLink.idpDisplayName} only — your
+                    FlowTex password will be removed.
+                  </p>
+                </div>
+                {error && (
+                  <p style={{
+                    color: 'var(--err)',
+                    fontSize: 13,
+                    margin: '0 0 12px',
+                    textAlign: 'center',
+                  }}>{error}</p>
+                )}
+                <button
+                  type="button"
+                  className="auth-button"
+                  onClick={handleSamlConfirm}
+                  disabled={samlConfirmBusy}
+                >
+                  {samlConfirmBusy ? '...' : `Yes, link with ${samlPendingLink.idpDisplayName}`}
+                </button>
+                <button
+                  type="button"
+                  className="auth-button"
+                  onClick={handleSamlCancel}
+                  disabled={samlConfirmBusy}
+                  style={{
+                    marginTop: 8,
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </>
         ) : mode === 'check-email' ? (
           <>
             <p className="auth-subtitle">Check your email</p>
@@ -480,6 +663,45 @@ export default function AuthPage({ onAuth }) {
                 {loading ? '...' : mode === 'login' ? 'Sign In' : 'Register'}
               </button>
             </form>
+            {/* Pattern B: when SSO is configured, show the IdP buttons
+                below the password form so users can pick. Hidden when
+                no IdPs are configured (no operator has set up SAML)
+                and during the register / mfa flows where they're not
+                meaningful. */}
+            {mode === 'login' && !mfaRequired && samlIdPs.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  margin: '8px 0 12px',
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                }}>
+                  <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                  or
+                  <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                </div>
+                {samlIdPs.map((idp) => (
+                  <a
+                    key={idp.id}
+                    href={idp.loginUrl}
+                    className="auth-button"
+                    style={{
+                      display: 'block',
+                      textAlign: 'center',
+                      textDecoration: 'none',
+                      marginBottom: 8,
+                      background: 'transparent',
+                      color: 'var(--text)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    Continue with {idp.displayName}
+                  </a>
+                ))}
+              </div>
+            )}
             {mode === 'login' && (
               <p className="auth-switch">
                 <button
