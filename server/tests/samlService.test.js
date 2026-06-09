@@ -139,3 +139,138 @@ describe('rotateSpKeypair', () => {
     expect(fetched.fingerprintSha256).toBe(rotated.fingerprintSha256);
   });
 });
+
+// ─── Day 2 surface tests ─────────────────────────────────────────────
+
+import { ATTR_PRESETS, parseIdpMetadataXml } from '../services/samlService.js';
+
+describe('ATTR_PRESETS', () => {
+  it('has the five canonical vendors with email/name/nameId triples', () => {
+    for (const k of ['shibboleth', 'entra', 'okta', 'google', 'generic']) {
+      expect(ATTR_PRESETS[k]).toBeDefined();
+      expect(typeof ATTR_PRESETS[k].email).toBe('string');
+      expect(typeof ATTR_PRESETS[k].name).toBe('string');
+      expect(typeof ATTR_PRESETS[k].nameId).toBe('string');
+    }
+  });
+
+  it('Shibboleth + Google use eduPerson OIDs for email', () => {
+    expect(ATTR_PRESETS.shibboleth.email).toMatch(/^urn:oid:0\.9\./);
+    expect(ATTR_PRESETS.google.email).toMatch(/^urn:oid:0\.9\./);
+  });
+
+  it('Entra uses WS-* schemas', () => {
+    expect(ATTR_PRESETS.entra.email).toContain('schemas.xmlsoap.org');
+  });
+});
+
+describe('_testing.normaliseEmailDomains', () => {
+  it('lowercases, trims, dedupes, drops malformed', () => {
+    const out = _testing.normaliseEmailDomains([
+      ' UCC.ie ',
+      'ucc.ie',
+      'tcd.ie',
+      'invalid_domain',                       // underscore disallowed
+      'a.b',                                  // ok
+      '',
+      'not a domain',
+    ]);
+    expect(out).toEqual(['ucc.ie', 'tcd.ie', 'a.b']);
+  });
+
+  it('returns empty array for non-array input', () => {
+    expect(_testing.normaliseEmailDomains(null)).toEqual([]);
+    expect(_testing.normaliseEmailDomains('ucc.ie')).toEqual([]);
+  });
+});
+
+describe('_testing.resolveAttributeMapping', () => {
+  it('expands a preset name into the URI map', () => {
+    const out = _testing.resolveAttributeMapping('shibboleth');
+    expect(out.preset).toBe('shibboleth');
+    expect(out.email).toBe(ATTR_PRESETS.shibboleth.email);
+  });
+
+  it('accepts a literal mapping object', () => {
+    const out = _testing.resolveAttributeMapping({
+      email: 'x', name: 'y', nameId: 'z',
+    });
+    expect(out).toEqual({ email: 'x', name: 'y', nameId: 'z' });
+  });
+
+  it('rejects an unknown preset name', () => {
+    expect(() => _testing.resolveAttributeMapping('myidp'))
+      .toThrow(/Unknown attribute-mapping preset/);
+  });
+
+  it('rejects a partial map', () => {
+    expect(() => _testing.resolveAttributeMapping({ email: 'x' }))
+      .toThrow(/email\/name\/nameId/);
+  });
+});
+
+describe('parseIdpMetadataXml', () => {
+  const SHIB_METADATA = `<?xml version="1.0"?>
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+                     xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+                     entityID="https://idp.ucc.ie/idp/shibboleth">
+  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:KeyDescriptor use="signing">
+      <ds:KeyInfo>
+        <ds:X509Data>
+          <ds:X509Certificate>MIIBvDCCASUCAQAwfTELMAkGA1UEBhMCSUUx</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </md:KeyDescriptor>
+    <md:SingleSignOnService
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://idp.ucc.ie/idp/profile/SAML2/POST/SSO"/>
+    <md:SingleLogoutService
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://idp.ucc.ie/idp/profile/SAML2/Redirect/SLO"/>
+  </md:IDPSSODescriptor>
+</md:EntityDescriptor>`;
+
+  it('extracts entityID, SSO URL, SLO URL, and PEM-wrapped cert', () => {
+    const parsed = parseIdpMetadataXml(SHIB_METADATA);
+    expect(parsed.entityId).toBe('https://idp.ucc.ie/idp/shibboleth');
+    expect(parsed.ssoUrl).toBe('https://idp.ucc.ie/idp/profile/SAML2/POST/SSO');
+    expect(parsed.sloUrl).toBe('https://idp.ucc.ie/idp/profile/SAML2/Redirect/SLO');
+    expect(parsed.certPem).toMatch(/-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+\n-----END CERTIFICATE-----/);
+  });
+
+  it('rejects non-SAML XML', () => {
+    expect(() => parseIdpMetadataXml('<foo/>')).toThrow(/does not look like SAML metadata/);
+  });
+
+  it('rejects metadata missing IDPSSODescriptor', () => {
+    const xml = SHIB_METADATA.replace(/IDPSSODescriptor/g, 'SPSSODescriptor');
+    expect(() => parseIdpMetadataXml(xml)).toThrow(/not an IdP metadata/);
+  });
+
+  it('rejects metadata with no SingleSignOnService', () => {
+    // Use a non-greedy [\s\S] so the regex matches across newlines AND
+    // through any URI character (https:// has slashes that a [^/]+
+    // class would refuse).
+    const xml = SHIB_METADATA.replace(/<md:SingleSignOnService[\s\S]*?\/>/, '');
+    expect(() => parseIdpMetadataXml(xml)).toThrow(/no HTTP-POST or HTTP-Redirect SingleSignOnService/);
+  });
+
+  it('rejects metadata with no signing key', () => {
+    const xml = SHIB_METADATA.replace(/<md:KeyDescriptor[\s\S]*?<\/md:KeyDescriptor>/, '');
+    expect(() => parseIdpMetadataXml(xml)).toThrow(/no signing KeyDescriptor/);
+  });
+});
+
+describe('_testing.wrapBase64AsPem', () => {
+  it('wraps with 64-char lines', () => {
+    const long = 'A'.repeat(150);
+    const pem = _testing.wrapBase64AsPem(long, 'CERTIFICATE');
+    const lines = pem.split('\n');
+    expect(lines[0]).toBe('-----BEGIN CERTIFICATE-----');
+    expect(lines[1].length).toBe(64);
+    expect(lines[2].length).toBe(64);
+    expect(lines[3].length).toBe(22);
+    expect(lines[4]).toBe('-----END CERTIFICATE-----');
+  });
+});

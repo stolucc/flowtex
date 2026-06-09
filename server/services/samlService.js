@@ -21,7 +21,10 @@
 // stored unencrypted (it's a public artefact by definition).
 
 import crypto from 'node:crypto';
+import { v4 as uuid } from 'uuid';
 import selfsigned from 'selfsigned';
+import { XMLParser } from 'fast-xml-parser';
+import { SAML } from '@node-saml/node-saml';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
@@ -172,10 +175,538 @@ export async function rotateSpKeypair(entityId, rotatedBy) {
   return fresh;
 }
 
+// ─── Attribute mapping presets ──────────────────────────────────────────
+//
+// Each preset is the URI under which an IdP exposes the named attribute
+// in its assertion. Operator picks a preset when configuring an IdP;
+// the advanced UI lets them override per-attribute. Covers ~95% of
+// real-world deployments.
+//
+// Sources:
+//   - shibboleth: standard eduPerson schema OIDs.
+//   - entra: Microsoft Entra ID (formerly Azure AD) WS-* schemas.
+//   - okta: Okta's "AttributeStatement" friendlyName form.
+//   - google: Google Workspace SAML, which adopts eduPerson OIDs.
+//   - generic: bare attribute names (works against many test IdPs).
+
+export const ATTR_PRESETS = {
+  shibboleth: {
+    email:  'urn:oid:0.9.2342.19200300.100.1.3',     // mail
+    name:   'urn:oid:2.16.840.1.113730.3.1.241',     // displayName
+    nameId: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+  },
+  entra: {
+    email:  'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress',
+    name:   'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
+    nameId: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+  },
+  okta: {
+    email:  'email',
+    name:   'name',
+    nameId: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+  },
+  google: {
+    email:  'urn:oid:0.9.2342.19200300.100.1.3',
+    name:   'urn:oid:2.16.840.1.113730.3.1.241',
+    nameId: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+  },
+  generic: {
+    email:  'email',
+    name:   'name',
+    nameId: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+  },
+};
+
+// ─── IdP metadata XML parser ────────────────────────────────────────────
+
+const XML_PARSER = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  removeNSPrefix: true,            // strip md:, ds:, etc. — simplifies traversal
+  isArray: (name) => ['SingleSignOnService', 'SingleLogoutService', 'KeyDescriptor'].includes(name),
+});
+
+/**
+ * Parse an IdP metadata XML document into the four fields we persist:
+ * entityID, SSO URL (HTTP-POST binding), SLO URL (optional), cert PEM.
+ *
+ * SAML metadata XML carries a lot more (encryption keys, AssertionConsumerService
+ * for IdP-initiated, etc.) but for the SP→IdP relationship we only need
+ * these four.
+ *
+ * @param {string} xml - raw metadata XML
+ * @returns {{ entityId, ssoUrl, sloUrl: string|null, certPem }}
+ * @throws if any required field is missing or malformed
+ */
+export function parseIdpMetadataXml(xml) {
+  if (typeof xml !== 'string' || !xml.includes('EntityDescriptor')) {
+    throw new Error('parseIdpMetadataXml: input does not look like SAML metadata XML');
+  }
+  const parsed = XML_PARSER.parse(xml);
+  const ent = parsed.EntityDescriptor;
+  if (!ent) throw new Error('parseIdpMetadataXml: no EntityDescriptor element');
+  const entityId = ent['@_entityID'];
+  if (!entityId) throw new Error('parseIdpMetadataXml: missing entityID attribute');
+
+  const idp = ent.IDPSSODescriptor;
+  if (!idp) throw new Error('parseIdpMetadataXml: not an IdP metadata document (no IDPSSODescriptor)');
+
+  const findBinding = (services, binding) =>
+    (services || []).find((s) => s['@_Binding'] === binding);
+
+  const sso = findBinding(idp.SingleSignOnService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST')
+    || findBinding(idp.SingleSignOnService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect');
+  if (!sso) throw new Error('parseIdpMetadataXml: no HTTP-POST or HTTP-Redirect SingleSignOnService');
+  const ssoUrl = sso['@_Location'];
+
+  const slo = findBinding(idp.SingleLogoutService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST')
+    || findBinding(idp.SingleLogoutService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect');
+  const sloUrl = slo?.['@_Location'] || null;
+
+  // Find a signing (or unspecified-use) KeyDescriptor and pull the
+  // base64 cert out. IdPs sometimes ship multiple keys (signing +
+  // encryption); we want the signing one.
+  const keyDescriptors = idp.KeyDescriptor || [];
+  const signingKey = keyDescriptors.find((k) => k['@_use'] === 'signing')
+    || keyDescriptors.find((k) => !k['@_use']);
+  if (!signingKey) throw new Error('parseIdpMetadataXml: no signing KeyDescriptor');
+  const certBase64 = signingKey?.KeyInfo?.X509Data?.X509Certificate;
+  if (!certBase64) throw new Error('parseIdpMetadataXml: KeyDescriptor has no X509Certificate');
+  // The base64 in metadata is usually unwrapped; wrap as PEM.
+  const certPem = wrapBase64AsPem(String(certBase64).replace(/\s+/g, ''), 'CERTIFICATE');
+
+  return { entityId, ssoUrl, sloUrl, certPem };
+}
+
+function wrapBase64AsPem(b64, label) {
+  const lines = b64.match(/.{1,64}/g) || [b64];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+}
+
+// ─── IdP CRUD ───────────────────────────────────────────────────────────
+
+/**
+ * List all configured IdPs (admin UI). Returns the safe-to-display
+ * shape with cert truncated to fingerprint.
+ */
+export async function listIdPs() {
+  const rows = await db.all(
+    `SELECT id, display_name, entity_id, sso_url, slo_url, enabled,
+            jit_provisioning, allowed_email_domains, attribute_mapping,
+            created_at, updated_at,
+            substr(cert_pem, 1, 100) AS cert_pem_preview
+       FROM saml_idp_config
+       ORDER BY display_name`,
+  );
+  return rows;
+}
+
+export async function getIdP(id) {
+  return db.get('SELECT * FROM saml_idp_config WHERE id = $1', [id]);
+}
+
+/**
+ * Look up an IdP by email domain. Domain compared case-insensitively
+ * (RFC 5321 §2.4: domain part of an email is case-insensitive).
+ *
+ * Returns the first enabled IdP whose allowed_email_domains contains
+ * the requested domain. The domain-uniqueness invariant in createIdP
+ * means there's at most one match.
+ */
+export async function getIdPByDomain(domain) {
+  if (typeof domain !== 'string' || domain.length === 0) return null;
+  const lower = domain.toLowerCase();
+  return db.get(
+    `SELECT * FROM saml_idp_config
+       WHERE enabled = TRUE
+         AND $1 = ANY(allowed_email_domains)
+       LIMIT 1`,
+    [lower],
+  );
+}
+
+/**
+ * Create a new IdP config. Enforces:
+ *   - entityID is unique (UNIQUE constraint).
+ *   - allowed_email_domains don't collide with any OTHER enabled IdP
+ *     (advisory-lock-serialised app-level check; the UNIQUE constraint
+ *     can't easily express "no overlap on array elements").
+ *   - attribute_mapping uses one of the named presets OR is a
+ *     concrete map of {email, name, nameId}.
+ *   - allowed_email_domains is non-empty and each domain looks like
+ *     a hostname (loose check).
+ */
+export async function createIdP({
+  displayName,
+  metadataXml,
+  // OR field-by-field:
+  entityId,
+  ssoUrl,
+  sloUrl,
+  certPem,
+  attributeMapping = 'generic',
+  allowedEmailDomains,
+  jitProvisioning = true,
+  enabled = false,
+  createdBy,
+}) {
+  // Step 1: resolve metadata. If XML provided, parse it; else require
+  // the four fields.
+  let resolved;
+  if (typeof metadataXml === 'string' && metadataXml.trim().length > 0) {
+    resolved = parseIdpMetadataXml(metadataXml);
+  } else {
+    if (!entityId || !ssoUrl || !certPem) {
+      throw Object.assign(
+        new Error('createIdP: provide either metadataXml OR (entityId + ssoUrl + certPem)'),
+        { status: 400 },
+      );
+    }
+    resolved = { entityId, ssoUrl, sloUrl: sloUrl || null, certPem };
+  }
+
+  // Step 2: validate inputs.
+  if (typeof displayName !== 'string' || displayName.length === 0 || displayName.length > 200) {
+    throw Object.assign(new Error('createIdP: displayName must be 1-200 chars'), { status: 400 });
+  }
+  const domains = normaliseEmailDomains(allowedEmailDomains);
+  if (domains.length === 0) {
+    throw Object.assign(
+      new Error('createIdP: allowedEmailDomains must contain at least one domain'),
+      { status: 400 },
+    );
+  }
+  const attrMap = resolveAttributeMapping(attributeMapping);
+
+  // Step 3: serialise the domain-uniqueness check + insert via advisory
+  // lock so two concurrent admin operations can't both win.
+  return db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', ['saml-idp-domains']);
+    // Collision check: any OTHER enabled IdP claiming one of our
+    // requested domains?
+    const collision = await tx.get(
+      `SELECT id, display_name FROM saml_idp_config
+         WHERE enabled = TRUE
+           AND allowed_email_domains && $1::text[]
+         LIMIT 1`,
+      [domains],
+    );
+    if (collision && enabled) {
+      throw Object.assign(
+        new Error(`createIdP: email domain already claimed by IdP "${collision.display_name}"`),
+        { status: 409 },
+      );
+    }
+    const id = uuid();
+    await tx.run(
+      `INSERT INTO saml_idp_config
+         (id, display_name, entity_id, sso_url, slo_url, cert_pem,
+          attribute_mapping, enabled, jit_provisioning,
+          allowed_email_domains, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        id,
+        displayName,
+        resolved.entityId,
+        resolved.ssoUrl,
+        resolved.sloUrl,
+        resolved.certPem,
+        JSON.stringify(attrMap),
+        enabled,
+        jitProvisioning,
+        domains,
+        createdBy || null,
+      ],
+    );
+    return { id, ...resolved, attributeMapping: attrMap, allowedEmailDomains: domains };
+  });
+}
+
+/**
+ * Patch an existing IdP. Same domain-collision check as createIdP.
+ * Patchable: displayName, sso/slo URLs, cert, attributeMapping,
+ * allowedEmailDomains, jitProvisioning, enabled. entityID is
+ * immutable (would require re-establishing trust with the IdP).
+ */
+export async function updateIdP(id, patch) {
+  const existing = await getIdP(id);
+  if (!existing) throw Object.assign(new Error('updateIdP: no such IdP'), { status: 404 });
+
+  const next = { ...existing };
+  if (patch.displayName !== undefined) next.display_name = patch.displayName;
+  if (patch.ssoUrl !== undefined) next.sso_url = patch.ssoUrl;
+  if (patch.sloUrl !== undefined) next.slo_url = patch.sloUrl;
+  if (patch.certPem !== undefined) next.cert_pem = patch.certPem;
+  if (patch.attributeMapping !== undefined) {
+    next.attribute_mapping = JSON.stringify(resolveAttributeMapping(patch.attributeMapping));
+  }
+  if (patch.jitProvisioning !== undefined) next.jit_provisioning = !!patch.jitProvisioning;
+  if (patch.enabled !== undefined) next.enabled = !!patch.enabled;
+  if (patch.allowedEmailDomains !== undefined) {
+    next.allowed_email_domains = normaliseEmailDomains(patch.allowedEmailDomains);
+    if (next.allowed_email_domains.length === 0) {
+      throw Object.assign(
+        new Error('updateIdP: allowedEmailDomains must contain at least one domain'),
+        { status: 400 },
+      );
+    }
+  }
+
+  return db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', ['saml-idp-domains']);
+    // Collision check excluding self.
+    if (next.enabled) {
+      const collision = await tx.get(
+        `SELECT id, display_name FROM saml_idp_config
+           WHERE enabled = TRUE
+             AND id <> $1
+             AND allowed_email_domains && $2::text[]
+           LIMIT 1`,
+        [id, next.allowed_email_domains],
+      );
+      if (collision) {
+        throw Object.assign(
+          new Error(`updateIdP: email domain already claimed by IdP "${collision.display_name}"`),
+          { status: 409 },
+        );
+      }
+    }
+    await tx.run(
+      `UPDATE saml_idp_config
+          SET display_name = $1, sso_url = $2, slo_url = $3, cert_pem = $4,
+              attribute_mapping = $5::jsonb, enabled = $6, jit_provisioning = $7,
+              allowed_email_domains = $8, updated_at = NOW()
+        WHERE id = $9`,
+      [
+        next.display_name, next.sso_url, next.slo_url, next.cert_pem,
+        next.attribute_mapping, next.enabled, next.jit_provisioning,
+        next.allowed_email_domains, id,
+      ],
+    );
+    return getIdP(id);
+  });
+}
+
+/**
+ * Delete an IdP. Refuses if any users are still linked to it -- those
+ * users would be locked out otherwise. Operator must explicitly
+ * re-provision or convert them to password auth first.
+ */
+export async function deleteIdP(id) {
+  const linkedUsers = await db.get(
+    'SELECT COUNT(*) AS cnt FROM users WHERE saml_idp_id = $1 AND deleted_at IS NULL',
+    [id],
+  );
+  if (linkedUsers && parseInt(linkedUsers.cnt, 10) > 0) {
+    throw Object.assign(
+      new Error(`deleteIdP: ${linkedUsers.cnt} user(s) are linked to this IdP`),
+      { status: 409 },
+    );
+  }
+  await db.run('DELETE FROM saml_idp_config WHERE id = $1', [id]);
+}
+
+// ─── Attribute mapping resolution ───────────────────────────────────────
+
+function resolveAttributeMapping(value) {
+  if (typeof value === 'string') {
+    if (!ATTR_PRESETS[value]) {
+      throw Object.assign(
+        new Error(`Unknown attribute-mapping preset "${value}". Known: ${Object.keys(ATTR_PRESETS).join(', ')}`),
+        { status: 400 },
+      );
+    }
+    return { preset: value, ...ATTR_PRESETS[value] };
+  }
+  if (value && typeof value === 'object') {
+    const { email, name, nameId } = value;
+    if (typeof email !== 'string' || typeof name !== 'string' || typeof nameId !== 'string') {
+      throw Object.assign(
+        new Error('attribute_mapping object must have string email/name/nameId fields'),
+        { status: 400 },
+      );
+    }
+    return { email, name, nameId };
+  }
+  throw Object.assign(new Error('attribute_mapping must be a preset name or an object'), { status: 400 });
+}
+
+function normaliseEmailDomains(domains) {
+  if (!Array.isArray(domains)) return [];
+  return domains
+    .filter((d) => typeof d === 'string')
+    .map((d) => d.trim().toLowerCase())
+    .filter((d) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d))
+    // Dedupe.
+    .filter((d, i, arr) => arr.indexOf(d) === i);
+}
+
+// ─── Assertion validation ──────────────────────────────────────────────
+
+/**
+ * Validate a SAMLResponse against the configured IdP. Wraps
+ * @node-saml/node-saml's strict-mode validator.
+ *
+ * @param {string} idpId
+ * @param {string} samlResponseB64 - the SAMLResponse POST body value
+ * @param {object} [opts]
+ * @param {string} opts.audience  - this SP's entityID (we expect to be
+ *                                  in the assertion's Audience)
+ * @param {string} opts.callbackUrl - our ACS URL (the assertion's
+ *                                    Destination must match)
+ * @param {string} opts.spPrivateKey - SP private key PEM (for optional
+ *                                     assertion decryption)
+ * @returns {Promise<{ nameId, nameIdFormat, email, name, attributes, sessionIndex }>}
+ * @throws on any validation failure (signature, audience, expiry, …)
+ */
+export async function validateAssertion(idpId, samlResponseB64, opts) {
+  const idp = await getIdP(idpId);
+  if (!idp) throw Object.assign(new Error('validateAssertion: no such IdP'), { status: 404 });
+
+  const saml = new SAML({
+    issuer: opts.audience,
+    callbackUrl: opts.callbackUrl,
+    entryPoint: idp.sso_url,
+    idpCert: idp.cert_pem,
+    audience: opts.audience,
+    privateKey: opts.spPrivateKey,
+    // Reject unsigned assertions. node-saml's signing requirement
+    // defaults to "either response or assertion signed"; we want both
+    // strict for production.
+    wantAuthnResponseSigned: true,
+    wantAssertionsSigned: true,
+    // Clock skew allowance for NotBefore/NotOnOrAfter (default 0,
+    // unrealistic for inter-server clocks; 30s is a common bound).
+    acceptedClockSkewMs: 30 * 1000,
+    // Match a known issuer (the IdP we configured).
+    idpIssuer: idp.entity_id,
+    identifierFormat: null, // accept whatever the IdP sends
+    signatureAlgorithm: 'sha256',
+    digestAlgorithm: 'sha256',
+  });
+
+  // node-saml's validatePostResponseAsync takes the raw form-encoded
+  // body shape { SAMLResponse: <base64>, RelayState: <maybe> }.
+  const { profile } = await saml.validatePostResponseAsync({ SAMLResponse: samlResponseB64 });
+  if (!profile) throw new Error('validateAssertion: empty profile from validator');
+
+  // Extract our four attributes using the configured mapping.
+  const attrMap = idp.attribute_mapping;
+  const email = pickAttribute(profile, attrMap.email);
+  const name = pickAttribute(profile, attrMap.name) || email;
+  return {
+    nameId: profile.nameID,
+    nameIdFormat: profile.nameIDFormat,
+    email: typeof email === 'string' ? email.toLowerCase().trim() : null,
+    name: typeof name === 'string' ? name.trim() : '',
+    sessionIndex: profile.sessionIndex,
+    attributes: profile, // raw, for audit
+  };
+}
+
+function pickAttribute(profile, uri) {
+  if (!uri) return null;
+  // node-saml gives attributes under their URI keys.
+  if (profile[uri] !== undefined) return profile[uri];
+  // Some IdPs also expose friendlyName aliases on the profile.
+  return null;
+}
+
+// ─── JIT provision / link ───────────────────────────────────────────────
+
+/**
+ * Either log in an existing SAML-linked user, link an existing password
+ * user, or JIT-create a new user.
+ *
+ * Returns { userId, isNew, isLinked, user } so the caller can audit-log
+ * the path that fired.
+ *
+ * Path 1 -- existing SAML user: matched by (saml_idp_id, saml_name_id).
+ * Path 2 -- link: existing password user with same email AND email
+ *           domain is in this IdP's allowed_email_domains. Updates the
+ *           user to auth_method='saml', sets saml_idp_id / saml_name_id,
+ *           NULLs password_hash (per round-1 design decision).
+ * Path 3 -- JIT: no user, jit_provisioning enabled, email domain
+ *           allowed: create.
+ * Refused: any other combination.
+ */
+export async function jitProvisionOrLink(idpId, attrs) {
+  const idp = await getIdP(idpId);
+  if (!idp) throw Object.assign(new Error('jitProvisionOrLink: no such IdP'), { status: 404 });
+  if (!attrs.email) throw Object.assign(new Error('SAML assertion did not include an email'), { status: 400 });
+  if (!attrs.nameId) throw Object.assign(new Error('SAML assertion did not include a NameID'), { status: 400 });
+
+  const emailLower = attrs.email.toLowerCase().trim();
+  const domain = emailLower.includes('@') ? emailLower.split('@')[1] : '';
+  const domainAllowed = idp.allowed_email_domains.includes(domain);
+
+  return db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`saml-jit:${idpId}:${emailLower}`]);
+
+    // Path 1: SAML-matched user
+    const samlUser = await tx.get(
+      'SELECT * FROM users WHERE saml_idp_id = $1 AND saml_name_id = $2 AND deleted_at IS NULL',
+      [idpId, attrs.nameId],
+    );
+    if (samlUser) {
+      return { userId: samlUser.id, isNew: false, isLinked: false, user: samlUser };
+    }
+
+    // Look up by email for paths 2 / 3.
+    const emailUser = await tx.get(
+      'SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL',
+      [emailLower],
+    );
+
+    if (emailUser) {
+      // Path 2: link
+      if (emailUser.auth_method === 'password' && domainAllowed) {
+        await tx.run(
+          `UPDATE users SET
+             auth_method = 'saml',
+             saml_idp_id = $1,
+             saml_name_id = $2,
+             password_hash = NULL,
+             email_verified = TRUE
+           WHERE id = $3`,
+          [idpId, attrs.nameId, emailUser.id],
+        );
+        const linked = await tx.get('SELECT * FROM users WHERE id = $1', [emailUser.id]);
+        return { userId: emailUser.id, isNew: false, isLinked: true, user: linked };
+      }
+      // Refusal: domain mismatch or already linked to a different IdP.
+      throw Object.assign(
+        new Error('User with this email exists but cannot be linked to this IdP'),
+        { status: 409 },
+      );
+    }
+
+    // Path 3: JIT create
+    if (!idp.jit_provisioning || !domainAllowed) {
+      throw Object.assign(
+        new Error('JIT provisioning refused: not enabled for this IdP or email domain not allowed'),
+        { status: 403 },
+      );
+    }
+    const newId = uuid();
+    await tx.run(
+      `INSERT INTO users (id, email, name, password_hash, email_verified,
+                          auth_method, saml_idp_id, saml_name_id)
+       VALUES ($1, $2, $3, NULL, TRUE, 'saml', $4, $5)`,
+      [newId, emailLower, attrs.name || emailLower, idpId, attrs.nameId],
+    );
+    const created = await tx.get('SELECT * FROM users WHERE id = $1', [newId]);
+    return { userId: newId, isNew: true, isLinked: false, user: created };
+  });
+}
+
 // Test-only helpers.
 export const _testing = {
   KEYPAIR_ID,
   KEY_VALIDITY_DAYS,
   resetCache: () => { _cached = null; },
   setCache: (v) => { _cached = v; },
+  normaliseEmailDomains,
+  resolveAttributeMapping,
+  wrapBase64AsPem,
 };
