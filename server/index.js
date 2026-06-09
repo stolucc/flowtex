@@ -31,6 +31,7 @@ import publicInvitationsRouter from './routes/publicInvitations.js';
 import compileRouter from './routes/compile.js';
 import commentsRouter from './routes/comments.js';
 import authRouter from './routes/auth.js';
+import samlRouter from './routes/saml.js';
 import historyRouter from './routes/history.js';
 import githubRouter from './routes/github.js';
 import tagsRouter from './routes/tags.js';
@@ -302,6 +303,17 @@ app.use((req, res, next) => {
   }
 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')) {
+    // SAML ACS / SLS endpoints take a cross-origin POST FROM THE IdP
+    // (the user's browser submits the IdP's auto-submitting form to
+    // our ACS URL). The Origin header is the IdP's, NOT our APP_URL --
+    // an Origin-equality check would reject every legitimate flow.
+    // The SAML signature on the SAMLResponse is the authentication
+    // that the message came from the legitimate IdP, and it's
+    // validated downstream in routes/saml.js. Bypass both the CSRF
+    // token check (no session yet on ACS) and the Origin check.
+    if (/^\/api\/auth\/saml\/[a-z0-9-]+\/(acs|sls)$/i.test(req.path)) {
+      return next();
+    }
     if (CSRF_EXEMPT_PATHS.includes(req.path)) {
       // For CSRF-exempt endpoints, validate Origin header to prevent
       // cross-site login attacks. (Pre-auth: no CSRF token yet.)
@@ -450,6 +462,15 @@ app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/auth/resend-verification', authLimiter);
 app.use('/api/auth', authRouter);
+// SAML routes need application/x-www-form-urlencoded for the ACS / SLS
+// POST bodies (SAML's POST binding is form-encoded, not JSON). Scope
+// the parser to ONLY these routes so the rest of /api stays JSON-only
+// by intent. 256 KB cap matches the per-route check in routes/saml.js.
+app.use(
+  '/api/auth/saml',
+  express.urlencoded({ extended: false, limit: '256kb' }),
+  samlRouter,
+);
 
 // Setup routes (public, rate-limited — only functional before first admin exists)
 app.use('/api/setup/init', authLimiter);

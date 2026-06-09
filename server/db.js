@@ -329,7 +329,7 @@ async function initSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     -- GIN index over the domains array lets the discovery endpoint do
-    -- a fast `'ucc.ie' = ANY(allowed_email_domains)` lookup.
+    -- a fast 'ucc.ie' = ANY(allowed_email_domains) lookup.
     CREATE INDEX IF NOT EXISTS saml_idp_config_domains_idx
       ON saml_idp_config USING gin (allowed_email_domains)
       WHERE enabled = TRUE;
