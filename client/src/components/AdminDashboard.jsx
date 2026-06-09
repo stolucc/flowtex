@@ -1,7 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { get, put, post, del, patch } from '../api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
+// Lazy-loaded so the SAML config code only ships when an admin opens
+// the SSO tab. The bundle includes a textarea for metadata XML and a
+// small editor modal which would otherwise live in the main admin
+// bundle.
+const SamlConfig = lazy(() => import('./admin/SamlConfig.jsx'));
 
 /** Displays a single metric card with a value, label, and optional subtitle. */
 function StatCard({ label, value, sub }) {
@@ -666,9 +671,9 @@ export default function AdminDashboard({ onBack }) {
       </div>
 
       <div className="admin-tabs">
-        {['overview', 'system', 'projects', 'users', 'audit', 'settings'].map((t) => (
+        {['overview', 'system', 'projects', 'users', 'audit', 'settings', 'saml'].map((t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'saml' ? 'SSO' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -1186,6 +1191,15 @@ export default function AdminDashboard({ onBack }) {
               Send Test Email
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === 'saml' && (
+        <div className="admin-section">
+          <h2>SSO</h2>
+          <Suspense fallback={<div className="admin-loading">Loading…</div>}>
+            <SamlConfig />
+          </Suspense>
         </div>
       )}
 
