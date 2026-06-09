@@ -40,8 +40,29 @@ const REDIS_CHANNEL = 'flowtex:ws';
 // dedicated channel rather than piggybacking on the broadcast
 // channel so consumers can validate the message shape strictly
 // (vs. the broadcast channel which proxies arbitrary client-facing
-// payloads).
+// payloads). Messages on this channel carry an HMAC-SHA256
+// signature over (channel || payload) so a Redis-publish attacker
+// can't forge kicks. The shared key is derived from SESSION_SECRET
+// at init time -- already strong and consistent across instances.
 const REDIS_CONTROL_CHANNEL = 'flowtex:ws:control';
+let controlChannelHmacKey = null;
+function signControlPayload(payload) {
+  return crypto
+    .createHmac('sha256', controlChannelHmacKey)
+    .update(REDIS_CONTROL_CHANNEL)
+    .update('|')
+    .update(payload)
+    .digest('hex');
+}
+function verifyControlPayload(payload, sig) {
+  if (typeof sig !== 'string' || !controlChannelHmacKey) return false;
+  const expected = signControlPayload(payload);
+  // crypto.timingSafeEqual rejects mismatched lengths; pad/normalise
+  // by length-checking first so the comparison itself is constant
+  // time against equal-length attacker input.
+  if (expected.length !== sig.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+}
 const SERVER_ID = crypto.randomUUID();
 
 // ── Room management ─────────────────────────────────────────────────────
@@ -107,17 +128,20 @@ function disconnectUserFromProjectLocal(projectId, userId) {
  */
 function disconnectUserFromProject(projectId, userId) {
   disconnectUserFromProjectLocal(projectId, userId);
-  if (redisPub) {
+  if (redisPub && controlChannelHmacKey) {
+    const payload = JSON.stringify({
+      type: 'kick-user-from-project',
+      projectId,
+      userId,
+      fromServer: SERVER_ID,
+      // nonce thwarts a replay attacker who captured an old signed
+      // message off the wire. Receivers verify the timestamp is
+      // within a tolerance window.
+      ts: Date.now(),
+    });
+    const sig = signControlPayload(payload);
     redisPub
-      .publish(
-        REDIS_CONTROL_CHANNEL,
-        JSON.stringify({
-          type: 'kick-user-from-project',
-          projectId,
-          userId,
-          fromServer: SERVER_ID,
-        }),
-      )
+      .publish(REDIS_CONTROL_CHANNEL, JSON.stringify({ payload, sig }))
       .catch((e) => logger.warn({ err: e }, 'Redis publish kick failed'));
   }
 }
@@ -326,9 +350,44 @@ async function handleChanges(msg, state, ws) {
  *   - originId capped at 64 chars.
  */
 const MAX_YJS_UPDATE_B64 = 256 * 1024; // 256 KB base64 ≈ 192 KB of Y.js update bytes
+
+// Per-WS token bucket for yjs-update messages. SAAS-FOUNDATIONS-
+// adjacent: the per-frame 256 KB cap (above) limits one frame's
+// blast, but a malicious authenticated editor can flood at line
+// speed. Token bucket parameters:
+//   - YJS_BUDGET_MAX = 200 tokens (initial burst capacity; fits a
+//     reasonable paste of several thousand Y.js operations).
+//   - YJS_REFILL_PER_SEC = 20 (sustained rate; a fast typist
+//     produces ~5-10 ops/sec, so 20 is comfortably above legitimate
+//     human typing and below what's needed to OOM the worker).
+// Lazy refill on each call -- no extra timer needed.
+const YJS_BUDGET_MAX = 200;
+const YJS_REFILL_PER_SEC = 20;
+function takeYjsUpdateToken(state) {
+  const now = Date.now();
+  if (!state.yjsBudget) {
+    state.yjsBudget = { tokens: YJS_BUDGET_MAX, lastRefill: now };
+  }
+  const elapsedSec = (now - state.yjsBudget.lastRefill) / 1000;
+  state.yjsBudget.tokens = Math.min(
+    YJS_BUDGET_MAX,
+    state.yjsBudget.tokens + elapsedSec * YJS_REFILL_PER_SEC,
+  );
+  state.yjsBudget.lastRefill = now;
+  if (state.yjsBudget.tokens < 1) return false;
+  state.yjsBudget.tokens -= 1;
+  return true;
+}
+
 async function handleYjsUpdate(msg, state, ws) {
   if (typeof msg.update !== 'string') return;
   if (msg.update.length === 0 || msg.update.length > MAX_YJS_UPDATE_B64) return;
+  // Per-WS rate limit. Drops the message silently rather than
+  // closing the WS -- legitimate burst typing can briefly exceed
+  // the budget on a slow refill; dropping is friendlier than
+  // disconnecting. Sustained abuse just means the attacker's edits
+  // don't reach the room, which is the intended outcome.
+  if (!takeYjsUpdateToken(state)) return;
   if (!(await isFileInProject(state, msg.fileId))) return;
 
   // Make sure this WS holds a reference to the room so the in-memory
@@ -818,6 +877,18 @@ const wsConnectionCounts = new Map();
  * @returns {{wss: WebSocketServer, redisPub: Redis|null, redisSub: Redis|null}}
  */
 export function initWebSocket(server, app, sessionSecret) {
+  // Derive a stable per-deployment key for HMAC-signing cluster
+  // control messages. Reusing SESSION_SECRET (already strong, already
+  // synchronised across web instances) via HKDF-like construction so
+  // the two purposes can't collide. All instances in the cluster
+  // produce the same key from the same SESSION_SECRET; a Redis-
+  // publish attacker who doesn't know SESSION_SECRET can't forge a
+  // valid signature.
+  controlChannelHmacKey = crypto
+    .createHmac('sha256', sessionSecret || '')
+    .update('flowtex:ws:control:hmac:v1')
+    .digest();
+
   // SAAS-FOUNDATIONS item 4: in cluster mode Redis pub/sub is the
   // only thing keeping broadcasts from diverging across instances.
   // Refuse to boot a clustered node without it so a misconfigured
@@ -889,8 +960,26 @@ export function initWebSocket(server, app, sessionSecret) {
         // takes server-authoritative actions (closing connections),
         // so an unexpected shape silently does nothing.
         if (channel === REDIS_CONTROL_CHANNEL) {
-          const ctrl = JSON.parse(raw);
+          // Envelope: { payload: '<json-string>', sig: '<hex-hmac>' }.
+          // Verify the HMAC before parsing the payload so a forged
+          // message gets dropped before any handler runs. timing-
+          // safe compare for the hex digest.
+          const envelope = JSON.parse(raw);
+          if (!envelope || typeof envelope.payload !== 'string') return;
+          if (!verifyControlPayload(envelope.payload, envelope.sig)) {
+            logger.warn({ raw }, 'control-channel: signature mismatch, dropping');
+            return;
+          }
+          const ctrl = JSON.parse(envelope.payload);
           if (!ctrl || ctrl.fromServer === SERVER_ID) return;
+          // Replay window: reject messages older than 60s. Tolerates
+          // mild clock skew across instances; not a tight bound, but
+          // prevents an attacker from replaying a captured kick
+          // forever.
+          if (typeof ctrl.ts !== 'number' || Math.abs(Date.now() - ctrl.ts) > 60000) {
+            logger.warn({ ts: ctrl.ts }, 'control-channel: stale timestamp, dropping');
+            return;
+          }
           if (ctrl.type === 'kick-user-from-project'
               && typeof ctrl.projectId === 'string'
               && typeof ctrl.userId === 'string') {
@@ -1257,6 +1346,16 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   ensureRoomSubscribed,
   releaseYjsRoomsForState,
   handleCursor,
+  takeYjsUpdateToken,
+  YJS_BUDGET_MAX,
+  YJS_REFILL_PER_SEC,
+  signControlPayload,
+  verifyControlPayload,
+  // Test helpers for the control-channel HMAC. Tests inject a key
+  // directly via _setControlChannelHmacKey because they don't go
+  // through initWebSocket.
+  _setControlChannelHmacKey: (k) => { controlChannelHmacKey = k; },
+  _getControlChannelHmacKey: () => controlChannelHmacKey,
   // handleComment / handleCommentReply / handleCommentResolve /
   // handleCommentDelete / handleCommentEdit were removed when their
   // broadcasts moved to the HTTP comment routes (see commit notes).

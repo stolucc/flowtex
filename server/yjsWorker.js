@@ -90,7 +90,16 @@ async function ensureConsumerGroup(client) {
  *                             otherwise XACK (poison-pill entry).
  */
 export async function dispatchEntry(rawFields, deps = { acquireRoom, applyUpdate, encodeStateAsUpdate, releaseRoom, redis, consumerName: CONSUMER_NAME }) {
-  const fields = {};
+  // Object.create(null) instead of {} so an attacker with Redis
+  // write access can't inject `__proto__` / `constructor` as a
+  // field key and cause confusing inherited-property behaviour
+  // downstream (e.g. fields.type returning Object.prototype.type
+  // when the field is genuinely absent). Defence in depth -- the
+  // direct fields[k]=stringValue path doesn't actually pollute
+  // Object.prototype in V8, but a null-proto object eliminates
+  // the entire class of "is this field present or inherited?"
+  // ambiguity. Security audit round 3.
+  const fields = Object.create(null);
   for (let i = 0; i < rawFields.length; i += 2) fields[rawFields[i]] = rawFields[i + 1];
 
   const { type, projectId, fileId } = fields;

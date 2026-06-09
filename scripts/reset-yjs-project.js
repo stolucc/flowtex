@@ -96,6 +96,27 @@ if (!SCAN && !PROJECT_UUID) {
   process.exit(2);
 }
 
+// Warn if running as root in --apply mode. The fs.writeFile calls
+// below will produce files owned by whatever user runs this script.
+// Running as root makes the resulting <projectId>/main.tex
+// root-owned, which then prevents the flowtex service account from
+// modifying it on the next save (results in a confusing "save failed"
+// to the user). Recommended invocation:
+//   sudo -u flowtex /usr/bin/node /opt/flowtex/scripts/reset-yjs-project.js
+// or set FLOWTEX_ALLOW_ROOT=1 if you really mean it (you can always
+// chown -R the project dir afterwards).
+if (APPLY && typeof process.getuid === 'function' && process.getuid() === 0) {
+  if (process.env.FLOWTEX_ALLOW_ROOT !== '1') {
+    console.error('reset-yjs-project: refusing to --apply as root.');
+    console.error('Files would be root-owned, breaking the next save by the flowtex service.');
+    console.error('Re-run as:  sudo -u flowtex /usr/bin/node ' + process.argv[1] + ' ...');
+    console.error('Or set FLOWTEX_ALLOW_ROOT=1 to bypass (and chown -R afterwards).');
+    process.exit(2);
+  }
+  console.warn('reset-yjs-project: FLOWTEX_ALLOW_ROOT=1 set; running as root.');
+  console.warn('  Remember to: chown -R flowtex:flowtex /opt/flowtex/projects/ after this run.');
+}
+
 const pool = new pg.Pool({ max: 4 });
 
 // A file is split-brain-corrupted iff its content has >= 2
