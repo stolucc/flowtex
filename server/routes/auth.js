@@ -345,16 +345,21 @@ router.post('/totp/disable', requireAuth, async (req, res) => {
 router.post('/forgot-password', validateBody(forgotPasswordSchema), async (req, res) => {
   if (!req.body.email) return res.status(400).json({ error: 'Email is required' });
   const result = await authService.createPasswordResetToken(req.body.email);
+  // SECURITY (audit round 4): respond IMMEDIATELY and fire-and-forget
+  // the SMTP send + audit log. Previously the route awaited both,
+  // which made the present-user path noticeably slower than the
+  // absent-user path (~SMTP latency, often 100s of ms) -- an
+  // enumeration oracle. With this rewrite the response time is
+  // identical for present and absent emails. Failures during the
+  // async send are logged but never reach the caller.
+  res.json({ ok: true });
   if (result) {
     const baseUrl = process.env.APP_URL || 'http://localhost:3001';
-    try {
-      await sendPasswordResetEmail(result.email, `${baseUrl}/reset-password?token=${result.token}`);
-    } catch (err) {
-      logger.error({ err }, 'Failed to send reset email');
-    }
-    await auditLog(result.userId, 'password_reset_requested', { ip: req.ip });
+    sendPasswordResetEmail(result.email, `${baseUrl}/reset-password?token=${result.token}`)
+      .catch((err) => logger.error({ err }, 'Failed to send reset email'));
+    auditLog(result.userId, 'password_reset_requested', { ip: req.ip })
+      .catch((err) => logger.error({ err }, 'Failed to write audit log for password reset'));
   }
-  res.json({ ok: true }); // Always return success
 });
 
 /** POST /api/auth/reset-password -- Reset password using a token and invalidate all existing sessions. */
