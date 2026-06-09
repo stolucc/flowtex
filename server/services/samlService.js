@@ -659,20 +659,23 @@ export async function jitProvisionOrLink(idpId, attrs) {
     );
 
     if (emailUser) {
-      // Path 2: link
+      // Path 2a: confirm-link candidate.
+      // The user exists as a password account, in an allowed email
+      // domain. Don't link yet -- per the round-2 design decision,
+      // require explicit user confirmation. The ACS route handles
+      // the interstitial.
       if (emailUser.auth_method === 'password' && domainAllowed) {
-        await tx.run(
-          `UPDATE users SET
-             auth_method = 'saml',
-             saml_idp_id = $1,
-             saml_name_id = $2,
-             password_hash = NULL,
-             email_verified = TRUE
-           WHERE id = $3`,
-          [idpId, attrs.nameId, emailUser.id],
-        );
-        const linked = await tx.get('SELECT * FROM users WHERE id = $1', [emailUser.id]);
-        return { userId: emailUser.id, isNew: false, isLinked: true, user: linked };
+        return {
+          userId: null,
+          isNew: false,
+          isLinked: false,
+          needsConfirmation: true,
+          candidate: {
+            existingUserId: emailUser.id,
+            email: emailLower,
+            existingName: emailUser.name,
+          },
+        };
       }
       // Refusal: domain mismatch or already linked to a different IdP.
       throw Object.assign(
@@ -698,6 +701,87 @@ export async function jitProvisionOrLink(idpId, attrs) {
     const created = await tx.get('SELECT * FROM users WHERE id = $1', [newId]);
     return { userId: newId, isNew: true, isLinked: false, user: created };
   });
+}
+
+/**
+ * Apply a confirmed link from an existing password user to a SAML
+ * identity. Called by the /confirm-link route after the user has
+ * explicitly clicked "Yes, link my account" on the interstitial.
+ *
+ * Safety guards:
+ *   - The (idpId, nameId) pair must not already be claimed by a
+ *     different user (defends against a session-hijack attacker who
+ *     races to claim the same NameID).
+ *   - The userId must currently have auth_method='password' AND not
+ *     have been linked to a different IdP in the meantime. If they
+ *     have, the link is refused (someone else already won).
+ *   - The user must not be soft-deleted.
+ *
+ * Wrapped in a per-user advisory lock so two concurrent confirms
+ * for the same account serialise.
+ */
+export async function confirmSamlLink(userId, idpId, nameId) {
+  return db.transaction(async (tx) => {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`saml-link:${userId}`]);
+
+    const user = await tx.get(
+      'SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
+    if (!user) {
+      throw Object.assign(new Error('confirmSamlLink: user not found'), { status: 404 });
+    }
+    if (user.auth_method !== 'password') {
+      throw Object.assign(
+        new Error('confirmSamlLink: account is not in password mode (already linked or SAML-native)'),
+        { status: 409 },
+      );
+    }
+    // Race-condition guard: did someone else already grab this
+    // (idpId, nameId) pair?
+    const taken = await tx.get(
+      'SELECT id FROM users WHERE saml_idp_id = $1 AND saml_name_id = $2 AND deleted_at IS NULL',
+      [idpId, nameId],
+    );
+    if (taken) {
+      throw Object.assign(
+        new Error('confirmSamlLink: this SAML identity is already linked to another account'),
+        { status: 409 },
+      );
+    }
+
+    await tx.run(
+      `UPDATE users SET
+         auth_method = 'saml',
+         saml_idp_id = $1,
+         saml_name_id = $2,
+         password_hash = NULL,
+         email_verified = TRUE
+       WHERE id = $3`,
+      [idpId, nameId, userId],
+    );
+    return tx.get('SELECT * FROM users WHERE id = $1', [userId]);
+  });
+}
+
+/**
+ * Public-facing list of enabled IdPs. Used by the login page to
+ * render the "Continue with <IdP>" buttons (Pattern B). Returns only
+ * the fields safe to expose to anonymous visitors -- display name +
+ * login URL. The cert, allowed_email_domains, attribute mapping,
+ * etc. stay internal.
+ */
+export async function listPublicIdPs() {
+  const rows = await db.all(
+    `SELECT id, display_name FROM saml_idp_config
+       WHERE enabled = TRUE
+       ORDER BY display_name`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    displayName: r.display_name,
+    loginUrl: `/api/auth/saml/${r.id}/login`,
+  }));
 }
 
 // Test-only helpers.

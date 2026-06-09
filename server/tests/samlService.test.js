@@ -274,3 +274,193 @@ describe('_testing.wrapBase64AsPem', () => {
     expect(lines[4]).toBe('-----END CERTIFICATE-----');
   });
 });
+
+// ─── Day 4: confirm-link flow + listPublicIdPs ──────────────────────────
+
+describe('jitProvisionOrLink: confirm-link signal', () => {
+  // These tests pin the contract change: existing password users no
+  // longer get auto-linked; they get a needsConfirmation signal so the
+  // route can render an interstitial. Day-4-design decision.
+  it('returns needsConfirmation for existing password user in allowed domain', async () => {
+    // We can't easily run the real jitProvisionOrLink against a mocked
+    // DB because it uses an advisory lock and multiple queries. The
+    // contract we want to pin: when (a) the IdP exists, (b) JIT is
+    // enabled, (c) the email is in allowed_email_domains, (d) a user
+    // with that email exists with auth_method='password', the return
+    // value's needsConfirmation flag is true. We exercise this via a
+    // lightweight DB stub.
+    const { jitProvisionOrLink } = await import('../services/samlService.js');
+    const idp = {
+      id: 'idp-uuid',
+      allowed_email_domains: ['ucc.ie'],
+      jit_provisioning: true,
+    };
+    const existingPasswordUser = {
+      id: 'alice-id',
+      email: 'alice@ucc.ie',
+      name: 'Alice',
+      auth_method: 'password',
+    };
+
+    // Re-stub the db mock just for this test.
+    const dbMock = (await import('../db.js')).default;
+    const originalGet = dbMock.get;
+    const originalRun = dbMock.run;
+    const originalTransaction = dbMock.transaction;
+    dbMock.transaction = async (fn) => fn({
+      get: vi.fn(async (sql) => {
+        if (/saml_idp_config/.test(sql)) return idp;
+        if (/saml_idp_id = \$1 AND saml_name_id/.test(sql)) return null; // no existing SAML user
+        if (/email = \$1 AND deleted_at IS NULL/.test(sql)) return existingPasswordUser;
+        return null;
+      }),
+      run: vi.fn(async () => {}),
+    });
+    dbMock.get = vi.fn(async (sql) => /saml_idp_config/.test(sql) ? idp : null);
+
+    try {
+      const result = await jitProvisionOrLink('idp-uuid', {
+        email: 'alice@ucc.ie',
+        nameId: 'urn:abc',
+        name: 'Alice',
+      });
+      expect(result.needsConfirmation).toBe(true);
+      expect(result.candidate.existingUserId).toBe('alice-id');
+      expect(result.candidate.email).toBe('alice@ucc.ie');
+      expect(result.userId).toBeNull();
+    } finally {
+      dbMock.get = originalGet;
+      dbMock.run = originalRun;
+      dbMock.transaction = originalTransaction;
+    }
+  });
+});
+
+describe('confirmSamlLink', () => {
+  it('refuses if the user is not in password mode', async () => {
+    const { confirmSamlLink } = await import('../services/samlService.js');
+    const dbMock = (await import('../db.js')).default;
+    const originalTransaction = dbMock.transaction;
+    dbMock.transaction = async (fn) => fn({
+      get: vi.fn(async (sql) => {
+        if (/SELECT \* FROM users/.test(sql)) {
+          return { id: 'alice-id', auth_method: 'saml' }; // already linked!
+        }
+        return null;
+      }),
+      run: vi.fn(async () => {}),
+    });
+    try {
+      await expect(
+        confirmSamlLink('alice-id', 'idp-uuid', 'nameid')
+      ).rejects.toThrow(/not in password mode/);
+    } finally {
+      dbMock.transaction = originalTransaction;
+    }
+  });
+
+  it('refuses if the (idp, nameId) is already taken by another user', async () => {
+    const { confirmSamlLink } = await import('../services/samlService.js');
+    const dbMock = (await import('../db.js')).default;
+    const originalTransaction = dbMock.transaction;
+    dbMock.transaction = async (fn) => fn({
+      get: vi.fn(async (sql) => {
+        if (/SELECT \* FROM users WHERE id/.test(sql)) {
+          return { id: 'alice-id', auth_method: 'password' };
+        }
+        if (/saml_idp_id = \$1 AND saml_name_id/.test(sql)) {
+          return { id: 'someone-else-id' };  // race-loser
+        }
+        return null;
+      }),
+      run: vi.fn(async () => {}),
+    });
+    try {
+      await expect(
+        confirmSamlLink('alice-id', 'idp-uuid', 'nameid')
+      ).rejects.toThrow(/already linked to another account/);
+    } finally {
+      dbMock.transaction = originalTransaction;
+    }
+  });
+
+  it('refuses if the user does not exist', async () => {
+    const { confirmSamlLink } = await import('../services/samlService.js');
+    const dbMock = (await import('../db.js')).default;
+    const originalTransaction = dbMock.transaction;
+    dbMock.transaction = async (fn) => fn({
+      get: vi.fn(async () => null), // user gone
+      run: vi.fn(async () => {}),
+    });
+    try {
+      await expect(
+        confirmSamlLink('alice-id', 'idp-uuid', 'nameid')
+      ).rejects.toThrow(/not found/);
+    } finally {
+      dbMock.transaction = originalTransaction;
+    }
+  });
+
+  it('succeeds on happy path', async () => {
+    const { confirmSamlLink } = await import('../services/samlService.js');
+    const dbMock = (await import('../db.js')).default;
+    const originalTransaction = dbMock.transaction;
+    const updateCalls = [];
+    dbMock.transaction = async (fn) => fn({
+      get: vi.fn(async (sql) => {
+        if (/SELECT \* FROM users WHERE id = \$1 AND deleted_at IS NULL/.test(sql)) {
+          return { id: 'alice-id', auth_method: 'password' };
+        }
+        if (/saml_idp_id = \$1 AND saml_name_id/.test(sql)) return null;
+        if (/SELECT \* FROM users WHERE id = \$1$/.test(sql)) {
+          return { id: 'alice-id', auth_method: 'saml', saml_idp_id: 'idp-uuid', saml_name_id: 'nameid' };
+        }
+        return null;
+      }),
+      run: vi.fn(async (sql, params) => {
+        if (/UPDATE users SET/.test(sql)) updateCalls.push({ sql, params });
+      }),
+    });
+    try {
+      const linked = await confirmSamlLink('alice-id', 'idp-uuid', 'nameid');
+      expect(linked.auth_method).toBe('saml');
+      expect(linked.saml_idp_id).toBe('idp-uuid');
+      expect(updateCalls.length).toBe(1);
+      expect(updateCalls[0].sql).toMatch(/auth_method = 'saml'/);
+      expect(updateCalls[0].sql).toMatch(/password_hash = NULL/);
+    } finally {
+      dbMock.transaction = originalTransaction;
+    }
+  });
+});
+
+describe('listPublicIdPs', () => {
+  it('exposes only display_name + login URL', async () => {
+    const { listPublicIdPs } = await import('../services/samlService.js');
+    const dbMock = (await import('../db.js')).default;
+    const originalAll = dbMock.all;
+    dbMock.all = vi.fn(async (sql) => {
+      if (/WHERE enabled = TRUE/.test(sql)) {
+        return [
+          { id: 'a', display_name: 'UCC' },
+          { id: 'b', display_name: 'TCD' },
+        ];
+      }
+      return [];
+    });
+    try {
+      const idps = await listPublicIdPs();
+      expect(idps).toEqual([
+        { id: 'a', displayName: 'UCC', loginUrl: '/api/auth/saml/a/login' },
+        { id: 'b', displayName: 'TCD', loginUrl: '/api/auth/saml/b/login' },
+      ]);
+      // The cert, allowed domains, attribute mapping etc. are NOT
+      // included. Pin that nothing else leaks.
+      for (const idp of idps) {
+        expect(Object.keys(idp).sort()).toEqual(['displayName', 'id', 'loginUrl']);
+      }
+    } finally {
+      dbMock.all = originalAll;
+    }
+  });
+});

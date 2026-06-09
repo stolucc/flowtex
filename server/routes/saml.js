@@ -170,9 +170,28 @@ router.post('/:idpId/acs', async (req, res) => {
 
     const result = await samlService.jitProvisionOrLink(idpId, attrs);
 
-    // Session establishment. Regenerate to defeat session fixation
-    // (an attacker who had us pre-create their session ID via a cookie
-    // injection couldn't carry that over the regenerate).
+    // Confirm-link path: existing password user, in an allowed domain.
+    // DON'T establish the session yet. Stash the pending link in the
+    // session (server-side, 10 minute TTL) and redirect to the
+    // interstitial page. The user clicks "yes, link" -> /confirm-link
+    // does the actual db update and session establishment. "no" ->
+    // /cancel-link wipes the pending state.
+    if (result.needsConfirmation) {
+      req.session.pendingSamlLink = {
+        idpId,
+        nameId: attrs.nameId,
+        sessionIndex: attrs.sessionIndex,
+        email: attrs.email,
+        existingUserId: result.candidate.existingUserId,
+        existingName: result.candidate.existingName,
+        relayState,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      };
+      await new Promise((resolve) => req.session.save(resolve));
+      return res.redirect('/login/confirm-saml-link');
+    }
+
+    // Standard path: log them in.
     await new Promise((resolve, reject) => {
       req.session.regenerate((err) => {
         if (err) {
@@ -201,7 +220,7 @@ router.post('/:idpId/acs', async (req, res) => {
       });
     });
 
-    await auditLog(result.userId, result.isNew ? 'saml_jit_provision' : (result.isLinked ? 'saml_link' : 'saml_login'), {
+    await auditLog(result.userId, result.isNew ? 'saml_jit_provision' : 'saml_login', {
       idpId,
       nameId: attrs.nameId,
       ip: req.ip,
@@ -277,6 +296,112 @@ router.post('/:idpId/sls', async (req, res) => {
     req.session.destroy(() => {});
   }
   res.redirect('/login');
+});
+
+// ─── GET /api/auth/saml/pending-link ───────────────────────────────────
+// Client reads this from the confirmation page so it can show the
+// user what's about to happen. Returns 404 if no pending link or
+// expired. Safe to expose to the holder of the session cookie.
+router.get('/pending-link', async (req, res) => {
+  const pending = req.session?.pendingSamlLink;
+  if (!pending || pending.expiresAt < Date.now()) {
+    return res.status(404).json({ error: 'No pending link.' });
+  }
+  // Look up the IdP's display name so the UI says "Link to UCC SSO"
+  // not "Link to <uuid>".
+  const idp = await samlService.getIdP(pending.idpId);
+  res.json({
+    idpId: pending.idpId,
+    idpDisplayName: idp?.display_name || 'your identity provider',
+    email: pending.email,
+    existingName: pending.existingName,
+    expiresAt: pending.expiresAt,
+  });
+});
+
+// ─── POST /api/auth/saml/confirm-link ──────────────────────────────────
+// User clicked "Yes, link my account". Performs the link, regenerates
+// the session, logs them in.
+router.post('/confirm-link', async (req, res) => {
+  const pending = req.session?.pendingSamlLink;
+  if (!pending || pending.expiresAt < Date.now()) {
+    return res.status(400).json({ error: 'Pending link expired. Please sign in again.' });
+  }
+  try {
+    const linked = await samlService.confirmSamlLink(
+      pending.existingUserId,
+      pending.idpId,
+      pending.nameId,
+    );
+
+    // Clear the pending state, then establish a fresh session.
+    delete req.session.pendingSamlLink;
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => {
+        if (err) {
+          req.session.destroy(() => {});
+          return reject(err);
+        }
+        req.session.userId = linked.id;
+        req.session.userName = linked.name;
+        req.session.authMethod = 'saml';
+        req.session.samlIdpId = pending.idpId;
+        req.session.samlNameId = pending.nameId;
+        req.session.samlSessionIndex = pending.sessionIndex;
+        req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+        res.cookie('csrf-token', req.session.csrfToken, {
+          httpOnly: false,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+        });
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            req.session.destroy(() => {});
+            return reject(saveErr);
+          }
+          resolve();
+        });
+      });
+    });
+
+    await auditLog(linked.id, 'saml_link', {
+      idpId: pending.idpId,
+      nameId: pending.nameId,
+      ip: req.ip,
+    }).catch((err) => logger.error({ err }, 'SAML link audit log failed'));
+
+    res.json({ ok: true, redirect: pending.relayState || '/' });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) {
+      logger.error({ err }, 'SAML confirm-link failed');
+    } else {
+      logger.warn({ err: err.message }, 'SAML confirm-link rejected');
+    }
+    // On any failure, wipe the pending state so the user starts fresh.
+    delete req.session.pendingSamlLink;
+    res.status(status).json({ error: 'Account link failed. Please sign in again.' });
+  }
+});
+
+// ─── POST /api/auth/saml/cancel-link ───────────────────────────────────
+// User clicked "Cancel". Wipe the pending link state and redirect to
+// /login. The user can still sign in with their password as before.
+router.post('/cancel-link', (req, res) => {
+  if (req.session?.pendingSamlLink) {
+    delete req.session.pendingSamlLink;
+    req.session.save(() => {});
+  }
+  res.json({ ok: true });
+});
+
+// ─── GET /api/auth/saml/list-public ────────────────────────────────────
+// Public list of enabled IdPs for the login page (Pattern B). No auth
+// required -- the IdP display name + login URL are operator-configured
+// public knowledge. Returns at most 50 to bound payload size.
+router.get('/list-public', async (req, res) => {
+  const idps = await samlService.listPublicIdPs();
+  res.json({ idps: idps.slice(0, 50) });
 });
 
 // Test-only exports.

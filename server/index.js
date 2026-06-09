@@ -272,6 +272,13 @@ const CSRF_EXEMPT_PATHS = Object.freeze([
   '/api/auth/reset-password',
   '/api/auth/resend-verification',
   '/api/setup/init',
+  // SAML confirm-link flow: the user has a pending-link in their
+  // session but no userId yet, so the CSRF middleware doesn't issue
+  // them a token. Falls under the same "pre-auth state-changing
+  // request" model as /api/auth/login; protected by the
+  // Origin-equality check downstream.
+  '/api/auth/saml/confirm-link',
+  '/api/auth/saml/cancel-link',
 ]);
 // Boot-time assertion so a typo or wrong addition fails loudly at startup
 // rather than quietly weakening protection in production.
