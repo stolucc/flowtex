@@ -194,7 +194,14 @@ function SpInfoCard({ spInfo, confirmRotate, onRotateRequest, onRotateConfirm, o
           </button>
         ) : (
           <span className="saml-config-confirm">
-            Rotating publishes a new certificate. IdPs must re-fetch metadata or signed AuthnRequests will fail.
+            Rotating publishes a new certificate. Two operator actions
+            required AFTER this:
+            (1) every IdP must re-fetch your SP metadata or signed
+            AuthnRequests will fail signature verification;
+            (2) in cluster mode, every FlowTex web instance must be
+            restarted (<code>sudo systemctl restart &lsquo;flowtex*&rsquo;</code>) so
+            in-memory keypair caches drop the old key — otherwise about
+            half of new login attempts will use the stale key.
             <button type="button" className="admin-audit-btn admin-audit-btn-danger" onClick={onRotateConfirm}>
               Rotate now
             </button>

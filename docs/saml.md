@@ -209,8 +209,16 @@ FlowTex auto-generates a self-signed RSA-2048 keypair on first run,
 valid for 3 years. To rotate:
 
 1. **Admin → SSO → Rotate keypair** (two-step confirm).
-2. The new certificate is published in the metadata immediately.
-3. Coordinate with each IdP admin to re-fetch FlowTex's SP metadata.
+2. The new certificate is published in the metadata immediately
+   for any process that reads from the DB.
+3. **In cluster mode**, restart every FlowTex web instance so each
+   one drops its in-memory keypair cache: run
+   `sudo systemctl restart 'flowtex*'` on the VPS. Without this,
+   instances that were running BEFORE the rotation keep signing
+   AuthnRequests with the old private key. Caddy load-balances, so
+   roughly half of new SSO attempts will fail IdP-side signature
+   verification.
+4. Coordinate with each IdP admin to re-fetch FlowTex's SP metadata.
    Until they do, signed AuthnRequests from FlowTex will fail
    signature verification on the IdP side.
 
