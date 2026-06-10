@@ -11253,6 +11253,11 @@ kbd {
   font-size: 12px;
 }
 
+.helper-status-popover-hint.helper-status-popover-update {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
 .helper-status-popover-actions {
   display: flex;
   flex-direction: column;

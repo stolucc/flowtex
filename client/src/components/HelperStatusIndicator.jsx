@@ -65,7 +65,16 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
     return () => { cancelled = true; };
   }, []);
 
+  // detectPlatform returns { os: 'darwin'|'linux'|'windows'|'unknown', arch }.
+  // platformDetect's URL helpers all take this object (not a string).
   const platform = detectPlatform();
+  // Prefer a .dmg URL on macOS (menu-bar app installer); raw binary
+  // everywhere else. Falls to null on platforms we don't ship binaries
+  // for (Windows pre-v0.2.7, "unknown"); the UI then exposes the
+  // all-releases page instead.
+  const downloadHref = (platform.os === 'darwin')
+    ? helperDmgURL(platform)
+    : helperDownloadURL(platform);
 
   // Map status -> indicator mode.
   let mode = 'loading';
@@ -118,12 +127,10 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
                 {status.enginesAvailable?.length > 0 && (
                   <div>Engines: {status.enginesAvailable.join(', ')}</div>
                 )}
-                {latestRelease?.version && (
-                  <div className="helper-status-popover-hint">
-                    Latest available: helper v{latestRelease.version}.
-                    Reinstall if you suspect yours is older.
-                  </div>
-                )}
+                <HelperVersionLine
+                  installed={status.helperVersion}
+                  latest={latestRelease?.version}
+                />
               </div>
               <PopoverActions
                 primary={null}
@@ -131,7 +138,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
                   <a
                     key="reinstall"
                     className="helper-status-popover-link"
-                    href={platform === 'macos' ? helperDmgURL('arm64') : helperDownloadURL()}
+                    href={downloadHref || helperReleasesURL()}
                     rel="noopener"
                   >
                     Reinstall / update
@@ -203,7 +210,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
                 primary={
                   <a
                     className="helper-status-popover-primary"
-                    href={platform === 'macos' ? helperDmgURL('arm64') : helperDownloadURL()}
+                    href={downloadHref || helperReleasesURL()}
                     rel="noopener"
                   >
                     Download for {labelForPlatform(platform)}
@@ -262,9 +269,72 @@ function PopoverActions({ primary, secondary }) {
   );
 }
 
+// Compare installed helper version against the latest published
+// release. Returns 'unknown' for helpers that predate the
+// helper_version field (helper v0.3.0 and older -- the field shipped
+// in v0.3.1), 'up-to-date' when both sides agree, 'older' when the
+// installed version semver-precedes the latest, 'newer' when the
+// installed version is somehow ahead (dev builds, manually-built).
+//
+// Pure-string semver compare is intentional -- we control both ends
+// (helper-vX.Y.Z tags), so we don't need to handle pre-release suffixes
+// or build metadata. If the format diverges in the future, fall back
+// to "unknown" rather than guessing.
+function compareHelperVersion(installed, latest) {
+  if (!installed || !latest) return 'unknown';
+  const parse = (s) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(s);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  };
+  const a = parse(installed);
+  const b = parse(latest);
+  if (!a || !b) return 'unknown';
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return 'older';
+    if (a[i] > b[i]) return 'newer';
+  }
+  return 'up-to-date';
+}
+
+function HelperVersionLine({ installed, latest }) {
+  const verdict = compareHelperVersion(installed, latest);
+  if (verdict === 'older') {
+    return (
+      <div className="helper-status-popover-hint helper-status-popover-update">
+        Update available: helper v{latest} (you have v{installed}).
+      </div>
+    );
+  }
+  if (verdict === 'up-to-date') {
+    return (
+      <div className="helper-status-popover-hint">
+        Helper v{installed} (latest).
+      </div>
+    );
+  }
+  if (verdict === 'newer') {
+    return (
+      <div className="helper-status-popover-hint">
+        Helper v{installed} (dev build, ahead of latest released v{latest}).
+      </div>
+    );
+  }
+  // 'unknown' -- helper too old to report its version, OR latest
+  // metadata not yet loaded. Fall back to the v0.3.0 wording.
+  if (latest) {
+    return (
+      <div className="helper-status-popover-hint">
+        Latest available: helper v{latest}. Reinstall if you suspect yours is older.
+      </div>
+    );
+  }
+  return null;
+}
+
 function labelForPlatform(p) {
-  if (p === 'macos') return 'macOS';
-  if (p === 'windows') return 'Windows';
-  if (p === 'linux') return 'Linux';
+  if (!p) return 'your platform';
+  if (p.os === 'darwin') return 'macOS';
+  if (p.os === 'windows') return 'Windows';
+  if (p.os === 'linux') return 'Linux';
   return 'your platform';
 }

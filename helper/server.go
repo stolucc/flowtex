@@ -117,17 +117,39 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, `{"ok":true}`)
 }
 
+// versionResponse is what /version returns to a paired browser. It
+// embeds the TeX detection result and adds the helper binary's own
+// build identity so the FlowTex toolbar indicator can compare against
+// the latest published release and prompt for an update.
+//
+// helper_version is injected via -ldflags at build time (see Makefile);
+// helper_build_sha is the trimmed commit SHA from the same ldflags or
+// the embedded VCS info. Both are SAFE to surface on an authenticated
+// endpoint -- they're identical to what the user can read from
+// `flowtex-helper version` on their own machine.
+type versionResponse struct {
+	texInfo
+	HelperVersion  string `json:"helper_version"`
+	HelperBuildSHA string `json:"helper_build_sha"`
+}
+
 // /version — authenticated. Tells the paired browser the helper's TeX
 // Live year + which engines / biber are available, so the client can
-// match against the projects pinned tex_distribution.
+// match against the project's pinned tex_distribution. Also reports
+// the helper's own version so the FlowTex UI can detect "newer release
+// available" instead of silently letting users sit on an old binary.
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	info := detectTex()
+	resp := versionResponse{
+		texInfo:        detectTex(),
+		HelperVersion:  helperVersion,
+		HelperBuildSHA: helperBuildSHA,
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // /pair — unauthenticated POST with JSON body `{"code":"NNNNNN"}`.

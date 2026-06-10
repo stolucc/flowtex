@@ -185,6 +185,12 @@ export async function fetchHelperVersion() {
         distributionsAvailable: dists
           .filter((d) => d && typeof d.year === 'string')
           .map((d) => ({ year: d.year, path: typeof d.path === 'string' ? d.path : '' })),
+        // helperVersion + helperBuildSHA were added in helper v0.3.1 so the
+        // toolbar indicator can detect "newer release available". Older
+        // helpers don't ship these; default to empty string and the UI
+        // falls back to the v0.3.0 behaviour ("Reinstall if older").
+        helperVersion: typeof data.helper_version === 'string' ? data.helper_version : '',
+        helperBuildSHA: typeof data.helper_build_sha === 'string' ? data.helper_build_sha : '',
       };
     } finally { clearTimeout(timer); }
   } catch {
