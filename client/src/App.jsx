@@ -1208,34 +1208,37 @@ function AppInner() {
                     visually lands in the header zone — independent of
                     whether the rail and editor top edges align. */}
                 <div className="comments-rail-header">
-                  {/* Speech bubble with inner text lines — reads as "annotation"
-                      (i.e., comments tied to specific text in the document), to
-                      distinguish from the chat icon which is a multi-bubble
-                      conversation glyph. */}
-                  <svg
-                    className="comments-rail-icon"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                    <line x1="7" y1="9" x2="17" y2="9" />
-                    <line x1="7" y1="13" x2="13" y2="13" />
-                  </svg>
-                  {/* Active-comment count on the collapsed rail — mirrors
-                      the chat-badge pattern so users see "there are N
-                      threads here" without expanding. commentPositions
-                      already filters out resolved ones. */}
-                  {commentPositions?.length > 0 && (
-                    <span className="comments-badge">
-                      {commentPositions.length > 99 ? '99+' : commentPositions.length}
-                    </span>
-                  )}
+                  {/* Icon + corner-badge wrapper. The wrapper is the
+                      relative anchor so the badge overlaps the icon's
+                      top-right corner consistently with the
+                      track-changes toggle badge (same pattern as
+                      iOS / macOS / GitHub corner counters). */}
+                  <span className="comments-rail-icon-wrap">
+                    {/* Speech bubble with inner text lines — reads as
+                        "annotation" (comments tied to specific text in
+                        the document), to distinguish from the chat icon
+                        which is a multi-bubble conversation glyph. */}
+                    <svg
+                      className="comments-rail-icon"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      <line x1="7" y1="9" x2="17" y2="9" />
+                      <line x1="7" y1="13" x2="13" y2="13" />
+                    </svg>
+                    {commentPositions?.length > 0 && (
+                      <span className="comments-badge">
+                        {commentPositions.length > 99 ? '99+' : commentPositions.length}
+                      </span>
+                    )}
+                  </span>
                 </div>
               </button>
             )}

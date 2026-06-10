@@ -4747,18 +4747,34 @@ html {
    bubble icon. Smaller than the chat-badge because the rail itself is
    only 18px wide. Mirrors the chat counter so users see "N active
    threads" at a glance without expanding the panel. */
+/* Wrapper around the rail icon. position: relative so the corner
+   badge anchors to the icon, not the wider rail header (which would
+   put the badge way off to the right). inline-block so the wrapper
+   sizes to its icon child. */
+.comments-rail-icon-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0; /* eat the line-height inflation around the SVG */
+}
+
+/* Comments-count badge -- matches .tc-toggle-badge pixel-for-pixel.
+   Same corner-overlap convention as iOS / macOS Dock / GitHub /
+   Slack so users read it as "count of N pending items" without
+   needing a legend. White text on accent background for high
+   contrast in both light + dark themes. */
 .comments-badge {
-  display: block;
-  margin: 2px auto 0;
-  min-width: 16px;
-  padding: 1px 4px;
-  font-size: 10px;
-  line-height: 1.2;
-  font-weight: 600;
-  text-align: center;
+  position: absolute;
+  top: -4px;
+  right: -8px;
   background: var(--accent);
-  color: var(--bg-primary);
-  border-radius: 8px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
   box-sizing: border-box;
 }
 
