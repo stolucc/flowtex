@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import { fileURLToPath } from 'url';
 import { execFile, execFileSync } from 'child_process';
@@ -31,7 +32,10 @@ const PROJECTS_DIR = path.join(__dirname, '..', '..', 'projects');
 const router = Router();
 
 // Per-project and per-user compilation rate limiting
+/** @typedef {{ start: number, count: number }} RateEntry */
+/** @type {Map<string, RateEntry>} */
 const compileRateMap = new Map();
+/** @type {Map<string, RateEntry>} */
 const userCompileRateMap = new Map();
 const userFormatRateMap = new Map();
 const COMPILE_RATE_WINDOW = 60000;
@@ -50,6 +54,10 @@ const USER_FORMAT_RATE_MAX = SKIP_LIMITS ? Infinity : 10;
 const FORMAT_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Check per-project and per-user compilation rate limits. Returns false if limit exceeded. */
+/**
+ * @param {string} projectId
+ * @param {string | undefined} userId
+ */
 function checkCompileRate(projectId, userId) {
   const now = Date.now();
   // Per-project limit
@@ -86,6 +94,11 @@ setInterval(() => {
   }
 }, 60 * 1000).unref();
 
+/**
+ * @param {string} projectId
+ * @param {string | undefined} userId
+ * @param {import('express').Response} res
+ */
 async function requireMembership(projectId, userId, res) {
   return !!(await requireMember(projectId, userId, res));
 }
@@ -126,7 +139,7 @@ router.post('/format', async (req, res) => {
   }
 
   const formatters = detectFormatters();
-  const fmt = formatters.find((f) => f.id === (formatter || formatters[0]?.id));
+  const fmt = formatters.find((/** @type {{ id: string }} */ f) => f.id === (formatter || formatters[0]?.id));
   if (!fmt) return res.status(400).json({ error: 'No formatter available' });
 
   let tmpDir;
@@ -182,7 +195,7 @@ router.post('/:projectId', async (req, res) => {
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
-    const files = rawFiles.map((f) => {
+    const files = rawFiles.map((/** @type {any} */ f) => {
       if (f.is_binary) return f;
       let content = f.content;
       if (showTC) {
@@ -195,13 +208,17 @@ router.post('/:projectId', async (req, res) => {
       return { ...f, content };
     });
 
-    const { log, profile, rebuildReason, cached } = await compileProject(projectId, mainFile, null, {
+    // compileProject's return type is declared narrowly upstream; it
+    // actually surfaces profile + rebuildReason + cached on real
+    // compile paths. Cast at the boundary until compiler.js is itself
+    // ts-check'd.
+    const { log, profile, rebuildReason, cached } = /** @type {any} */ (await compileProject(projectId, mainFile, null, {
       files,
       userId: req.session.userId,
       texDistribution: project?.tex_distribution,
       compiler: project?.compiler,
       tc: showTC,
-    });
+    }));
 
     res.json({ success: true, log, profile, rebuildReason, cached: !!cached });
   } catch (err) {
@@ -243,12 +260,14 @@ router.get('/:projectId/compile-stream', async (req, res) => {
     stopCompilation(projectId).catch((e) => logger.warn({ err: e }, 'Failed to stop compilation on disconnect'));
   });
 
+  /**
+   * @param {string} event
+   * @param {object} data
+   */
   const send = (event, data) => {
     if (clientDisconnected) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
-
-  
 
   try {
     const showTC = req.query.showTrackedChanges === '1';
@@ -260,7 +279,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       projectId,
     ]);
     const mainFile = project?.main_file || 'main.tex';
-    const files = rawFiles.map((f) => {
+    const files = rawFiles.map((/** @type {any} */ f) => {
       if (f.is_binary) return f;
       let content = f.content;
       if (showTC) {
@@ -271,10 +290,10 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       }
       return { ...f, content };
     });
-    const { log, profile, rebuildReason, cached } = await compileProject(
+    const { log, profile, rebuildReason, cached } = /** @type {any} */ (await compileProject(
       projectId,
       mainFile,
-      (chunk) => {
+      (/** @type {string} */ chunk) => {
         send('output', { text: stripPaths(chunk) });
       },
       {
@@ -288,11 +307,12 @@ router.get('/:projectId/compile-stream', async (req, res) => {
           send('output', { text: `Synced ${files.length} file(s). Compiling ${mainFile} with ${compilerName}...\n` });
         },
       },
-    );
+    ));
 
     send('done', { success: true, log: stripPaths(log), profile, rebuildReason, cached: !!cached });
   } catch (err) {
-    send('done', { success: false, log: stripPaths(err.message) });
+    const msg = err instanceof Error ? err.message : String(err);
+    send('done', { success: false, log: stripPaths(msg) });
   }
 
   if (!clientDisconnected) res.end();
@@ -350,7 +370,9 @@ router.get('/:projectId/syncforward', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const { line, column, file } = req.query;
+  const line = typeof req.query.line === 'string' ? req.query.line : '';
+  const column = typeof req.query.column === 'string' ? req.query.column : '0';
+  const file = typeof req.query.file === 'string' ? req.query.file : '';
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
   const tc = req.query.tc === '1';
@@ -358,7 +380,7 @@ router.get('/:projectId/syncforward', async (req, res) => {
   const result = synctexForward(
     projectId,
     parseInt(line),
-    parseInt(column || '0'),
+    parseInt(column),
     file || mainFile,
     mainFile,
     userSuffix,
@@ -375,7 +397,9 @@ router.get('/:projectId/syncinverse', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const { page, x, y } = req.query;
+  const page = typeof req.query.page === 'string' ? req.query.page : '';
+  const x = typeof req.query.x === 'string' ? req.query.x : '';
+  const y = typeof req.query.y === 'string' ? req.query.y : '';
   const project = await db.get('SELECT main_file FROM projects WHERE id = $1', [projectId]);
   const mainFile = project?.main_file || 'main.tex';
   const tc = req.query.tc === '1';
@@ -535,7 +559,7 @@ router.get('/:projectId/wordcount', async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, 'Word count error');
-    const msg = (err.message || 'Word count failed').replace(/\/[^\s:]+\//g, '');
+    const msg = ((err instanceof Error ? err.message : '') || 'Word count failed').replace(/\/[^\s:]+\//g, '');
     res.status(400).json({ error: msg });
   }
 });
@@ -545,7 +569,8 @@ router.get('/:projectId/diff-stream', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const { oldFileId, newFileId } = req.query;
+  const oldFileId = typeof req.query.oldFileId === 'string' ? req.query.oldFileId : '';
+  const newFileId = typeof req.query.newFileId === 'string' ? req.query.newFileId : '';
   if (!oldFileId || !newFileId) {
     return res.status(400).json({ error: 'Both oldFileId and newFileId required' });
   }
@@ -562,7 +587,10 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     stopCompilation(projectId).catch((e) => logger.warn({ err: e }, 'Failed to stop compilation on disconnect'));
   });
 
-  
+  /**
+   * @param {string} event
+   * @param {object} data
+   */
   const send = (event, data) => {
     if (clientDisconnected) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -589,7 +617,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     );
     // Strip pending del ranges before sending to LaTeX (M2 model — the
     // doc keeps strikethrough chars; the compiler must see "Final" view).
-    const files = rawFiles.map((f) =>
+    const files = rawFiles.map((/** @type {any} */ f) =>
       f.is_binary
         ? f
         : { ...f, content: stripPendingDeletions(f.content, f.tc_marks) },
@@ -603,9 +631,10 @@ router.get('/:projectId/diff-stream', async (req, res) => {
     try {
       diffOutput = await latexDiff(oldFile.content || '', newFile.content || '', { workDir: projectDir });
     } catch (err) {
-      send('output', { text: `Diff error: ${stripPaths(err.message)}\n` });
-      if (err.stderr) send('output', { text: stripPaths(err.stderr) + '\n' });
-      send('done', { success: false, log: stripPaths(err.message) });
+      const e = /** @type {{ message?: string, stderr?: string }} */ (err && typeof err === 'object' ? err : {});
+      send('output', { text: `Diff error: ${stripPaths(e.message)}\n` });
+      if (e.stderr) send('output', { text: stripPaths(e.stderr) + '\n' });
+      send('done', { success: false, log: stripPaths(e.message) });
       if (!clientDisconnected) res.end();
       return;
     }
@@ -619,7 +648,7 @@ router.get('/:projectId/diff-stream', async (req, res) => {
       const { log } = await compileProject(
         projectId,
         '__diff__.tex',
-        (chunk) => {
+        (/** @type {string} */ chunk) => {
           send('output', { text: stripPaths(chunk) });
         },
         {
@@ -641,15 +670,17 @@ router.get('/:projectId/diff-stream', async (req, res) => {
         send('output', { text: stripPaths('\n--- diff log ---\n' + logContents + '\n') });
       }
       // Check if PDF was produced anyway
+      const msg = err instanceof Error ? err.message : String(err);
       const diffPdfPath = path.join(projectDir, diffJobName + '.pdf');
       if (fs.existsSync(diffPdfPath)) {
-        send('done', { success: true, log: stripPaths(err.message) });
+        send('done', { success: true, log: stripPaths(msg) });
       } else {
-        send('done', { success: false, log: stripPaths(err.message) });
+        send('done', { success: false, log: stripPaths(msg) });
       }
     }
   } catch (err) {
-    send('done', { success: false, log: stripPaths(err.message) });
+    const msg = err instanceof Error ? err.message : String(err);
+    send('done', { success: false, log: stripPaths(msg) });
   }
 
   if (!clientDisconnected) res.end();
@@ -724,7 +755,7 @@ router.get('/:projectId/generated-file', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
 
-  const fileName = req.query.name;
+  const fileName = typeof req.query.name === 'string' ? req.query.name : '';
   if (
     !fileName ||
     fileName.includes('/') ||
@@ -808,6 +839,7 @@ const KNOWN_FORMATTERS = [
   { id: 'texfmt', name: 'tex-fmt', commands: ['tex-fmt', 'texfmt'] },
 ];
 
+/** @type {Array<{ id: string, name: string, path: string }> | null} */
 let _cachedFormatters = null;
 let _formattersCacheTime = 0;
 
@@ -819,6 +851,7 @@ function detectFormatters() {
   const now = Date.now();
   if (_cachedFormatters && now - _formattersCacheTime < 60000) return _cachedFormatters;
 
+  /** @type {Array<{ id: string, name: string, path: string, version?: string }>} */
   const found = [];
   for (const fmt of KNOWN_FORMATTERS) {
     for (const cmd of fmt.commands) {

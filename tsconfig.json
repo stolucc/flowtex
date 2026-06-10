@@ -121,7 +121,9 @@
     "server/routes/saml.js",
     "server/routes/history.js",
     "server/services/githubService.js",
-    "server/services/samlService.js"
+    "server/services/samlService.js",
+    "server/routes/admin.js",
+    "server/routes/compile.js"
   ],
   "exclude": [
     "node_modules",

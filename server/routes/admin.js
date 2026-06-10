@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import os from 'os';
 import { z } from 'zod';
@@ -90,9 +91,11 @@ router.get('/stats/db-writes', (req, res) => {
 
 /** GET /api/admin/stats/timeseries -- Daily counts for a given metric over N days. */
 router.get('/stats/timeseries', async (req, res) => {
-  const metric = req.query.metric || 'users';
-  const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+  const metric = typeof req.query.metric === 'string' ? req.query.metric : 'users';
+  const daysParam = typeof req.query.days === 'string' ? req.query.days : '';
+  const days = Math.min(Math.max(parseInt(daysParam) || 30, 1), 365);
 
+  /** @type {Record<string, { table: string, col: string, where?: string }>} */
   const tableMap = {
     users: { table: 'users', col: 'created_at' },
     projects: { table: 'projects', col: 'created_at' },
@@ -133,12 +136,13 @@ router.get('/stats/timeseries', async (req, res) => {
     [days],
   );
 
-  res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
+  res.json(rows.map((/** @type {{ date: Date, count: number }} */ r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
 /** GET /api/admin/stats/active-users -- Daily active user counts over N days. */
 router.get('/stats/active-users', async (req, res) => {
-  const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+  const daysParam = typeof req.query.days === 'string' ? req.query.days : '';
+  const days = Math.min(Math.max(parseInt(daysParam) || 30, 1), 365);
 
   const rows = await db.all(
     `
@@ -168,12 +172,13 @@ router.get('/stats/active-users', async (req, res) => {
     [days],
   );
 
-  res.json(rows.map((r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
+  res.json(rows.map((/** @type {{ date: Date, count: number }} */ r) => ({ date: r.date.toISOString().slice(0, 10), count: r.count })));
 });
 
 /** GET /api/admin/stats/top-projects -- Most recently active projects with member/file/version counts. */
 router.get('/stats/top-projects', async (req, res) => {
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const limitParam = typeof req.query.limit === 'string' ? req.query.limit : '';
+  const limit = Math.min(Math.max(parseInt(limitParam) || 20, 1), 100);
 
   const rows = await db.all(
     `
@@ -202,7 +207,7 @@ router.get('/stats/top-projects', async (req, res) => {
   );
 
   res.json(
-    rows.map((r) => ({
+    rows.map((/** @type {any} */ r) => ({
       id: r.id,
       name: r.name,
       createdAt: r.created_at,
@@ -224,7 +229,8 @@ router.get('/stats/top-projects', async (req, res) => {
  *  hampered support workflows and broke the type-email-to-confirm step
  *  of the delete-user modal. */
 router.get('/stats/top-users', async (req, res) => {
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const limitParam = typeof req.query.limit === 'string' ? req.query.limit : '';
+  const limit = Math.min(Math.max(parseInt(limitParam) || 20, 1), 100);
 
   const rows = await db.all(
     `
@@ -257,7 +263,7 @@ router.get('/stats/top-users', async (req, res) => {
   );
 
   res.json(
-    rows.map((r) => ({
+    rows.map((/** @type {any} */ r) => ({
       id: r.id,
       name: r.name,
       email: r.email,
@@ -348,7 +354,7 @@ router.get('/users/:id/activity', async (req, res) => {
       totpEnabled: user.totp_enabled,
       isAdmin: user.is_admin,
     },
-    projects: projects.map((p) => ({
+    projects: projects.map((/** @type {any} */ p) => ({
       id: p.id,
       name: p.name,
       role: p.role,
@@ -356,13 +362,13 @@ router.get('/users/:id/activity', async (req, res) => {
       edits: p.edits,
       comments: p.comments,
     })),
-    recentEdits: recentEdits.map((e) => ({
+    recentEdits: recentEdits.map((/** @type {any} */ e) => ({
       id: e.id,
       createdAt: e.created_at,
       projectName: e.project_name,
       label: e.label,
     })),
-    recentComments: recentComments.map((c) => ({
+    recentComments: recentComments.map((/** @type {any} */ c) => ({
       id: c.id,
       createdAt: c.created_at,
       content: c.text,
@@ -370,19 +376,19 @@ router.get('/users/:id/activity', async (req, res) => {
       filePath: c.file_path,
       projectName: c.project_name,
     })),
-    recentChat: recentChat.map((m) => ({
+    recentChat: recentChat.map((/** @type {any} */ m) => ({
       id: m.id,
       createdAt: m.created_at,
       message: m.text,
       projectName: m.project_name,
     })),
-    auditLog: auditEntries.map((a) => ({
+    auditLog: auditEntries.map((/** @type {any} */ a) => ({
       action: a.action,
       detail: a.detail,
       ip: a.ip,
       createdAt: a.created_at,
     })),
-    loginHistory: loginHistory.map((l) => ({
+    loginHistory: loginHistory.map((/** @type {any} */ l) => ({
       success: l.success,
       ip: l.ip,
       createdAt: l.created_at,
@@ -433,7 +439,7 @@ router.delete('/users/:userId', validateBody(adminPasswordSchema), async (req, r
 router.get('/users/deleted', async (req, res) => {
   try {
     const rows = await listSoftDeletedUsers();
-    res.json(rows.map((r) => ({
+    res.json(rows.map((/** @type {any} */ r) => ({
       id: r.id,
       email: r.email,
       name: r.name,
@@ -555,8 +561,10 @@ router.patch('/users/:userId/admin', validateBody(toggleAdminSchema), async (req
 
 /** GET /api/admin/audit-log -- Paginated audit log with user details. */
 router.get('/audit-log', async (req, res) => {
-  const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+  const pageParam = typeof req.query.page === 'string' ? req.query.page : '';
+  const limitParam = typeof req.query.limit === 'string' ? req.query.limit : '';
+  const page = Math.max(parseInt(pageParam) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(limitParam) || 50, 1), 200);
   const offset = (page - 1) * limit;
 
   const [rows, countRow] = await Promise.all([
@@ -575,7 +583,7 @@ router.get('/audit-log', async (req, res) => {
   ]);
 
   res.json({
-    entries: rows.map((r) => ({
+    entries: rows.map((/** @type {any} */ r) => ({
       id: r.id,
       userId: r.user_id,
       userName: r.user_name,
@@ -599,6 +607,7 @@ router.get('/audit-log', async (req, res) => {
  *  (e.g. MFA trust-device User-Agent), so an admin opening the export
  *  could otherwise execute attacker-supplied formulas. Exported for
  *  testing -- see V1 in the round 7 audit notes. */
+/** @param {unknown} val */
 export function escapeCsv(val) {
   if (val == null) return '';
   let s = String(val);
@@ -619,7 +628,7 @@ router.get('/audit-log/export', async (req, res) => {
   );
 
   const header = 'ID,User ID,User Name,User Email,Action,Target Type,Target ID,Detail,IP,Created At';
-  const lines = rows.map((r) =>
+  const lines = rows.map((/** @type {any} */ r) =>
     [r.id, r.user_id, r.user_name, r.user_email, r.action, r.target_type, r.target_id, r.detail, r.ip, r.created_at]
       .map(escapeCsv)
       .join(','),
@@ -662,11 +671,12 @@ router.get('/stats/system', async (req, res) => {
 
   // Compilations per minute from recent history
   const oneMinAgo = Date.now() - 60000;
-  const recentCompiles = compileMetrics.history.filter((h) => h.time > oneMinAgo);
+  /** @type {Array<{ time: number, duration: number }>} */
+  const recentCompiles = compileMetrics.history.filter((/** @type {{ time: number, duration: number }} */ h) => h.time > oneMinAgo);
   const compilesPerMin = recentCompiles.length;
   const avgCompileTime =
     recentCompiles.length > 0
-      ? Math.round(recentCompiles.reduce((s, h) => s + h.duration, 0) / recentCompiles.length)
+      ? Math.round(recentCompiles.reduce((/** @type {number} */ s, /** @type {{ duration: number }} */ h) => s + h.duration, 0) / recentCompiles.length)
       : 0;
 
   // Active sessions = unexpired session rows that actually belong to a
@@ -681,13 +691,18 @@ router.get('/stats/system', async (req, res) => {
         AND sess->>'userId' IS NOT NULL`,
   );
 
-  // Live WebSocket stats from app
-  const liveStats = req.app.getLiveStats ? req.app.getLiveStats() : { wsConnections: 0, wsUniqueUsers: 0 };
+  // Live WebSocket stats from app -- attached by index.js at boot
+  // onto the Express app instance; not declared on the
+  // Express.Application type, so narrow at the access point.
+  const getLiveStats = /** @type {(() => { wsConnections: number, wsUniqueUsers: number }) | undefined} */ (
+    /** @type {any} */ (req.app).getLiveStats
+  );
+  const liveStats = getLiveStats ? getLiveStats() : { wsConnections: 0, wsUniqueUsers: 0 };
 
   res.json({
     cpu: {
       processPercent: Math.round(cpuPercent * 10) / 10,
-      loadAvg: loadAvg.map((l) => Math.round(l * 100) / 100),
+      loadAvg: loadAvg.map((/** @type {number} */ l) => Math.round(l * 100) / 100),
       cores: cpuCount,
     },
     memory: {
@@ -718,6 +733,7 @@ router.get('/stats/system', async (req, res) => {
 /** GET /api/admin/settings -- Retrieve all key/value settings. */
 router.get('/settings', async (req, res) => {
   const rows = await db.all('SELECT key, value FROM settings');
+  /** @type {Record<string, string>} */
   const settings = {};
   for (const r of rows) settings[r.key] = r.value;
   res.json(settings);

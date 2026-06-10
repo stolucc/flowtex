@@ -30,11 +30,17 @@ export function stripPaths(text) {
 }
 
 /** Format an error message for client display, with paths stripped.
- *  @param {{ message?: string } | null | undefined} err
+ *  Accepts `unknown` because most call sites are `catch (err)` blocks.
+ *  @param {unknown} err
  *  @param {string} [fallback]
  */
 export function safeMsg(err, fallback = 'Internal server error') {
-  return stripPaths(err?.message || fallback);
+  const msg = err instanceof Error
+    ? err.message
+    : (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+        ? err.message
+        : null);
+  return stripPaths(msg || fallback);
 }
 
 /** Narrow an unknown caught error to its status + message contract.
