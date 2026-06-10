@@ -1,3 +1,4 @@
+// @ts-check
 // SAML / multi-tenant SSO support.
 //
 // Day 1 surface (this file): just the SP keypair lifecycle.
@@ -29,10 +30,13 @@ import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import logger from '../logger.js';
 
+/** @typedef {{ privateKey: string, certificatePem: string, fingerprintSha256: string, notAfter: Date }} CachedKeypair */
+
 // Cache the in-memory parsed form so we don't decrypt on every signing
 // operation. Invalidated by rotate(). Multiple processes (cluster
 // mode) will each hold their own copy -- that's fine, the underlying
 // rows are the source of truth.
+/** @type {CachedKeypair | null} */
 let _cached = null;
 
 const KEYPAIR_ID = 'default';
@@ -58,7 +62,11 @@ export async function generateSpKeypair(entityId) {
   // all PEM strings + a SHA-1 fingerprint (we compute our own SHA-256
   // below).
   const attrs = [{ name: 'commonName', value: entityId }];
-  const pems = await selfsigned.generate(attrs, {
+  // selfsigned's TS types ship a partial SelfsignedOptions shape that
+  // excludes `days` and the extension descriptor field names we
+  // actually use at runtime. Cast at the boundary -- the field is
+  // documented in selfsigned's README and the runtime accepts it.
+  const pems = await selfsigned.generate(attrs, /** @type {any} */ ({
     keySize: SIG_BITS,
     days: KEY_VALIDITY_DAYS,
     algorithm: 'sha256',
@@ -67,7 +75,7 @@ export async function generateSpKeypair(entityId) {
       { name: 'keyUsage', digitalSignature: true, nonRepudiation: true },
       { name: 'extKeyUsage', clientAuth: true, serverAuth: true },
     ],
-  });
+  }));
   const fingerprintSha256 = crypto
     .createHash('sha256')
     .update(pems.cert)
@@ -85,10 +93,11 @@ export async function generateSpKeypair(entityId) {
  * Return the currently-persisted SP keypair. Generates one on first
  * call (idempotent across instances: ON CONFLICT DO NOTHING + re-read).
  *
- * @param {string} entityId - SP's entityID, only used when generating
+ * @param {string | undefined} entityId - SP's entityID, only used when generating
  *                            for the first time. Persists into the cert
  *                            CN. Subsequent calls IGNORE this value
  *                            (changing it would require rotation).
+ * @returns {Promise<CachedKeypair>}
  */
 export async function getSpKeypair(entityId) {
   if (_cached) return _cached;
@@ -147,6 +156,10 @@ export async function getSpKeypair(entityId) {
  * configurable interval; others require a manual re-import. Either
  * way, operators should coordinate the cert rotation with their IdP
  * counterparts (out of band).
+ */
+/**
+ * @param {string} entityId
+ * @param {string | undefined} rotatedBy
  */
 export async function rotateSpKeypair(entityId, rotatedBy) {
   const fresh = await generateSpKeypair(entityId);
@@ -235,7 +248,7 @@ const XML_PARSER = new XMLParser({
  * these four.
  *
  * @param {string} xml - raw metadata XML
- * @returns {{ entityId, ssoUrl, sloUrl: string|null, certPem }}
+ * @returns {{ entityId: string, ssoUrl: string, sloUrl: string|null, certPem: string }}
  * @throws if any required field is missing or malformed
  */
 export function parseIdpMetadataXml(xml) {
@@ -251,8 +264,8 @@ export function parseIdpMetadataXml(xml) {
   const idp = ent.IDPSSODescriptor;
   if (!idp) throw new Error('parseIdpMetadataXml: not an IdP metadata document (no IDPSSODescriptor)');
 
-  const findBinding = (services, binding) =>
-    (services || []).find((s) => s['@_Binding'] === binding);
+  const findBinding = (/** @type {any[] | undefined} */ services, /** @type {string} */ binding) =>
+    (services || []).find((/** @type {any} */ s) => s['@_Binding'] === binding);
 
   const sso = findBinding(idp.SingleSignOnService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST')
     || findBinding(idp.SingleSignOnService, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect');
@@ -267,8 +280,8 @@ export function parseIdpMetadataXml(xml) {
   // base64 cert out. IdPs sometimes ship multiple keys (signing +
   // encryption); we want the signing one.
   const keyDescriptors = idp.KeyDescriptor || [];
-  const signingKey = keyDescriptors.find((k) => k['@_use'] === 'signing')
-    || keyDescriptors.find((k) => !k['@_use']);
+  const signingKey = keyDescriptors.find((/** @type {any} */ k) => k['@_use'] === 'signing')
+    || keyDescriptors.find((/** @type {any} */ k) => !k['@_use']);
   if (!signingKey) throw new Error('parseIdpMetadataXml: no signing KeyDescriptor');
   const certBase64 = signingKey?.KeyInfo?.X509Data?.X509Certificate;
   if (!certBase64) throw new Error('parseIdpMetadataXml: KeyDescriptor has no X509Certificate');
@@ -278,6 +291,10 @@ export function parseIdpMetadataXml(xml) {
   return { entityId, ssoUrl, sloUrl, certPem };
 }
 
+/**
+ * @param {string} b64
+ * @param {string} label
+ */
 function wrapBase64AsPem(b64, label) {
   const lines = b64.match(/.{1,64}/g) || [b64];
   return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
@@ -301,6 +318,7 @@ export async function listIdPs() {
   return rows;
 }
 
+/** @param {string} id */
 export async function getIdP(id) {
   return db.get('SELECT * FROM saml_idp_config WHERE id = $1', [id]);
 }
@@ -313,6 +331,7 @@ export async function getIdP(id) {
  * the requested domain. The domain-uniqueness invariant in createIdP
  * means there's at most one match.
  */
+/** @param {string} domain */
 export async function getIdPByDomain(domain) {
   if (typeof domain !== 'string' || domain.length === 0) return null;
   const lower = domain.toLowerCase();
@@ -335,6 +354,21 @@ export async function getIdPByDomain(domain) {
  *     concrete map of {email, name, nameId}.
  *   - allowed_email_domains is non-empty and each domain looks like
  *     a hostname (loose check).
+ */
+/**
+ * @param {{
+ *   displayName: string,
+ *   metadataXml?: string,
+ *   entityId?: string,
+ *   ssoUrl?: string,
+ *   sloUrl?: string | null,
+ *   certPem?: string,
+ *   attributeMapping?: string | { email: string, name: string, nameId: string },
+ *   allowedEmailDomains: string[],
+ *   jitProvisioning?: boolean,
+ *   enabled?: boolean,
+ *   createdBy?: string | null,
+ * }} args
  */
 export async function createIdP({
   displayName,
@@ -428,6 +462,19 @@ export async function createIdP({
  * allowedEmailDomains, jitProvisioning, enabled. entityID is
  * immutable (would require re-establishing trust with the IdP).
  */
+/**
+ * @param {string} id
+ * @param {{
+ *   displayName?: string,
+ *   ssoUrl?: string,
+ *   sloUrl?: string | null,
+ *   certPem?: string,
+ *   attributeMapping?: string | { email: string, name: string, nameId: string },
+ *   allowedEmailDomains?: string[],
+ *   jitProvisioning?: boolean,
+ *   enabled?: boolean,
+ * }} patch
+ */
 export async function updateIdP(id, patch) {
   const existing = await getIdP(id);
   if (!existing) throw Object.assign(new Error('updateIdP: no such IdP'), { status: 404 });
@@ -492,6 +539,7 @@ export async function updateIdP(id, patch) {
  * users would be locked out otherwise. Operator must explicitly
  * re-provision or convert them to password auth first.
  */
+/** @param {string} id */
 export async function deleteIdP(id) {
   const linkedUsers = await db.get(
     'SELECT COUNT(*) AS cnt FROM users WHERE saml_idp_id = $1 AND deleted_at IS NULL',
@@ -508,18 +556,20 @@ export async function deleteIdP(id) {
 
 // ─── Attribute mapping resolution ───────────────────────────────────────
 
+/** @param {unknown} value */
 function resolveAttributeMapping(value) {
   if (typeof value === 'string') {
-    if (!ATTR_PRESETS[value]) {
+    const preset = /** @type {Record<string, { email: string, name: string, nameId: string }>} */ (ATTR_PRESETS)[value];
+    if (!preset) {
       throw Object.assign(
         new Error(`Unknown attribute-mapping preset "${value}". Known: ${Object.keys(ATTR_PRESETS).join(', ')}`),
         { status: 400 },
       );
     }
-    return { preset: value, ...ATTR_PRESETS[value] };
+    return { preset: value, ...preset };
   }
   if (value && typeof value === 'object') {
-    const { email, name, nameId } = value;
+    const { email, name, nameId } = /** @type {{ email?: unknown, name?: unknown, nameId?: unknown }} */ (value);
     if (typeof email !== 'string' || typeof name !== 'string' || typeof nameId !== 'string') {
       throw Object.assign(
         new Error('attribute_mapping object must have string email/name/nameId fields'),
@@ -531,14 +581,15 @@ function resolveAttributeMapping(value) {
   throw Object.assign(new Error('attribute_mapping must be a preset name or an object'), { status: 400 });
 }
 
+/** @param {unknown} domains */
 function normaliseEmailDomains(domains) {
   if (!Array.isArray(domains)) return [];
   return domains
-    .filter((d) => typeof d === 'string')
-    .map((d) => d.trim().toLowerCase())
-    .filter((d) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d))
+    .filter((/** @type {unknown} */ d) => typeof d === 'string')
+    .map((/** @type {string} */ d) => d.trim().toLowerCase())
+    .filter((/** @type {string} */ d) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d))
     // Dedupe.
-    .filter((d, i, arr) => arr.indexOf(d) === i);
+    .filter((/** @type {string} */ d, /** @type {number} */ i, /** @type {string[]} */ arr) => arr.indexOf(d) === i);
 }
 
 // ─── Assertion validation ──────────────────────────────────────────────
@@ -549,14 +600,8 @@ function normaliseEmailDomains(domains) {
  *
  * @param {string} idpId
  * @param {string} samlResponseB64 - the SAMLResponse POST body value
- * @param {object} [opts]
- * @param {string} opts.audience  - this SP's entityID (we expect to be
- *                                  in the assertion's Audience)
- * @param {string} opts.callbackUrl - our ACS URL (the assertion's
- *                                    Destination must match)
- * @param {string} opts.spPrivateKey - SP private key PEM (for optional
- *                                     assertion decryption)
- * @returns {Promise<{ nameId, nameIdFormat, email, name, attributes, sessionIndex }>}
+ * @param {{ audience: string, callbackUrl: string, spPrivateKey: string }} opts
+ * @returns {Promise<{ nameId: string | undefined, nameIdFormat: string | undefined, email: string | null, name: string, attributes: any, sessionIndex: string | undefined }>}
  * @throws on any validation failure (signature, audience, expiry, …)
  */
 export async function validateAssertion(idpId, samlResponseB64, opts) {
@@ -604,6 +649,10 @@ export async function validateAssertion(idpId, samlResponseB64, opts) {
   };
 }
 
+/**
+ * @param {any} profile
+ * @param {string | undefined} uri
+ */
 function pickAttribute(profile, uri) {
   if (!uri) return null;
   // node-saml gives attributes under their URI keys.
@@ -629,6 +678,10 @@ function pickAttribute(profile, uri) {
  * Path 3 -- JIT: no user, jit_provisioning enabled, email domain
  *           allowed: create.
  * Refused: any other combination.
+ */
+/**
+ * @param {string} idpId
+ * @param {{ email: string | null, name: string, nameId: string | undefined, sessionIndex: string | undefined, attributes: any }} attrs
  */
 export async function jitProvisionOrLink(idpId, attrs) {
   const idp = await getIdP(idpId);
@@ -720,6 +773,11 @@ export async function jitProvisionOrLink(idpId, attrs) {
  * Wrapped in a per-user advisory lock so two concurrent confirms
  * for the same account serialise.
  */
+/**
+ * @param {string} userId
+ * @param {string} idpId
+ * @param {string} nameId
+ */
 export async function confirmSamlLink(userId, idpId, nameId) {
   return db.transaction(async (tx) => {
     await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`saml-link:${userId}`]);
@@ -777,7 +835,7 @@ export async function listPublicIdPs() {
        WHERE enabled = TRUE
        ORDER BY display_name`,
   );
-  return rows.map((r) => ({
+  return rows.map((/** @type {{ id: string, display_name: string }} */ r) => ({
     id: r.id,
     displayName: r.display_name,
     loginUrl: `/api/auth/saml/${r.id}/login`,
@@ -789,7 +847,7 @@ export const _testing = {
   KEYPAIR_ID,
   KEY_VALIDITY_DAYS,
   resetCache: () => { _cached = null; },
-  setCache: (v) => { _cached = v; },
+  setCache: (/** @type {CachedKeypair | null} */ v) => { _cached = v; },
   normaliseEmailDomains,
   resolveAttributeMapping,
   wrapBase64AsPem,

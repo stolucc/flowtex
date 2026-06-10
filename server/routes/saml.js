@@ -195,11 +195,14 @@ router.post('/:idpId/acs', async (req, res) => {
     // does the actual db update and session establishment. "no" ->
     // /cancel-link wipes the pending state.
     if (result.needsConfirmation) {
+      // jitProvisionOrLink guarantees nameId + email are present
+      // before returning needsConfirmation -- it throws otherwise.
+      // The casts pin that runtime invariant in the type system.
       req.session.pendingSamlLink = {
         idpId,
-        nameId: attrs.nameId,
+        nameId: /** @type {string} */ (attrs.nameId),
         sessionIndex: attrs.sessionIndex,
-        email: attrs.email,
+        email: /** @type {string} */ (attrs.email),
         existingUserId: result.candidate.existingUserId,
         existingName: result.candidate.existingName,
         relayState,
