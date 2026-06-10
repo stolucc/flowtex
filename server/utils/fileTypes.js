@@ -1,3 +1,4 @@
+// @ts-check
 /** File extensions treated as binary (base64-encoded in the database). */
 export const BINARY_EXTS = new Set([
   '.pdf',

@@ -84,7 +84,14 @@
     "server/services/yjsRoom.js",
     "server/services/yjsRoomClient.js",
     "server/services/yjsAnchors.js",
-    "server/services/dockerCompileSandbox.js"
+    "server/services/dockerCompileSandbox.js",
+    "server/utils/dbErrors.js",
+    "server/utils/tcMarks.js",
+    "server/utils/audit.js",
+    "server/utils/csrf.js",
+    "server/utils/softDeletePurge.js",
+    "server/utils/seedTemplates.js",
+    "server/utils/fileTypes.js"
   ],
   "exclude": [
     "node_modules",

@@ -1,3 +1,4 @@
+// @ts-check
 import crypto from 'crypto';
 
 /** Constant-time CSRF token comparison.
@@ -12,6 +13,11 @@ import crypto from 'crypto';
  *  Returns false (rejects) when either side is empty, non-string, or
  *  a different length -- crypto.timingSafeEqual throws on different-
  *  length inputs, so the length check is a precondition.
+ */
+/**
+ * @param {unknown} provided
+ * @param {string | null | undefined} expected
+ * @returns {boolean}
  */
 export function csrfTokensMatch(provided, expected) {
   if (!expected || typeof provided !== 'string' || provided.length !== expected.length) {

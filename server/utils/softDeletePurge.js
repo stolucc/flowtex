@@ -1,3 +1,4 @@
+// @ts-check
 import { purgeExpiredSoftDeletes, SOFT_DELETE_WINDOW_DAYS } from '../services/authService.js';
 import logger from '../logger.js';
 

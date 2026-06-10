@@ -1,3 +1,4 @@
+// @ts-check
 import db from '../db.js';
 import logger from '../logger.js';
 
@@ -5,7 +6,12 @@ import logger from '../logger.js';
  * Write an entry to the audit log table.
  * @param {string|null} userId
  * @param {string} action - e.g. 'login', 'password_reset', 'project_delete'.
- * @param {object} [opts] - Optional targetType, targetId, detail, ip.
+ * @param {{
+ *   targetType?: string | null,
+ *   targetId?: string | null,
+ *   detail?: object | string | null,
+ *   ip?: string | null,
+ * }} [opts]
  */
 export async function auditLog(userId, action, { targetType, targetId, detail, ip } = {}) {
   try {

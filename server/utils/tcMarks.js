@@ -1,3 +1,4 @@
+// @ts-check
 // Backward-compat re-export. The actual implementations live in
 // `shared/trackedChanges.js` so the future client-side local-compile
 // path can apply the same transforms before sending source to the local
