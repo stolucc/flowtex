@@ -67,7 +67,9 @@
     "client/src/contexts/HelperStatusContext.jsx",
     "client/src/utils/helperBridge.js",
     "shared/texDeps.js",
-    "shared/trackedChanges.js"
+    "shared/trackedChanges.js",
+    "server/routes/helper.js",
+    "server/utils/featureFlags.js"
   ],
   "exclude": [
     "node_modules",

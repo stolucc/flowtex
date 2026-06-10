@@ -1,3 +1,4 @@
+// @ts-check
 // Routes for the FlowTex helper integration.
 //
 // /api/helper/latest-version
@@ -12,6 +13,8 @@ import { Router } from 'express';
 import logger from '../logger.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 
+/** @typedef {import('../../shared/types.ts').LatestHelperVersionResponse} LatestHelperVersionResponse */
+
 const router = Router();
 
 const RELEASES_URL = 'https://api.github.com/repos/stolucc/flowtex/releases/latest';
@@ -23,8 +26,12 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 // Cold start with no good value: we don't synthesise -- just return null
 // so the client treats it as "no info" rather than showing a wrong update
 // prompt.
+/** @type {{ fetchedAt: number, payload: LatestHelperVersionResponse | null }} */
 let cache = { fetchedAt: 0, payload: null };
 
+/**
+ * @returns {Promise<LatestHelperVersionResponse>}
+ */
 async function fetchLatestVersion() {
   // node's global fetch is available since Node 22 (FlowTex's runtime).
   const res = await fetch(RELEASES_URL, {
@@ -37,6 +44,7 @@ async function fetchLatestVersion() {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`GitHub release fetch failed: ${res.status}`);
+  /** @type {any} */
   const data = await res.json();
   // The release tag is what we display ("helper-v0.3.0"). The HTML URL
   // is what the client links to for the "what's new" button.
@@ -53,9 +61,13 @@ async function fetchLatestVersion() {
       },
     );
     if (!listRes.ok) throw new Error(`GitHub release list fetch failed: ${listRes.status}`);
+    /** @type {any} */
     const list = await listRes.json();
     const hit = Array.isArray(list)
-      ? list.find((r) => typeof r.tag_name === 'string' && r.tag_name.startsWith('helper-v') && !r.draft && !r.prerelease)
+      ? list.find(
+          (/** @type {any} */ r) =>
+            typeof r.tag_name === 'string' && r.tag_name.startsWith('helper-v') && !r.draft && !r.prerelease,
+        )
       : null;
     if (!hit) throw new Error('No helper-v* release found in the most recent 20 releases');
     return {
@@ -77,11 +89,13 @@ router.get('/latest-version', async (req, res) => {
   // Only meaningful when the feature is on. Keeps the toolbar quiet
   // for non-local-compile deploys.
   if (!isLocalCompileEnabled()) {
-    return res.status(404).json({ error: 'Local compile not enabled.' });
+    res.status(404).json({ error: 'Local compile not enabled.' });
+    return;
   }
   const now = Date.now();
   if (cache.payload && now - cache.fetchedAt < CACHE_TTL_MS) {
-    return res.json(cache.payload);
+    res.json(cache.payload);
+    return;
   }
   try {
     const payload = await fetchLatestVersion();
@@ -95,7 +109,9 @@ router.get('/latest-version', async (req, res) => {
     if (cache.payload) {
       res.json(cache.payload);
     } else {
-      res.json({ tag: null, version: null, releaseUrl: null, publishedAt: null });
+      /** @type {LatestHelperVersionResponse} */
+      const emptyResponse = { tag: null, version: null, releaseUrl: null, publishedAt: null };
+      res.json(emptyResponse);
     }
   }
 });

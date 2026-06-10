@@ -1,3 +1,4 @@
+// @ts-check
 // Feature flags. Each function evaluates the env at call time (not at
 // module-load) so test suites can mutate process.env between cases
 // without needing to reset module state.
@@ -14,6 +15,7 @@
 // directly from route handlers — it makes the call sites harder to
 // audit and tests harder to write.
 
+/** @param {string | undefined} value */
 function envTruthy(value) {
   if (!value) return false;
   return /^(1|true|yes|on)$/i.test(String(value).trim());
