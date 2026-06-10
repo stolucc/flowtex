@@ -32,6 +32,7 @@ import compileRouter from './routes/compile.js';
 import commentsRouter from './routes/comments.js';
 import authRouter from './routes/auth.js';
 import samlRouter from './routes/saml.js';
+import helperRouter from './routes/helper.js';
 import historyRouter from './routes/history.js';
 import githubRouter from './routes/github.js';
 import tagsRouter from './routes/tags.js';
@@ -479,6 +480,10 @@ app.use(
   express.urlencoded({ extended: false, limit: '256kb' }),
   samlRouter,
 );
+// Helper integration: GET /api/helper/latest-version (15-min cached
+// GitHub-release probe). No auth required -- the version of the
+// publicly-available helper binary is not sensitive.
+app.use('/api/helper', helperRouter);
 
 // Setup routes (public, rate-limited — only functional before first admin exists)
 app.use('/api/setup/init', authLimiter);

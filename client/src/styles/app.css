@@ -11151,3 +11151,153 @@ kbd {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ─── HelperStatusIndicator (toolbar dot + popover) ────────────────── */
+
+.helper-status-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.helper-status-indicator-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.helper-status-indicator-trigger:hover {
+  background: var(--bg-hover);
+}
+
+.helper-status-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.helper-status-indicator-dot.pulse {
+  animation: helper-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes helper-status-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.helper-status-indicator-label {
+  font-weight: 500;
+}
+
+/* Popover -- right-aligned below the trigger. */
+.helper-status-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 280px;
+  max-width: 340px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  padding: 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.helper-status-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.helper-status-popover-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.helper-status-popover-title {
+  font-weight: 600;
+}
+
+.helper-status-popover-meta {
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.helper-status-popover-meta p {
+  margin: 0 0 6px;
+}
+
+.helper-status-popover-meta p:last-child {
+  margin-bottom: 0;
+}
+
+.helper-status-popover-hint {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.helper-status-popover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.helper-status-popover-primary {
+  display: block;
+  text-align: center;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.helper-status-popover-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.helper-status-popover-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.helper-status-popover-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.helper-status-popover-link:hover {
+  text-decoration: underline;
+}
+
+.helper-status-popover-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+}

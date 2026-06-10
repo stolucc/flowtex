@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
+import HelperStatusIndicator from './HelperStatusIndicator.jsx';
 import { HomeIcon } from './Icons.jsx';
 
 /** Avatar-triggered user menu in the editor toolbar: opens to Account
@@ -549,6 +550,12 @@ export default function Toolbar({
             </svg>
             Share
           </button>
+        )}
+        {currentUser?.serverFeatures?.localCompile && (
+          <HelperStatusIndicator
+            onOpenSettings={onOpenAccountSettings}
+            onOpenGuide={() => onHelp?.('helper-guide')}
+          />
         )}
         {onLogout && (
           <UserMenu
