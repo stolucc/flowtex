@@ -64,7 +64,8 @@
     "client/src/utils/platformDetect.js",
     "client/src/components/HelperStatusIndicator.jsx",
     "client/src/hooks/useHelperStatus.js",
-    "client/src/contexts/HelperStatusContext.jsx"
+    "client/src/contexts/HelperStatusContext.jsx",
+    "client/src/utils/helperBridge.js"
   ],
   "exclude": [
     "node_modules",

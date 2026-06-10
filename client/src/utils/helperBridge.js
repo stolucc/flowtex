@@ -1,3 +1,4 @@
+// @ts-check
 // Thin wrapper around fetch() targeting the local flowtex-helper binary.
 //
 // The helper listens on http://localhost:9876 by default. Modern browsers
@@ -25,6 +26,25 @@ const HELPER_BASE_HTTPS = 'https://localhost:9876';
 const SCHEME_CACHE_KEY = 'flowtex.helper.scheme';
 const TOKEN_STORAGE_KEY = 'flowtex.helper.token';
 
+// catch (err) gives us `unknown`. Most of our throws are DOMException /
+// TypeError / AbortError with .message + .name, but the legitimate
+// shape isn't guaranteed. errInfo() unwraps that without sprinkling
+// `instanceof Error` checks on every line.
+/**
+ * @param {unknown} err
+ * @returns {{ message: string, name: string }}
+ */
+function errInfo(err) {
+  if (err && typeof err === 'object') {
+    const e = /** @type {{ message?: unknown, name?: unknown }} */ (err);
+    return {
+      message: typeof e.message === 'string' ? e.message : String(err),
+      name: typeof e.name === 'string' ? e.name : '',
+    };
+  }
+  return { message: String(err), name: '' };
+}
+
 function getCachedBase() {
   try {
     const cached = window.localStorage.getItem(SCHEME_CACHE_KEY);
@@ -33,6 +53,7 @@ function getCachedBase() {
   } catch { return HELPER_BASE_HTTP; }
 }
 
+/** @param {string} url */
 function rememberBase(url) {
   try {
     const scheme = url.startsWith('https://') ? 'https' : 'http';
@@ -61,8 +82,17 @@ async function maybeRequestLnaPermission() {
   if (lnaPermissionRequested) return;
   lnaPermissionRequested = true;
   try {
-    if (navigator?.permissions?.request) {
-      await navigator.permissions.request({ name: 'local-network-access' });
+    // navigator.permissions.request was the original spec but the
+    // standards-track API dropped it for permission types lacking a
+    // canonical user-facing UI. Chrome still implements it for the
+    // experimental local-network-access permission, which is the only
+    // path that surfaces the in-browser allow/deny prompt. lib.dom.d.ts
+    // doesn't declare it, so cast to `any` to call it; the surrounding
+    // try/catch absorbs the case where the browser doesn't implement
+    // it at all.
+    const perms = /** @type {any} */ (navigator?.permissions);
+    if (perms?.request) {
+      await perms.request({ name: 'local-network-access' });
     }
   } catch {
     // Browser doesn't implement .request, doesn't know the permission
@@ -79,11 +109,18 @@ async function maybeRequestLnaPermission() {
 // So we set `loopback` here. Older Chromes that still treat the
 // value as unknown fall back to the permission-grant path; other
 // browsers ignore the option entirely.
+/**
+ * @param {string} path  path-only (no scheme/host); the function prepends
+ *                       either HELPER_BASE_HTTP or HELPER_BASE_HTTPS.
+ * @param {RequestInit} [opts]
+ * @returns {Promise<Response>}
+ */
 async function fetchTryBoth(path, opts) {
   await maybeRequestLnaPermission();
   const first = getCachedBase();
   const second = first === HELPER_BASE_HTTPS ? HELPER_BASE_HTTP : HELPER_BASE_HTTPS;
-  const merged = { targetAddressSpace: 'loopback', ...(opts || {}) };
+  // targetAddressSpace is the LNA-specific option; not in lib.dom yet.
+  const merged = /** @type {RequestInit} */ ({ targetAddressSpace: 'loopback', ...(opts || {}) });
   try {
     const res = await fetch(first + path, merged);
     rememberBase(first);
@@ -102,6 +139,7 @@ export function getHelperToken() {
   catch { return ''; }
 }
 
+/** @param {string} token */
 export function setHelperToken(token) {
   try { window.localStorage.setItem(TOKEN_STORAGE_KEY, token); }
   catch { /* private mode — degrade silently */ }
@@ -168,6 +206,11 @@ export async function fetchHelperVersion() {
         signal: ctl.signal,
       });
       if (!res.ok) return null;
+      // /version returns an unknown JSON shape; we treat it as `any`
+      // for the field-by-field validation below. This is the
+      // serialisation boundary -- once we've extracted what we need,
+      // the return value matches HelperVersionResponse from shared/.
+      /** @type {any} */
       const data = await res.json();
       if (!data || typeof data !== 'object') return null;
       // distributions_available is the full list of installed TeX
@@ -175,6 +218,7 @@ export async function fetchHelperVersion() {
       // install-texlive-year.sh users can have several side-by-side).
       // The picker UI unions these with the server's list so the user
       // can pin a project to any year reachable on either side.
+      /** @type {any[]} */
       const dists = Array.isArray(data.distributions_available) ? data.distributions_available : [];
       return {
         engine: typeof data.engine === 'string' ? data.engine : '',
@@ -183,8 +227,8 @@ export async function fetchHelperVersion() {
         enginesAvailable: Array.isArray(data.engines_available) ? data.engines_available : [],
         biber: typeof data.biber === 'string' ? data.biber : '',
         distributionsAvailable: dists
-          .filter((d) => d && typeof d.year === 'string')
-          .map((d) => ({ year: d.year, path: typeof d.path === 'string' ? d.path : '' })),
+          .filter((/** @type {any} */ d) => d && typeof d.year === 'string')
+          .map((/** @type {any} */ d) => ({ year: d.year, path: typeof d.path === 'string' ? d.path : '' })),
         // helperVersion + helperBuildSHA were added in helper v0.3.1 so the
         // toolbar indicator can detect "newer release available". Older
         // helpers don't ship these; default to empty string and the UI
@@ -216,6 +260,16 @@ export async function fetchHelperVersion() {
  * `fatal` distinguishes "the helper bridge is broken, retry on server"
  * from "the latex itself blew up, retrying on server is pointless".
  */
+/**
+ * @param {{
+ *   jobId: string,
+ *   mainFile: string,
+ *   compiler: string,
+ *   showTrackedChanges: boolean,
+ *   texDistribution: string,
+ *   files: Array<{ path: string, content?: string, contentBase64?: string }>
+ * }} req
+ */
 export async function compileLocal({ jobId, mainFile, compiler, showTrackedChanges, texDistribution, files }) {
   const token = getHelperToken();
   if (!token) {
@@ -232,7 +286,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
       body: JSON.stringify({ jobId, mainFile, compiler, showTrackedChanges, texDistribution: texDistribution || '', files }),
     });
   } catch (err) {
-    return { ok: false, fatal: true, error: `Helper unreachable: ${err?.message || err}` };
+    return { ok: false, fatal: true, error: `Helper unreachable: ${errInfo(err).message}` };
   }
   if (res.status === 401) {
     // Stale token — helper rotated since last pair. Clear and bubble.
@@ -255,7 +309,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
     try {
       bin = atob(data.pdf);
     } catch (err) {
-      return { ok: false, fatal: false, error: `Helper returned malformed base64: ${err?.message || err}`, log: data.log || '' };
+      return { ok: false, fatal: false, error: `Helper returned malformed base64: ${errInfo(err).message}`, log: data.log || '' };
     }
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -295,6 +349,7 @@ export async function compileLocal({ jobId, mainFile, compiler, showTrackedChang
  * menu (§7.3). On success, persists the returned bearer token to
  * localStorage and returns true. Returns false on any failure.
  */
+/** @param {string} code  6-digit numeric pairing code from the helper tray. */
 export async function pairWithHelper(code) {
   if (!/^\d{6}$/.test(String(code || ''))) return { ok: false, error: 'Code must be 6 digits' };
   try {
@@ -315,7 +370,7 @@ export async function pairWithHelper(code) {
     setHelperToken(data.token);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err?.message || 'Could not reach helper' };
+    return { ok: false, error: errInfo(err).message || 'Could not reach helper' };
   }
 }
 
@@ -379,7 +434,7 @@ export async function fetchLlmStatus() {
     return { ok: true, status };
   } catch (err) {
     markHelperOffline();
-    return { ok: false, error: err?.message || 'Could not reach helper' };
+    return { ok: false, error: errInfo(err).message || 'Could not reach helper' };
   }
 }
 
@@ -397,6 +452,17 @@ export async function fetchLlmStatus() {
  *   (b) we already have the bearer + Authorization header dance, so a
  *   tiny manual SSE parser is the right cost.
  */
+/**
+ * @param {{
+ *   task: string,
+ *   input: string,
+ *   targetWords?: number,
+ *   model: string,
+ *   instruction?: string
+ * }} req
+ * @param {(delta: string) => void} onDelta
+ * @param {AbortSignal} [abortSignal]
+ */
 export async function streamLlmComplete({ task, input, targetWords, model, instruction }, onDelta, abortSignal) {
   const token = getHelperToken();
   if (!token) return { ok: false, error: 'Helper not paired' };
@@ -404,6 +470,7 @@ export async function streamLlmComplete({ task, input, targetWords, model, instr
   // side but missed here can't be silently dropped. (Previous bug:
   // `instruction` for the custom task never reached the helper
   // because the body literal didn't list it.)
+  /** @type {{ task: string, input: string, model: string, targetWords?: number, instruction?: string }} */
   const body = { task, input, model };
   if (typeof targetWords === 'number') body.targetWords = targetWords;
   if (typeof instruction === 'string' && instruction.length > 0) body.instruction = instruction;
@@ -416,8 +483,8 @@ export async function streamLlmComplete({ task, input, targetWords, model, instr
       signal: abortSignal,
     });
   } catch (err) {
-    if (err?.name === 'AbortError') return { ok: false, aborted: true };
-    return { ok: false, error: err?.message || 'Could not reach helper' };
+    if (errInfo(err).name === 'AbortError') return { ok: false, aborted: true };
+    return { ok: false, error: errInfo(err).message || 'Could not reach helper' };
   }
   if (!res.ok) {
     let bodyHint = '';
@@ -460,8 +527,8 @@ export async function streamLlmComplete({ task, input, targetWords, model, instr
       }
     }
   } catch (err) {
-    if (err?.name === 'AbortError') return { ok: false, aborted: true };
-    return { ok: false, error: err?.message || 'Stream read failed' };
+    if (errInfo(err).name === 'AbortError') return { ok: false, aborted: true };
+    return { ok: false, error: errInfo(err).message || 'Stream read failed' };
   } finally {
     try { reader.releaseLock(); } catch { /* ignore */ }
   }
