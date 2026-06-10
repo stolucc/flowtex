@@ -1,14 +1,33 @@
+// @ts-check
+// @ts-ignore
 import nodemailer from 'nodemailer';
 import logger from '../logger.js';
 import db from '../db.js';
 import { decrypt } from '../utils/crypto.js';
 
-let transporter;
+/**
+ * @typedef {{
+ *   smtp_host?: string,
+ *   smtp_port?: string,
+ *   smtp_secure?: string,
+ *   smtp_user?: string,
+ *   smtp_pass?: string,
+ *   smtp_from?: string,
+ * }} SmtpSettings
+ *
+ * @typedef {{ sendMail: (opts: { from: string, to: string, subject: string, text?: string, html?: string }) => Promise<unknown> }} Transporter
+ */
 
-/** Load SMTP settings from the database settings table. */
+/** @type {Transporter | null} */
+let transporter = null;
+
+/** Load SMTP settings from the database settings table.
+ *  @returns {Promise<SmtpSettings>}
+ */
 async function getSmtpSettings() {
   try {
     const rows = await db.all("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'");
+    /** @type {Record<string, string>} */
     const settings = {};
     for (const r of rows) settings[r.key] = r.value;
     return settings;
@@ -46,7 +65,7 @@ async function getTransporter() {
   } else {
     // Development: log emails to console instead of sending
     transporter = {
-      sendMail: async (opts) => {
+      sendMail: async (/** @type {{ to: string, subject: string, text?: string, html?: string }} */ opts) => {
         logger.info({ to: opts.to, subject: opts.subject }, 'DEV EMAIL (not sent)');
         console.log('\n📧 ── DEV EMAIL ──────────────────────────');
         console.log(`  To:      ${opts.to}`);
@@ -80,16 +99,21 @@ async function getFromAddress() {
   return raw;
 }
 
-/** Send an email using the configured SMTP transport. */
+/** Send an email using the configured SMTP transport.
+ *  @param {{ to: string, subject: string, text?: string, html?: string }} args
+ */
 export async function sendEmail({ to, subject, text, html }) {
   const transport = await getTransporter();
   const from = await getFromAddress();
   // Strip CR/LF from subject to prevent header injection
   const safeSubject = subject.replace(/[\r\n]+/g, ' ');
+  if (!transport) throw new Error('Email transporter not configured');
   return transport.sendMail({ from, to, subject: safeSubject, text, html });
 }
 
-/** Escape a string for safe inclusion in HTML email bodies. */
+/** Escape a string for safe inclusion in HTML email bodies.
+ *  @param {string} str
+ */
 function escapeHtml(str) {
   return str
     .replace(/&/g, '&amp;')
@@ -111,6 +135,19 @@ function escapeHtml(str) {
  * Inputs that come from a person (names, project names, free-text
  * descriptions) must be HTML-escaped by the caller — this helper
  * concatenates them as-is into the markup.
+ */
+/**
+ * @typedef {{
+ *   preheader: string,
+ *   greeting?: string,
+ *   heading?: string,
+ *   bodyHtml: string,
+ *   ctaLabel?: string,
+ *   ctaUrl?: string,
+ *   footnoteHtml?: string,
+ * }} EmailLayoutArgs
+ *
+ * @param {EmailLayoutArgs} args
  */
 function renderEmailLayout({ preheader, greeting, heading, bodyHtml, ctaLabel, ctaUrl, footnoteHtml }) {
   const ACCENT = '#1a73e8';
@@ -185,12 +222,20 @@ ${preheaderHtml}
 // off the visible line. 80 chars for the project name + 60 for the
 // inviter is generous for real users but caps that lever. CRLF strip
 // is belt-and-suspenders against any underlying lib that doesn't.
+/**
+ * @param {string | null | undefined} s
+ * @param {number} n
+ */
 function trimDisplayName(s, n) {
   return String(s || '').replace(/[\r\n\t]+/g, ' ').slice(0, n).trim();
 }
 const MAX_INVITER_NAME = 60;
 const MAX_PROJECT_NAME = 80;
 
+/**
+ * @param {string} email
+ * @param {{ inviterName: string, projectName: string, baseUrl?: string, inviteUrl?: string }} args
+ */
 export async function sendProjectInvitationEmail(email, { inviterName, projectName, baseUrl, inviteUrl }) {
   inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
   projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
@@ -199,7 +244,7 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
   // Prefer the deep link if provided; the recipient still has to log in
   // with the invited email — the link only works for them. Fall back to
   // the bare baseUrl for backwards-compatible callers.
-  const url = inviteUrl || baseUrl;
+  const url = inviteUrl || baseUrl || '';
   const safeUrl = escapeHtml(url);
   return sendEmail({
     to: email,
@@ -233,6 +278,10 @@ export async function sendProjectInvitationEmail(email, { inviterName, projectNa
  *  No CTA — the inviter has nothing to do but acknowledge. The
  *  project URL is included as a body link in case they want to
  *  invite a different address. */
+/**
+ * @param {string} inviterEmail
+ * @param {{ inviterName: string, declinedEmail: string, projectName: string, projectUrl?: string }} args
+ */
 export async function sendInvitationDeclinedEmail(inviterEmail, { inviterName, declinedEmail, projectName, projectUrl }) {
   inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
   projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
@@ -262,6 +311,10 @@ export async function sendInvitationDeclinedEmail(inviterEmail, { inviterName, d
   });
 }
 
+/**
+ * @param {string} email
+ * @param {{ inviterName: string, projectName: string, registerUrl: string, declineUrl: string }} args
+ */
 export async function sendUnregisteredInvitationEmail(email, { inviterName, projectName, registerUrl, declineUrl }) {
   inviterName = trimDisplayName(inviterName, MAX_INVITER_NAME);
   projectName = trimDisplayName(projectName, MAX_PROJECT_NAME);
@@ -297,6 +350,10 @@ export async function sendUnregisteredInvitationEmail(email, { inviterName, proj
 }
 
 /** Send an email verification link to a new user. */
+/**
+ * @param {string} email
+ * @param {string} verifyUrl
+ */
 export async function sendEmailVerificationEmail(email, verifyUrl) {
   const safeUrl = escapeHtml(verifyUrl);
   return sendEmail({
@@ -321,6 +378,11 @@ export async function sendEmailVerificationEmail(email, verifyUrl) {
  *  caller). The body tells the user how to recover the account during
  *  the window: reply to this email — the SMTP_FROM address is the
  *  operator contact for FlowTex. */
+/**
+ * @param {string} email
+ * @param {string} name
+ * @param {{ purgeAt?: Date }} [opts]
+ */
 export async function sendAccountDeletedEmail(email, name, { purgeAt } = {}) {
   const safeName = escapeHtml(name);
   const purgeDateText = purgeAt instanceof Date
@@ -355,6 +417,10 @@ export async function sendAccountDeletedEmail(email, name, { purgeAt } = {}) {
 
 /** Notify a user that their previously-deleted account has been restored
  *  by an admin. They can sign in again with the existing password. */
+/**
+ * @param {string} email
+ * @param {string} name
+ */
 export async function sendAccountRestoredEmail(email, name) {
   const safeName = escapeHtml(name);
   return sendEmail({
@@ -385,6 +451,10 @@ export async function sendAccountRestoredEmail(email, name) {
  *  email lists the new address so the user can call support and say
  *  "my account just got moved to X without my consent".
  */
+/**
+ * @param {string} oldEmail
+ * @param {{ name: string, newEmail: string }} args
+ */
 export async function sendEmailChangedNotice(oldEmail, { name, newEmail }) {
   const safeName = escapeHtml(name);
   const safeNewEmail = escapeHtml(newEmail);
@@ -403,6 +473,10 @@ export async function sendEmailChangedNotice(oldEmail, { name, newEmail }) {
 }
 
 /** Notify the user that their password was changed. */
+/**
+ * @param {string} email
+ * @param {string} name
+ */
 export async function sendPasswordChangedEmail(email, name) {
   const safeName = escapeHtml(name);
   return sendEmail({
@@ -420,6 +494,12 @@ export async function sendPasswordChangedEmail(email, name) {
 }
 
 /** Send a batched mention digest email with all recent @mentions for a user. */
+/**
+ * @typedef {{ mentioner_name: string, project_name: string, snippet?: string }} MentionRow
+ *
+ * @param {string} email
+ * @param {{ recipientName: string, mentions: MentionRow[], baseUrl: string }} args
+ */
 export async function sendMentionDigestEmail(email, { recipientName, mentions, baseUrl }) {
   const safeName = escapeHtml(recipientName);
   const safeUrl = escapeHtml(baseUrl);
@@ -431,7 +511,7 @@ export async function sendMentionDigestEmail(email, { recipientName, mentions, b
   // snippet quoted below in a soft tint. Cleaner than a bullet list and
   // mirrors how Google Docs surfaces multiple "Alice commented on …" rows.
   const mentionRowsHtml = mentions
-    .map((m) => {
+    .map((/** @type {MentionRow} */ m) => {
       const from = escapeHtml(m.mentioner_name);
       const proj = escapeHtml(m.project_name);
       const snippet = escapeHtml(m.snippet || '').trim();
@@ -451,7 +531,7 @@ export async function sendMentionDigestEmail(email, { recipientName, mentions, b
     <div style="margin-top:8px;">${mentionRowsHtml}</div>`;
 
   const textItems = mentions.map(
-    (m) => `- ${m.mentioner_name} mentioned you in "${m.project_name}": ${m.snippet || ''}`,
+    (/** @type {MentionRow} */ m) => `- ${m.mentioner_name} mentioned you in "${m.project_name}": ${m.snippet || ''}`,
   );
   return sendEmail({
     to: email,
@@ -469,6 +549,10 @@ export async function sendMentionDigestEmail(email, { recipientName, mentions, b
 }
 
 /** Send a password-reset link email. */
+/**
+ * @param {string} email
+ * @param {string} resetUrl
+ */
 export async function sendPasswordResetEmail(email, resetUrl) {
   const safeUrl = escapeHtml(resetUrl);
   return sendEmail({
@@ -488,6 +572,14 @@ export async function sendPasswordResetEmail(email, resetUrl) {
 
 /** Send a bug report from `reporter` (a user object) to one or more admin
  *  inboxes. `features` is the user-checked feature-area list. */
+/**
+ * @param {string[]} adminEmails
+ * @param {{
+ *   reporter: { id: string, name: string, email: string },
+ *   description: string,
+ *   features: string[],
+ * }} args
+ */
 export async function sendBugReportEmail(adminEmails, { reporter, description, features }) {
   if (!Array.isArray(adminEmails) || adminEmails.length === 0) {
     throw new Error('No admin recipient configured for bug reports');
@@ -502,7 +594,7 @@ export async function sendBugReportEmail(adminEmails, { reporter, description, f
   // verbatim. escapeHtml protects against any <script>… etc. the user types.
   const safeDescription = escapeHtml(description);
   const submittedAt = new Date().toISOString();
-  const metaRow = (label, value) =>
+  const metaRow = (/** @type {string} */ label, /** @type {string} */ value) =>
     `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#5f6368;vertical-align:top;width:110px;">${label}</td><td style="padding:4px 0;font-size:13px;color:#202124;vertical-align:top;">${value}</td></tr>`;
   const metaTable = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 12px 0;">
     ${metaRow('Reported by', `${safeName} &lt;${safeEmail}&gt;`)}

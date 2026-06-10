@@ -132,7 +132,8 @@
     "server/tracing.js",
     "server/utils/rebuildAnalyzer.js",
     "server/utils/gitSync.js",
-    "server/utils/templates.js"
+    "server/utils/templates.js",
+    "server/utils/email.js"
   ],
   "exclude": [
     "node_modules",
