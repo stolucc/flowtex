@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -9,13 +10,16 @@ const router = Router();
 
 const MAX_SNAPSHOT_SIZE = 100 * 1024 * 1024; // 100MB decompressed limit
 
-/** Decompress a snapshot's data BYTEA into a parsed object */
+/** Decompress a snapshot's data BYTEA into a parsed object
+ *  @param {Buffer | Uint8Array} buf
+ */
 function decompressSnapshot(buf) {
   try {
     const decompressed = gunzipSync(Buffer.from(buf), { maxOutputLength: MAX_SNAPSHOT_SIZE });
     return JSON.parse(decompressed.toString('utf8'));
   } catch (err) {
-    throw new Error('Failed to decompress snapshot: ' + err.message);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error('Failed to decompress snapshot: ' + msg);
   }
 }
 
@@ -26,16 +30,23 @@ function decompressSnapshot(buf) {
 // the second request hits warm cache on both, turning the click latency
 // from "decompress 4 archives" into "decompress 0".
 const SNAPSHOT_CACHE_MAX = 16;
+/** @type {Map<string, { meta: any, body: any }>} */
 const snapshotCache = new Map();
+/**
+ * @param {string} id
+ * @param {{ meta: any, body: any }} parsed
+ */
 function cacheSnapshot(id, parsed) {
   if (snapshotCache.has(id)) snapshotCache.delete(id); // re-insert to bump LRU position
   snapshotCache.set(id, parsed);
   while (snapshotCache.size > SNAPSHOT_CACHE_MAX) {
-    snapshotCache.delete(snapshotCache.keys().next().value);
+    const oldestKey = snapshotCache.keys().next().value;
+    if (oldestKey !== undefined) snapshotCache.delete(oldestKey);
   }
 }
 
 /** Fetch a snapshot row + decompressed payload, cached by id. */
+/** @param {string} snapshotId */
 async function loadSnapshot(snapshotId) {
   const cached = snapshotCache.get(snapshotId);
   if (cached) {
@@ -51,6 +62,10 @@ async function loadSnapshot(snapshotId) {
 }
 
 /** Find + decompress the snapshot immediately preceding the given one (if any). */
+/**
+ * @param {string} projectId
+ * @param {string | Date} beforeCreatedAt
+ */
 async function loadPreviousSnapshot(projectId, beforeCreatedAt) {
   const row = await db.get(
     `SELECT id, project_id, created_at, data FROM project_snapshots
@@ -99,9 +114,13 @@ router.get('/snapshot/:snapshotId', async (req, res) => {
   const current = snap.body;
   const previous = await loadPreviousSnapshot(snap.meta.project_id, snap.meta.created_at);
 
-  const prevMap = new Map(previous.files.map((f) => [f.id, f]));
-  const curMap = new Map(current.files.map((f) => [f.id, f]));
+  /** @typedef {{ id: string, path: string, content?: string, is_binary?: boolean, binary_sha256?: string | null }} SnapshotFile */
+  /** @type {Map<string, SnapshotFile>} */
+  const prevMap = new Map(previous.files.map((/** @type {SnapshotFile} */ f) => [f.id, f]));
+  /** @type {Map<string, SnapshotFile>} */
+  const curMap = new Map(current.files.map((/** @type {SnapshotFile} */ f) => [f.id, f]));
 
+  /** @type {string[]} */
   const editedFileIds = [];
   for (const f of current.files) {
     const prev = prevMap.get(f.id);
@@ -112,7 +131,7 @@ router.get('/snapshot/:snapshotId', async (req, res) => {
   }
 
   res.json({
-    files: current.files.map((f) => ({ id: f.id, path: f.path, is_binary: f.is_binary })),
+    files: current.files.map((/** @type {SnapshotFile} */ f) => ({ id: f.id, path: f.path, is_binary: f.is_binary })),
     editedFileIds,
     snapshotTime: snap.meta.created_at,
   });
@@ -127,9 +146,9 @@ router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   const member = await isProjectMember(snap.meta.project_id, req.session.userId);
   if (!member) return res.status(403).json({ error: 'No access to this project' });
 
-  const curFile = snap.body.files.find((f) => f.id === fileId);
+  const curFile = snap.body.files.find((/** @type {{ id: string }} */ f) => f.id === fileId);
   const previous = await loadPreviousSnapshot(snap.meta.project_id, snap.meta.created_at);
-  const prevFile = previous.files.find((f) => f.id === fileId);
+  const prevFile = previous.files.find((/** @type {{ id: string }} */ f) => f.id === fileId);
 
   // For binary rows the captured `content` is the empty string (the
   // bytes live in the blob store). Surface is_binary + binary_sha256
@@ -173,6 +192,11 @@ router.post('/restore/:snapshotId', async (req, res) => {
   // project_blobs.ref_count above zero for the lifetime of the
   // snapshot. Without this, the blob would be GC'd and the snapshot
   // become unrestorable.
+  /**
+   * @param {{ run: (sql: string, params?: unknown[]) => Promise<unknown> }} tx
+   * @param {Array<{ id: string, path: string, content?: string, is_binary?: boolean, binary_sha256?: string | null }>} files
+   * @param {string} label
+   */
   async function createSnapshotWithRefs(tx, files, label) {
     const snapshotId = uuid();
     const compressed = gzipSync(Buffer.from(JSON.stringify({ files }), 'utf8'));
@@ -193,7 +217,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
 
   // Decompress the target snapshot up front -- pure CPU work, no DB.
   const target = decompressSnapshot(snap.data);
-  const targetById = new Map(target.files.map((f) => [f.id, f]));
+  const targetById = new Map(target.files.map((/** @type {{ id: string }} */ f) => [f.id, f]));
 
   // BB2 (audit round 13): take the pre-restore snapshot AND apply the
   // target restore in ONE transaction with `SELECT ... FOR UPDATE` so a
@@ -214,7 +238,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
       [projectId],
     );
     await createSnapshotWithRefs(tx, currentFiles, 'Before restore');
-    const currentById = new Map(currentFiles.map((f) => [f.id, f]));
+    const currentById = new Map(currentFiles.map((/** @type {{ id: string }} */ f) => [f.id, f]));
 
     // 1. Delete files in current but not target. Drop the blob ref so the
     //    refcount stays accurate; the snapshot still holds its own ref
@@ -322,7 +346,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
 
 /** DELETE /api/history/snapshots -- Bulk delete snapshots by id list. */
 router.delete('/snapshots', async (req, res) => {
-  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => typeof x === 'string') : null;
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((/** @type {unknown} */ x) => typeof x === 'string') : null;
   if (!ids || ids.length === 0) return res.status(400).json({ error: 'ids required' });
   if (ids.length > 500) return res.status(400).json({ error: 'too many ids (max 500)' });
 
@@ -331,7 +355,7 @@ router.delete('/snapshots', async (req, res) => {
 
   // UI invariant: bulk-delete is scoped to one project. If a future caller
   // mixes projects we want a 400 rather than a silent partial check.
-  const projectIds = new Set(rows.map((r) => r.project_id));
+  const projectIds = new Set(rows.map((/** @type {{ project_id: string }} */ r) => r.project_id));
   if (projectIds.size > 1) return res.status(400).json({ error: 'snapshots span multiple projects' });
   const projectId = [...projectIds][0];
 
@@ -348,7 +372,7 @@ router.delete('/snapshots', async (req, res) => {
   // both observe count > foundIds.length, both DELETE, and leave the
   // project with zero restore points -- violating the "keep at least
   // one" invariant that the explicit COUNT check exists to enforce.
-  const foundIds = rows.map((r) => r.id);
+  const foundIds = rows.map((/** @type {{ id: string }} */ r) => r.id);
   const deleted = await db.transaction(async (tx) => {
     await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`snapshots:${projectId}`]);
     const totalRow = await tx.get('SELECT COUNT(*) AS count FROM project_snapshots WHERE project_id = $1', [projectId]);

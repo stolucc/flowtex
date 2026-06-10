@@ -117,7 +117,9 @@
     "server/routes/zotero.js",
     "server/routes/adminSaml.js",
     "server/routes/github.js",
-    "server/routes/comments.js"
+    "server/routes/comments.js",
+    "server/routes/saml.js",
+    "server/routes/history.js"
   ],
   "exclude": [
     "node_modules",

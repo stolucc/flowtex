@@ -1,3 +1,4 @@
+// @ts-check
 // SAML / SSO Phase 1 Day 3 — per-IdP HTTP routes.
 //
 // All routes mount under /api/auth/saml/:idpId/...
@@ -19,6 +20,7 @@ import crypto from 'node:crypto';
 import logger from '../logger.js';
 import * as samlService from '../services/samlService.js';
 import { auditLog } from '../utils/audit.js';
+import { errInfo } from '../middleware/errorHandler.js';
 
 const router = Router({ mergeParams: true });
 
@@ -36,10 +38,14 @@ function spEntityId() {
 /** Build a SAML instance for the given IdP, using the SP's keypair.
  *  Cached lookups would be a perf win but each request is already
  *  bottlenecked by IO (assertion validation) -- premature optimisation. */
+/**
+ * @param {string} idpId
+ * @param {string} callbackUrl
+ */
 async function getSamlForIdP(idpId, callbackUrl) {
   const idp = await samlService.getIdP(idpId);
   if (!idp) {
-    const err = new Error('Unknown IdP');
+    const err = /** @type {Error & { status: number }} */ (new Error('Unknown IdP'));
     err.status = 404;
     throw err;
   }
@@ -67,6 +73,10 @@ async function getSamlForIdP(idpId, callbackUrl) {
 
 /** ACS callback URL for a given IdP. Used both as the issuer-side claim
  *  (in AuthnRequest) and the audience check on the way back. */
+/**
+ * @param {import('express').Request} req
+ * @param {string} idpId
+ */
 function acsUrlFor(req, idpId) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const host = req.headers['x-forwarded-host'] || req.get('host');
@@ -81,6 +91,7 @@ function acsUrlFor(req, idpId) {
  *
  *  Defence: allow only same-origin relative paths. Anything else
  *  silently falls back to /. */
+/** @param {unknown} raw */
 function safeRelayState(raw) {
   if (typeof raw !== 'string') return '/';
   if (raw.length === 0 || raw.length > 1024) return '/';
@@ -96,6 +107,11 @@ function safeRelayState(raw) {
 /** Render a SAML-error page. Used by every catch. Intentionally generic
  *  -- the actual error goes to the operator log; the user sees nothing
  *  about which IdP, which assertion field, which signature failed. */
+/**
+ * @param {import('express').Response} res
+ * @param {number} code
+ * @param {string} message
+ */
 function renderSamlError(res, code, message) {
   res.status(code).send(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SSO Error</title></head>
@@ -119,7 +135,8 @@ router.get('/:idpId/metadata', async (req, res) => {
     res.setHeader('Content-Type', 'application/samlmetadata+xml; charset=utf-8');
     res.send(xml);
   } catch (err) {
-    if (err.status === 404) return renderSamlError(res, 404, 'Unknown identity provider.');
+    const e = errInfo(err);
+    if (e.status === 404) return renderSamlError(res, 404, 'Unknown identity provider.');
     logger.error({ err, idpId: req.params.idpId }, 'SAML metadata generation failed');
     return renderSamlError(res, 500, 'Sign-in is temporarily unavailable.');
   }
@@ -135,7 +152,8 @@ router.get('/:idpId/login', async (req, res) => {
     const url = await saml.getAuthorizeUrlAsync(relay, req.get('host'), {});
     res.redirect(url);
   } catch (err) {
-    if (err.status === 404) return renderSamlError(res, 404, 'Unknown identity provider.');
+    const e = errInfo(err);
+    if (e.status === 404) return renderSamlError(res, 404, 'Unknown identity provider.');
     logger.error({ err, idpId: req.params.idpId }, 'SAML login redirect failed');
     return renderSamlError(res, 500, 'Sign-in is temporarily unavailable.');
   }
@@ -187,12 +205,12 @@ router.post('/:idpId/acs', async (req, res) => {
         relayState,
         expiresAt: Date.now() + 10 * 60 * 1000,
       };
-      await new Promise((resolve) => req.session.save(resolve));
+      await /** @type {Promise<void>} */ (new Promise((resolve) => req.session.save(() => resolve())));
       return res.redirect('/login/confirm-saml-link');
     }
 
     // Standard path: log them in.
-    await new Promise((resolve, reject) => {
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       req.session.regenerate((err) => {
         if (err) {
           req.session.destroy(() => {});
@@ -218,12 +236,14 @@ router.post('/:idpId/acs', async (req, res) => {
           resolve();
         });
       });
-    });
+    }));
 
+    // Same silent-drop audit-log pattern as routes/auth and
+    // adminSaml: idpId / nameId were top-level opts fields,
+    // therefore dropped. Moved into detail.
     await auditLog(result.userId, result.isNew ? 'saml_jit_provision' : 'saml_login', {
-      idpId,
-      nameId: attrs.nameId,
       ip: req.ip,
+      detail: { idpId, nameId: attrs.nameId },
     }).catch((err) => logger.error({ err }, 'SAML audit log failed'));
 
     res.redirect(relayState);
@@ -231,7 +251,8 @@ router.post('/:idpId/acs', async (req, res) => {
     // Categorise: 4xx-shaped errors get the matching code; the
     // expected-bad-input ones stay generic to avoid oracling which
     // attribute mapping / which domain mismatch led to the rejection.
-    const status = err.status || 500;
+    const e = errInfo(err);
+    const status = e.status || 500;
     if (status >= 500) {
       logger.error({ err, idpId }, 'SAML ACS handler error');
       return renderSamlError(res, 500, 'Sign-in is temporarily unavailable.');
@@ -239,7 +260,7 @@ router.post('/:idpId/acs', async (req, res) => {
     // Known 4xx-class rejections (user/email/IdP mismatch, etc.):
     // log the operator-readable version but tell the user nothing
     // about which check failed.
-    logger.warn({ err: err.message, idpId }, 'SAML ACS rejected assertion');
+    logger.warn({ err: e.message, idpId }, 'SAML ACS rejected assertion');
     return renderSamlError(res, status, 'Sign-in failed. Contact your administrator.');
   }
 });
@@ -259,11 +280,15 @@ router.get('/:idpId/logout', async (req, res) => {
     // Without the session, we have no NameID to put in the LogoutRequest.
     if (idp.slo_url && samlIdpInSession) {
       const saml = await getSamlForIdP(idpId, acsUrlFor(req, idpId));
-      const profile = {
+      // samlify's Profile shape is stricter than node-saml's runtime
+      // accepts here; cast to bypass nominal mismatch -- the actual
+      // fields we set (nameID, nameIDFormat, sessionIndex) match what
+      // getLogoutUrlAsync reads at runtime.
+      const profile = /** @type {any} */ ({
         nameID: req.session.samlNameId,
         nameIDFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
         sessionIndex: req.session.samlSessionIndex,
-      };
+      });
       const url = await saml.getLogoutUrlAsync(profile, '/', {});
       // Destroy local session BEFORE redirecting -- once the user is
       // bouncing through the IdP we can't be sure they'll come back.
@@ -336,7 +361,7 @@ router.post('/confirm-link', async (req, res) => {
 
     // Clear the pending state, then establish a fresh session.
     delete req.session.pendingSamlLink;
-    await new Promise((resolve, reject) => {
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       req.session.regenerate((err) => {
         if (err) {
           req.session.destroy(() => {});
@@ -362,21 +387,23 @@ router.post('/confirm-link', async (req, res) => {
           resolve();
         });
       });
-    });
+    }));
 
+    // Same silent-drop audit-log bug as elsewhere; idpId / nameId
+    // belong in detail, not at the top level.
     await auditLog(linked.id, 'saml_link', {
-      idpId: pending.idpId,
-      nameId: pending.nameId,
       ip: req.ip,
+      detail: { idpId: pending.idpId, nameId: pending.nameId },
     }).catch((err) => logger.error({ err }, 'SAML link audit log failed'));
 
     res.json({ ok: true, redirect: pending.relayState || '/' });
   } catch (err) {
-    const status = err.status || 500;
+    const e = errInfo(err);
+    const status = e.status || 500;
     if (status >= 500) {
       logger.error({ err }, 'SAML confirm-link failed');
     } else {
-      logger.warn({ err: err.message }, 'SAML confirm-link rejected');
+      logger.warn({ err: e.message }, 'SAML confirm-link rejected');
     }
     // On any failure, wipe the pending state so the user starts fresh.
     delete req.session.pendingSamlLink;
