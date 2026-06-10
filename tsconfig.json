@@ -97,7 +97,10 @@
     "server/utils/mentions.js",
     "server/utils/crypto.js",
     "server/utils/mentionDigest.js",
-    "server/utils/latexDiff.js"
+    "server/utils/latexDiff.js",
+    "server/middleware/errorHandler.js",
+    "server/middleware/validateBody.js",
+    "server/middleware/auth.js"
   ],
   "exclude": [
     "node_modules",

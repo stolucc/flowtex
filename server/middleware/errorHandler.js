@@ -1,3 +1,4 @@
+// @ts-check
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,6 +10,7 @@ const PROJECTS_DIR = path.resolve(__dirname, '..', '..', 'projects');
  * Strips Unix and Windows-style absolute paths, file:// URIs, the on-disk projects directory,
  * and any project UUID it contains.
  */
+/** @param {string | null | undefined} text */
 export function stripPaths(text) {
   if (text == null) return text;
   let out = String(text);
@@ -27,12 +29,18 @@ export function stripPaths(text) {
   return out;
 }
 
-/** Format an error message for client display, with paths stripped. */
+/** Format an error message for client display, with paths stripped.
+ *  @param {{ message?: string } | null | undefined} err
+ *  @param {string} [fallback]
+ */
 export function safeMsg(err, fallback = 'Internal server error') {
   return stripPaths(err?.message || fallback);
 }
 
-/** Send a JSON error response using the error's status (default 500). */
+/** Send a JSON error response using the error's status (default 500).
+ *  @param {import('express').Response} res
+ *  @param {{ status?: number, message?: string }} err
+ */
 export function sendError(res, err) {
   const status = err.status || 500;
   // Only expose the message for intentional application errors (status explicitly set).

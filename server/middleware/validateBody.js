@@ -1,3 +1,4 @@
+// @ts-check
 // Generic body-schema validator. Wraps a Zod schema and returns an Express
 // middleware that:
 //   - Parses req.body through the schema
@@ -30,6 +31,10 @@
 // Don't catch ZodError downstream — the middleware already turned it
 // into a 400. Don't re-validate inside the handler.
 
+/**
+ * @param {import('zod').ZodSchema<unknown>} schema
+ * @returns {import('express').RequestHandler}
+ */
 export default function validateBody(schema) {
   return function validateBodyMiddleware(req, res, next) {
     const result = schema.safeParse(req.body);
@@ -40,9 +45,10 @@ export default function validateBody(schema) {
       // ("Invalid email", "String must contain at most N character(s)").
       const issue = result.error.issues[0];
       const field = issue.path.length > 0 ? issue.path.join('.') : '(body)';
-      return res.status(400).json({
+      res.status(400).json({
         error: `Invalid request: ${field} — ${issue.message}`,
       });
+      return;
     }
     req.body = result.data;
     next();
