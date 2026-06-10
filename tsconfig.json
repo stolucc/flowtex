@@ -134,7 +134,8 @@
     "server/utils/gitSync.js",
     "server/utils/templates.js",
     "server/utils/email.js",
-    "server/yjsWorker.js"
+    "server/yjsWorker.js",
+    "server/compiler.js"
   ],
   "exclude": [
     "node_modules",

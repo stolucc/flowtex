@@ -1,3 +1,4 @@
+// @ts-check
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import path from 'path';
@@ -29,13 +30,16 @@ const PROFILE_WRAPPER_PATH = path.join(__dirname, 'utils', 'compileProfileWrappe
  *  need further escaping. The wrapper and profile paths are
  *  server-controlled and never contain `[`/`]`.
  */
+/** @param {{ profilePath: string, compiler: string }} args */
 function profileLatexmkOverrides({ profilePath, compiler }) {
   // LuaLaTeX needs --safer to seal the Lua os/io libs against directlua
   // escapes — the existing pre-profile path appended it via $lualatex
   // override; we keep that flag here. pdflatex and xelatex have no
   // embedded scripting language and are sealed by --no-shell-escape alone.
   const luaExtra = compiler === 'lualatex' ? ' --safer' : '';
+  /** @param {unknown} s */
   const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`; // POSIX single-quote
+  /** @param {string} tool @param {string} realCmd */
   const wrapped = (tool, realCmd) =>
     `${shq(process.execPath)} ${shq(PROFILE_WRAPPER_PATH)} --tool=${tool} --profile=${shq(profilePath)} -- ${realCmd}`;
 
@@ -63,6 +67,7 @@ function profileLatexmkOverrides({ profilePath, compiler }) {
  *  a phase breakdown: total time, per-tool sums + invocation counts. Returns
  *  null if the file is missing or every line is malformed — callers should
  *  treat absence as "profiling disabled," not as a compile failure. */
+/** @param {string} profilePath */
 function readCompileProfile(profilePath) {
   let raw;
   try {
@@ -160,6 +165,7 @@ export const TEX_PATHS = [
  * Build a PATH for a specific TeX Live distribution year.
  * If distro is null/undefined, returns TEX_PATHS (all distributions).
  */
+/** @param {string | null | undefined} distro */
 export function getTexPaths(distro) {
   if (!distro) return TEX_PATHS;
   const year = String(distro);
@@ -178,6 +184,8 @@ export function getTexPaths(distro) {
  * Detect installed TeX Live distributions by scanning /usr/local/texlive/
  * Returns array of { year, path, version } sorted newest first.
  */
+/** @typedef {{ year: number, path: string, version: string }} TexDistro */
+/** @type {TexDistro[] | null} */
 let _cachedDistros = null;
 let _distrosCacheTime = 0;
 
@@ -185,6 +193,7 @@ export function detectTexDistributions() {
   const now = Date.now();
   if (_cachedDistros && now - _distrosCacheTime < 60000) return _cachedDistros;
 
+  /** @type {TexDistro[]} */
   const distros = [];
   const base = '/usr/local/texlive';
   try {
@@ -219,10 +228,18 @@ export function detectTexDistributions() {
 }
 
 // Track active compilations so they can be stopped
+/** @type {Map<string, { child: import('child_process').ChildProcess | null, timeout?: ReturnType<typeof setTimeout>, exitPromise: Promise<unknown> }>} */
 const activeCompilations = new Map();
 const MAX_CONCURRENT_COMPILES = parseInt(process.env.MAX_CONCURRENT_COMPILES || '10', 10);
 
 // Compilation metrics
+/** @type {{
+ *   total: number,
+ *   success: number,
+ *   failed: number,
+ *   active: number,
+ *   history: Array<{ time: number, duration: number, success: boolean }>,
+ * }} */
 export const compileMetrics = {
   total: 0,
   success: 0,
@@ -241,6 +258,7 @@ setInterval(() => {
 }, 30000).unref();
 
 /** Record a compilation result in the metrics history ring buffer. */
+/** @param {boolean} success @param {number} duration */
 function recordCompile(success, duration) {
   compileMetrics.total++;
   if (success) compileMetrics.success++;
@@ -252,6 +270,10 @@ function recordCompile(success, duration) {
 /**
  * Validate and sanitize a file path to prevent path traversal.
  * Returns the safe absolute path or throws.
+ */
+/**
+ * @param {string} projectDir
+ * @param {string} filePath
  */
 function safePath(projectDir, filePath) {
   // Reject null bytes, absolute paths
@@ -283,7 +305,7 @@ export function stopCompilation(projectId) {
   }
   activeCompilations.delete(projectId);
   // Return a promise that resolves when the process actually exits
-  return entry.exitPromise;
+  return /** @type {Promise<void | false>} */ (entry.exitPromise);
 }
 
 /**
@@ -327,6 +349,10 @@ export async function abortAllCompilations(timeoutMs = 2000) {
  * separate from the plain view. Lets the client toggle "show tracked
  * changes" without invalidating the plain PDF (each mode's skip-rebuild
  * cache is also per-mode for free).
+ */
+/**
+ * @param {string | undefined} userId
+ * @param {{ tc?: boolean }} [opts]
  */
 export function userSuffix(userId, opts = {}) {
   const tcTag = opts.tc ? '_tc' : '';
@@ -399,6 +425,22 @@ export function buildLatexmkArgs({ engineFlag, jobName, projectDir, mainFile, pr
  * @param {object} [opts] - Extra options: files, onBeforeCompile, userId, texDistribution, compiler.
  * @returns {Promise<{pdfPath: string, log: string, jobName: string}>}
  */
+/**
+ * @typedef {{ id?: string, path: string, content?: string, is_binary?: boolean, binary_sha256?: string | null, tc_marks?: any[] }} CompileFile
+ * @typedef {{
+ *   files?: CompileFile[],
+ *   onBeforeCompile?: () => Promise<void>,
+ *   userId?: string,
+ *   texDistribution?: string,
+ *   compiler?: string,
+ *   tc?: boolean,
+ * }} CompileOpts
+ *
+ * @param {string} projectId
+ * @param {string} [mainFile]
+ * @param {((chunk: string) => void) | null | undefined} [onOutput]
+ * @param {CompileOpts} [opts]
+ */
 export async function compileProject(projectId, mainFile = 'main.tex', onOutput, opts = {}) {
   // SAAS-FOUNDATIONS item 5: wrap the whole compile in a trace span
   // so auto-instrumented work it triggers (pg queries for tc_marks,
@@ -417,6 +459,13 @@ export async function compileProject(projectId, mainFile = 'main.tex', onOutput,
   });
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} mainFile
+ * @param {((chunk: string) => void) | null | undefined} onOutput
+ * @param {CompileOpts} [args]
+ * @param {any} [_parentSpan]
+ */
 async function _compileProjectInner(
   projectId,
   mainFile,
@@ -436,9 +485,9 @@ async function _compileProjectInner(
     // was `!f.content || f.content.length === 0`, which post-migration
     // matches EVERY binary (content is always '') and produced a
     // false-positive warning in every compile log.
-    const emptyBinaries = files.filter((f) => f.is_binary && !f.binary_sha256);
+    const emptyBinaries = files.filter((/** @type {CompileFile} */ f) => f.is_binary && !f.binary_sha256);
     if (emptyBinaries.length > 0) {
-      const names = emptyBinaries.map((f) => f.path).join(', ');
+      const names = emptyBinaries.map((/** @type {CompileFile} */ f) => f.path).join(', ');
       const msg = `Warning: ${emptyBinaries.length} binary file(s) are empty and may cause compilation to fail: ${names}\n` +
         'These files may not have been imported correctly. Try re-importing or uploading them manually.\n\n';
       if (onOutput) onOutput(msg);
@@ -506,10 +555,19 @@ async function _compileProjectInner(
 
   const timeoutMs = await getCompileTimeout();
 
-  return _doCompile(projectId, mainFile, onOutput, suffix, timeoutMs, texDistribution, compiler);
+  return _doCompile(projectId, mainFile, onOutput, suffix, timeoutMs, texDistribution || null, compiler || null);
 }
 
 /** Internal: spawn latexmk and return a promise for the compilation result. */
+/**
+ * @param {string} projectId
+ * @param {string} mainFile
+ * @param {((chunk: string) => void) | null | undefined} onOutput
+ * @param {string} [userSuffix]
+ * @param {number} [timeoutMs]
+ * @param {string | null} [texDistribution]
+ * @param {string | null} [compiler]
+ */
 async function _doCompile(
   projectId,
   mainFile,
@@ -522,7 +580,7 @@ async function _doCompile(
   // If there's already an active compilation for this project, kill it and wait
   const existing = activeCompilations.get(projectId);
   if (existing) {
-    try { existing.child.kill('SIGTERM'); } catch {}
+    try { existing.child?.kill('SIGTERM'); } catch {}
     activeCompilations.delete(projectId);
     // Wait for exit but with a timeout — never hang forever
     await Promise.race([
@@ -569,7 +627,9 @@ async function _doCompile(
       openout_any: 'p', // only write files in the current directory or below
     };
 
-    let resolveExit;
+    /** @type {(() => void)} */
+    let resolveExit = () => {};
+    /** @type {Promise<void>} */
     const exitPromise = new Promise((r) => {
       resolveExit = r;
     });
@@ -592,7 +652,7 @@ async function _doCompile(
     safetyTimer.unref();
 
     // Determine the latexmk engine flag based on the selected compiler
-    const compilerEntry = COMPILERS.find((c) => c.id === compiler);
+    const compilerEntry = COMPILERS.find((/** @type {{ id: string }} */ c) => c.id === compiler);
     const engineFlag = compilerEntry ? compilerEntry.flag : '-pdf';
 
     // Per-phase profile: latexmk's $pdflatex / $bibtex / $biber / $makeindex
@@ -604,11 +664,12 @@ async function _doCompile(
     const profilePath = path.join(projectDir, `${jobName}.profile.jsonl`);
     try { fs.unlinkSync(profilePath); } catch { /* fine: fresh job */ }
 
+    /** @type {import('child_process').ChildProcess | null | undefined} */
     let child;
     try {
       const profileOverrides = profileLatexmkOverrides({
         profilePath,
-        compiler,
+        compiler: compiler || 'pdflatex',
       });
       const latexmkArgs = buildLatexmkArgs({
         engineFlag,
@@ -637,6 +698,11 @@ async function _doCompile(
       // the same regardless of whether the spawn was a host-side
       // execFile or a Docker sibling-container run. Name it once so
       // both spawn paths route into the same callback shape.
+      /**
+       * @param {(Error & { killed?: boolean, signal?: string }) | null} error
+       * @param {string | undefined} stdout
+       * @param {string | undefined} stderr
+       */
       const onCompilerExit = (error, stdout, stderr) => {
           if (callbackFired) return; // safety timer already fired
           callbackFired = true;
@@ -655,7 +721,7 @@ async function _doCompile(
         try {
           finalLog = fs.readFileSync(logPath, 'utf-8');
         } catch {
-          finalLog = stdout;
+          finalLog = stdout || '';
         }
 
         const profile = readCompileProfile(profilePath);
@@ -682,7 +748,7 @@ async function _doCompile(
             projectDir,
             jobName,
             logContent: finalLog,
-            env: { compiler: compiler || null, texDistribution: texDistribution || null },
+            env: { compiler: compiler || undefined, texDistribution: texDistribution || undefined },
           })
             .then((rebuildReason) => {
               resolve({ pdfPath, log: finalLog, jobName, profile, rebuildReason });
@@ -730,7 +796,7 @@ async function _doCompile(
           // sits on the initial "Compiling..." line until the
           // compile finishes -- looks like the compile is hung even
           // when it's running.
-          onOutput,
+          onOutput: onOutput || undefined,
         })
           .then((result) => {
             const error = result.exitCode === 0
@@ -759,13 +825,15 @@ async function _doCompile(
         clearTimeout(safetyTimer);
         compileMetrics.active = Math.max(0, compileMetrics.active - 1);
         resolveExit();
-        return reject(new Error(spawnErr.message || 'Failed to start compiler'));
+        const msg = spawnErr instanceof Error ? spawnErr.message : 'Failed to start compiler';
+        return reject(new Error(msg));
       }
     }
 
-    activeCompilations.set(projectId, { child, exitPromise });
+    activeCompilations.set(projectId, { child: child || null, exitPromise });
 
     // Detect fatal errors in output and kill the process early
+    /** @type {string | null} */
     let fatalError = null;
     const fatalPatterns = [
       /!pdfTeX error:.*reading image file failed/i,
@@ -773,14 +841,15 @@ async function _doCompile(
       /Emergency stop/,
     ];
 
+    /** @param {string} text */
     const checkFatal = (text) => {
       if (!fatalError && fatalPatterns.some((p) => p.test(text))) {
         fatalError = text.trim();
-        child.kill('SIGTERM');
+        child?.kill('SIGTERM');
       }
     };
 
-    if (onOutput) {
+    if (onOutput && child) {
       child.stdout?.on('data', (data) => {
         const text = data.toString();
         onOutput(text);
@@ -791,7 +860,7 @@ async function _doCompile(
         onOutput(text);
         checkFatal(text);
       });
-    } else {
+    } else if (child) {
       child.stdout?.on('data', (data) => checkFatal(data.toString()));
       child.stderr?.on('data', (data) => checkFatal(data.toString()));
     }
@@ -800,6 +869,12 @@ async function _doCompile(
 
 /**
  * Forward SyncTeX: map an editor position (file, line, column) to a PDF page/position.
+ * @param {string} projectId
+ * @param {number} line
+ * @param {number} column
+ * @param {string} [inputFile]
+ * @param {string} [mainFile]
+ * @param {string} [userSuffix]
  * @returns {{page: number, x: number, y: number, h: number, v: number} | null}
  */
 export function synctexForward(
@@ -854,6 +929,14 @@ export function synctexForward(
  * Inverse SyncTeX: map a PDF page/position back to an editor file and line.
  * @returns {{line: number, column: number, file: string} | null}
  */
+/**
+ * @param {string} projectId
+ * @param {number} page
+ * @param {number} x
+ * @param {number} y
+ * @param {string} [mainFile]
+ * @param {string} [userSuffix]
+ */
 export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', userSuffix = '') {
   const projectDir = path.join(PROJECTS_DIR, projectId);
   // Validate mainFile to prevent path traversal
@@ -900,8 +983,13 @@ export function synctexInverse(projectId, page, x, y, mainFile = 'main.tex', use
 // for "did this file change since I last wrote it", which doesn't
 // benefit from LRU touch.
 const FILE_HASH_CACHE_MAX = 50_000;
+/** @type {Map<string, string>} */
 const fileHashCache = new Map();
 
+/**
+ * @param {string} key
+ * @param {string} hash
+ */
 function setFileHash(key, hash) {
   if (!fileHashCache.has(key) && fileHashCache.size >= FILE_HASH_CACHE_MAX) {
     const oldest = fileHashCache.keys().next().value;
@@ -910,12 +998,15 @@ function setFileHash(key, hash) {
   fileHashCache.set(key, hash);
 }
 
-/** Compute an MD5 hex digest of content for change detection. */
+/** Compute an MD5 hex digest of content for change detection.
+ *  @param {string | Buffer} content
+ */
 function contentHash(content) {
   return createHash('md5').update(content).digest('hex');
 }
 
 /** Clear cached hashes for a project (e.g. after git pull overwrites files on disk). */
+/** @param {string} projectId */
 export function invalidateFileCache(projectId) {
   for (const key of fileHashCache.keys()) {
     if (key.startsWith(projectId + ':')) fileHashCache.delete(key);
@@ -956,6 +1047,7 @@ export const GENERATED_EXTS = new Set([
   '.xdv',
 ]);
 
+/** @param {string} filePath */
 function getFileExt(filePath) {
   // Handle compound extensions like .synctex.gz
   const base = path.basename(filePath);
@@ -966,7 +1058,7 @@ function getFileExt(filePath) {
 /**
  * Write project files to disk, skipping unchanged files and generated artifacts.
  * @param {string} projectId
- * @param {Array<{path: string, content: string, is_binary: boolean, binary_sha256?: string}>} files
+ * @param {Array<{path: string, content?: string, is_binary?: boolean, binary_sha256?: string | null}>} files
  */
 export async function syncFilesToDisk(projectId, files) {
   const projectDir = path.join(PROJECTS_DIR, projectId);
@@ -1008,7 +1100,8 @@ export async function syncFilesToDisk(projectId, files) {
     try {
       handle = await fsp.open(filePath, flags);
     } catch (err) {
-      if (err.code === 'ELOOP' || err.code === 'EMLINK') {
+      const e = /** @type {NodeJS.ErrnoException} */ (err);
+      if (e.code === 'ELOOP' || e.code === 'EMLINK') {
         // Path was a symlink — unlink and retry once with the same restricted flags.
         await fsp.unlink(filePath).catch(() => {});
         handle = await fsp.open(filePath, flags);
@@ -1033,6 +1126,7 @@ export const _testing = process.env.NODE_ENV === 'test'
   : undefined;
 
 /** Recursively remove symlinks from a directory tree. */
+/** @param {string} dir */
 async function removeSymlinks(dir) {
   let entries;
   try {

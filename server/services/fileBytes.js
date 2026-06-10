@@ -22,7 +22,7 @@ import { loadBlobBytes } from './blobPersistor.js';
  * Resolve a file row to its bytes.
  *
  * @param {string} projectId
- * @param {{ path: string, content: string|null, is_binary: boolean,
+ * @param {{ path: string, content?: string | null, is_binary?: boolean,
  *           binary_sha256?: string|null }} file
  * @returns {Promise<Buffer|string>} Buffer for binary rows, string for text.
  */
