@@ -91,7 +91,13 @@
     "server/utils/csrf.js",
     "server/utils/softDeletePurge.js",
     "server/utils/seedTemplates.js",
-    "server/utils/fileTypes.js"
+    "server/utils/fileTypes.js",
+    "server/utils/blobSweep.js",
+    "server/utils/passwordHash.js",
+    "server/utils/mentions.js",
+    "server/utils/crypto.js",
+    "server/utils/mentionDigest.js",
+    "server/utils/latexDiff.js"
   ],
   "exclude": [
     "node_modules",

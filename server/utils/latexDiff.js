@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * LaTeX diff — shells out to the real `latexdiff` binary from TeX Live.
  *
@@ -46,12 +47,14 @@ const TEX_PATHS = [
  *
  * Fix: strip DIF markers from lines containing these table commands.
  */
+/** @param {string} tex */
 export function postProcess(tex) {
   // Commands that use \noalign and break when DIF markers are nearby
   const noalignCmds = /\\(toprule|midrule|bottomrule|addlinespace|caption|endhead|endfirsthead|endfoot|endlastfoot)\b/;
   // Commands that use \omit
   const omitCmds = /\\(multicolumn|multirow)\b/;
 
+  /** @param {string} s */
   function stripDif(s) {
     // Preserve a one-character word boundary across the strip: if there's
     // whitespace on either side of the marker, keep one space so adjacent
@@ -59,19 +62,28 @@ export function postProcess(tex) {
     // marker's trailing whitespace, which collapsed `prefix\DIFaddbegin foo`
     // into `prefixfoo`.
     return s
-      .replace(/(\s)?\\DIF(add|del)(begin|end)(FL)?(\s)?/g, (_m, leading, _a, _b, _fl, trailing) =>
-        leading || trailing ? ' ' : '',
+      .replace(
+        /(\s)?\\DIF(add|del)(begin|end)(FL)?(\s)?/g,
+        (/** @type {string} */ _m, /** @type {string|undefined} */ leading, /** @type {string} */ _a, /** @type {string} */ _b, /** @type {string|undefined} */ _fl, /** @type {string|undefined} */ trailing) =>
+          leading || trailing ? ' ' : '',
       )
-      .replace(/(\s)?\\DIF(add|del)FL\{[^}]*\}(\s)?/g, (_m, leading, _a, trailing) =>
-        leading || trailing ? ' ' : '',
+      .replace(
+        /(\s)?\\DIF(add|del)FL\{[^}]*\}(\s)?/g,
+        (/** @type {string} */ _m, /** @type {string|undefined} */ leading, /** @type {string} */ _a, /** @type {string|undefined} */ trailing) =>
+          leading || trailing ? ' ' : '',
       );
   }
 
+  /** @param {string} s */
   function hasDif(s) {
     return /\\DIF(add|del)(begin|end)(FL)?/.test(s);
   }
 
   // Look ahead from line i past blank lines to find first non-blank line
+  /**
+   * @param {string[]} lines
+   * @param {number} i
+   */
   function nextNonBlank(lines, i) {
     for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
       if (lines[j].trim() !== '') return lines[j];
@@ -109,6 +121,11 @@ export function postProcess(tex) {
   return result.join('\n');
 }
 
+/**
+ * @param {string} oldTex
+ * @param {string} newTex
+ * @param {{ workDir?: string }} [options]
+ */
 export default async function latexDiff(oldTex, newTex, options = {}) {
   const workDir = options.workDir || os.tmpdir();
 

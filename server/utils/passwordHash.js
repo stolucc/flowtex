@@ -1,3 +1,4 @@
+// @ts-check
 // Unified password-hash interface. New hashes use Argon2id (ASVS v4.0.3
 // §2.4.1 — preferred algorithm at L2/L3); existing bcrypt hashes are
 // still verified transparently so users authenticate normally and get
@@ -63,6 +64,7 @@ export async function verifyPassword(plaintext, storedHash) {
  * Used by login/change-password call sites that want to opportunistically
  * re-hash legacy bcrypt rows after successful verify.
  */
+/** @param {string | null | undefined} storedHash */
 export function needsRehash(storedHash) {
   if (typeof storedHash !== 'string') return true;
   return !storedHash.startsWith('$argon2');

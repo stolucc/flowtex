@@ -1,3 +1,4 @@
+// @ts-check
 import db from '../db.js';
 import { sendMentionDigestEmail } from './email.js';
 import logger from '../logger.js';
@@ -60,6 +61,7 @@ export function startMentionDigestJob() {
       if (pending.length === 0) return;
 
       // Group by recipient
+      /** @type {Record<string, { email: string, name: string, mentions: any[], ids: string[] }>} */
       const byRecipient = {};
       for (const row of pending) {
         if (!byRecipient[row.mentioned_user_id]) {
@@ -84,7 +86,7 @@ export function startMentionDigestJob() {
             baseUrl,
           });
           // Mark as notified
-          const placeholders = data.ids.map((_, i) => `$${i + 1}`).join(',');
+          const placeholders = data.ids.map((/** @type {string} */ _, /** @type {number} */ i) => `$${i + 1}`).join(',');
           await db.run(
             `UPDATE comment_mentions SET notified_at = NOW() WHERE id IN (${placeholders})`,
             data.ids,

@@ -1,3 +1,4 @@
+// @ts-check
 import crypto from 'crypto';
 import db from '../db.js';
 
@@ -5,6 +6,7 @@ const ALGORITHM = 'aes-256-gcm';
 
 const DEV_FALLBACK_KEY = '0'.repeat(64); // insecure — dev only
 
+/** @type {string | null} */
 let _salt = null;
 
 /**
@@ -52,12 +54,14 @@ function deriveKey() {
   return crypto.scryptSync(envKey, getSalt(), 32);
 }
 
+/** @type {Buffer | null} */
 let _key = null;
 function key() {
   if (!_key) _key = deriveKey();
   return _key;
 }
 
+/** @param {string} text */
 export function encrypt(text) {
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGORITHM, key(), iv);
@@ -74,6 +78,7 @@ export function encrypt(text) {
  *   misuse manifests at the call site rather than as a confusing
  *   downstream crypto error.
  */
+/** @param {string | null} salt */
 export function _setSaltForTesting(salt) {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('_setSaltForTesting is only available in NODE_ENV=test');
@@ -85,6 +90,7 @@ export function _setSaltForTesting(salt) {
   _key = null;
 }
 
+/** @param {string} data */
 export function decrypt(data) {
   if (typeof data !== 'string') throw new Error('Invalid encrypted data');
   const parts = data.split(':');

@@ -1,3 +1,4 @@
+// @ts-check
 // Cron driver for the blob-storage background sweeps. Two independent
 // intervals (mirrors softDeletePurge.js shape):
 //

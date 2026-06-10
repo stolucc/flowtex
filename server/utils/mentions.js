@@ -1,16 +1,31 @@
+// @ts-check
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
 
 /**
- * Extract @mentions from comment/reply text and record them for batched email notification.
- * Mention format: @Name or @"Full Name" (matches project member names, case-insensitive).
+ * @typedef {{
+ *   text: string,
+ *   commentId?: string | null,
+ *   replyId?: string | null,
+ *   chatMessageId?: string | null,
+ *   mentionerUserId: string,
+ *   projectId: string,
+ *   assignedToUserId?: string | null,
+ * }} RecordMentionsArgs
+ */
+
+/**
+ * Extract `@`-mentions from comment/reply text and record them for batched email notification.
+ * Mention format: `@Name` or `@"Full Name"` (matches project member names, case-insensitive).
  *
  * If `assignedToUserId` is set, the assignee is ALWAYS recorded as a
  * notification target — even when they are also the mentioner. Self-mentions
  * from free text are still skipped (you typed your own name in passing); a
  * deliberate "assign this task to me" is treated as an explicit subscription.
  * The recorded list is deduplicated by user id so an assignee who is also
- * @-mentioned only gets one notification + one email.
+ * `@`-mentioned only gets one notification + one email.
+ *
+ * @param {RecordMentionsArgs} args
  */
 export async function recordMentions({ text, commentId, replyId, chatMessageId, mentionerUserId, projectId, assignedToUserId }) {
   // Extract raw mention strings: @Word or @"Multiple Words".
@@ -20,10 +35,12 @@ export async function recordMentions({ text, commentId, replyId, chatMessageId, 
   // Quoted mentions reject embedded newlines so a `@"...\n..."` can't span
   // an entire paragraph and balloon the candidate list.
   const mentionRe = /(?:^|(?<=[\s([{<,;:!?]))@(?:"([^"\n\r]+)"|(\S+))/g;
+  /** @type {Set<string>} */
   const rawMentions = new Set();
+  /** @type {RegExpExecArray | null} */
   let m;
   while ((m = mentionRe.exec(text))) {
-    rawMentions.add((m[1] || m[2]).toLowerCase());
+    rawMentions.add(((m[1] || m[2]) || '').toLowerCase());
   }
   // Early bail only when neither path has work to do — an assignment alone
   // (no @-mention in the body) must still record.
@@ -39,12 +56,14 @@ export async function recordMentions({ text, commentId, replyId, chatMessageId, 
   // Cap snippet at 200 chars total (199 + ellipsis when truncated) so the
   // payload never exceeds the database column.
   const snippet = text.length > 200 ? text.slice(0, 199) + '…' : text;
+  /** @type {Array<{ id: string, mentionedUserId: string, commentId: string | null, replyId: string | null, chatMessageId: string | null, projectId: string, snippet: string }>} */
   const recorded = [];
+  /** @type {Set<string>} */
   const seenUserIds = new Set();
 
   // Path 1: @-mentions from the body — skip self.
   for (const mention of rawMentions) {
-    const member = members.find((m) => m.name_lower === mention);
+    const member = members.find((/** @type {{ id: string, name_lower: string }} */ m) => m.name_lower === mention);
     if (!member || member.id === mentionerUserId) continue;
     if (seenUserIds.has(member.id)) continue;
     seenUserIds.add(member.id);
@@ -61,7 +80,7 @@ export async function recordMentions({ text, commentId, replyId, chatMessageId, 
   if (assignedToUserId && !seenUserIds.has(assignedToUserId)) {
     // Confirm the assignee is actually a project member (defence against
     // tampered request bodies and stale client state).
-    const assignee = members.find((m) => m.id === assignedToUserId);
+    const assignee = members.find((/** @type {{ id: string }} */ m) => m.id === assignedToUserId);
     if (assignee) {
       seenUserIds.add(assignedToUserId);
       recorded.push(await insertMentionRow({
@@ -73,6 +92,17 @@ export async function recordMentions({ text, commentId, replyId, chatMessageId, 
   return recorded;
 }
 
+/**
+ * @param {{
+ *   mentionedUserId: string,
+ *   mentionerUserId: string,
+ *   commentId?: string | null,
+ *   replyId?: string | null,
+ *   chatMessageId?: string | null,
+ *   projectId: string,
+ *   snippet: string,
+ * }} args
+ */
 async function insertMentionRow({ mentionedUserId, mentionerUserId, commentId, replyId, chatMessageId, projectId, snippet }) {
   const id = uuid();
   await db.run(
