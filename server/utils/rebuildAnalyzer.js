@@ -1,3 +1,4 @@
+// @ts-check
 // Per-project rebuild explainer. After each successful compile we record a
 // manifest of which input files were used and their SHA-256 hashes. On the
 // next compile we diff old-vs-new and tell the user "rebuilt because A
@@ -41,9 +42,15 @@ const MANIFEST_SUFFIX = '.flowtex-build-manifest.json';
  *
  *  Returns an array of relative paths (relative to projectDir), deduped.
  */
+/**
+ * @param {string} flsContent
+ * @param {string} projectDir
+ */
 export function parseFlsInputs(flsContent, projectDir) {
   if (!flsContent) return [];
+  /** @type {Set<string>} */
   const seen = new Set();
+  /** @type {string[]} */
   const out = [];
   const normalisedRoot = path.resolve(projectDir);
   for (const rawLine of flsContent.split('\n')) {
@@ -80,6 +87,7 @@ export function parseFlsInputs(flsContent, projectDir) {
  *  Symlink rejection uses lstat (no symlink resolution) so a malicious
  *  link planted inside the project dir can't leak hashes of arbitrary
  *  filesystem files into the manifest. */
+/** @param {string} absPath */
 export async function hashFile(absPath) {
   let stat;
   try {
@@ -111,13 +119,23 @@ export async function hashFile(absPath) {
  *  the skip-rebuild cache invalidates when the user switches compilers
  *  — the same source can produce a different PDF under xelatex vs
  *  pdflatex, so a stale PDF must not be served. */
+/**
+ * @typedef {{ size: number, mtimeMs: number, sha256: string }} FileMeta
+ * @typedef {{ version: number, builtAt: number, env: { compiler: string|null, texDistribution: string|null } | null, files: Record<string, FileMeta> }} Manifest
+ *
+ * @param {string} projectDir
+ * @param {string[]} relativePaths
+ * @param {{ compiler?: string, texDistribution?: string } | null} [env]
+ * @returns {Promise<Manifest>}
+ */
 export async function buildManifest(projectDir, relativePaths, env = null) {
   const entries = await Promise.all(
-    relativePaths.map(async (rel) => {
+    relativePaths.map(async (/** @type {string} */ rel) => {
       const meta = await hashFile(path.join(projectDir, rel));
-      return meta ? [rel, meta] : null;
+      return meta ? /** @type {[string, FileMeta]} */ ([rel, meta]) : null;
     }),
   );
+  /** @type {Record<string, FileMeta>} */
   const files = {};
   for (const e of entries) if (e) files[e[0]] = e[1];
   return {
@@ -128,6 +146,10 @@ export async function buildManifest(projectDir, relativePaths, env = null) {
   };
 }
 
+/**
+ * @param {string} projectDir
+ * @param {string} jobName
+ */
 export function manifestPath(projectDir, jobName) {
   return path.join(projectDir, `${jobName}${MANIFEST_SUFFIX}`);
 }
@@ -138,6 +160,10 @@ export function manifestPath(projectDir, jobName) {
  *  is defence in depth against disk corruption or a process bug; the
  *  manifest is server-written and the extension is in GENERATED_EXTS so
  *  it can't reach disk via the file-table sync path. */
+/**
+ * @param {string} projectDir
+ * @param {string} jobName
+ */
 export function readManifest(projectDir, jobName) {
   try {
     const p = manifestPath(projectDir, jobName);
@@ -155,6 +181,11 @@ export function readManifest(projectDir, jobName) {
 /** Atomically replace the on-disk manifest with `manifest`. Writes to a
  *  sibling .tmp then renames so a crashed write never leaves a half-file
  *  that readManifest would silently throw away. */
+/**
+ * @param {string} projectDir
+ * @param {string} jobName
+ * @param {Manifest} manifest
+ */
 export async function writeManifest(projectDir, jobName, manifest) {
   const target = manifestPath(projectDir, jobName);
   const tmp = `${target}.tmp`;
@@ -164,9 +195,16 @@ export async function writeManifest(projectDir, jobName, manifest) {
 
 /** Diff two manifests. Returns the per-file change list — added /
  *  modified / removed — that goes into the user-facing explanation. */
+/**
+ * @param {Manifest | null | undefined} prev
+ * @param {Manifest | null | undefined} next
+ */
 export function diffManifests(prev, next) {
+  /** @type {Array<{ path: string, change: 'added' | 'removed' | 'modified' }>} */
   const changes = [];
+  /** @type {Record<string, FileMeta>} */
   const prevFiles = prev?.files || {};
+  /** @type {Record<string, FileMeta>} */
   const nextFiles = next?.files || {};
   const allPaths = new Set([...Object.keys(prevFiles), ...Object.keys(nextFiles)]);
   for (const p of allPaths) {
@@ -177,6 +215,7 @@ export function diffManifests(prev, next) {
     else if (a && b && a.sha256 !== b.sha256) changes.push({ path: p, change: 'modified' });
   }
   // Stable order: alphabetical within change type.
+  /** @type {Record<'added' | 'removed' | 'modified', number>} */
   const rank = { modified: 0, added: 1, removed: 2 };
   changes.sort((x, y) => (rank[x.change] - rank[y.change]) || x.path.localeCompare(y.path));
   return changes;
@@ -189,8 +228,10 @@ export function diffManifests(prev, next) {
  *  We look at the LAST occurrence — if an earlier pass complained but
  *  the final pass didn't, the build is stable and there's nothing to
  *  surface. The patterns mirror what latexmk itself watches for. */
+/** @param {string} logContent */
 export function detectRerunSignals(logContent) {
   if (!logContent) return null;
+  /** @type {Array<[RegExp, string]>} */
   const patterns = [
     [/Label\(s\) may have changed\./i,                        'cross-references resolved on rerun'],
     [/Rerun to get cross-references right\./i,                'cross-references resolved on rerun'],
@@ -230,6 +271,7 @@ export function detectRerunSignals(logContent) {
  *  themselves generated by pdflatex during pass 1, so we can't decide
  *  pre-latexmk whether they will or won't change. Left for a later
  *  pass if biographies prove the touch-trick worth extending. */
+/** @param {{ projectDir: string, jobName: string }} args */
 export async function findStaleBibOutputToTouch({ projectDir, jobName }) {
   const prev = readManifest(projectDir, jobName);
   if (!prev) return null;
@@ -261,6 +303,14 @@ export async function findStaleBibOutputToTouch({ projectDir, jobName }) {
  *  manifest, not the entire project — typically a few tens of KB.
  *  Caller is responsible for verifying the PDF still exists on disk
  *  before serving it (a manual `clean` could have removed it). */
+/**
+ * @param {{
+ *   projectDir: string,
+ *   jobName: string,
+ *   compiler?: string | null,
+ *   texDistribution?: string | null,
+ * }} args
+ */
 export async function checkBuildCache({ projectDir, jobName, compiler, texDistribution }) {
   const prev = readManifest(projectDir, jobName);
   if (!prev) return { hit: false, reason: 'no previous build manifest' };
@@ -277,7 +327,7 @@ export async function checkBuildCache({ projectDir, jobName, compiler, texDistri
     // Empty manifest: nothing to verify; safer to recompile.
     return { hit: false, reason: 'previous manifest had no tracked inputs' };
   }
-  const current = await buildManifest(projectDir, paths, { compiler: wantCompiler, texDistribution: wantTex });
+  const current = await buildManifest(projectDir, paths, { compiler: wantCompiler ?? undefined, texDistribution: wantTex ?? undefined });
   const changes = diffManifests(prev, current);
   if (changes.length > 0) {
     return { hit: false, reason: 'inputs changed', changedFiles: changes };
@@ -288,6 +338,14 @@ export async function checkBuildCache({ projectDir, jobName, compiler, texDistri
 /** End-to-end: read .fls, build new manifest, compare to prev manifest,
  *  parse log warnings, persist the new manifest. Returns the structured
  *  rebuildReason that the route forwards to the client. */
+/**
+ * @param {{
+ *   projectDir: string,
+ *   jobName: string,
+ *   logContent: string,
+ *   env?: { compiler?: string, texDistribution?: string } | null,
+ * }} args
+ */
 export async function analyzeRebuild({ projectDir, jobName, logContent, env = null }) {
   const flsPath = path.join(projectDir, `${jobName}.fls`);
   let flsContent = '';

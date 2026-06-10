@@ -1,3 +1,4 @@
+// @ts-check
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -6,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const assetsDir = join(__dirname, '..', 'assets', 'templates');
 
 /** Read a bundled template asset file by name, returning empty string on failure. */
+/** @param {string} name */
 function loadAsset(name) {
   try {
     return readFileSync(join(assetsDir, name), 'utf8');

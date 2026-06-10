@@ -1,3 +1,4 @@
+// @ts-check
 // Shared filesystem path constants. Lives outside compiler.js so that
 // modules used by the compiler (blobStore, fileBytes) can import the
 // path without creating a circular dependency back through compiler.js.

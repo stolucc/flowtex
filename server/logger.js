@@ -1,3 +1,4 @@
+// @ts-check
 import pino from 'pino';
 import os from 'node:os';
 
@@ -6,6 +7,7 @@ import os from 'node:os';
 // load balancer — without it, aggregated logs from several instances are
 // only distinguishable by pid, which is meaningless once logs are shipped
 // off-host. INSTANCE_ID is optional; single-instance deploys can ignore it.
+/** @type {{ pid: number, hostname: string, instance?: string }} */
 const base = { pid: process.pid, hostname: os.hostname() };
 if (process.env.INSTANCE_ID) base.instance = process.env.INSTANCE_ID;
 
@@ -14,7 +16,7 @@ const logger = pino({
   base,
   ...(process.env.NODE_ENV !== 'production' && {
     transport: { target: 'pino/file', options: { destination: 1 } },
-    formatters: { level: (label) => ({ level: label }) },
+    formatters: { level: (/** @type {string} */ label) => ({ level: label }) },
   }),
 });
 

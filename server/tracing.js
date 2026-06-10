@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 5 (continued) -- OpenTelemetry tracing.
 //
 // Opt-in via OTEL_EXPORTER_OTLP_ENDPOINT. When unset (the default
@@ -35,7 +36,10 @@
 
 import logger from './logger.js';
 
+/** @typedef {{ startActiveSpan: (name: string, fn: (span: any) => any) => any }} Tracer */
+/** @type {Tracer | null} */
 let tracer = null;
+/** @type {{ shutdown: () => Promise<unknown> } | null} */
 let sdkRef = null;
 
 const ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -62,7 +66,10 @@ if (ENDPOINT) {
       const { NodeSDK } = await import('@opentelemetry/sdk-node');
       const { getNodeAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-node');
       const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
-      const { Resource } = await import('@opentelemetry/resources');
+      // @opentelemetry/resources changed export shape across versions;
+      // cast the namespace to any and pull Resource off it.
+      const { Resource } = /** @type {any} */ (await import('@opentelemetry/resources'));
+      /** @type {any} */
       const semConv = await import('@opentelemetry/semantic-conventions');
       const { trace } = await import('@opentelemetry/api');
 
@@ -74,8 +81,11 @@ if (ENDPOINT) {
         || semConv.SemanticResourceAttributes?.SERVICE_NAME
         || 'service.name';
 
+      // @opentelemetry/resources moved Resource out of the default
+      // export in v2; the runtime accepts both shapes -- cast so tsc
+      // picks the new location without breaking older bundles.
       const sdk = new NodeSDK({
-        resource: new Resource({ [SERVICE_NAME_KEY]: SERVICE_NAME }),
+        resource: new /** @type {any} */ (Resource)({ [SERVICE_NAME_KEY]: SERVICE_NAME }),
         traceExporter: new OTLPTraceExporter({ url: ENDPOINT }),
         instrumentations: [getNodeAutoInstrumentations({
           // ioredis + pg auto-instrumentation can be very chatty;
@@ -135,10 +145,8 @@ if (ENDPOINT) {
  *   end: () => void,
  * }} Span
  *
- * @template T
  * @param {string} name
- * @param {(span: Span) => T | Promise<T>} fn
- * @returns {T | Promise<T>}
+ * @param {(span: Span) => any} fn
  */
 export function withSpan(name, fn) {
   if (!tracer) {
@@ -146,23 +154,25 @@ export function withSpan(name, fn) {
     // stays sync.
     return fn(NOOP_SPAN);
   }
-  return tracer.startActiveSpan(name, (span) => {
+  return tracer.startActiveSpan(name, (/** @type {Span} */ span) => {
     let result;
     try {
       result = fn(span);
     } catch (err) {
       span.recordException(err);
-      span.setStatus({ code: 2, message: err?.message || 'error' });
+      const msg = err instanceof Error ? err.message : 'error';
+      span.setStatus({ code: 2, message: msg });
       span.end();
       throw err;
     }
     if (result && typeof result.then === 'function') {
       // Async path -- end the span when the promise settles.
       return result.then(
-        (value) => { span.end(); return value; },
-        (err) => {
+        (/** @type {any} */ value) => { span.end(); return value; },
+        (/** @type {unknown} */ err) => {
           span.recordException(err);
-          span.setStatus({ code: 2, message: err?.message || 'error' });
+          const msg = err instanceof Error ? err.message : 'error';
+          span.setStatus({ code: 2, message: msg });
           span.end();
           throw err;
         },
@@ -186,7 +196,7 @@ export const _testing = {
     tracer = null;
     sdkRef = null;
   },
-  _setTracerForTests(t) { tracer = t; },
-  _setSdkForTests(s) { sdkRef = s; },
+  _setTracerForTests(/** @type {Tracer | null} */ t) { tracer = t; },
+  _setSdkForTests(/** @type {{ shutdown: () => Promise<unknown> } | null} */ s) { sdkRef = s; },
   get sdkRef() { return sdkRef; },
 };

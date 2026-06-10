@@ -1,3 +1,4 @@
+// @ts-check
 import simpleGit from 'simple-git';
 import path from 'path';
 import fs from 'fs';
@@ -14,14 +15,22 @@ import { BINARY_EXTS } from './fileTypes.js';
 import { loadFileBytes } from '../services/fileBytes.js';
 import { writeBinaryFileInTx, decrementBlobRefcount } from '../services/projectService.js';
 
+/** @type {Map<string, Promise<void>>} */
 const syncLocks = new Map();
 
-/** Serialize async operations on a project to prevent concurrent git mutations. */
+/** Serialize async operations on a project to prevent concurrent git mutations.
+ *  @template T
+ *  @param {string} projectId
+ *  @param {() => Promise<T>} fn
+ *  @returns {Promise<T>}
+ */
 async function withLock(projectId, fn) {
   while (syncLocks.has(projectId)) {
     await syncLocks.get(projectId);
   }
-  let resolve;
+  /** @type {() => void} */
+  let resolve = () => {};
+  /** @type {Promise<void>} */
   const promise = new Promise((r) => {
     resolve = r;
   });
@@ -34,11 +43,14 @@ async function withLock(projectId, fn) {
   }
 }
 
+/** @param {string} projectId */
 function getRepoDir(projectId) {
   return path.join(GIT_REPOS_DIR, projectId);
 }
 
-/** Ensure a local git repo exists for the project, initializing if needed. */
+/** Ensure a local git repo exists for the project, initializing if needed.
+ *  @param {string} projectId
+ */
 async function ensureRepo(projectId) {
   const repoDir = getRepoDir(projectId);
   if (!fs.existsSync(repoDir)) {
@@ -56,7 +68,11 @@ async function ensureRepo(projectId) {
   return git;
 }
 
-/** Configure the 'origin' remote URL and auth header for the given repo/token. */
+/** Configure the 'origin' remote URL and auth header for the given repo/token.
+ *  @param {ReturnType<typeof simpleGit>} git
+ *  @param {string} repo
+ *  @param {string} token
+ */
 async function configureRemote(git, repo, token) {
   // Validate repo format strictly to prevent SSRF
   if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
@@ -64,7 +80,7 @@ async function configureRemote(git, repo, token) {
   }
   const url = `https://github.com/${repo}.git`;
   const remotes = await git.getRemotes();
-  if (remotes.find((r) => r.name === 'origin')) {
+  if (remotes.find((/** @type {{ name: string }} */ r) => r.name === 'origin')) {
     await git.remote(['set-url', 'origin', url]);
   } else {
     await git.addRemote('origin', url);
@@ -74,7 +90,9 @@ async function configureRemote(git, repo, token) {
   await git.raw(['config', '--local', '--replace-all', 'http.https://github.com/.extraheader', authHeader]);
 }
 
-/** Remove the auth header from git config after a push/pull operation. */
+/** Remove the auth header from git config after a push/pull operation.
+ *  @param {ReturnType<typeof simpleGit>} git
+ */
 async function clearRemoteAuth(git) {
   try {
     await git.raw(['config', '--local', '--unset-all', 'http.https://github.com/.extraheader']);
@@ -84,6 +102,10 @@ async function clearRemoteAuth(git) {
 }
 
 /** Write all project files from the database to the local git repo directory. */
+/**
+ * @param {string} projectId
+ * @param {string} repoDir
+ */
 async function writeProjectFilesToDisk(projectId, repoDir) {
   // SELECT binary_sha256 so loadFileBytes can resolve binary rows via
   // the blob store. Pre-migration this column didn't exist; post-C.3
@@ -119,11 +141,21 @@ async function writeProjectFilesToDisk(projectId, repoDir) {
 }
 
 /** Read files from the local git repo directory back into the database, syncing additions/deletions. */
+/**
+ * @param {string} projectId
+ * @param {string} repoDir
+ */
 async function readDiskFilesToProject(projectId, repoDir) {
   const dbFiles = await db.all('SELECT id, path FROM files WHERE project_id = $1', [projectId]);
-  const dbPathMap = new Map(dbFiles.map((f) => [f.path, f.id]));
+  /** @type {Map<string, string>} */
+  const dbPathMap = new Map(dbFiles.map((/** @type {{ path: string, id: string }} */ f) => [f.path, f.id]));
+  /** @type {Set<string>} */
   const diskPaths = new Set();
 
+  /**
+   * @param {string} dir
+   * @param {string} prefix
+   */
   function walkDir(dir, prefix) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.name === '.git') continue;
@@ -203,7 +235,10 @@ async function readDiskFilesToProject(projectId, repoDir) {
   return await db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
 }
 
-/** Ensure the GitHub repository exists, creating it (as private) if necessary. */
+/** Ensure the GitHub repository exists, creating it (as private) if necessary.
+ *  @param {string} token
+ *  @param {string} repo
+ */
 async function ensureGitHubRepoExists(token, repo) {
   const [owner, name] = repo.split('/');
   // Check if the repo already exists
@@ -236,13 +271,18 @@ async function ensureGitHubRepoExists(token, repo) {
   });
   if (orgRes.ok) return;
 
-  const err = await orgRes.json().catch(() => ({}));
+  const err = /** @type {any} */ (await orgRes.json().catch(() => ({})));
   throw new Error(`Could not create GitHub repo: ${err.message || orgRes.status}`);
 }
 
 /**
  * Push project files to a GitHub repository, merging remote changes first.
- * @returns {{commit: string|null}} The latest commit hash after pushing.
+ * @param {string} projectId
+ * @param {string} token
+ * @param {string} repo
+ * @param {string} branch
+ * @param {string} commitMessage
+ * @returns {Promise<{ commit: string | null }>} The latest commit hash after pushing.
  */
 export async function pushToGitHub(projectId, token, repo, branch, commitMessage) {
   return withLock(projectId, async () => {
@@ -309,7 +349,11 @@ export async function pushToGitHub(projectId, token, repo, branch, commitMessage
 
 /**
  * Pull files from a GitHub repository into the database.
- * @returns {{files: Array, commit: string|null}} Updated file list and the latest commit hash.
+ * @param {string} projectId
+ * @param {string} token
+ * @param {string} repo
+ * @param {string} branch
+ * @returns {Promise<{ files: any[], commit: string | null }>} Updated file list and the latest commit hash.
  */
 export async function pullFromGitHub(projectId, token, repo, branch) {
   return withLock(projectId, async () => {

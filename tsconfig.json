@@ -126,7 +126,13 @@
     "server/routes/compile.js",
     "server/routes/projects.js",
     "server/services/authService.js",
-    "server/services/projectService.js"
+    "server/services/projectService.js",
+    "server/paths.js",
+    "server/logger.js",
+    "server/tracing.js",
+    "server/utils/rebuildAnalyzer.js",
+    "server/utils/gitSync.js",
+    "server/utils/templates.js"
   ],
   "exclude": [
     "node_modules",
