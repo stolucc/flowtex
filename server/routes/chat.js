@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import db from '../db.js';
 import { UUID_RE } from '../middleware/auth.js';
@@ -23,7 +24,7 @@ router.get('/:projectId', async (req, res) => {
 
     // Hydrate reactions in one query (no N+1) and bucket them per message.
     if (messages.length > 0) {
-      const ids = messages.map((m) => m.id);
+      const ids = messages.map((/** @type {{ id: string }} */ m) => m.id);
       const reactionRows = await db.all(
         `SELECT message_id AS "messageId", emoji, user_id AS "userId", user_name AS "userName"
          FROM chat_message_reactions WHERE message_id = ANY($1) ORDER BY created_at ASC`,
@@ -68,7 +69,8 @@ router.get('/:projectId', async (req, res) => {
       // Log + continue. The client treats an empty readCursors array
       // as "nobody has read anything yet" — receipts disappear,
       // messages stay visible.
-      console.warn('chat read-cursors query failed:', cursorErr.message);
+      const msg = cursorErr instanceof Error ? cursorErr.message : String(cursorErr);
+      console.warn('chat read-cursors query failed:', msg);
     }
 
     res.json({ messages, readCursors: cursors });

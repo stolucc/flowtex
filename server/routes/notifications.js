@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import db from '../db.js';
 import { UUID_RE } from '../middleware/auth.js';

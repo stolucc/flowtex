@@ -1,3 +1,4 @@
+// @ts-check
 // Public (no-auth) endpoints for the unregistered-invitee flow.
 //
 // Two entry points:

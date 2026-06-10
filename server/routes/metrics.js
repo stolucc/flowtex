@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 5 -- /metrics endpoint for Prometheus.
 //
 // Mounted at `/metrics` on the same Express app as the rest of the
@@ -19,7 +20,8 @@ router.get('/', async (_req, res) => {
     res.set('Content-Type', registry.contentType);
     res.send(await registry.metrics());
   } catch (err) {
-    res.status(500).type('text/plain').send(`# metrics error: ${err?.message || 'unknown'}\n`);
+    const msg = err instanceof Error ? err.message : 'unknown';
+    res.status(500).type('text/plain').send(`# metrics error: ${msg}\n`);
   }
 });
 

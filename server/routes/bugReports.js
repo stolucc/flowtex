@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import db from '../db.js';
 import logger from '../logger.js';
@@ -31,9 +32,9 @@ router.post('/', async (req, res) => {
     let features = [];
     if (Array.isArray(req.body?.features)) {
       features = req.body.features
-        .filter((f) => typeof f === 'string')
-        .map((f) => f.trim())
-        .filter((f) => f.length > 0 && f.length <= 64)
+        .filter((/** @type {unknown} */ f) => typeof f === 'string')
+        .map((/** @type {string} */ f) => f.trim())
+        .filter((/** @type {string} */ f) => f.length > 0 && f.length <= 64)
         .slice(0, MAX_FEATURES);
     }
 
@@ -44,7 +45,7 @@ router.post('/', async (req, res) => {
     // Resolve admin recipients: every active admin, with the bootstrap
     // ADMIN_EMAIL as a fallback if the table is somehow empty.
     const adminRows = await db.all('SELECT email FROM users WHERE is_admin = TRUE');
-    let adminEmails = adminRows.map((r) => r.email).filter(Boolean);
+    let adminEmails = adminRows.map((/** @type {{ email: string }} */ r) => r.email).filter(Boolean);
     if (adminEmails.length === 0 && process.env.ADMIN_EMAIL) {
       adminEmails = [process.env.ADMIN_EMAIL.trim()];
     }

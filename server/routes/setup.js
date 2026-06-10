@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import crypto from 'crypto';
 import db from '../db.js';
@@ -39,7 +40,7 @@ router.post('/init', async (req, res) => {
       await tx.run('SELECT pg_advisory_xact_lock(hashtext($1))', ['setup:init']);
       const existing = await tx.get('SELECT id FROM users LIMIT 1');
       if (existing) {
-        const err = new Error('Setup already completed');
+        const err = /** @type {Error & { status: number }} */ (new Error('Setup already completed'));
         err.status = 403;
         throw err;
       }
@@ -48,9 +49,15 @@ router.post('/init', async (req, res) => {
       // because the advisory lock pins the critical region — the
       // second caller stays blocked until we commit and then loses
       // the existence re-check above.
-      const reg = await registerUser(email, name, password);
+      // registerUser returns User on success OR { error: string } on
+      // policy reject (HIBP, validation). authService isn't ts-check'd
+      // yet so we cast at the boundary -- same temporary pattern as
+      // routes/auth.js.
+      const reg = /** @type {{ id?: string, error?: string }} */ (
+        await registerUser(email, name, password)
+      );
       if (reg.error) {
-        const err = new Error(reg.error);
+        const err = /** @type {Error & { status: number }} */ (new Error(reg.error));
         err.status = 400;
         throw err;
       }
@@ -76,9 +83,9 @@ router.post('/init', async (req, res) => {
     }
 
     // Log the user in with session regeneration to prevent fixation
-    await new Promise((resolve, reject) => {
-      req.session.regenerate((err) => (err ? reject(err) : resolve()));
-    });
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
+      req.session.regenerate((/** @type {Error | null} */ err) => (err ? reject(err) : resolve()));
+    }));
     req.session.userId = result.id;
     req.session.userName = name.trim();
     // Mint a CSRF token + cookie up front so the very next state-changing

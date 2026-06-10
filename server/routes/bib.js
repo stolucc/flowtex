@@ -1,8 +1,10 @@
+// @ts-check
 import { Router } from 'express';
 
 const router = Router();
 
 /** Strip curly braces from BibTeX field values for use in search queries. */
+/** @param {string | null | undefined} val */
 function stripBraces(val) {
   if (!val) return '';
   return val
@@ -12,6 +14,10 @@ function stripBraces(val) {
 }
 
 /** Query the CrossRef API to find bibliographic metadata matching a title/author pair. */
+/**
+ * @param {string | null | undefined} title
+ * @param {string | null | undefined} author
+ */
 async function lookupCrossRef(title, author) {
   const params = new URLSearchParams();
   if (title) params.set('query.bibliographic', title);
@@ -70,8 +76,11 @@ async function lookupCrossRef(title, author) {
   }
 }
 
-/** Extract normalized bibliographic fields (doi, pages, year, etc.) from a CrossRef work item. */
+/** Extract normalized bibliographic fields (doi, pages, year, etc.) from a CrossRef work item.
+ *  @param {any} item
+ */
 function extractFields(item) {
+  /** @type {Record<string, string>} */
   const fields = {};
 
   if (item.DOI) fields.doi = item.DOI;
@@ -98,7 +107,7 @@ function extractFields(item) {
   if (item.ISBN?.[0]) fields.isbn = item.ISBN[0];
 
   if (item.author?.length) {
-    fields.author = item.author.map((a) => [a.family, a.given].filter(Boolean).join(', ')).join(' and ');
+    fields.author = item.author.map((/** @type {{ family?: string, given?: string }} */ a) => [a.family, a.given].filter(Boolean).join(', ')).join(' and ');
   }
 
   if (item.title?.[0]) fields.title = item.title[0];
@@ -123,7 +132,7 @@ router.post('/enrich', async (req, res) => {
   for (let i = 0; i < entries.length; i += batchSize) {
     const batch = entries.slice(i, i + batchSize);
     const batchResults = await Promise.all(
-      batch.map(async (entry) => {
+      batch.map(async (/** @type {any} */ entry) => {
         const title = stripBraces(entry.title);
         const author = stripBraces(entry.author);
 
@@ -136,11 +145,14 @@ router.post('/enrich', async (req, res) => {
           return { key: entry.key, found: false, added: {} };
         }
 
+        /** @type {Record<string, string>} */
         const available = extractFields(item);
+        /** @type {Record<string, string>} */
         const added = {};
 
         for (const field of fields) {
           // Only add if the entry doesn't already have this field
+          /** @type {Record<string, unknown>} */
           const existing = entry.existingFields || {};
           if (existing[field]) continue;
 

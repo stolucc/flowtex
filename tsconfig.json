@@ -105,7 +105,16 @@
     "server/middleware/errorHandler.js",
     "server/middleware/validateBody.js",
     "server/middleware/auth.js",
-    "server/routes/auth.js"
+    "server/routes/auth.js",
+    "server/routes/metrics.js",
+    "server/routes/tags.js",
+    "server/routes/notifications.js",
+    "server/routes/bugReports.js",
+    "server/routes/chat.js",
+    "server/routes/setup.js",
+    "server/routes/publicInvitations.js",
+    "server/routes/bib.js",
+    "server/routes/zotero.js"
   ],
   "exclude": [
     "node_modules",

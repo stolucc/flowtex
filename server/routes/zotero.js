@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
@@ -64,10 +65,12 @@ router.delete('/disconnect', async (req, res) => {
 // anything else at read time so even if a future Zotero API quirk
 // returned something weirder than expected, we can't path-inject
 // the value into the request URLs that interpolate it.
+/** @param {unknown} value */
 function isValidZoteroUserId(value) {
   return typeof value === 'string' && /^\d+$/.test(value);
 }
 
+/** @param {string | undefined} userId */
 async function getZoteroAuth(userId) {
   const row = await db.get('SELECT api_key, zotero_user_id FROM zotero_tokens WHERE user_id = $1', [userId]);
   if (!row) return null;
@@ -82,6 +85,11 @@ async function getZoteroAuth(userId) {
 }
 
 /** Make an authenticated request to the Zotero API and return the parsed response with total count. */
+/**
+ * @param {string} path
+ * @param {string} apiKey
+ * @param {Record<string, string | number>} [query]
+ */
 async function zoteroFetch(path, apiKey, query = {}) {
   const url = new URL(path, ZOTERO_API);
   // SSRF guard: if `path` is ever passed as an absolute URL (now or in
@@ -92,7 +100,7 @@ async function zoteroFetch(path, apiKey, query = {}) {
   if (url.origin !== new URL(ZOTERO_API).origin) {
     throw new Error(`zoteroFetch: refusing to fetch non-Zotero origin: ${url.origin}`);
   }
-  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v));
   const resp = await fetch(url.toString(), {
     headers: { 'Zotero-API-Key': apiKey, 'Zotero-API-Version': '3' },
     signal: AbortSignal.timeout(10000),
@@ -115,7 +123,7 @@ router.get('/collections', async (req, res) => {
       limit: 100,
       sort: 'title',
     });
-    const collections = data.map((c) => ({
+    const collections = data.map((/** @type {any} */ c) => ({
       key: c.key,
       name: c.data.name,
       parentKey: c.data.parentCollection || null,
@@ -132,7 +140,11 @@ router.get('/items', async (req, res) => {
   const auth = await getZoteroAuth(req.session.userId);
   if (!auth) return res.status(401).json({ error: 'Zotero not connected' });
 
-  const { collection, q, start, limit } = req.query;
+  const collection = typeof req.query.collection === 'string' ? req.query.collection : '';
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  const start = typeof req.query.start === 'string' ? req.query.start : '';
+  const limit = typeof req.query.limit === 'string' ? req.query.limit : '';
+  /** @type {Record<string, string | number>} */
   const params = {
     limit: Math.min(parseInt(limit) || 50, 100),
     start: parseInt(start) || 0,
@@ -154,16 +166,16 @@ router.get('/items', async (req, res) => {
 
     const { data, totalResults } = await zoteroFetch(path, auth.apiKey, params);
 
-    const items = data.map((item) => ({
+    const items = data.map((/** @type {any} */ item) => ({
       key: item.key,
       type: item.data.itemType,
       title: item.data.title || '(untitled)',
-      creators: (item.data.creators || []).map((c) => c.name || [c.lastName, c.firstName].filter(Boolean).join(', ')),
+      creators: (item.data.creators || []).map((/** @type {any} */ c) => c.name || [c.lastName, c.firstName].filter(Boolean).join(', ')),
       date: item.data.date || '',
       year: item.meta?.parsedDate?.split('-')[0] || '',
       publicationTitle: item.data.publicationTitle || item.data.bookTitle || '',
       DOI: item.data.DOI || '',
-      tags: (item.data.tags || []).map((t) => t.tag),
+      tags: (item.data.tags || []).map((/** @type {any} */ t) => t.tag),
     }));
 
     res.json({ items, total: totalResults, start: params.start, limit: params.limit });
@@ -177,7 +189,7 @@ router.get('/export', async (req, res) => {
   const auth = await getZoteroAuth(req.session.userId);
   if (!auth) return res.status(401).json({ error: 'Zotero not connected' });
 
-  const { keys } = req.query; // comma-separated item keys
+  const keys = typeof req.query.keys === 'string' ? req.query.keys : ''; // comma-separated item keys
   if (!keys) return res.status(400).json({ error: 'No item keys specified' });
 
   const keyList = keys.split(',').slice(0, 100); // max 100 at once

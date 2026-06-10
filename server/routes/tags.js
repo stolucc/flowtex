@@ -1,11 +1,14 @@
+// @ts-check
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
+import { isUniqueViolation } from '../utils/dbErrors.js';
 
 const router = Router();
 
 // Validate CSS color: hex (#rgb, #rrggbb, #rrggbbaa) or named colors only
 const COLOR_RE = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+/** @param {unknown} c */
 function validColor(c) {
   return typeof c === 'string' && COLOR_RE.test(c);
 }
@@ -32,7 +35,7 @@ router.post('/', async (req, res) => {
     ]);
     res.json({ id, name: name.trim(), color: safeColor });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
+    if (isUniqueViolation(err)) return res.status(409).json({ error: 'Tag already exists' });
     throw err;
   }
 });
@@ -48,7 +51,7 @@ router.patch('/:id', async (req, res) => {
     try {
       await db.run('UPDATE tags SET name = $1 WHERE id = $2', [name.trim(), req.params.id]);
     } catch (err) {
-      if (err.code === '23505') return res.status(409).json({ error: 'Tag already exists' });
+      if (isUniqueViolation(err)) return res.status(409).json({ error: 'Tag already exists' });
       throw err;
     }
   }
