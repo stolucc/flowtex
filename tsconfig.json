@@ -1,0 +1,75 @@
+{
+  // FlowTex uses TypeScript as a LINTER over its JavaScript codebase, not
+  // as a compile pipeline. The setup is:
+  //
+  //   - `shared/types.ts` defines cross-boundary contracts.
+  //   - JS files opt in to type-checking by adding `// @ts-check` and
+  //     importing types via JSDoc `@typedef {import('shared/types.ts').Foo}`.
+  //   - `npm run typecheck` runs `tsc --noEmit` and verifies every
+  //     opted-in file agrees with the contracts.
+  //   - CI runs `typecheck` and fails the PR on disagreement.
+  //
+  // No emit, no transformation. Vite continues to handle the JS->bundle
+  // step natively; Vitest continues to run JS tests directly.
+  //
+  // The `include` list is intentionally narrow at the start. Files
+  // graduate into it by adding `// @ts-check` -- explicit opt-in beats
+  // bulk migration. Today's list: the files involved in the platform=
+  // 'macos' bug + the cross-tier surfaces.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+
+    // Lint-mode flags: never emit, only check.
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false, // each file opts in via `// @ts-check`
+    "strict": true,
+
+    // React JSX: client uses the automatic runtime via Vite.
+    "jsx": "react-jsx",
+
+    // Stylistic flags that catch real bugs.
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": false, // existing JS has noisy unused vars; revisit later
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": false, // too noisy across existing access patterns
+
+    // Resolve modules without an actual emit step.
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Where to put the build info cache so re-runs are fast.
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo"
+  },
+  "include": [
+    "shared/types.ts",
+    // First opted-in JS files. Adding more is one-line each (add the
+    // path here + `// @ts-check` at the top of the file).
+    //
+    // helperBridge.js, HelperStatusIndicator.jsx, and useHelperStatus.js
+    // are NOT yet opted in -- they have ~30 implicit-any errors each
+    // (untyped fetch responses, untyped destructured params, etc.) that
+    // need methodical cleanup. Tracked as follow-up; opting them in
+    // here without the cleanup would just turn CI red.
+    "client/src/utils/platformDetect.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "client/dist",
+    "client/public",
+    "server/public",
+    "server/node_modules",
+    "client/node_modules",
+    "shared/node_modules"
+  ]
+}

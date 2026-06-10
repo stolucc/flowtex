@@ -91,6 +91,8 @@ jobs:
         working-directory: client
       - name: ESLint
         run: npm run lint
+      - name: TypeScript check (opted-in JS via // @ts-check)
+        run: npm run typecheck
       - name: npm audit (root, prod only)
         run: npm audit --omit=dev --audit-level=high
       - name: npm audit (server, prod only)

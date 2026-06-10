@@ -1,15 +1,21 @@
+// @ts-check
 // Best-effort detection of the user's OS and CPU arch from the
 // browser. Used to pick which flowtex-helper binary to offer for
 // download. Conservative: when we can't tell, we offer all variants
 // rather than guessing.
+//
+// Type contracts: Platform / OperatingSystem / Architecture from
+// shared/types.ts. Opted into ts-check (see tsconfig.json include).
+
+/** @typedef {import('../../../shared/types.ts').Platform} Platform */
 
 /**
- * Returns one of:
- *   { os: 'darwin', arch: 'arm64' }
- *   { os: 'darwin', arch: 'amd64' }
- *   { os: 'linux',  arch: 'amd64' }
- *   { os: 'windows' }                 — no helper build available yet
- *   { os: 'unknown' }                 — fall through to "all platforms" UI
+ * Returns the detected OS + arch, falling back to { os: 'unknown' }
+ * when navigator is missing or we can't classify the UA. Sync by
+ * design -- the indicator renders during initial paint and can't
+ * wait for the userAgentData async API.
+ *
+ * @returns {Platform}
  */
 export function detectPlatform() {
   if (typeof navigator === 'undefined') return { os: 'unknown' };
@@ -40,6 +46,9 @@ export function detectPlatform() {
 /**
  * GitHub release asset name for a given platform. Returns null for
  * platforms we don't ship pre-built (windows, unknown).
+ *
+ * @param {Platform} plat
+ * @returns {string | null}
  */
 export function helperAssetName(plat) {
   if (plat.os === 'darwin') return `flowtex-helper-darwin-${plat.arch || 'arm64'}`;
@@ -52,6 +61,10 @@ export function helperAssetName(plat) {
  * must have at least one helper-v* tag pushed for this to resolve;
  * before that, the URL 404s and the UI shows the "build from source"
  * fallback.
+ *
+ * @param {Platform} plat
+ * @param {string} [repo]
+ * @returns {string | null}
  */
 export function helperDownloadURL(plat, repo = 'stolucc/flowtex') {
   const asset = helperAssetName(plat);
@@ -63,6 +76,10 @@ export function helperDownloadURL(plat, repo = 'stolucc/flowtex') {
  * URL to the latest macOS .dmg installer. The .dmg wraps the same Mach-O
  * the raw download offers, plus an Info.plist that turns it into a
  * menu-bar app — the recommended path for non-CLI users.
+ *
+ * @param {Platform} plat
+ * @param {string} [repo]
+ * @returns {string | null}
  */
 export function helperDmgURL(plat, repo = 'stolucc/flowtex') {
   if (plat.os !== 'darwin') return null;
@@ -70,7 +87,12 @@ export function helperDmgURL(plat, repo = 'stolucc/flowtex') {
   return `https://github.com/${repo}/releases/latest/download/FlowTex-Helper-${arch}.dmg`;
 }
 
-/** Repo URL — used for "all releases" fallback links. */
+/**
+ * Repo URL — used for "all releases" fallback links.
+ *
+ * @param {string} [repo]
+ * @returns {string}
+ */
 export function helperReleasesURL(repo = 'stolucc/flowtex') {
   return `https://github.com/${repo}/releases`;
 }
