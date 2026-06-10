@@ -1,3 +1,4 @@
+// @ts-check
 // YJS-MIGRATION phase 2 — server-side Y.Doc room.
 //
 // Holds one Y.Doc per (project_id, file_id) for the duration that at
@@ -44,11 +45,32 @@ const MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024;
 //   room.refCount        number of WS clients currently joined
 //   room.snapshotTimer   pending setTimeout id (or null)
 //   room.dirty           true iff there are unpersisted updates
+/**
+ * @typedef {{
+ *   projectId: string,
+ *   fileId: string,
+ *   ydoc: import('yjs').Doc,
+ *   refCount: number,
+ *   snapshotTimer: ReturnType<typeof setTimeout> | null,
+ *   dirty: boolean,
+ * }} Room
+ */
+
+/** @type {Map<string, Room>} */
 const rooms = new Map();
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @returns {string}
+ */
 const keyFor = (projectId, fileId) => `${projectId}:${fileId}`;
 
 /** For tests / observability. */
 export function _peekRoomCount() { return rooms.size; }
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export function _peekRoom(projectId, fileId) { return rooms.get(keyFor(projectId, fileId)); }
 
 /**
@@ -58,6 +80,10 @@ export function _peekRoom(projectId, fileId) { return rooms.get(keyFor(projectId
  * go through services/yjsRoomSelector rather than importing
  * `_peekRoom` directly. The underscore-prefixed variants remain for
  * tests + observability scripts.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
  */
 export function peekRoom(projectId, fileId) {
   return rooms.get(keyFor(projectId, fileId));
@@ -79,6 +105,11 @@ export function _clearRooms() {
  * as "drop the message" -- handleYjsUpdate has already verified the
  * fileId belongs to the project, so a missing row here means the
  * file was deleted between the upstream check and this lookup).
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @returns {Promise<Room | null | undefined>}
  */
 export async function acquireRoom(projectId, fileId) {
   const k = keyFor(projectId, fileId);
@@ -152,6 +183,11 @@ export async function acquireRoom(projectId, fileId) {
  * either -- can happen if the room was released between dispatch and
  * apply).
  */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {Uint8Array} updateBytes
+ */
 export function applyUpdate(projectId, fileId, updateBytes) {
   const room = rooms.get(keyFor(projectId, fileId));
   if (!room) return;
@@ -186,6 +222,10 @@ export function applyUpdate(projectId, fileId, updateBytes) {
  * the client's `applyUpdateV2` expects on the wire when bringing a
  * late joiner up to date.
  */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export function encodeStateAsUpdate(projectId, fileId) {
   const room = rooms.get(keyFor(projectId, fileId));
   if (!room) return null;
@@ -197,6 +237,10 @@ export function encodeStateAsUpdate(projectId, fileId) {
  * flush a final snapshot synchronously and free the in-memory Y.Doc.
  * Safe to call with a never-acquired (project, file) -- treated as a
  * no-op.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
  */
 export async function releaseRoom(projectId, fileId) {
   const k = keyFor(projectId, fileId);
@@ -219,6 +263,7 @@ export async function releaseRoom(projectId, fileId) {
   setYjsRoomsActive(rooms.size);
 }
 
+/** @param {Room} room */
 function scheduleSnapshot(room) {
   if (room.snapshotTimer) return;
   room.snapshotTimer = setTimeout(() => {
@@ -234,6 +279,7 @@ function scheduleSnapshot(room) {
   if (typeof room.snapshotTimer.unref === 'function') room.snapshotTimer.unref();
 }
 
+/** @param {Room} room */
 async function persistSnapshot(room) {
   if (!room.dirty) return;
   const bytes = Y.encodeStateAsUpdateV2(room.ydoc);

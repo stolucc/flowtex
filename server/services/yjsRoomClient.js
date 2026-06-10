@@ -1,3 +1,4 @@
+// @ts-check
 // YJS-WORKER-SPLIT phase 1 -- web-side proxy for the Y.Doc worker.
 //
 // Same four-method shape as `services/yjsRoom.js` so callers can be
@@ -41,13 +42,20 @@ const REPLY_KEY_PREFIX = 'flowtex:yjs:state-reply';
 const REPLY_TIMEOUT_MS = 5000;
 const REPLY_POLL_INTERVAL_MS = 50;
 
+/** @typedef {import('ioredis').Redis} Redis */
+
+/** @type {Redis | null} */
 let redis = null;
+/** @type {Redis | null} */
 let blockingRedis = null;
 
 /**
  * Inject a Redis client. Called from `index.js` at boot when the
  * selector decides the worker path is active. Separate from the
  * `ioredis` import so tests can pass an in-memory mock.
+ *
+ * @param {Redis} client
+ * @param {{ blockingClient?: Redis }} [opts]
  */
 export function setRedisClient(client, opts = {}) {
   redis = client;
@@ -76,6 +84,10 @@ function assertReady() {
  * Returns null if the file row is missing -- caller falls back the
  * same way the in-process path does.
  */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export async function acquireRoom(projectId, fileId) {
   if (!projectId || !fileId) return null;
   return {
@@ -102,6 +114,10 @@ export async function acquireRoom(projectId, fileId) {
  * resolution shows up in tracing as hot, but for now the legacy
  * fallback is the right answer.
  */
+/**
+ * @param {string} _projectId
+ * @param {string} _fileId
+ */
 export function peekRoom(_projectId, _fileId) {
   return null;
 }
@@ -112,6 +128,11 @@ export function peekRoom(_projectId, _fileId) {
  *
  * Returns true iff the XADD succeeded. Logged + swallowed on
  * failure so a transient Redis hiccup can't crash the WS handler.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {Uint8Array} updateBytes
  */
 export async function applyUpdate(projectId, fileId, updateBytes) {
   if (!redis) return false;
@@ -145,6 +166,10 @@ export async function applyUpdate(projectId, fileId, updateBytes) {
  *
  * Returns the binary state (Uint8Array) on success, null on timeout
  * or transport failure.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
  */
 export async function encodeStateAsUpdate(projectId, fileId) {
   if (!redis || !blockingRedis) return null;
@@ -191,6 +216,10 @@ export async function encodeStateAsUpdate(projectId, fileId) {
  * releaseRoom -- tell the worker we're done. The worker is the only
  * one ref-counting; the web tier just announces departure so the
  * worker can free idle rooms.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
  */
 export async function releaseRoom(projectId, fileId) {
   if (!redis) return;

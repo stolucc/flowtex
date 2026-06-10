@@ -80,7 +80,9 @@
     "server/services/yjsRoomSelector.js",
     "server/services/blobStore.js",
     "server/services/blobPersistor.js",
-    "server/services/blobGc.js"
+    "server/services/blobGc.js",
+    "server/services/yjsRoom.js",
+    "server/services/yjsRoomClient.js"
   ],
   "exclude": [
     "node_modules",
