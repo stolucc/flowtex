@@ -1,3 +1,4 @@
+// @ts-check
 // HelperStatusIndicator: persistent toolbar dot + popover for the local
 // helper. Replaces the previous "go hunt through three menus" UX with a
 // single always-visible affordance.
@@ -29,20 +30,37 @@ import {
   helperReleasesURL,
 } from '../utils/platformDetect.js';
 
+/** @typedef {import('../../../shared/types.ts').HelperStatus} HelperStatus */
+/** @typedef {import('../../../shared/types.ts').LatestHelperVersionResponse} LatestHelperVersionResponse */
+/** @typedef {import('../../../shared/types.ts').Platform} Platform */
+
 const COLOR_OK = '#16a34a';
 const COLOR_WARN = '#f59e0b';
 const COLOR_FAIL = '#ef4444';
 const COLOR_PENDING = 'var(--text-muted)';
 
+/**
+ * @param {{ onOpenSettings?: () => void, onOpenGuide?: () => void }} props
+ */
 export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
-  const { status, redetect } = useHelperStatusContext();
+  // useHelperStatusContext returns the union shape but isn't itself
+  // typed yet (the context module is still pure JS). Cast at the
+  // boundary so the rest of this file gets the proper discrimination.
+  const ctx = /** @type {{ status: HelperStatus, redetect: () => void }} */ (
+    useHelperStatusContext()
+  );
+  const { status, redetect } = ctx;
   const [open, setOpen] = useState(false);
-  const [latestRelease, setLatestRelease] = useState(null);
+  /** @type {[LatestHelperVersionResponse | null, (v: LatestHelperVersionResponse | null) => void]} */
+  const [latestRelease, setLatestRelease] = useState(
+    /** @type {LatestHelperVersionResponse | null} */ (null),
+  );
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
 
   useEffect(() => {
     if (!open) return undefined;
+    /** @param {KeyboardEvent} e */
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -120,11 +138,16 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
             <span className="helper-status-popover-title">{label}</span>
           </div>
 
-          {mode === 'paired' && (
+          {/* Discriminator-based JSX: each branch reads status.available
+              or status.error directly so the type narrowing fires. The
+              `mode` variable still drives the dot color + label at the
+              top, but inside the JSX we re-check the discriminator so
+              TypeScript can prove which fields exist. */}
+          {status.available && (
             <>
               <div className="helper-status-popover-meta">
                 <div>TeX Live: <strong>{status.year || 'unknown year'}</strong></div>
-                {status.enginesAvailable?.length > 0 && (
+                {status.enginesAvailable && status.enginesAvailable.length > 0 && (
                   <div>Engines: {status.enginesAvailable.join(', ')}</div>
                 )}
                 <HelperVersionLine
@@ -156,7 +179,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
             </>
           )}
 
-          {mode === 'unpaired' && (
+          {!status.available && status.error === 'unpaired' && (
             <>
               <div className="helper-status-popover-meta">
                 <p>
@@ -196,7 +219,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
             </>
           )}
 
-          {mode === 'missing' && (
+          {!status.available && status.error === 'unreachable' && (
             <>
               <div className="helper-status-popover-meta">
                 <p>
@@ -258,6 +281,12 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
   );
 }
 
+/**
+ * @param {{
+ *   primary: React.ReactNode,
+ *   secondary?: React.ReactNode[]
+ * }} props
+ */
 function PopoverActions({ primary, secondary }) {
   return (
     <div className="helper-status-popover-actions">
@@ -268,6 +297,8 @@ function PopoverActions({ primary, secondary }) {
     </div>
   );
 }
+
+/** @typedef {'unknown' | 'up-to-date' | 'older' | 'newer'} VersionVerdict */
 
 // Compare installed helper version against the latest published
 // release. Returns 'unknown' for helpers that predate the
@@ -280,8 +311,14 @@ function PopoverActions({ primary, secondary }) {
 // (helper-vX.Y.Z tags), so we don't need to handle pre-release suffixes
 // or build metadata. If the format diverges in the future, fall back
 // to "unknown" rather than guessing.
+/**
+ * @param {string | null | undefined} installed
+ * @param {string | null | undefined} latest
+ * @returns {VersionVerdict}
+ */
 function compareHelperVersion(installed, latest) {
   if (!installed || !latest) return 'unknown';
+  /** @param {string} s */
   const parse = (s) => {
     const m = /^(\d+)\.(\d+)\.(\d+)/.exec(s);
     return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
@@ -290,12 +327,22 @@ function compareHelperVersion(installed, latest) {
   const b = parse(latest);
   if (!a || !b) return 'unknown';
   for (let i = 0; i < 3; i++) {
-    if (a[i] < b[i]) return 'older';
-    if (a[i] > b[i]) return 'newer';
+    // a and b are 3-tuples by construction (parse returns null
+    // otherwise) so the bracket index is always defined.
+    const ai = /** @type {number} */ (a[i]);
+    const bi = /** @type {number} */ (b[i]);
+    if (ai < bi) return 'older';
+    if (ai > bi) return 'newer';
   }
   return 'up-to-date';
 }
 
+/**
+ * @param {{
+ *   installed: string | null | undefined,
+ *   latest: string | null | undefined
+ * }} props
+ */
 function HelperVersionLine({ installed, latest }) {
   const verdict = compareHelperVersion(installed, latest);
   if (verdict === 'older') {
@@ -331,6 +378,10 @@ function HelperVersionLine({ installed, latest }) {
   return null;
 }
 
+/**
+ * @param {Platform | undefined | null} p
+ * @returns {string}
+ */
 function labelForPlatform(p) {
   if (!p) return 'your platform';
   if (p.os === 'darwin') return 'macOS';
