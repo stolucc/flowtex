@@ -1,3 +1,4 @@
+// @ts-check
 import { v4 as uuid } from 'uuid';
 import path from 'node:path';
 import { rm as fsRm } from 'node:fs/promises';
@@ -8,6 +9,9 @@ import { PROJECTS_DIR } from '../paths.js';
 import { hashPassword, verifyPassword, needsRehash } from '../utils/passwordHash.js';
 import crypto from 'crypto';
 import * as OTPAuth from 'otpauth';
+// qrcode has no bundled .d.ts and we deliberately skip @types/qrcode
+// to avoid the same duplicate-@types/express trap that bit projects.js.
+// @ts-ignore
 import QRCode from 'qrcode';
 import db from '../db.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
@@ -29,6 +33,7 @@ setInterval(() => {
 }, 60000).unref();
 
 /** Decrypt an encrypted TOTP secret, falling back to the raw value if decryption fails. */
+/** @param {string | null | undefined} encrypted */
 export function decryptTotpSecret(encrypted) {
   if (!encrypted) return null;
   try {
@@ -65,6 +70,7 @@ export function validatePassword(password) {
  * outage doesn't lock users out of password changes; set
  * `DISABLE_HIBP_CHECK=1` to skip entirely (e.g. offline deploys).
  */
+/** @param {string} password */
 export async function checkPasswordNotBreached(password) {
   if (process.env.DISABLE_HIBP_CHECK === '1') return;
   const sha1 = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
@@ -87,7 +93,8 @@ export async function checkPasswordNotBreached(password) {
       }
     }
   } catch (err) {
-    if (err.status === 400) throw err; // re-throw our own breach error
+    const e = /** @type {{ status?: number }} */ (err && typeof err === 'object' ? err : {});
+    if (e.status === 400) throw err; // re-throw our own breach error
     // Otherwise fail-open: network/timeout/parse issues shouldn't block password changes.
   }
 }
@@ -120,7 +127,11 @@ export async function checkPasswordNotBreached(password) {
 // the un-protected function around as a public export was an
 // invitation for a future caller to reintroduce the gap.
 
-/** Record a login attempt; on success, clear previous failures for that email. */
+/** Record a login attempt; on success, clear previous failures for that email.
+ *  @param {string} email
+ *  @param {string | null | undefined} ip
+ *  @param {boolean} success
+ */
 export async function recordLoginAttempt(email, ip, success) {
   await db.run('INSERT INTO login_attempts (email, ip, success) VALUES ($1, $2, $3)', [email, ip || null, success]);
   if (success) await db.run('DELETE FROM login_attempts WHERE email = $1 AND success = FALSE', [email]);
@@ -143,6 +154,11 @@ export async function recordLoginAttempt(email, ip, success) {
  * @returns the same shape as authenticateUser, OR
  *   { error: 'Too many failed attempts...', status: 429 } when locked.
  */
+/**
+ * @param {string} email
+ * @param {string} password
+ * @param {string | null | undefined} ip
+ */
 export async function attemptLogin(email, password, ip) {
   const normalizedEmail = email.toLowerCase().trim();
   return await db.transaction(async (tx) => {
@@ -153,7 +169,7 @@ export async function attemptLogin(email, password, ip) {
     // Inline lockout check using tx so the count is observed live
     // against this tx's snapshot. Mirrors isAccountLocked's two-tier
     // rule (per-email + per-(email,ip) + per-ip).
-    const countQuery = async (sql, params) => {
+    const countQuery = async (/** @type {string} */ sql, /** @type {unknown[]} */ params) => {
       const r = await tx.get(sql, params);
       return parseInt(r?.cnt || 0);
     };
@@ -229,6 +245,10 @@ export async function attemptLogin(email, password, ip) {
  * DB failure during TOTP verify is treated as a reject. The user
  * sees a misleading message but doesn't get an unintended bypass.
  */
+/**
+ * @param {string} userId
+ * @param {string} code
+ */
 async function tryClaimTotpCode(userId, code) {
   const key = `${userId}:${code}`;
   if (usedTotpCodes.has(key)) return false;
@@ -251,7 +271,18 @@ async function tryClaimTotpCode(userId, code) {
 
 /**
  * Register a new user account (unverified).
- * @returns {{id, email, name, totpEnabled, isAdmin, emailVerified}} The new user.
+ * @param {string} email
+ * @param {string} name
+ * @param {string} password
+ * @returns {Promise<{
+ *   id: string | null,
+ *   email: string,
+ *   name: string | null,
+ *   totpEnabled: boolean,
+ *   isAdmin: boolean,
+ *   emailVerified: boolean,
+ *   alreadyExisted: boolean,
+ * }>}
  */
 export async function registerUser(email, name, password) {
   const pwError = validatePassword(password);
@@ -303,7 +334,8 @@ export async function registerUser(email, name, password) {
 
 /**
  * Create an email verification token (rate-limited to 3/hour).
- * @returns {string|null} The raw token, or null if rate-limited.
+ * @param {string | undefined} userId
+ * @returns {Promise<string|null>} The raw token, or null if rate-limited.
  */
 export async function createEmailVerificationToken(userId) {
   // GG3 (audit round 18): same DD1-shape race -- COUNT + INSERT
@@ -359,7 +391,8 @@ export async function createEmailVerificationToken(userId) {
  * bigger compromise. And re-verifying an already-verified account
  * is a no-op, so there's no extra power gained.
  *
- * @returns {string} The verified user's ID.
+ * @param {string} token
+ * @returns {Promise<string>} The verified user's ID.
  */
 export async function verifyEmail(token) {
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -423,12 +456,17 @@ export async function verifyEmail(token) {
 // but still produce a generic "Invalid credentials" response).
 // Computed lazily on first need to avoid burning Argon2id-CPU at every
 // process start. After init this is just a string comparison.
+/** @type {string | null} */
 let dummyArgon2Hash = null;
 async function getDummyArgon2Hash() {
   if (!dummyArgon2Hash) dummyArgon2Hash = await hashPassword('not-a-real-password');
   return dummyArgon2Hash;
 }
 
+/**
+ * @param {string} email
+ * @param {string} password
+ */
 export async function authenticateUser(email, password) {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await db.get(
@@ -479,10 +517,16 @@ export async function authenticateUser(email, password) {
   return { user };
 }
 
-/** Verify a TOTP code, rejecting replays. */
+/** Verify a TOTP code, rejecting replays.
+ *  @param {string} userId
+ *  @param {string} code
+ *  @param {string} totpSecret
+ */
 export async function verifyTotp(userId, code, totpSecret) {
   const totp = new OTPAuth.TOTP({
-    secret: OTPAuth.Secret.fromBase32(decryptTotpSecret(totpSecret)),
+    // decryptTotpSecret returns string|null; reaching here implies
+    // user has totp_enabled=true so the secret is present.
+    secret: OTPAuth.Secret.fromBase32(/** @type {string} */ (decryptTotpSecret(totpSecret))),
     algorithm: 'SHA1',
     digits: 6,
     period: 30,
@@ -512,6 +556,13 @@ export async function verifyTotp(userId, code, totpSecret) {
  * @returns the same shape as verifyTotp, OR
  *   { error: 'Too many failed attempts...', status: 429 } when locked.
  */
+/**
+ * @param {string} userId
+ * @param {string} code
+ * @param {string} totpSecret
+ * @param {string} email
+ * @param {string | null | undefined} ip
+ */
 export async function verifyTotpWithLockout(userId, code, totpSecret, email, ip) {
   const normalizedEmail = email.toLowerCase().trim();
   return await db.transaction(async (tx) => {
@@ -519,7 +570,7 @@ export async function verifyTotpWithLockout(userId, code, totpSecret, email, ip)
 
     // Mirror the per-email/-(email,ip)/-ip lockout check from
     // attemptLogin so this path uses the same threshold.
-    const countQuery = async (sql, params) => {
+    const countQuery = async (/** @type {string} */ sql, /** @type {unknown[]} */ params) => {
       const r = await tx.get(sql, params);
       return parseInt(r?.cnt || 0);
     };
@@ -569,7 +620,11 @@ export async function verifyTotpWithLockout(userId, code, totpSecret, email, ip)
 const TRUST_DAYS = 7;
 const TRUST_MS = TRUST_DAYS * 24 * 60 * 60 * 1000;
 
-/** Create a trusted-device token for MFA bypass. */
+/** Create a trusted-device token for MFA bypass.
+ *  @param {string} userId
+ *  @param {string | undefined} userAgent
+ *  @returns {Promise<{ token: string, maxAge: number }>}
+ */
 export async function createTrustedDevice(userId, userAgent) {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -587,8 +642,9 @@ export async function createTrustedDevice(userId, userAgent) {
  * of cookie theft: an attacker who replays a stolen cookie races the real
  * user, and only one of them keeps the bypass.
  *
- * @returns {null|{token, maxAge}} null if invalid/expired; otherwise the
- *   new cookie value the caller should set in the response.
+ * @param {string} userId
+ * @param {string | undefined} trustCookie
+ * @returns {Promise<{ token: string, maxAge: number } | null>}
  */
 export async function checkTrustedDevice(userId, trustCookie) {
   if (!trustCookie) return null;
@@ -620,6 +676,7 @@ export async function checkTrustedDevice(userId, trustCookie) {
 }
 
 /** Fetch the current user's profile (id, email, name, totpEnabled, isAdmin, compileLocation, serverFeatures). */
+/** @param {string | undefined} userId */
 export async function getCurrentUser(userId) {
   const user = await db.get(
     'SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1',
@@ -650,6 +707,10 @@ export async function getCurrentUser(userId) {
 }
 
 /** Update a user's mutable profile fields (name, optionally compile_location). */
+/**
+ * @param {string | undefined} userId
+ * @param {{ name?: string, compile_location?: string }} args
+ */
 export async function updateProfile(userId, { name, compile_location }) {
   if (name !== undefined) {
     // Strip CR/LF so the name can't inject email headers when reused in subjects.
@@ -670,7 +731,9 @@ export async function updateProfile(userId, { name, compile_location }) {
 
 // --- TOTP management ---
 
-/** Generate a TOTP secret and QR code for MFA setup (does not enable yet). */
+/** Generate a TOTP secret and QR code for MFA setup (does not enable yet).
+ *  @param {string | undefined} userId
+ */
 export async function setupTotp(userId) {
   const user = await db.get('SELECT id, email, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -690,7 +753,10 @@ export async function setupTotp(userId) {
   return { secret: secret.base32, qrCode: qrDataUrl };
 }
 
-/** Verify a TOTP code against the pending secret and enable MFA for the user. */
+/** Verify a TOTP code against the pending secret and enable MFA for the user.
+ *  @param {string | undefined} userId
+ *  @param {string} code
+ */
 export async function verifyAndEnableTotp(userId, code) {
   const user = await db.get('SELECT id, totp_secret, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -698,7 +764,7 @@ export async function verifyAndEnableTotp(userId, code) {
   if (user.totp_enabled) throw Object.assign(new Error('MFA is already enabled'), { status: 400 });
 
   const totp = new OTPAuth.TOTP({
-    secret: OTPAuth.Secret.fromBase32(decryptTotpSecret(user.totp_secret)),
+    secret: OTPAuth.Secret.fromBase32(/** @type {string} */ (decryptTotpSecret(user.totp_secret))),
     algorithm: 'SHA1',
     digits: 6,
     period: 30,
@@ -709,7 +775,10 @@ export async function verifyAndEnableTotp(userId, code) {
   await db.run('UPDATE users SET totp_enabled = TRUE WHERE id = $1', [user.id]);
 }
 
-/** Disable MFA after verifying the user's password. */
+/** Disable MFA after verifying the user's password.
+ *  @param {string | undefined} userId
+ *  @param {string} password
+ */
 export async function disableTotp(userId, password) {
   const user = await db.get('SELECT id, password_hash, totp_enabled FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -726,7 +795,8 @@ export async function disableTotp(userId, password) {
 
 /**
  * Create a password-reset token (rate-limited to 3/hour).
- * @returns {{token, userId, email}|null} Null if user not found or rate-limited.
+ * @param {string} email
+ * @returns {Promise<{ token: string, userId: string, email: string } | null>} Null if user not found or rate-limited.
  */
 export async function createPasswordResetToken(email) {
   const normalizedEmail = email.toLowerCase().trim();
@@ -761,7 +831,10 @@ export async function createPasswordResetToken(email) {
   return { token, userId: user.id, email: user.email };
 }
 
-/** Reset a user's password using a valid reset token; invalidates all sessions. */
+/** Reset a user's password using a valid reset token; invalidates all sessions.
+ *  @param {string} token
+ *  @param {string} newPassword
+ */
 export async function resetPassword(token, newPassword) {
   const pwError = validatePassword(newPassword);
   if (pwError) throw Object.assign(new Error(pwError), { status: 400 });
@@ -799,7 +872,11 @@ export async function resetPassword(token, newPassword) {
   });
 }
 
-/** Change the user's email after verifying their password. */
+/** Change the user's email after verifying their password.
+ *  @param {string | undefined} userId
+ *  @param {string} password
+ *  @param {string} newEmail
+ */
 export async function changeEmail(userId, password, newEmail) {
   const normalizedEmail = newEmail.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))
@@ -836,7 +913,11 @@ export async function changeEmail(userId, password, newEmail) {
   return { email: normalizedEmail, oldEmail: user.email, name: user.name, needsVerification: true };
 }
 
-/** Change the user's password after verifying the current one. */
+/** Change the user's password after verifying the current one.
+ *  @param {string | undefined} userId
+ *  @param {string} currentPassword
+ *  @param {string} newPassword
+ */
 export async function changePassword(userId, currentPassword, newPassword) {
   const user = await db.get('SELECT id, password_hash FROM users WHERE id = $1', [userId]);
   if (!user) throw Object.assign(new Error('User not found'), { status: 401 });
@@ -866,6 +947,10 @@ export const SOFT_DELETE_WINDOW_DAYS = 30;
  *  memberships all remain intact so a restore is a clean revert. The
  *  actual cascade-and-delete only happens at the 30-day mark via
  *  purgeExpiredSoftDeletes. */
+/**
+ * @param {{ run: (sql: string, params?: unknown[]) => Promise<unknown> }} tx
+ * @param {{ id: string }} user
+ */
 async function softDeleteUserInTx(tx, user) {
   await tx.run('UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [user.id]);
   await tx.run(`DELETE FROM session WHERE sess->>'userId' = $1`, [user.id]);
@@ -884,6 +969,14 @@ async function softDeleteUserInTx(tx, user) {
  *  this, the cron-driven user-purge bypasses deleteProject() and the
  *  on-disk tree (blob files, LaTeX compile outputs) leaks per
  *  orphan-owned project the purged user had. */
+/**
+ * @param {{
+ *   run: (sql: string, params?: unknown[]) => Promise<unknown>,
+ *   get: (sql: string, params?: unknown[]) => Promise<any>,
+ *   all: (sql: string, params?: unknown[]) => Promise<any[]>,
+ * }} tx
+ * @param {{ id: string, email: string }} user
+ */
 async function purgeUserInTx(tx, user) {
   // BB3 (audit round 13): re-verify deleted_at INSIDE the tx with a row
   // lock. The cron's outer SELECT may have read a stale row -- an admin
@@ -923,7 +1016,7 @@ async function purgeUserInTx(tx, user) {
         AND NOT EXISTS (SELECT 1 FROM project_members pm2 WHERE pm2.project_id = p.id AND pm2.user_id != $1)`,
     [user.id],
   );
-  const orphanProjectIds = orphanRows.map((r) => r.id);
+  const orphanProjectIds = orphanRows.map((/** @type {{ id: string }} */ r) => r.id);
   // Drop projects where the user is the only member.
   if (orphanProjectIds.length > 0) {
     await tx.run('DELETE FROM projects WHERE id = ANY($1)', [orphanProjectIds]);
@@ -957,6 +1050,7 @@ async function purgeUserInTx(tx, user) {
 // the user-purge cron AFTER its tx commits, so a tx rollback can't leave
 // us mid-unlink. Filesystem failures are logged but don't propagate — the
 // blobGc reconciliation walk catches any blob remnants on its next pass.
+/** @param {string[]} projectIds */
 async function rmProjectDirs(projectIds) {
   for (const pid of projectIds) {
     if (!/^[0-9a-f-]{36}$/i.test(pid)) continue;
@@ -969,6 +1063,10 @@ async function rmProjectDirs(projectIds) {
   }
 }
 
+/**
+ * @param {string | undefined} userId
+ * @param {string} password
+ */
 export async function deleteAccount(userId, password) {
   const user = await db.get(
     'SELECT id, email, name, password_hash, is_admin, deleted_at FROM users WHERE id = $1',
@@ -1010,6 +1108,11 @@ export async function deleteAccount(userId, password) {
  *  (not the target's — the admin doesn't know it). Same cascade as the
  *  self-delete path. Returns { email, name } of the deleted user so the
  *  caller can send a goodbye email. */
+/**
+ * @param {string | undefined} adminId
+ * @param {string} adminPassword
+ * @param {string} targetUserId
+ */
 export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
   if (!adminId || !targetUserId) throw Object.assign(new Error('Missing ids'), { status: 400 });
   if (adminId === targetUserId) {
@@ -1060,6 +1163,11 @@ export async function adminDeleteUser(adminId, adminPassword, targetUserId) {
  *  The restored user still has to log in (their session was killed at
  *  soft-delete). Returns the restored user's email + name so the caller
  *  can send a notification. */
+/**
+ * @param {string | undefined} adminId
+ * @param {string} adminPassword
+ * @param {string} targetUserId
+ */
 export async function adminRestoreUser(adminId, adminPassword, targetUserId) {
   if (!adminId || !targetUserId) throw Object.assign(new Error('Missing ids'), { status: 400 });
   const admin = await db.get('SELECT id, password_hash, is_admin FROM users WHERE id = $1', [adminId]);
@@ -1121,9 +1229,11 @@ export async function purgeExpiredSoftDeletes() {
         AND deleted_at < NOW() - ($1 || ' days')::interval`,
     [String(SOFT_DELETE_WINDOW_DAYS)],
   );
+  /** @type {string[]} */
   const purgedIds = [];
   for (const user of expired) {
     try {
+      /** @type {string[]} */
       let orphanProjectIds = [];
       await db.transaction(async (tx) => {
         const result = await purgeUserInTx(tx, user);

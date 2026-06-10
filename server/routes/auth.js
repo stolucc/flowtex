@@ -148,7 +148,7 @@ router.post('/register', validateBody(registerSchema), async (req, res) => {
 
 /** GET /api/auth/verify-email -- Verify a user's email address via token. */
 router.get('/verify-email', async (req, res) => {
-  const { token } = req.query;
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
   if (!token) return res.status(400).json({ error: 'Verification token is required' });
   try {
     const userId = await authService.verifyEmail(token);
