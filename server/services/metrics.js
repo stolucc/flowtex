@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 5 -- Prometheus metrics surface.
 //
 // One place that owns the metric registry, the names FlowTex
@@ -113,40 +114,64 @@ const httpRequestDurationSec = new client.Histogram({
 // applyUpdate signature would be noise; a module-level default is
 // the minimal change.
 let defaultSurface = 'in-process';
+/** @param {string} name */
 export function setDefaultSurface(name) {
   if (typeof name === 'string' && name.length > 0) defaultSurface = name;
 }
 export function getDefaultSurface() { return defaultSurface; }
 
+/**
+ * @param {number} latencyMs
+ * @param {string} [result]
+ * @param {string} [surface]
+ */
 export function recordYjsApply(latencyMs, result = 'ok', surface) {
   const lbl = surface || defaultSurface;
   try { yjsApplyLatencyMs.observe({ result, surface: lbl }, latencyMs); } catch { /* nop */ }
 }
 
+/** @param {number} count */
 export function setYjsRoomsActive(count) {
   try { yjsRoomsActive.set(count); } catch { /* nop */ }
 }
 
+/** @param {number} bytes */
 export function recordYjsSnapshotBytes(bytes) {
   try { yjsSnapshotBytes.observe(bytes); } catch { /* nop */ }
 }
 
+/**
+ * @param {number} durationSec
+ * @param {{ result?: string, engine?: string }} [labels]
+ */
 export function recordCompile(durationSec, { result = 'ok', engine = 'unknown' } = {}) {
   try { compileDurationSec.observe({ result, engine }, durationSec); } catch { /* nop */ }
 }
 
+/** @param {number} depth */
 export function setCompileQueueDepth(depth) {
   try { compileQueueDepth.set(depth); } catch { /* nop */ }
 }
 
+/** @param {number} count */
 export function setWsConnectionsActive(count) {
   try { wsConnectionsActive.set(count); } catch { /* nop */ }
 }
 
+/**
+ * @param {string} type
+ * @param {'in' | 'out'} [direction]
+ */
 export function recordWsFrame(type, direction = 'in') {
   try { wsFramesTotal.inc({ type, direction }); } catch { /* nop */ }
 }
 
+/**
+ * @param {string} method
+ * @param {string} route
+ * @param {number} statusCode
+ * @param {number} durationSec
+ */
 export function recordHttpRequest(method, route, statusCode, durationSec) {
   try {
     const statusClass = `${Math.floor(statusCode / 100)}xx`;

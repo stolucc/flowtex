@@ -74,7 +74,10 @@
     "server/services/readinessCheck.js",
     "server/services/fileBytes.js",
     "server/services/errorReporter.js",
-    "server/services/quotas.js"
+    "server/services/quotas.js",
+    "server/services/metrics.js",
+    "server/services/yjsLocks.js",
+    "server/services/yjsRoomSelector.js"
   ],
   "exclude": [
     "node_modules",

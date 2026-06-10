@@ -1,3 +1,4 @@
+// @ts-check
 // YJS-WORKER-SPLIT phase 3 cutover -- selector between in-process
 // and remote Y.Doc rooms.
 //
@@ -32,8 +33,12 @@
 import * as inProcess from './yjsRoom.js';
 import * as remote from './yjsRoomClient.js';
 
+/** @typedef {{ kind: 'in-process' | 'remote', impl: typeof inProcess | typeof remote }} BackendChoice */
+
+/** @type {BackendChoice | null} */
 let active = null;
 
+/** @param {string | undefined} raw */
 function classifyExplicitFlag(raw) {
   const v = (raw || '').toLowerCase();
   if (v === 'enabled' || v === '1' || v === 'true') return 'remote';
@@ -87,10 +92,19 @@ export function _resetForTests() {
 // small. The wrappers exist so a future call site can opt in by
 // import path.
 
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export async function acquireRoom(projectId, fileId) {
   return getYjsBackend().impl.acquireRoom(projectId, fileId);
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {Uint8Array} updateBytes
+ */
 export async function applyUpdate(projectId, fileId, updateBytes) {
   const backend = getYjsBackend();
   if (backend.kind === 'in-process') {
@@ -102,6 +116,10 @@ export async function applyUpdate(projectId, fileId, updateBytes) {
   return backend.impl.applyUpdate(projectId, fileId, updateBytes);
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export async function encodeStateAsUpdate(projectId, fileId) {
   // Both backends expose the same async-resolving signature; the
   // wrapper exists for future symmetry with custom backends. Dead
@@ -111,6 +129,10 @@ export async function encodeStateAsUpdate(projectId, fileId) {
   return getYjsBackend().impl.encodeStateAsUpdate(projectId, fileId);
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ */
 export async function releaseRoom(projectId, fileId) {
   return getYjsBackend().impl.releaseRoom(projectId, fileId);
 }
@@ -122,6 +144,9 @@ export async function releaseRoom(projectId, fileId) {
  * the null return as a signal to fall back to legacy from_pos/to_pos
  * integer columns -- same path they already take when no room is
  * held in process.
+ *
+ * @param {string} projectId
+ * @param {string} fileId
  */
 export function peekRoom(projectId, fileId) {
   return getYjsBackend().impl.peekRoom(projectId, fileId);
