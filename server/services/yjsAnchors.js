@@ -1,3 +1,4 @@
+// @ts-check
 // YJS-MIGRATION phase 4 — Y.RelativePosition helpers.
 //
 // Comments (and later tracked changes) need to point at a span of
@@ -104,6 +105,11 @@ export function makeAnchorBytes(ytext, index, opts = {}) {
  * upgrade-on-touch; if it fails the row keeps using the legacy
  * integer offsets and the GET path falls back transparently.
  */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {import('yjs').Doc} ydoc
+ */
 export async function backfillCommentAnchors(projectId, fileId, ydoc) {
   if (!projectId || !fileId || !ydoc) return 0;
   let rows;
@@ -162,14 +168,23 @@ export async function backfillCommentAnchors(projectId, fileId, ydoc) {
 // values BEFORE handing the JSON to the consumer, so CRDT-driven
 // drift never reaches the wire.
 
-/** Encode a Y.RelativePosition for storage inside JSON. */
+/** Encode a Y.RelativePosition for storage inside JSON.
+ * @param {import('yjs').Text} ytext
+ * @param {number} index
+ * @param {{ side?: 'left' | 'right' }} [opts]
+ * @returns {string | null}
+ */
 export function serializeAnchorB64(ytext, index, opts) {
   const bytes = makeAnchorBytes(ytext, index, opts);
   if (!bytes) return null;
   return bytes.toString('base64');
 }
 
-/** Decode a base64-encoded Y.RelativePosition and resolve it against ydoc. */
+/** Decode a base64-encoded Y.RelativePosition and resolve it against ydoc.
+ * @param {import('yjs').Doc} ydoc
+ * @param {string | null | undefined} b64
+ * @returns {number | null}
+ */
 export function deserializeAnchorB64(ydoc, b64) {
   if (typeof b64 !== 'string' || b64.length === 0) return null;
   let bytes;
@@ -186,9 +201,13 @@ export function deserializeAnchorB64(ydoc, b64) {
  * unmodified. The end-of-span uses side='left' so typing right
  * after a tracked change doesn't extend the highlighted region.
  */
+/**
+ * @param {import('yjs').Text} ytext
+ * @param {Array<any>} marks
+ */
 export function captureTcMarkAnchors(ytext, marks) {
   if (!Array.isArray(marks) || !ytext) return marks;
-  return marks.map((m) => {
+  return marks.map((/** @type {any} */ m) => {
     if (!m || typeof m !== 'object') return m;
     if (typeof m.from !== 'number' || typeof m.to !== 'number') return m;
     const anchorStart = serializeAnchorB64(ytext, m.from);
@@ -204,9 +223,13 @@ export function captureTcMarkAnchors(ytext, marks) {
  * anchors, or whose anchors fail to resolve, fall through with
  * their legacy from / to intact.
  */
+/**
+ * @param {import('yjs').Doc} ydoc
+ * @param {Array<any>} marks
+ */
 export function resolveTcMarkAnchors(ydoc, marks) {
   if (!Array.isArray(marks) || !ydoc) return marks;
-  return marks.map((m) => {
+  return marks.map((/** @type {any} */ m) => {
     if (!m || typeof m !== 'object') return m;
     let from = m.from;
     let to = m.to;
@@ -234,6 +257,11 @@ export function resolveTcMarkAnchors(ydoc, marks) {
  * function intentionally skips that guard because it's
  * upgrade-on-touch, not a save).
  */
+/**
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {import('yjs').Doc} ydoc
+ */
 export async function backfillTcMarkAnchors(projectId, fileId, ydoc) {
   if (!projectId || !fileId || !ydoc) return 0;
   let row;
@@ -250,11 +278,11 @@ export async function backfillTcMarkAnchors(projectId, fileId, ydoc) {
   const marks = Array.isArray(row.tc_marks) ? row.tc_marks : [];
   if (marks.length === 0) return 0;
   const needsAny = marks.some(
-    (m) => m && typeof m === 'object' && (typeof m.anchorStart !== 'string' || typeof m.anchorEnd !== 'string'),
+    (/** @type {any} */ m) => m && typeof m === 'object' && (typeof m.anchorStart !== 'string' || typeof m.anchorEnd !== 'string'),
   );
   if (!needsAny) return 0;
   const ytext = ydoc.getText('content');
-  const upgraded = marks.map((m) => {
+  const upgraded = marks.map((/** @type {any} */ m) => {
     if (!m || typeof m !== 'object') return m;
     if (typeof m.anchorStart === 'string' && typeof m.anchorEnd === 'string') return m;
     if (typeof m.from !== 'number' || typeof m.to !== 'number') return m;
@@ -268,7 +296,10 @@ export async function backfillTcMarkAnchors(projectId, fileId, ydoc) {
   // non-numeric from/to), skip the UPDATE -- writing a no-op
   // tc_marks just bumps fragments and rewrites the JSONB for no
   // gain.
-  const changedCount = upgraded.reduce((n, m, i) => (m !== marks[i] ? n + 1 : n), 0);
+  const changedCount = upgraded.reduce(
+    (/** @type {number} */ n, /** @type {any} */ m, /** @type {number} */ i) => (m !== marks[i] ? n + 1 : n),
+    0,
+  );
   if (changedCount === 0) return 0;
   try {
     await db.run(
@@ -282,6 +313,11 @@ export async function backfillTcMarkAnchors(projectId, fileId, ydoc) {
   }
 }
 
+/**
+ * @param {import('yjs').Doc} ydoc
+ * @param {Uint8Array | Buffer | null | undefined} bytes
+ * @returns {number | null}
+ */
 export function resolveAnchor(ydoc, bytes) {
   if (!ydoc || !bytes) return null;
   let arr;

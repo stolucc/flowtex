@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 1 -- Docker-based compile sandbox.
 //
 // Spawns latexmk inside a sibling container per compile. The image
@@ -84,7 +85,12 @@ function defaultContainerUser() {
       'run FlowTex as a non-root user, or set FLOWTEX_COMPILE_USER=<uid>:<gid> explicitly.',
     );
   }
-  return `${uid}:${process.getgid()}`;
+  // process.getgid is undefined on Windows but defined everywhere we
+  // would actually run the Docker sandbox (Linux + macOS). The Error
+  // above already handles the missing-getuid case implicitly.
+  const getgid = process.getgid;
+  if (!getgid) throw new Error('dockerCompileSandbox: process.getgid unavailable on this platform');
+  return `${uid}:${getgid()}`;
 }
 
 const SANDBOX_DEFAULTS = {
@@ -133,6 +139,7 @@ function getImage() {
  *
  * Pure function; unit-tested.
  */
+/** @param {string[]} latexmkArgs */
 export function remapLatexmkArgsForContainer(latexmkArgs) {
   if (!Array.isArray(latexmkArgs)) return latexmkArgs;
   const out = [];
@@ -168,16 +175,16 @@ export function remapLatexmkArgsForContainer(latexmkArgs) {
  * function; the actual spawn happens in runDockerCompile below. Split
  * so tests can assert the wrapping without invoking Docker.
  *
- * @param {object} args
- * @param {string} args.projectDir   absolute path on host
- * @param {string[]} args.latexmkArgs argv that would have been passed
- *                                    to `latexmk` directly (host-shape;
- *                                    remapped to container-shape inside
- *                                    this function -- see
- *                                    remapLatexmkArgsForContainer)
- * @param {number} args.cpuLimitSec   CPU time cap (matches the JS
- *                                    timeout window + a small grace)
- * @param {object} [opts]             defaults overrides for tests
+ * @typedef {{
+ *   memory: string,
+ *   pidsLimit: number,
+ *   cpus: string,
+ *   tmpfsSize: string,
+ *   user: string,
+ * }} SandboxOpts
+ *
+ * @param {{ projectDir: string, latexmkArgs: string[], cpuLimitSec: number }} args
+ * @param {SandboxOpts} [opts]
  */
 export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts = SANDBOX_DEFAULTS) {
   if (typeof projectDir !== 'string' || !projectDir.startsWith('/') || !PROJECTS_DIR_RE.test(projectDir)) {
@@ -224,6 +231,15 @@ export function buildDockerArgs({ projectDir, latexmkArgs, cpuLimitSec }, opts =
  * `child.stdout.on('data')`. Without this the compile-stream SSE
  * sees no output between "Compiling..." and the final `done` event,
  * which looks like the compile is hung even when it's running.
+ */
+/**
+ * @param {{
+ *   projectDir: string,
+ *   latexmkArgs: string[],
+ *   timeoutMs: number,
+ *   env?: Record<string, string>,
+ *   onOutput?: (chunk: string) => void
+ * }} args
  */
 export async function runDockerCompile({ projectDir, latexmkArgs, timeoutMs, env, onOutput }) {
   const cpuLimitSec = Math.ceil(timeoutMs / 1000) + 10;

@@ -82,7 +82,9 @@
     "server/services/blobPersistor.js",
     "server/services/blobGc.js",
     "server/services/yjsRoom.js",
-    "server/services/yjsRoomClient.js"
+    "server/services/yjsRoomClient.js",
+    "server/services/yjsAnchors.js",
+    "server/services/dockerCompileSandbox.js"
   ],
   "exclude": [
     "node_modules",
