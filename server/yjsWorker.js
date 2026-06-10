@@ -1,3 +1,4 @@
+// @ts-check
 // YJS-WORKER-SPLIT phase 2 -- standalone Y.Doc worker process with
 // consumer groups + per-room ownership locks.
 //
@@ -50,17 +51,28 @@ const LOCK_RENEW_INTERVAL_MS = 10000;
 const PEL_RECLAIM_AFTER_MS = 30000;
 const PEL_RECLAIM_INTERVAL_MS = 15000;
 
+/** @typedef {import('ioredis').Redis} RedisClient */
+
+/** @type {Set<string>} */
 const heldRooms = new Set();
+/** @param {string} p
+ *  @param {string} f
+ */
 const keyFor = (p, f) => `${p}:${f}`;
 
 let stopRequested = false;
+/** @type {RedisClient | undefined} */
 let redis;
+/** @type {ReturnType<typeof setInterval> | null} */
 let renewTimer = null;
+/** @type {ReturnType<typeof setInterval> | null} */
 let reclaimTimer = null;
+/** @type {import('node:http').Server | null} */
 let metricsHttpServer = null;
 
 // ── Consumer-group setup ─────────────────────────────────────────────────
 
+/** @param {RedisClient} client */
 async function ensureConsumerGroup(client) {
   try {
     // MKSTREAM creates the stream if it doesn't exist yet so a
@@ -69,7 +81,7 @@ async function ensureConsumerGroup(client) {
     await client.xgroup('CREATE', STREAM_KEY, CONSUMER_GROUP, '$', 'MKSTREAM');
     logger.info({ stream: STREAM_KEY, group: CONSUMER_GROUP }, 'yjsWorker: consumer group created');
   } catch (err) {
-    if (err && /BUSYGROUP/.test(err.message || '')) {
+    if (err && /BUSYGROUP/.test((err instanceof Error ? err.message : '') || '')) {
       // Group already exists -- expected on every boot after the
       // first.
       logger.info({ stream: STREAM_KEY, group: CONSUMER_GROUP }, 'yjsWorker: consumer group already exists');
@@ -88,6 +100,17 @@ async function ensureConsumerGroup(client) {
  *   { ok: true,  ... }        applied, caller should XACK
  *   { ok: false, retryable }  caller should NOT XACK if retryable;
  *                             otherwise XACK (poison-pill entry).
+ */
+/**
+ * @param {string[]} rawFields
+ * @param {{
+ *   acquireRoom: typeof acquireRoom,
+ *   applyUpdate: typeof applyUpdate,
+ *   encodeStateAsUpdate: typeof encodeStateAsUpdate,
+ *   releaseRoom: typeof releaseRoom,
+ *   redis: RedisClient | undefined,
+ *   consumerName: string,
+ * }} [deps]
  */
 export async function dispatchEntry(rawFields, deps = { acquireRoom, applyUpdate, encodeStateAsUpdate, releaseRoom, redis, consumerName: CONSUMER_NAME }) {
   // Object.create(null) instead of {} so an attacker with Redis
@@ -217,13 +240,15 @@ export async function dispatchEntry(rawFields, deps = { acquireRoom, applyUpdate
 // ── Read loop ────────────────────────────────────────────────────────────
 
 async function readStreamLoop() {
+  if (!redis) return;
   await ensureConsumerGroup(redis);
   while (!stopRequested) {
+    /** @type {any} */
     let res;
     try {
       // ">" tells Redis "give me entries delivered after my last
       // XREADGROUP". That's the canonical consumer-group call.
-      res = await redis.xreadgroup(
+      res = await /** @type {any} */ (redis).xreadgroup(
         'GROUP', CONSUMER_GROUP, CONSUMER_NAME,
         'BLOCK', BLOCK_MS,
         'COUNT', 32,
@@ -236,7 +261,7 @@ async function readStreamLoop() {
     }
     if (!res) continue;
 
-    for (const [, entries] of res) {
+    for (const [, entries] of /** @type {Array<[string, Array<[string, string[]]>]>} */ (res)) {
       for (const [id, fields] of entries) {
         let result;
         try {
@@ -289,7 +314,7 @@ async function reclaimStaleEntries() {
         'COUNT', 32,
       );
     } catch (err) {
-      if (err && /NOGROUP/.test(err.message || '')) {
+      if (err && /NOGROUP/.test((err instanceof Error ? err.message : '') || '')) {
         // Group was deleted between boots -- recreate and try again.
         await ensureConsumerGroup(redis).catch(() => { /* ignore */ });
       } else {
@@ -299,8 +324,9 @@ async function reclaimStaleEntries() {
     }
     // ioredis returns [nextCursor, entries, deletedIds?]; we only
     // need cursor + entries.
-    const nextCursor = Array.isArray(res) ? res[0] : '0-0';
-    const entries = Array.isArray(res) && res[1] ? res[1] : [];
+    const arr = /** @type {[string, Array<[string, string[]]>] | null} */ (res);
+    const nextCursor = Array.isArray(arr) ? arr[0] : '0-0';
+    const entries = Array.isArray(arr) && arr[1] ? arr[1] : [];
     for (const [id, fields] of entries) {
       try {
         const result = await dispatchEntry(fields, {
@@ -341,6 +367,7 @@ async function renewHeldLocks() {
 
 // ── Shutdown ─────────────────────────────────────────────────────────────
 
+/** @param {string} signal */
 async function shutdown(signal) {
   if (stopRequested) return;
   stopRequested = true;
@@ -365,7 +392,8 @@ async function shutdown(signal) {
     try { await redis.quit(); } catch { /* ignore */ }
   }
   if (metricsHttpServer) {
-    await new Promise((resolve) => metricsHttpServer.close(() => resolve()));
+    const srv = metricsHttpServer;
+    await /** @type {Promise<void>} */ (new Promise((resolve) => srv.close(() => resolve())));
   }
   logger.info({ remainingRooms: _peekRoomCount() }, 'yjsWorker: shutdown complete');
   process.exit(0);
@@ -440,7 +468,7 @@ if (isMainEntrypoint()) {
     }
     res.writeHead(404); res.end();
   });
-  metricsHttpServer.on('error', (err) => {
+  metricsHttpServer.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
     if (err.code === 'EADDRINUSE') {
       logger.warn({ port: metricsPort }, 'yjsWorker: metrics port busy; continuing without HTTP');
     } else {

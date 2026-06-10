@@ -133,7 +133,8 @@
     "server/utils/rebuildAnalyzer.js",
     "server/utils/gitSync.js",
     "server/utils/templates.js",
-    "server/utils/email.js"
+    "server/utils/email.js",
+    "server/yjsWorker.js"
   ],
   "exclude": [
     "node_modules",

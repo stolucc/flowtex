@@ -61,7 +61,7 @@ export function lockKey(projectId, fileId) {
 /**
  * Attempt to acquire the lock for (projectId, fileId).
  *
- * @param {Redis} redis
+ * @param {Redis | undefined} redis
  * @param {string} consumerId    this worker's identity
  * @param {string} projectId
  * @param {string} fileId
@@ -91,7 +91,7 @@ export async function acquireLock(redis, consumerId, projectId, fileId, ttlSec =
  *
  * Returns true iff the renewal succeeded (we still own it).
  *
- * @param {Redis} redis
+ * @param {Redis | undefined} redis
  * @param {string} consumerId
  * @param {string} projectId
  * @param {string} fileId
@@ -113,7 +113,7 @@ export async function renewLock(redis, consumerId, projectId, fileId, ttlSec = D
  * our consumerId). Safe to call on a lock we never held -- returns
  * false in that case.
  *
- * @param {Redis} redis
+ * @param {Redis | undefined} redis
  * @param {string} consumerId
  * @param {string} projectId
  * @param {string} fileId
@@ -133,7 +133,7 @@ export async function releaseLock(redis, consumerId, projectId, fileId) {
  * Check the current lock holder without modifying anything. Returns
  * the consumerId string, or null if no lock is held.
  *
- * @param {Redis} redis
+ * @param {Redis | undefined} redis
  * @param {string} projectId
  * @param {string} fileId
  * @returns {Promise<string | null>}
