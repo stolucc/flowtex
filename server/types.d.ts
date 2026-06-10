@@ -28,6 +28,12 @@ declare module 'express-session' {
     samlNameId?: string;
     /** When authMethod=='saml', for SLO LogoutRequest construction. */
     samlSessionIndex?: string;
+    /** GitHub OAuth state nonce. Stashed before redirecting to GitHub
+     *  so the callback can verify the state belongs to this session
+     *  (anti-CSRF for OAuth2). Cleared after consumption. */
+    githubOAuthState?: string;
+    /** GitHub OAuth post-callback returnTo path. */
+    githubOAuthReturnTo?: string;
     /** SAML confirm-link interstitial state. Set on /acs when an
      *  existing password user logs in via SAML; cleared by
      *  /confirm-link or /cancel-link. 10-minute TTL enforced via

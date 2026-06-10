@@ -68,7 +68,7 @@ export async function requireAdmin(req, res, next) {
 /**
  * Check project membership and send 403 if not a member.
  * @param {string} projectId
- * @param {string} userId
+ * @param {string | undefined} userId
  * @param {import('express').Response} res
  * @returns {Promise<ProjectMembership | null>} The membership row, or null if access was denied.
  */
@@ -84,10 +84,11 @@ export async function requireMember(projectId, userId, res) {
 /**
  * Check if a user is a member of a project (with 5s TTL cache).
  * @param {string} projectId
- * @param {string} userId
+ * @param {string | undefined} userId
  * @returns {Promise<ProjectMembership | null>}
  */
 export async function isProjectMember(projectId, userId) {
+  if (!userId) return null;
   if (!UUID_RE.test(projectId)) return null;
   const cacheKey = membershipCacheKey(projectId, userId);
   const cached = membershipCache.get(cacheKey);

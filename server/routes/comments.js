@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import db from '../db.js';
@@ -12,6 +13,11 @@ const router = Router();
 /** Fire-and-forget WebSocket push for fresh mentions. Failure to push must not
  *  break the HTTP response — the DB row is already persisted and the digest
  *  job will email the mention later if the user is offline. */
+/**
+ * @param {import('express').Application} app
+ * @param {Array<any>} mentions
+ * @param {{ mentionerName: string }} opts
+ */
 function pushMentionNotifications(app, mentions, { mentionerName }) {
   const send = app.locals.sendToUser;
   if (!send || !mentions?.length) return;
@@ -37,6 +43,12 @@ function pushMentionNotifications(app, mentions, { mentionerName }) {
 
 /** Verify the user has access to the file's project; optionally require
  *  commenter-or-better role (rejects viewer). Returns the file or null. */
+/**
+ * @param {string} fileId
+ * @param {string | undefined} userId
+ * @param {import('express').Response} res
+ * @param {{ requireCommenter?: boolean }} [opts]
+ */
 async function requireFileAccess(fileId, userId, res, { requireCommenter = false } = {}) {
   const file = await db.get('SELECT id, project_id, path FROM files WHERE id = $1', [fileId]);
   if (!file) {
@@ -62,6 +74,11 @@ async function requireFileAccess(fileId, userId, res, { requireCommenter = false
  *  commenter in the new role) emit comment-delete / comment-edit
  *  for comments they didn't own. originId comes from the request so
  *  the sender's other tabs can filter their own echoes. */
+/**
+ * @param {import('express').Application} app
+ * @param {string} projectId
+ * @param {any} payload
+ */
 function broadcastCommentEvent(app, projectId, payload) {
   try {
     app.locals.broadcastToRoom?.(projectId, payload);
@@ -71,6 +88,12 @@ function broadcastCommentEvent(app, projectId, payload) {
 }
 
 /** Verify the user has access to the comment's file/project. Returns the comment or null. */
+/**
+ * @param {string} commentId
+ * @param {string | undefined} userId
+ * @param {import('express').Response} res
+ * @param {{ requireCommenter?: boolean }} [opts]
+ */
 async function requireCommentAccess(commentId, userId, res, opts = {}) {
   const comment = await db.get('SELECT id, file_id, author_id FROM comments WHERE id = $1', [commentId]);
   if (!comment) {
@@ -121,12 +144,13 @@ router.get('/:fileId', async (req, res) => {
 
   // Batch-fetch replies for all comments (avoids N+1)
   if (comments.length > 0) {
-    const commentIds = comments.map((c) => c.id);
-    const placeholders = commentIds.map((_, i) => `$${i + 1}`).join(',');
+    const commentIds = comments.map((/** @type {{ id: string }} */ c) => c.id);
+    const placeholders = commentIds.map((/** @type {string} */ _, /** @type {number} */ i) => `$${i + 1}`).join(',');
     const allReplies = await db.all(
       `SELECT * FROM comment_replies WHERE comment_id IN (${placeholders}) ORDER BY created_at`,
       commentIds,
     );
+    /** @type {Record<string, any[]>} */
     const repliesByComment = {};
     for (const r of allReplies) {
       if (!repliesByComment[r.comment_id]) repliesByComment[r.comment_id] = [];
@@ -142,12 +166,15 @@ router.get('/:fileId', async (req, res) => {
          FROM comment_reactions WHERE comment_id = ANY($1) ORDER BY created_at ASC`,
       [commentIds],
     );
+    /** @type {Map<string, Map<string, Array<{ id: string, name: string }>>>} */
     const grouped = new Map();
     for (const r of reactionRows) {
       if (!grouped.has(r.commentId)) grouped.set(r.commentId, new Map());
-      const byEmoji = grouped.get(r.commentId);
+      // grouped.has() above guarantees the get returns non-undefined.
+      const byEmoji = /** @type {Map<string, Array<{ id: string, name: string }>>} */ (grouped.get(r.commentId));
       if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
-      byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+      const users = /** @type {Array<{ id: string, name: string }>} */ (byEmoji.get(r.emoji));
+      users.push({ id: r.userId, name: r.userName });
     }
     for (const c of comments) {
       const byEmoji = grouped.get(c.id);
@@ -157,7 +184,7 @@ router.get('/:fileId', async (req, res) => {
     }
 
     // Hydrate reply reactions in one query.
-    const replyIds = allReplies.map((r) => r.id);
+    const replyIds = allReplies.map((/** @type {{ id: string }} */ r) => r.id);
     if (replyIds.length > 0) {
       const replyReactionRows = await db.all(
         `SELECT reply_id AS "replyId", emoji, user_id AS "userId", user_name AS "userName"
@@ -263,7 +290,7 @@ router.post('/:fileId', async (req, res) => {
     const mentions = await recordMentions({
       text,
       commentId: id,
-      mentionerUserId: req.session.userId,
+      mentionerUserId: /** @type {string} */ (req.session.userId),
       projectId: file.project_id,
       assignedToUserId: assigned_to || null,
     });
@@ -360,7 +387,7 @@ router.post('/:commentId/reply', async (req, res) => {
       text,
       replyId: id,
       commentId: req.params.commentId,
-      mentionerUserId: req.session.userId,
+      mentionerUserId: /** @type {string} */ (req.session.userId),
       projectId: parentComment.project_id,
     });
     pushMentionNotifications(req.app, mentions, { mentionerName: author });

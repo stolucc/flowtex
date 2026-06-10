@@ -1,3 +1,4 @@
+// @ts-check
 // Admin routes for SAML IdP management. All routes mount under
 // /api/admin/saml/* and require admin auth (gating handled by the
 // app.use(...) line in index.js, same pattern as adminRouter).
@@ -94,9 +95,12 @@ router.post('/sp/rotate', async (req, res) => {
   try {
     const entityId = spEntityId(req);
     const fresh = await samlService.rotateSpKeypair(entityId, req.session.userId);
+    // Same silent-drop bug pattern as routes/auth.js audit calls:
+    // fingerprintSha256 isn't on the auditLog opts shape, so the
+    // old form was logging without any detail. Moving to detail.
     await auditLog(req.session.userId, 'saml_sp_rotate', {
-      fingerprintSha256: fresh.fingerprintSha256,
       ip: req.ip,
+      detail: { fingerprintSha256: fresh.fingerprintSha256 },
     }).catch(() => {});
     res.json({
       ok: true,
@@ -140,19 +144,22 @@ router.post('/idps', validateBody(createIdPSchema), async (req, res) => {
       createdBy: req.session.userId,
     });
     await auditLog(req.session.userId, 'saml_idp_create', {
-      idpId: created.id,
-      displayName: req.body.displayName,
-      enabled: req.body.enabled,
       ip: req.ip,
+      detail: {
+        idpId: created.id,
+        displayName: req.body.displayName,
+        enabled: req.body.enabled,
+      },
     }).catch(() => {});
     res.status(201).json({ idp: created });
   } catch (err) {
-    const status = err.status || 500;
+    const e = /** @type {{ status?: number, message?: string }} */ (err && typeof err === 'object' ? err : {});
+    const status = e.status || 500;
     if (status >= 500) {
       logger.error({ err }, 'admin/saml/idps create failed');
       return res.status(500).json({ error: 'Failed to create IdP.' });
     }
-    res.status(status).json({ error: err.message });
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -161,18 +168,21 @@ router.patch('/idps/:id', validateBody(updateIdPSchema), async (req, res) => {
   try {
     const updated = await samlService.updateIdP(req.params.id, req.body);
     await auditLog(req.session.userId, 'saml_idp_update', {
-      idpId: req.params.id,
-      patch: Object.keys(req.body),
       ip: req.ip,
+      detail: {
+        idpId: req.params.id,
+        patch: Object.keys(req.body),
+      },
     }).catch(() => {});
     res.json({ idp: updated });
   } catch (err) {
-    const status = err.status || 500;
+    const e = /** @type {{ status?: number, message?: string }} */ (err && typeof err === 'object' ? err : {});
+    const status = e.status || 500;
     if (status >= 500) {
       logger.error({ err, idpId: req.params.id }, 'admin/saml/idps update failed');
       return res.status(500).json({ error: 'Failed to update IdP.' });
     }
-    res.status(status).json({ error: err.message });
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -181,17 +191,18 @@ router.delete('/idps/:id', async (req, res) => {
   try {
     await samlService.deleteIdP(req.params.id);
     await auditLog(req.session.userId, 'saml_idp_delete', {
-      idpId: req.params.id,
       ip: req.ip,
+      detail: { idpId: req.params.id },
     }).catch(() => {});
     res.json({ ok: true });
   } catch (err) {
-    const status = err.status || 500;
+    const e = /** @type {{ status?: number, message?: string }} */ (err && typeof err === 'object' ? err : {});
+    const status = e.status || 500;
     if (status >= 500) {
       logger.error({ err, idpId: req.params.id }, 'admin/saml/idps delete failed');
       return res.status(500).json({ error: 'Failed to delete IdP.' });
     }
-    res.status(status).json({ error: err.message });
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -214,18 +225,21 @@ router.post('/idps/test-metadata', validateBody(testMetadataSchema), (req, res) 
       },
     });
   } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
+    const msg = err instanceof Error ? err.message : 'invalid metadata';
+    res.status(400).json({ ok: false, error: msg });
   }
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
+/** @param {import('express').Request} req */
 function appOrigin(req) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const host = req.headers['x-forwarded-host'] || req.get('host');
   return `${proto}://${host}`;
 }
 
+/** @param {import('express').Request} req */
 function spEntityId(req) {
   return `${appOrigin(req)}/api/auth/saml/sp`;
 }

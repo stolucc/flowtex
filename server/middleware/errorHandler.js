@@ -37,6 +37,18 @@ export function safeMsg(err, fallback = 'Internal server error') {
   return stripPaths(err?.message || fallback);
 }
 
+/** Narrow an unknown caught error to its status + message contract.
+ *  Returns the shape every route uses internally; never throws.
+ *  @param {unknown} err
+ *  @returns {{ status: number | undefined, message: string | undefined }}
+ */
+export function errInfo(err) {
+  const e = /** @type {{ status?: number, message?: string }} */ (
+    err && typeof err === 'object' ? err : {}
+  );
+  return { status: e.status, message: e.message };
+}
+
 /** Send a JSON error response using the error's status (default 500).
  *  Accepts `unknown` because most call sites are `catch (err)` blocks,
  *  where TypeScript types the error as `unknown`. Narrows internally.

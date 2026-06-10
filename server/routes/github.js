@@ -1,10 +1,11 @@
+// @ts-check
 import { Router } from 'express';
 import crypto from 'crypto';
 import { requireMember } from '../middleware/auth.js';
 import * as gh from '../services/githubService.js';
 import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
-import { stripPaths } from '../middleware/errorHandler.js';
+import { stripPaths, errInfo } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -24,7 +25,7 @@ router.get('/oauth/authorize', (req, res) => {
 
   const state = crypto.randomBytes(16).toString('hex');
   req.session.githubOAuthState = state;
-  let returnTo = req.query.returnTo || '/';
+  let returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '/';
   // Prevent open redirect: must be a relative path, no protocol-relative URLs,
   // no backslashes, no encoded variants, and no authority component
   if (
@@ -183,7 +184,8 @@ router.get('/repos', async (req, res) => {
     const repos = await gh.fetchUserRepos(req.session.userId);
     res.json(repos);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to fetch repos from GitHub' });
+    const e = errInfo(err);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Failed to fetch repos from GitHub' });
   }
 });
 
@@ -196,7 +198,8 @@ router.post('/repos', async (req, res) => {
     const repo = await gh.createRepo(req.session.userId, name, isPrivate);
     res.json(repo);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to create repository on GitHub' });
+    const e = errInfo(err);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Failed to create repository on GitHub' });
   }
 });
 
@@ -217,7 +220,8 @@ router.post('/push/:projectId', async (req, res) => {
     const result = await gh.pushProject(req.params.projectId, req.session.userId, req.body.message);
     res.json({ ok: true, commit: result.commit });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to push to GitHub' });
+    const e = errInfo(err);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Failed to push to GitHub' });
   }
 });
 
@@ -234,7 +238,8 @@ router.post('/pull/:projectId', async (req, res) => {
     const result = await gh.pullProject(req.params.projectId, req.session.userId);
     res.json({ ok: true, files: result.files, commit: result.commit });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to pull from GitHub' });
+    const e = errInfo(err);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Failed to pull from GitHub' });
   }
 });
 
@@ -249,8 +254,9 @@ router.post('/import', async (req, res) => {
     res.json(project);
   } catch (err) {
     logger.error({ err }, 'GitHub import error');
-    const msg = stripPaths((err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@'));
-    res.status(err.status || 500).json({ error: msg });
+    const e = errInfo(err);
+    const msg = stripPaths(((e.message || 'Unknown error')).replace(/https?:\/\/[^@\s]*@/g, 'https://***@'));
+    res.status(e.status || 500).json({ error: msg });
   }
 });
 

@@ -114,7 +114,10 @@
     "server/routes/setup.js",
     "server/routes/publicInvitations.js",
     "server/routes/bib.js",
-    "server/routes/zotero.js"
+    "server/routes/zotero.js",
+    "server/routes/adminSaml.js",
+    "server/routes/github.js",
+    "server/routes/comments.js"
   ],
   "exclude": [
     "node_modules",
