@@ -65,7 +65,9 @@
     "client/src/components/HelperStatusIndicator.jsx",
     "client/src/hooks/useHelperStatus.js",
     "client/src/contexts/HelperStatusContext.jsx",
-    "client/src/utils/helperBridge.js"
+    "client/src/utils/helperBridge.js",
+    "shared/texDeps.js",
+    "shared/trackedChanges.js"
   ],
   "exclude": [
     "node_modules",

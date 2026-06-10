@@ -1,3 +1,6 @@
+// @ts-check
+/** @typedef {import('./types.ts').TcMark} TcMark */
+
 // Tracked-changes string-manipulation helpers — shared between the server
 // (which applies them before handing source to latexmk) and any future
 // local-compile path (which needs to apply the same transforms before
@@ -56,7 +59,7 @@ export function injectTcMacros(content) {
  * ranges silently rather than producing nested wraps.
  *
  * @param {string} content
- * @param {Array<object>|null|undefined} tcMarks
+ * @param {TcMark[] | null | undefined} tcMarks
  * @returns {string}
  */
 export function wrapPendingChangesAsMacros(content, tcMarks) {
@@ -107,7 +110,11 @@ const SECTIONING_RE =
   /^(\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*(?:\[[^\]]*\])?\s*\{)/;
 
 /** Find the index of the matching `}` in `s`, starting from the char after
- *  the implicit opening `{` (so depth begins at 1). Returns -1 on imbalance. */
+ *  the implicit opening `{` (so depth begins at 1). Returns -1 on imbalance.
+ *
+ * @param {string} s
+ * @returns {number}
+ */
 function findClose(s) {
   let depth = 1;
   for (let i = 0; i < s.length; i++) {
@@ -128,6 +135,10 @@ const PARA_BREAK_RE = /(\n[ \t]*\n[ \t\n]*|\\par\b[ \t]*)/g;
  * Wrap `inner` with `macro` (`\TCadd` or `\TCdel`), splitting at paragraph
  * breaks so the macro never spans a `\par` (fragile-command crash), and
  * routing around sectioning commands so they don't end up inside ulem's hbox.
+ *
+ * @param {string} macro  '\\TCadd' or '\\TCdel'
+ * @param {string} inner
+ * @returns {string}
  */
 function wrapInner(macro, inner) {
   // split() with a capturing group keeps the separators as alternating slots,
@@ -143,7 +154,13 @@ function wrapInner(macro, inner) {
     .join('');
 }
 
-/** Wrap a single paragraph's worth of `inner` — no `\par` inside. */
+/**
+ * Wrap a single paragraph's worth of `inner` — no `\par` inside.
+ *
+ * @param {string} macro
+ * @param {string} inner
+ * @returns {string}
+ */
 function wrapOneParagraph(macro, inner) {
   const m = SECTIONING_RE.exec(inner);
   if (m) {
@@ -165,7 +182,7 @@ function wrapOneParagraph(macro, inner) {
  * Return `content` with pending del ranges removed.
  *
  * @param {string} content
- * @param {Array<object>|null|undefined} tcMarks
+ * @param {TcMark[] | null | undefined} tcMarks
  * @returns {string}
  */
 export function stripPendingDeletions(content, tcMarks) {

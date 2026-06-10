@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Resolve the dependency graph of a LaTeX project starting from the main file.
  * Returns a Set of file paths (relative) that are actually referenced.
@@ -101,6 +102,13 @@ export function resolveUsedFiles(files, mainFile) {
   return used;
 }
 
+/** @typedef {Map<string, { path: string, content: string, is_binary: boolean }>} FileMap */
+
+/**
+ * @param {string} ref
+ * @param {FileMap} fileMap
+ * @returns {string[]}
+ */
 function resolveTexPath(ref, fileMap) {
   const results = [];
   // Try exact match first
@@ -116,6 +124,11 @@ function resolveTexPath(ref, fileMap) {
   return results;
 }
 
+/**
+ * @param {string} ref
+ * @param {FileMap} fileMap
+ * @returns {string[]}
+ */
 function resolveGraphicsPath(ref, fileMap) {
   const results = [];
   if (fileMap.has(ref)) {
@@ -130,6 +143,11 @@ function resolveGraphicsPath(ref, fileMap) {
   return results;
 }
 
+/**
+ * @param {string} ref
+ * @param {FileMap} fileMap
+ * @returns {string[]}
+ */
 function resolveBibPath(ref, fileMap) {
   const results = [];
   if (fileMap.has(ref)) {

@@ -132,3 +132,24 @@ export interface HelperStatusError {
 }
 
 export type HelperStatus = HelperStatusOk | HelperStatusError;
+
+// ─── Tracked-changes mark (used by shared/trackedChanges.js) ────────
+
+/** One pending tracked-change. The `from`/`to` are character offsets
+ *  into the file content; both halves of the row understand them as
+ *  inclusive-start, exclusive-end (CodeMirror's convention).
+ *
+ *  Persisted as JSONB in the files.tc_marks column on the server, and
+ *  reconstructed client-side from the YJS state. Both ends agree on
+ *  this shape -- when a field changes here, every transform downstream
+ *  is forced to acknowledge it. */
+export interface TcMark {
+  id: string;
+  type: 'ins' | 'del';
+  from: number;
+  to: number;
+  authorId: string;
+  authorName: string;
+  /** ISO 8601 string. */
+  timestamp: string;
+}
