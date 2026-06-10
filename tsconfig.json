@@ -119,7 +119,8 @@
     "server/routes/github.js",
     "server/routes/comments.js",
     "server/routes/saml.js",
-    "server/routes/history.js"
+    "server/routes/history.js",
+    "server/services/githubService.js"
   ],
   "exclude": [
     "node_modules",

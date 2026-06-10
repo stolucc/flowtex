@@ -1,3 +1,4 @@
+// @ts-check
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -37,7 +38,8 @@ export function getOAuthClientId() {
  * accommodate the ~520-char JWT-shape `ghs_…` if FlowTex ever migrated
  * to a GitHub App. No code change needed for the rollout.
  *
- * @returns {string|null} The access token, or null on failure.
+ * @param {string} code
+ * @returns {Promise<string|null>} The access token, or null on failure.
  */
 export async function exchangeOAuthCode(code) {
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -49,14 +51,18 @@ export async function exchangeOAuthCode(code) {
       code,
     }),
   });
-  const tokenData = await tokenRes.json();
+  /** @type {{ access_token?: string } & Record<string, unknown>} */
+  const tokenData = /** @type {any} */ (await tokenRes.json());
   if (!tokenData.access_token) return null;
   return tokenData.access_token;
 }
 
 // --- Token Management ---
 
-/** Retrieve and decrypt the user's stored GitHub token (auto-encrypts legacy plaintext tokens). */
+/** Retrieve and decrypt the user's stored GitHub token (auto-encrypts legacy plaintext tokens).
+ *  @param {string | undefined} userId
+ *  @returns {Promise<string | null>}
+ */
 export async function getUserToken(userId) {
   const row = await db.get('SELECT token FROM github_tokens WHERE user_id = $1', [userId]);
   if (!row?.token) return null;
@@ -74,7 +80,10 @@ export async function getUserToken(userId) {
   }
 }
 
-/** Store (insert or update) an encrypted GitHub token for a user. */
+/** Store (insert or update) an encrypted GitHub token for a user.
+ *  @param {string | undefined} userId
+ *  @param {string} token
+ */
 export async function upsertToken(userId, token) {
   const encryptedToken = encrypt(token);
   const existing = await db.get('SELECT 1 FROM github_tokens WHERE user_id = $1', [userId]);
@@ -88,13 +97,18 @@ export async function upsertToken(userId, token) {
   }
 }
 
-/** Delete a user's GitHub token and unlink all their project-GitHub links. */
+/** Delete a user's GitHub token and unlink all their project-GitHub links.
+ *  @param {string | undefined} userId
+ */
 export async function deleteToken(userId) {
   await db.run('DELETE FROM project_github_links WHERE linked_by = $1', [userId]);
   await db.run('DELETE FROM github_tokens WHERE user_id = $1', [userId]);
 }
 
-/** Fetch the GitHub username for a user via the GitHub API. */
+/** Fetch the GitHub username for a user via the GitHub API.
+ *  @param {string | undefined} userId
+ *  @returns {Promise<string | null>}
+ */
 export async function getGitHubUsername(userId) {
   const token = await getUserToken(userId);
   if (!token) return null;
@@ -103,7 +117,7 @@ export async function getGitHubUsername(userId) {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
     });
     if (!ghRes.ok) return null;
-    const ghData = await ghRes.json();
+    const ghData = /** @type {any} */ (await ghRes.json());
     return ghData.login;
   } catch {
     return null;
@@ -112,12 +126,19 @@ export async function getGitHubUsername(userId) {
 
 // --- Project Link Management ---
 
-/** Get the GitHub link record for a project (repo, branch, sync info). */
+/** Get the GitHub link record for a project (repo, branch, sync info).
+ *  @param {string} projectId
+ */
 export async function getProjectLink(projectId) {
   return await db.get('SELECT * FROM project_github_links WHERE project_id = $1', [projectId]);
 }
 
-/** Link a project to a GitHub repository (creates or updates the link). */
+/** Link a project to a GitHub repository (creates or updates the link).
+ *  @param {string} projectId
+ *  @param {string} repo
+ *  @param {string | null | undefined} branch
+ *  @param {string | undefined} userId
+ */
 export async function linkProject(projectId, repo, branch, userId) {
   const existing = await db.get('SELECT 1 FROM project_github_links WHERE project_id = $1', [projectId]);
   if (existing) {
@@ -133,14 +154,22 @@ export async function linkProject(projectId, repo, branch, userId) {
   }
 }
 
-/** Remove the GitHub link from a project. */
+/** Remove the GitHub link from a project.
+ *  @param {string} projectId
+ */
 export async function unlinkProject(projectId) {
   await db.run('DELETE FROM project_github_links WHERE project_id = $1', [projectId]);
 }
 
-/** Update auto-push settings (enabled flag and/or interval) for a project's GitHub link. */
+/** Update auto-push settings (enabled flag and/or interval) for a project's GitHub link.
+ *  @param {string} projectId
+ *  @param {boolean | undefined} enabled
+ *  @param {number | undefined} interval
+ */
 export async function updateAutoPush(projectId, enabled, interval) {
+  /** @type {string[]} */
   const updates = [];
+  /** @type {unknown[]} */
   const params = [];
   let idx = 1;
 
@@ -162,7 +191,9 @@ export async function updateAutoPush(projectId, enabled, interval) {
 
 // --- GitHub API ---
 
-/** Fetch up to 500 repositories accessible by the user from the GitHub API. */
+/** Fetch up to 500 repositories accessible by the user from the GitHub API.
+ *  @param {string | undefined} userId
+ */
 export async function fetchUserRepos(userId) {
   const token = await getUserToken(userId);
   if (!token) throw Object.assign(new Error('No GitHub token'), { status: 400 });
@@ -174,10 +205,10 @@ export async function fetchUserRepos(userId) {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
     });
     if (!ghRes.ok) break;
-    const batch = await ghRes.json();
+    const batch = /** @type {any[]} */ (await ghRes.json());
     if (!batch.length) break;
     repos.push(
-      ...batch.map((r) => ({
+      ...batch.map((/** @type {any} */ r) => ({
         fullName: r.full_name,
         name: r.name,
         owner: r.owner.login,
@@ -191,7 +222,11 @@ export async function fetchUserRepos(userId) {
   return repos;
 }
 
-/** Create a new GitHub repository under the authenticated user's account. */
+/** Create a new GitHub repository under the authenticated user's account.
+ *  @param {string | undefined} userId
+ *  @param {string} name
+ *  @param {boolean | undefined} isPrivate
+ */
 export async function createRepo(userId, name, isPrivate) {
   const token = await getUserToken(userId);
   if (!token) throw Object.assign(new Error('No GitHub token'), { status: 400 });
@@ -209,7 +244,7 @@ export async function createRepo(userId, name, isPrivate) {
       auto_init: false,
     }),
   });
-  const data = await ghRes.json();
+  const data = /** @type {any} */ (await ghRes.json());
   if (!ghRes.ok) {
     const detail = data.errors?.[0]?.message;
     const msg = detail ? `${data.message} ${detail}` : data.message || 'Failed to create repository';
@@ -226,11 +261,17 @@ export async function createRepo(userId, name, isPrivate) {
 
 // --- Sync Operations ---
 
+/** @param {unknown} err */
 function sanitizeError(err) {
-  return (err.message || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@');
+  const msg = err instanceof Error ? err.message : String(err);
+  return (msg || 'Unknown error').replace(/https?:\/\/[^@\s]*@/g, 'https://***@');
 }
 
-/** Push a project's files to its linked GitHub repo and update the sync timestamp. */
+/** Push a project's files to its linked GitHub repo and update the sync timestamp.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ *  @param {string} [message]
+ */
 export async function pushProject(projectId, userId, message) {
   const token = await getUserToken(userId);
   if (!token)
@@ -263,7 +304,10 @@ export async function pushProject(projectId, userId, message) {
   }
 }
 
-/** Pull latest files from a project's linked GitHub repo into the database. */
+/** Pull latest files from a project's linked GitHub repo into the database.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ */
 export async function pullProject(projectId, userId) {
   const token = await getUserToken(userId);
   if (!token) throw Object.assign(new Error('No GitHub token configured.'), { status: 400 });
@@ -286,7 +330,11 @@ export async function pullProject(projectId, userId) {
   }
 }
 
-/** Create a new project by importing all files from a GitHub repository. */
+/** Create a new project by importing all files from a GitHub repository.
+ *  @param {string | undefined} userId
+ *  @param {string} repo
+ *  @param {string | undefined} [_branch]
+ */
 export async function importFromGitHub(userId, repo, _branch) {
   const token = await getUserToken(userId);
   if (!token) throw Object.assign(new Error('No GitHub token configured.'), { status: 400 });
@@ -298,7 +346,7 @@ export async function importFromGitHub(userId, repo, _branch) {
   if (!ghRes.ok) {
     throw Object.assign(new Error(`Repository "${repo}" not found or not accessible.`), { status: ghRes.status });
   }
-  const ghData = await ghRes.json();
+  const ghData = /** @type {any} */ (await ghRes.json());
   const branchName = ghData.default_branch || 'main';
 
   // Create project

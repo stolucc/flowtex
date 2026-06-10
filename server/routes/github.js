@@ -61,7 +61,8 @@ router.get('/oauth/callback', async (req, res) => {
   if (!req.session?.userId) {
     return res.redirect('/?error=session_expired');
   }
-  const { code, state } = req.query;
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
   if (!code || !state || state !== req.session.githubOAuthState) {
     return res.status(400).send('Invalid OAuth callback. <a href="/">Go back</a>');
   }
