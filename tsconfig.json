@@ -123,7 +123,8 @@
     "server/services/githubService.js",
     "server/services/samlService.js",
     "server/routes/admin.js",
-    "server/routes/compile.js"
+    "server/routes/compile.js",
+    "server/routes/projects.js"
   ],
   "exclude": [
     "node_modules",

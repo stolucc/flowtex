@@ -1,5 +1,12 @@
+// @ts-check
 import { Router } from 'express';
+// archiver + multer ship no .d.ts and we deliberately don't pull in
+// @types/* for them -- the duplicate @types/express-serve-static-core
+// they transitively install collides with our existing one. ts-ignore
+// the imports; runtime behaviour is unaffected.
+// @ts-ignore
 import { ZipArchive } from 'archiver';
+// @ts-ignore
 import multer from 'multer';
 import db from '../db.js';
 import logger from '../logger.js';
@@ -18,6 +25,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const router = Router();
 
 /** Verify the current user is a member of the project in req.params.id. Returns the member or null. */
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function requireMembership(req, res) {
   const member = await projectService.checkMembership(req.params.id, req.session.userId);
   if (!member) {
@@ -28,6 +39,10 @@ async function requireMembership(req, res) {
 }
 
 /** Verify the current user has editor (or owner) access to the project. Returns the member or null. */
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function requireEditor(req, res) {
   const result = await projectService.checkEditor(req.params.id, req.session.userId);
   if (result.error) {
@@ -38,6 +53,10 @@ async function requireEditor(req, res) {
 }
 
 /** Verify the current user is the owner of the project. Returns the member or null. */
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function requireOwner(req, res) {
   const result = await projectService.checkOwnership(req.params.id, req.session.userId);
   if (result.error) {
@@ -145,7 +164,8 @@ router.post('/templates/upload', requireAdmin, upload.single('file'), async (req
     res.json(tmpl);
   } catch (err) {
     logger.error({ err }, 'Template upload error');
-    res.status(400).json({ error: err.message || 'Failed to upload template' });
+    const msg = err instanceof Error ? err.message : 'Failed to upload template';
+    res.status(400).json({ error: msg });
   }
 });
 
@@ -191,7 +211,8 @@ router.post('/from-zip', upload.single('file'), async (req, res) => {
     res.json(await projectService.createProjectFromZip(req.session.userId, req.file.buffer, req.file.originalname));
   } catch (err) {
     logger.error({ err }, 'ZIP project creation error');
-    res.status(400).json({ error: err.message || 'Failed to create project from ZIP file' });
+    const msg = err instanceof Error ? err.message : 'Failed to create project from ZIP file';
+    res.status(400).json({ error: msg });
   }
 });
 
@@ -208,9 +229,15 @@ router.post('/from-docx', upload.single('file'), async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
+  /** @param {object} data */
   const sendEvent = (data) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
-    if (typeof res.flush === 'function') res.flush();
+    // compression middleware exposes res.flush so SSE events
+    // arrive at the client immediately rather than waiting for the
+    // response buffer. Not on the standard Response type, so we
+    // narrow at the access point.
+    const flush = /** @type {(() => void) | undefined} */ (/** @type {any} */ (res).flush);
+    if (typeof flush === 'function') flush();
   };
 
   // Track client disconnect so we can abort long-running conversions
@@ -218,24 +245,27 @@ router.post('/from-docx', upload.single('file'), async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) abortController.abort(); });
 
   try {
-    const options = {};
+    /** @type {{ docType?: string, signal: AbortSignal, onProgress: (m: string, p: number) => void }} */
+    const options = {
+      signal: abortController.signal,
+      onProgress: (/** @type {string} */ message, /** @type {number} */ percent) => {
+        sendEvent({ type: 'progress', message, percent });
+      },
+    };
     // typeof guard: req.body is parsed JSON, so docType could be an object
     // or array if the caller is hostile; the converter expects a short
     // string ('thesis', 'article', etc.).
     if (typeof req.body.docType === 'string' && req.body.docType.length <= 64) {
       options.docType = req.body.docType;
     }
-    options.signal = abortController.signal;
-    options.onProgress = (message, percent) => {
-      sendEvent({ type: 'progress', message, percent });
-    };
     const result = await projectService.createProjectFromDocx(req.session.userId, req.file.buffer, req.file.originalname, options);
     sendEvent({ type: 'result', ...result });
     res.end();
   } catch (err) {
     if (abortController.signal.aborted) { res.end(); return; }
     logger.error({ err }, 'DOCX import error');
-    sendEvent({ type: 'error', error: err.message || 'Failed to import DOCX file' });
+    const msg = err instanceof Error ? err.message : 'Failed to import DOCX file';
+    sendEvent({ type: 'error', error: msg });
     res.end();
   }
 });
@@ -257,7 +287,8 @@ router.post('/invitations/:inviteId/accept', async (req, res) => {
     }
     res.json(result);
   } catch (err) {
-    if (err.emailMismatch) {
+    const e = /** @type {{ emailMismatch?: boolean }} */ (err && typeof err === 'object' ? err : {});
+    if (e.emailMismatch) {
       // Someone authenticated tried to accept an invitation addressed to a
       // different email. Inviteids are unguessable UUIDs, so reaching one
       // implies the link leaked (or was forwarded). Record it.
@@ -313,6 +344,7 @@ router.patch('/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only the owner can modify these settings' });
   }
   try {
+    /** @type {{ name: any, main_file: any, snapshot_interval_sec: any, tex_distribution: any, compiler: any, compile_location?: any }} */
     const updates = {
       name,
       main_file,
@@ -321,7 +353,7 @@ router.patch('/:id', async (req, res) => {
       compiler,
     };
     if (compileLocationProvided) updates.compile_location = req.body.compile_location;
-    const updated = await projectService.updateProject(req.params.id, updates);
+    const updated = await projectService.updateProject(req.params.id, /** @type {any} */ (updates));
     await auditLog(req.session.userId, 'project_update', {
       targetType: 'project',
       targetId: req.params.id,
@@ -422,7 +454,7 @@ router.post('/:id/members', async (req, res) => {
         // is token-gated and lets them refuse without ever registering;
         // it routes through /api/projects/invitations/by-token/decline.
         const registerUrl = `${safeBaseUrl}/?invite=${encodeURIComponent(invitation.id)}`;
-        const declineUrl = `${safeBaseUrl}/?invite-decline=${encodeURIComponent(invitation.declineToken)}`;
+        const declineUrl = `${safeBaseUrl}/?invite-decline=${encodeURIComponent(invitation.declineToken || '')}`;
         await sendUnregisteredInvitationEmail(email, {
           inviterName,
           projectName,
@@ -529,7 +561,7 @@ router.get('/:id/zip-used', async (req, res) => {
   );
   const mainFile = project.main_file || 'main.tex';
   const usedPaths = resolveUsedFiles(files, mainFile);
-  const usedFiles = files.filter((f) => usedPaths.has(f.path));
+  const usedFiles = files.filter((/** @type {{ path: string }} */ f) => usedPaths.has(f.path));
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
@@ -548,7 +580,8 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
     res.json({ ok: true, files: result.files, created: result.created });
   } catch (err) {
     logger.error({ err }, 'ZIP upload error');
-    res.status(400).json({ error: err.message || 'Failed to extract ZIP file' });
+    const msg = err instanceof Error ? err.message : 'Failed to extract ZIP file';
+    res.status(400).json({ error: msg });
   }
 });
 
@@ -601,7 +634,7 @@ router.get('/files/:fileId/raw', async (req, res) => {
     return res.status(404).json({ error: 'File data unavailable' });
   }
   stream
-    .on('error', (err) => {
+    .on('error', (/** @type {unknown} */ err) => {
       logger.error({ err, fileId: file.id }, 'blob stream error');
       if (!res.headersSent) res.status(500).end();
     })
@@ -642,7 +675,7 @@ router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
 router.put('/files/:fileId', async (req, res) => {
   const { content, tcMarks, baseVersion } = req.body;
   if (content && content.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 10MB)' });
-  const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
+  const access = /** @type {any} */ (await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true }));
   if (access.error) return res.status(access.status).json({ error: access.error });
   const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId, tcMarks, baseVersion);
   if (result.conflict) {
@@ -659,7 +692,7 @@ router.put('/files/:fileId', async (req, res) => {
 /** PATCH /api/projects/files/:fileId -- Rename a file. */
 router.patch('/files/:fileId', async (req, res) => {
   if (!req.body.path) return res.status(400).json({ error: 'path required' });
-  const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
+  const access = /** @type {any} */ (await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true }));
   if (access.error) return res.status(access.status).json({ error: access.error });
   try {
     res.json((await projectService.renameFile(req.params.fileId, req.body.path)) || { ok: true });
@@ -670,7 +703,7 @@ router.patch('/files/:fileId', async (req, res) => {
 
 /** DELETE /api/projects/files/:fileId -- Delete a file from the project. */
 router.delete('/files/:fileId', async (req, res) => {
-  const access = await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true });
+  const access = /** @type {any} */ (await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true }));
   if (access.error) return res.status(access.status).json({ error: access.error });
   await projectService.deleteFile(req.params.fileId);
   res.json({ ok: true });
@@ -860,8 +893,8 @@ router.delete('/:id/tags/:tagId', async (req, res) => {
 router.get('/:id/search', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
   try {
-    const q = (req.query.q || '').trim();
-    const scope = req.query.scope || 'all';
+    const q = (typeof req.query.q === 'string' ? req.query.q : '').trim();
+    const scope = typeof req.query.scope === 'string' ? req.query.scope : 'all';
     const cs = req.query.cs === '1';
     if (!q) return res.json([]);
 

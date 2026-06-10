@@ -12,6 +12,33 @@
 
 import 'express-session';
 
+// Multer attaches `req.file` (single-upload) or `req.files` (multi)
+// when its middleware is mounted. Declaring them on Express's
+// Request lets @ts-check'd routes read those fields without
+// per-call-site casts.
+declare global {
+  namespace Express {
+    interface Request {
+      file?: {
+        fieldname: string;
+        originalname: string;
+        encoding: string;
+        mimetype: string;
+        size: number;
+        buffer: Buffer;
+      };
+      files?: Array<{
+        fieldname: string;
+        originalname: string;
+        encoding: string;
+        mimetype: string;
+        size: number;
+        buffer: Buffer;
+      }>;
+    }
+  }
+}
+
 declare module 'express-session' {
   interface SessionData {
     /** Set on successful login; cleared on logout / session.destroy. */
