@@ -1,3 +1,4 @@
+// @ts-check
 // ReDoS triage 2026-06-02: this file has 6 detect-unsafe-regex hits, all
 // in BibTeX / citation-text parsing. Each one was reviewed individually:
 //
@@ -23,6 +24,8 @@ import path from 'node:path';
 import { rm as fsRm } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
+// adm-zip ships no .d.ts; same approach as projects.js for archiver/multer.
+// @ts-ignore
 import AdmZip from 'adm-zip';
 import db from '../db.js';
 import logger from '../logger.js';
@@ -46,7 +49,9 @@ const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
 const MAX_ZIP_RATIO = 100; // reject if decompressed/compressed > 100x
 
-/** Check that a file path is safe (no traversal, no null bytes, no absolute paths). */
+/** Check that a file path is safe (no traversal, no null bytes, no absolute paths).
+ *  @param {unknown} filePath
+ */
 export function isValidFilePath(filePath) {
   if (!filePath || typeof filePath !== 'string') return false;
   if (filePath.includes('\0')) return false;
@@ -81,6 +86,7 @@ const DENIED_BINARY_EXTS = new Set([
   '.html', '.htm', '.xhtml', '.mht', '.mhtml',
 ]);
 
+/** @param {string} filePath */
 function deniedBinaryExtension(filePath) {
   const base = String(filePath).toLowerCase();
   const dot = base.lastIndexOf('.');
@@ -91,7 +97,10 @@ function deniedBinaryExtension(filePath) {
 
 // --- Authorization helpers ---
 
-/** Check if a user is a member of a project; returns the membership or null. */
+/** Check if a user is a member of a project; returns the membership or null.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ */
 export async function checkMembership(projectId, userId) {
   return isProjectMember(projectId, userId);
 }
@@ -106,7 +115,10 @@ export async function checkMembership(projectId, userId) {
 const EDITOR_ROLES = new Set(['owner', 'editor']);
 const COMMENTER_OR_BETTER_ROLES = new Set(['owner', 'editor', 'commenter']);
 
-/** Verify a user has editor (or owner) access; returns {member} or {error, status}. */
+/** Verify a user has editor (or owner) access; returns {member} or {error, status}.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ */
 export async function checkEditor(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
@@ -120,6 +132,10 @@ export async function checkEditor(projectId, userId) {
  *  Commenter sits between viewer and editor: read + post/reply/react/edit-own/
  *  delete-own comments, but no file content changes. Used by the comment
  *  routes so a project can grant feedback access without exposing files. */
+/**
+ * @param {string} projectId
+ * @param {string | undefined} userId
+ */
 export async function checkCommenter(projectId, userId) {
   const member = await isProjectMember(projectId, userId);
   if (!member) return { error: 'No access to this project', status: 403 };
@@ -129,7 +145,10 @@ export async function checkCommenter(projectId, userId) {
   return { member };
 }
 
-/** Verify a user is the project owner; returns {member} or {error, status}. */
+/** Verify a user is the project owner; returns {member} or {error, status}.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ */
 export async function checkOwnership(projectId, userId) {
   const member = await db.get('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
     projectId,
@@ -140,10 +159,15 @@ export async function checkOwnership(projectId, userId) {
   return { member };
 }
 
-/** Fetch a file by ID and verify the user has access (optionally editor access). */
+/** Fetch a file by ID and verify the user has access (optionally editor access).
+ *  @param {string} fileId
+ *  @param {string | undefined} userId
+ *  @param {{ edit?: boolean }} [opts]
+ */
 export async function getFileWithAccess(fileId, userId, { edit = false } = {}) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) return { error: 'File not found', status: 404 };
+  /** @type {{ error?: string, status?: number, member?: { role: string } | null }} */
   const check = edit
     ? await checkEditor(file.project_id, userId)
     : { member: await checkMembership(file.project_id, userId) };
@@ -154,7 +178,9 @@ export async function getFileWithAccess(fileId, userId, { edit = false } = {}) {
 
 // --- Project CRUD ---
 
-/** List all projects a user is a member of, with tags, owner info, and member counts. */
+/** List all projects a user is a member of, with tags, owner info, and member counts.
+ *  @param {string | undefined} userId
+ */
 export async function listUserProjects(userId) {
   const projects = await db.all(
     `SELECT p.*, pm.role,
@@ -175,14 +201,15 @@ export async function listUserProjects(userId) {
   );
 
   if (projects.length > 0) {
-    const projectIds = projects.map((p) => p.id);
-    const placeholders = projectIds.map((_, i) => `$${i + 1}`).join(',');
+    const projectIds = projects.map((/** @type {{ id: string }} */ p) => p.id);
+    const placeholders = projectIds.map((/** @type {string} */ _, /** @type {number} */ i) => `$${i + 1}`).join(',');
     const allTags = await db.all(
       `SELECT pt.project_id, t.id, t.name, t.color FROM tags t
        JOIN project_tags pt ON pt.tag_id = t.id
        WHERE pt.project_id IN (${placeholders})`,
       projectIds,
     );
+    /** @type {Record<string, Array<{ id: string, name: string, color: string }>>} */
     const tagsByProject = {};
     for (const t of allTags) {
       if (!tagsByProject[t.project_id]) tagsByProject[t.project_id] = [];
@@ -196,7 +223,11 @@ export async function listUserProjects(userId) {
   return projects;
 }
 
-/** Create a new project from a user/preloaded template. */
+/** Create a new project from a user/preloaded template.
+ *  @param {string | undefined} userId
+ *  @param {string} templateId
+ *  @param {string} name
+ */
 export async function createProjectFromTemplate(userId, templateId, name) {
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
@@ -238,16 +269,23 @@ export async function createProjectFromTemplate(userId, templateId, name) {
   return { id, name: safeName };
 }
 
-/** Create a new user template by extracting files from a ZIP buffer. */
+/** Create a new user template by extracting files from a ZIP buffer.
+ *  @param {string | undefined} userId
+ *  @param {Buffer} buffer
+ *  @param {string} originalName
+ *  @param {string | undefined} description
+ *  @param {string | undefined} category
+ *  @param {string[] | undefined} tagIds
+ */
 export async function createTemplateFromZip(userId, buffer, originalName, description, category, tagIds) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
-  const fileEntries = entries.filter((e) => !e.isDirectory);
+  const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
 
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
-  const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
+  const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
     throw new Error('ZIP decompressed size too large');
   }
@@ -257,6 +295,7 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
 
   const templateName = (originalName || 'Untitled Template').replace(/\.zip$/i, '');
   const templateId = uuid();
+  /** @type {Array<{ id: string, path: string, templateId: string }>} */
   const created = [];
 
   await db.transaction(async (tx) => {
@@ -269,7 +308,7 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       let entryPath = entry.entryName;
-      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((/** @type {string} */ p) => p.startsWith('.'))) continue;
       if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
@@ -293,7 +332,7 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
     const firstSlash = created[0].path.indexOf('/');
     if (firstSlash > 0) {
       const prefix = created[0].path.substring(0, firstSlash + 1);
-      if (created.every((f) => f.path.startsWith(prefix))) {
+      if (created.every((/** @type {{ path: string }} */ f) => f.path.startsWith(prefix))) {
         await db.transaction(async (tx) => {
           for (const f of created) {
             const newPath = f.path.substring(prefix.length);
@@ -351,8 +390,9 @@ export async function listAllTemplates() {
       JOIN template_tags tt ON tt.id = ttm.tag_id
       WHERE ttm.template_id = ANY($1)
     `,
-      [rows.map((r) => r.id)],
+      [rows.map((/** @type {{ id: string }} */ r) => r.id)],
     );
+    /** @type {Record<string, Array<{ id: string, name: string, color: string }>>} */
     const tagMap = {};
     for (const tr of tagRows) {
       (tagMap[tr.template_id] ||= []).push({ id: tr.id, name: tr.name, color: tr.color });
@@ -364,7 +404,10 @@ export async function listAllTemplates() {
   return rows;
 }
 
-/** Delete a user-created template (only the creator can delete it). */
+/** Delete a user-created template (only the creator can delete it).
+ *  @param {string} templateId
+ *  @param {string | undefined} userId
+ */
 export async function deleteUserTemplate(templateId, userId) {
   const tmpl = await db.get('SELECT * FROM user_templates WHERE id = $1', [templateId]);
   if (!tmpl) throw Object.assign(new Error('Template not found'), { status: 404 });
@@ -377,12 +420,14 @@ export async function deleteUserTemplate(templateId, userId) {
 const MAX_TAG_NAME_LENGTH = 50;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 
+/** @param {string | null | undefined} color */
 function validateTagColor(color) {
   if (color && !HEX_COLOR_RE.test(color)) {
     throw Object.assign(new Error('Invalid color format (use hex e.g. #89b4fa)'), { status: 400 });
   }
 }
 
+/** @param {string | null | undefined} name */
 function validateTagName(name) {
   const trimmed = (name || '').trim();
   if (!trimmed) throw Object.assign(new Error('Tag name required'), { status: 400 });
@@ -397,7 +442,10 @@ export async function listTemplateTags() {
   return db.all('SELECT id, name, color FROM template_tags ORDER BY name');
 }
 
-/** Create a new global template tag (max 100 total). */
+/** Create a new global template tag (max 100 total).
+ *  @param {string} name
+ *  @param {string | null | undefined} color
+ */
 export async function createTemplateTag(name, color) {
   const trimmed = validateTagName(name);
   validateTagColor(color);
@@ -411,13 +459,17 @@ export async function createTemplateTag(name, color) {
   try {
     await db.run('INSERT INTO template_tags (id, name, color) VALUES ($1, $2, $3)', [id, trimmed, safeColor]);
   } catch (err) {
-    if (err.code === '23505') throw Object.assign(new Error('Tag already exists'), { status: 409 });
+    if (isUniqueViolation(err)) throw Object.assign(new Error('Tag already exists'), { status: 409 });
     throw err;
   }
   return { id, name: trimmed, color: safeColor };
 }
 
-/** Update an existing template tag's name and/or color. */
+/** Update an existing template tag's name and/or color.
+ *  @param {string} tagId
+ *  @param {string} name
+ *  @param {string | null | undefined} color
+ */
 export async function updateTemplateTag(tagId, name, color) {
   const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
   if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
@@ -427,13 +479,15 @@ export async function updateTemplateTag(tagId, name, color) {
   try {
     await db.run('UPDATE template_tags SET name = $1, color = $2 WHERE id = $3', [trimmed, safeColor, tagId]);
   } catch (err) {
-    if (err.code === '23505') throw Object.assign(new Error('Tag already exists'), { status: 409 });
+    if (isUniqueViolation(err)) throw Object.assign(new Error('Tag already exists'), { status: 409 });
     throw err;
   }
   return { id: tagId, name: trimmed, color: safeColor };
 }
 
-/** Delete a global template tag by ID. */
+/** Delete a global template tag by ID.
+ *  @param {string} tagId
+ */
 export async function deleteTemplateTag(tagId) {
   const tag = await db.get('SELECT * FROM template_tags WHERE id = $1', [tagId]);
   if (!tag) throw Object.assign(new Error('Tag not found'), { status: 404 });
@@ -443,7 +497,10 @@ export async function deleteTemplateTag(tagId) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TAGS_PER_TEMPLATE = 20;
 
-/** Replace all tags on a template with the given tag IDs. */
+/** Replace all tags on a template with the given tag IDs.
+ *  @param {string} templateId
+ *  @param {string[]} tagIds
+ */
 export async function setTemplateTags(templateId, tagIds) {
   if (tagIds.length > MAX_TAGS_PER_TEMPLATE) {
     throw Object.assign(new Error(`Too many tags (max ${MAX_TAGS_PER_TEMPLATE})`), { status: 400 });
@@ -461,7 +518,10 @@ export async function setTemplateTags(templateId, tagIds) {
   });
 }
 
-/** Create a new blank project with a default main.tex file. */
+/** Create a new blank project with a default main.tex file.
+ *  @param {string | undefined} userId
+ *  @param {string | undefined} name
+ */
 export async function createProject(userId, name) {
   const id = uuid();
   const fileId = uuid();
@@ -498,16 +558,20 @@ Hello from FlowTex!
   return { id, name: safeName };
 }
 
-/** Create a new project by extracting files from an uploaded ZIP buffer. */
+/** Create a new project by extracting files from an uploaded ZIP buffer.
+ *  @param {string | undefined} userId
+ *  @param {Buffer} buffer
+ *  @param {string | undefined} originalName
+ */
 export async function createProjectFromZip(userId, buffer, originalName) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
-  const fileEntries = entries.filter((e) => !e.isDirectory);
+  const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
-  const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
+  const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
     throw new Error(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
@@ -519,6 +583,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
 
   const projectName = (originalName || 'Uploaded Project').replace(/\.zip$/i, '');
   const projectId = uuid();
+  /** @type {Array<{ id: string, path: string, projectId: string }>} */
   const created = [];
 
   await db.transaction(async (tx) => {
@@ -534,7 +599,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       let entryPath = entry.entryName;
-      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((/** @type {string} */ p) => p.startsWith('.'))) continue;
       if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
@@ -550,7 +615,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
         if (deniedBinaryExtension(entryPath)) continue;
         try {
           const { id } = await writeBinaryFileInTx(tx, projectId, entryPath, rawData);
-          created.push({ id, path: entryPath });
+          created.push({ id, path: entryPath, projectId });
         } catch (err) {
           logger.warn({ err, entryPath }, 'createProjectFromZip: skipping bad binary entry');
         }
@@ -561,7 +626,7 @@ export async function createProjectFromZip(userId, buffer, originalName) {
           'INSERT INTO files (id, project_id, path, content, is_binary) VALUES ($1, $2, $3, $4, FALSE)',
           [id, projectId, entryPath, rawData.toString('utf8')],
         );
-        created.push({ id, path: entryPath });
+        created.push({ id, path: entryPath, projectId });
       }
     }
   });
@@ -570,9 +635,14 @@ export async function createProjectFromZip(userId, buffer, originalName) {
   return { id: projectId, name: projectName };
 }
 
-/** Create a new project by converting a .docx file to LaTeX using the custom converter. */
+/** Create a new project by converting a .docx file to LaTeX using the custom converter.
+ *  @param {string | undefined} userId
+ *  @param {Buffer} buffer
+ *  @param {string | undefined} originalName
+ *  @param {{ onProgress?: (msg: string, pct: number) => void, signal?: AbortSignal, docType?: string }} [options]
+ */
 export async function createProjectFromDocx(userId, buffer, originalName, options = {}) {
-  const onProgress = options.onProgress || (() => {});
+  const onProgress = options.onProgress || ((/** @type {string} */ _msg, /** @type {number} */ _pct) => {});
   // Pass progress callback to converter — it reports 5-75%
   options.onProgress = onProgress;
   // Convert DOCX → LaTeX with exact tracked-change positions
@@ -583,14 +653,17 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
   let { latex: rawLatex, metadata, bibContent: converterBib, comments: docxComments, mediaFiles } = await convertDocxToLatex(buffer, options);
 
   // Strip null bytes that some DOCX files produce — PostgreSQL rejects them
+  /** @param {any} s */
   const stripNulls = (s) => (typeof s === 'string' ? s.replace(/\0/g, '') : s);
   rawLatex = stripNulls(rawLatex);
   converterBib = stripNulls(converterBib);
   if (metadata) {
-    for (const k of Object.keys(metadata)) metadata[k] = stripNulls(metadata[k]);
+    /** @type {Record<string, any>} */
+    const meta = metadata;
+    for (const k of Object.keys(meta)) meta[k] = stripNulls(meta[k]);
   }
   if (docxComments) {
-    for (const c of docxComments) {
+    for (const c of /** @type {Array<any>} */ (docxComments)) {
       c.text = stripNulls(c.text);
       c.author = stripNulls(c.author);
     }
@@ -600,6 +673,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
   // Bibliography: prefer converter-generated bib (from EndNote field codes),
   // fall back to extracting from a References section in the LaTeX text
   let bibContent = '';
+  /** @type {{ tex: string, bib: string, style: string, unresolved?: string[] }} */
   const bibResult = converterBib
     ? { tex: rawLatex, bib: '', style: 'authoryear', unresolved: [] }
     : extractAndReplaceBibliography(rawLatex);
@@ -626,8 +700,8 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
       texContent = texContent.replace(/\\end\{document\}/, '\n\\printbibliography\n\\end{document}');
     }
   }
-  if (bibResult.unresolved?.length > 0) {
-    const warnings = bibResult.unresolved.map((u) => `% WARNING: Unresolved citation: ${u}`).join('\n');
+  if ((bibResult.unresolved?.length ?? 0) > 0) {
+    const warnings = (bibResult.unresolved || []).map((/** @type {string} */ u) => `% WARNING: Unresolved citation: ${u}`).join('\n');
     const prefix = warnings + '\n%\n';
     texContent = prefix + texContent;
     preambleShift += prefix.length;
@@ -685,7 +759,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
         // Apply same preamble shift as tracked changes (comments are in body)
         const bodyStartOrig = rawLatex.indexOf('\\begin{document}');
         let commentsMapped = 0;
-        for (const c of docxComments) {
+        for (const c of /** @type {Array<any>} */ (docxComments)) {
           const shift = c.from >= bodyStartOrig ? preambleShift : 0;
           const from = c.from + shift;
           const to = c.to + shift;
@@ -722,6 +796,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
  *
  * Returns { tex, bib, style } where style is 'numeric' or 'authoryear'.
  */
+/** @param {string} tex */
 function extractAndReplaceBibliography(tex) {
   // --- 1. Find and extract the references section ---
   // Pandoc produces: \hypertarget{references}{%\n\section{References}\label{references}}\n\n...entries...\n\n\end{document}
@@ -759,7 +834,9 @@ function extractAndReplaceBibliography(tex) {
     rawEntries = refSection.split(/\n\s*\n/).filter((s) => s.trim().length > 15);
   }
 
+  /** @type {Array<any>} */
   const bibEntries = [];
+  /** @type {Array<string>} */
   const keysByIndex = [];
 
   // Common abbreviations that shouldn't end a title
@@ -981,22 +1058,24 @@ function extractAndReplaceBibliography(tex) {
   const style = isNumeric ? 'numeric' : 'authoryear';
 
   // Build lookup table for author-year matching
-  const lookup = bibEntries.map((entry) => {
+  const lookup = bibEntries.map((/** @type {any} */ entry) => {
     // Parse surnames from the author string: "Surname, I., \& Surname, J."
     // Split on \& or "and" — each segment is "Surname, Initials"
     const authorParts = entry.authors.split(/\s*(?:\\?&|(?:\band\b))\s*/i);
-    const surnames = authorParts.map((part) => {
+    const surnames = authorParts.map((/** @type {string} */ part) => {
       // First word before comma is the surname
       const comma = part.indexOf(',');
       if (comma > 0) return part.substring(0, comma).trim();
       // No comma — last capitalised word
-      return part.trim().split(/\s+/).filter((w) => /^[A-Z]/.test(w)).pop() || part.trim();
+      return part.trim().split(/\s+/).filter((/** @type {string} */ w) => /^[A-Z]/.test(w)).pop() || part.trim();
     }).filter(Boolean);
     return { key: entry.key, year: entry.year, yearRaw: entry.year, surnames };
   });
 
   // Fuzzy surname match: handles typos (Ghosal vs Ghoshal), accents, hyphens
+  /** @param {string} s */
   const normSurname = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+  /** @param {string} a @param {string} b */
   const surnameMatch = (a, b) => {
     const na = normSurname(a), nb = normSurname(b);
     if (na === nb) return true;
@@ -1018,10 +1097,14 @@ function extractAndReplaceBibliography(tex) {
     return false;
   };
 
+  /**
+   * @param {string} authorPart
+   * @param {string} year
+   */
   const findKey = (authorPart, year) => {
     const clean = authorPart.replace(/\s+et\s+al\.?/i, '').replace(/\\?&/g, '&').trim();
     // Split on & or "and", then extract surname (keep multi-word names like "Van Alstyne")
-    const words = clean.split(/\s+(?:&|and)\s+/i).map((w) => {
+    const words = clean.split(/\s+(?:&|and)\s+/i).map((/** @type {string} */ w) => {
       const part = w.trim().replace(/,.*$/, '').trim(); // remove ", I." initials
       // If it looks like "Surname, I." format, take everything before comma
       if (/,/.test(w)) return w.split(',')[0].trim();
@@ -1036,11 +1119,11 @@ function extractAndReplaceBibliography(tex) {
       if (isEtAl && surnameMatch(entry.surnames[0], words[0])) return entry.key;
       // Single author citation — match first surname or any surname in the entry
       if (words.length === 1) {
-        if (entry.surnames.some((s) => surnameMatch(s, words[0]))) return entry.key;
+        if (entry.surnames.some((/** @type {string} */ s) => surnameMatch(s, words[0]))) return entry.key;
       }
       // Multiple authors — match all listed surnames against any position
       if (words.length > 1) {
-        const matched = words.every((w) => entry.surnames.some((s) => surnameMatch(s, w)));
+        const matched = words.every((/** @type {string} */ w) => entry.surnames.some((/** @type {string} */ s) => surnameMatch(s, w)));
         if (matched) return entry.key;
       }
     }
@@ -1049,7 +1132,9 @@ function extractAndReplaceBibliography(tex) {
 
   // Collect all replacements as {from, to, replacement} tuples so we can
   // build a position map for TC remapping.
+  /** @type {Array<{ from: number, to: number, replacement: string }>} */
   const replacements = [];
+  /** @type {string[]} */
   const unresolved = [];
 
   if (isNumeric) {
@@ -1148,6 +1233,7 @@ function extractAndReplaceBibliography(tex) {
 
   // --- 5. Build .bib content ---
   // Escape BibTeX special characters in field values
+  /** @param {string} s */
   const bibEsc = (s) => {
     // First normalize: convert \& to just & so we handle everything uniformly
     let r = s.replace(/\\&/g, '&');
@@ -1213,17 +1299,21 @@ function extractAndReplaceBibliography(tex) {
   return { tex: newTex, bib: bibLines.join('\n\n'), style, unresolved: uniqueUnresolved, replacements };
 }
 
-/** Upload a ZIP file into an existing project, merging with existing files. */
+/** Upload a ZIP file into an existing project, merging with existing files.
+ *  @param {string} projectId
+ *  @param {Buffer} buffer
+ */
 export async function uploadZipToProject(projectId, buffer) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
+  /** @type {Array<{ id: string, path: string, updated: boolean }>} */
   const created = [];
 
-  const fileEntries = entries.filter((e) => !e.isDirectory);
+  const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
-  const totalDecompressed = fileEntries.reduce((sum, e) => sum + (e.header.size || 0), 0);
+  const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
     throw new Error(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
@@ -1238,7 +1328,7 @@ export async function uploadZipToProject(projectId, buffer) {
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       let entryPath = entry.entryName;
-      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((p) => p.startsWith('.'))) continue;
+      if (entryPath.startsWith('__MACOSX/') || entryPath.split('/').some((/** @type {string} */ p) => p.startsWith('.'))) continue;
       if (entryPath.includes('..') || !isValidFilePath(entryPath)) continue;
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
@@ -1301,12 +1391,13 @@ export async function uploadZipToProject(projectId, buffer) {
 }
 
 /** Strip a shared directory prefix from extracted ZIP files (e.g. "project-name/"). */
+/** @param {Array<{ id: string, path: string }>} created */
 async function stripCommonPrefix(created) {
   if (created.length <= 1) return;
   const firstSlash = created[0].path.indexOf('/');
   if (firstSlash <= 0) return;
   const prefix = created[0].path.substring(0, firstSlash + 1);
-  if (!created.every((f) => f.path.startsWith(prefix))) return;
+  if (!created.every((/** @type {{ path: string }} */ f) => f.path.startsWith(prefix))) return;
   await db.transaction(async (tx) => {
     for (const f of created) {
       const newPath = f.path.substring(prefix.length);
@@ -1318,7 +1409,17 @@ async function stripCommonPrefix(created) {
   });
 }
 
-/** Update project settings (name, main file, snapshot interval, TeX distribution, compiler, compile location). */
+/** Update project settings (name, main file, snapshot interval, TeX distribution, compiler, compile location).
+ *  @param {string} projectId
+ *  @param {{
+ *    name?: string,
+ *    main_file?: string,
+ *    snapshot_interval_sec?: number,
+ *    tex_distribution?: string,
+ *    compiler?: string,
+ *    compile_location?: string,
+ *  }} updates
+ */
 export async function updateProject(
   projectId,
   { name, main_file, snapshot_interval_sec, tex_distribution, compiler, compile_location },
@@ -1335,7 +1436,7 @@ export async function updateProject(
     await db.run('UPDATE projects SET name = $1 WHERE id = $2', [name.trim(), projectId]);
   }
   if (snapshot_interval_sec != null) {
-    const val = Math.max(10, Math.min(3600, parseInt(snapshot_interval_sec) || 30));
+    const val = Math.max(10, Math.min(3600, parseInt(String(snapshot_interval_sec)) || 30));
     await db.run('UPDATE projects SET snapshot_interval_sec = $1 WHERE id = $2', [val, projectId]);
   }
   if (tex_distribution !== undefined) {
@@ -1360,6 +1461,7 @@ export async function updateProject(
   return db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
 }
 
+/** @param {string} projectId */
 export async function deleteProject(projectId) {
   await db.run('DELETE FROM projects WHERE id = $1', [projectId]);
   // CASCADE clears files / project_blobs / project_members / etc. but
@@ -1396,6 +1498,12 @@ export async function deleteProject(projectId) {
  *     had access to the original. New history accrues from the moment of
  *     copy; the *current* state of every file is preserved verbatim via
  *     the files INSERTs below. */
+/**
+ * @param {string} projectId
+ * @param {string | undefined} userId
+ * @param {string | undefined} newName
+ * @param {{ includeMembers?: boolean }} [opts]
+ */
 export async function copyProject(projectId, userId, newName, { includeMembers = false } = {}) {
   const source = await db.get('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!source) throw new Error('Project not found');
@@ -1403,6 +1511,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
   const name = (newName || source.name + ' (Copy)').slice(0, 200);
   // Track user_ids of source collaborators carried over so the route layer
   // can audit-log each implicit re-share. Owner (caller) is not included.
+  /** @type {string[]} */
   const addedMembers = [];
   // tc_marks is the per-file tracked-changes JSON sidecar (insert / delete
   // ranges + author + timestamp). It rides alongside content because the
@@ -1462,7 +1571,8 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
         // both legacy base64-in-content rows and blob-stored rows.
         const bytes = await loadFileBytes(projectId, file);
         if (!bytes || bytes.length === 0) continue;
-        const { id: newFileId } = await writeBinaryFileInTx(tx, newId, file.path, bytes);
+        // loadFileBytes returns Buffer|string; binary rows are Buffer.
+        const { id: newFileId } = await writeBinaryFileInTx(tx, newId, file.path, /** @type {Buffer} */ (bytes));
         fileIdMap.set(file.id, newFileId);
         if (file.tc_marks && file.tc_marks.length > 0) {
           await tx.run('UPDATE files SET tc_marks = $1 WHERE id = $2', [
@@ -1483,7 +1593,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
 
     if (files.length === 0) return;
 
-    const sourceFileIds = files.map((f) => f.id);
+    const sourceFileIds = files.map((/** @type {{ id: string }} */ f) => f.id);
     const comments = await tx.all(
       `SELECT id, file_id, from_pos, to_pos, text, author, author_id, assigned_to, resolved, created_at
          FROM comments WHERE file_id = ANY($1)`,
@@ -1512,7 +1622,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
       );
     }
 
-    const sourceCommentIds = comments.map((c) => c.id);
+    const sourceCommentIds = comments.map((/** @type {{ id: string }} */ c) => c.id);
     const replies = await tx.all(
       `SELECT id, comment_id, text, author, author_id, created_at
          FROM comment_replies WHERE comment_id = ANY($1)`,
@@ -1543,7 +1653,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
     }
 
     if (replies.length === 0) return;
-    const sourceReplyIds = replies.map((r) => r.id);
+    const sourceReplyIds = replies.map((/** @type {{ id: string }} */ r) => r.id);
     const replyReactions = await tx.all(
       `SELECT reply_id, user_id, user_name, emoji
          FROM reply_reactions WHERE reply_id = ANY($1)`,
@@ -1563,6 +1673,7 @@ export async function copyProject(projectId, userId, newName, { includeMembers =
 
 // --- File operations ---
 
+/** @param {string} projectId */
 export async function getProjectFiles(projectId) {
   // Binaries are base64-encoded in the DB and often dominate the payload
   // (images, fonts, PDFs in a typical paper). The client doesn't need
@@ -1610,11 +1721,12 @@ const BLOB_MIME_MAP = {
   eps: 'application/postscript',
 };
 
+/** @param {string} filePath */
 function mimeFromPath(filePath) {
   const dot = String(filePath).lastIndexOf('.');
   if (dot < 0) return 'application/octet-stream';
   const ext = filePath.slice(dot + 1).toLowerCase();
-  return BLOB_MIME_MAP[ext] || 'application/octet-stream';
+  return /** @type {Record<string, string>} */ (BLOB_MIME_MAP)[ext] || 'application/octet-stream';
 }
 
 /** Upload or replace a binary file (image, font, etc.) in a project.
@@ -1623,6 +1735,11 @@ function mimeFromPath(filePath) {
  *  tx then does only the (fast) bookkeeping: quota gates, project_blobs
  *  upsert, files insert/update. If the tx rolls back, the blob is
  *  orphaned on disk and the GC sweep collects it.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} filePath
+ * @param {Buffer} buffer
  */
 export async function uploadBinaryFile(projectId, filePath, buffer) {
   // 1. Cheap validation up front, before we touch the disk.
@@ -1672,6 +1789,15 @@ export async function uploadBinaryFile(projectId, filePath, buffer) {
  * The original buffer length is passed separately for the quota
  * check — the on-disk blob's `size` is what we already wrote, but
  * the quota assertion needs to know the upload's contribution.
+ */
+/**
+ * @param {any} tx
+ * @param {string} projectId
+ * @param {string} filePath
+ * @param {string} sha256
+ * @param {number} size
+ * @param {string} mime
+ * @param {number} uploadBytes
  */
 async function landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime, uploadBytes) {
   const existing = await tx.get(
@@ -1742,6 +1868,12 @@ async function landBlobReferenceInTx(tx, projectId, filePath, sha256, size, mime
  * split path (writeBlob outside, landBlobReferenceInTx inside) so the
  * pg pool isn't held during the multi-MB write.
  */
+/**
+ * @param {any} tx
+ * @param {string} projectId
+ * @param {string} filePath
+ * @param {Buffer} buffer
+ */
 export async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
   if (!isValidFilePath(filePath)) throw new Error(`Invalid file path: ${filePath}`);
   const denied = deniedBinaryExtension(filePath);
@@ -1756,6 +1888,11 @@ export async function writeBinaryFileInTx(tx, projectId, filePath, buffer) {
 // Helper for the file-delete path: decrement the refcount on the blob
 // referenced by a row about to be deleted. No-op for base64 rows.
 // Called inside the same transaction that deletes the file row.
+/**
+ * @param {any} tx
+ * @param {string} projectId
+ * @param {string | null | undefined} blobSha256
+ */
 export async function decrementBlobRefcount(tx, projectId, blobSha256) {
   if (!blobSha256) return;
   await tx.run(
@@ -1770,7 +1907,11 @@ export async function decrementBlobRefcount(tx, projectId, blobSha256) {
 const FILE_PATH_TAKEN = () =>
   Object.assign(new Error('A file with that name already exists'), { status: 409 });
 
-/** Create a new text file in a project (fails if the path already exists). */
+/** Create a new text file in a project (fails if the path already exists).
+ *  @param {string} projectId
+ *  @param {string} filePath
+ *  @param {string | undefined} content
+ */
 export async function createFile(projectId, filePath, content) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (content && content.length > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
@@ -1797,7 +1938,13 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
-/** Save file content (+ optional tcMarks sidecar) and create a snapshot if due. */
+/** Save file content (+ optional tcMarks sidecar) and create a snapshot if due.
+ *  @param {string} fileId
+ *  @param {string | undefined} content
+ *  @param {string | undefined} userId
+ *  @param {any[] | undefined} tcMarks
+ *  @param {string | Date | undefined} baseVersion
+ */
 export async function updateFileContent(fileId, content, userId, tcMarks, baseVersion) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
@@ -1921,8 +2068,8 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
       // project_blobs.ref_count atomically.
       const uniqueBinaries = new Set(
         allFiles
-          .filter((f) => f.is_binary && f.binary_sha256)
-          .map((f) => f.binary_sha256),
+          .filter((/** @type {any} */ f) => f.is_binary && f.binary_sha256)
+          .map((/** @type {{ binary_sha256: string }} */ f) => f.binary_sha256),
       );
       for (const sha of uniqueBinaries) {
         await tx.run(
@@ -1959,8 +2106,13 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
  *  the main_file pointer follow-up share a single transaction and a
  *  FOR UPDATE lock on the project row, so a concurrent rename or
  *  project update can't slip the main_file pointer past us. */
+/**
+ * @param {string} fileId
+ * @param {string} newPath
+ */
 export async function renameFile(fileId, newPath) {
   if (!isValidFilePath(newPath)) throw new Error('Invalid file path');
+  /** @type {any} */
   let file = null;
   try {
     await db.transaction(async (tx) => {
@@ -1998,6 +2150,7 @@ export async function renameFile(fileId, newPath) {
   return file;
 }
 
+/** @param {string} fileId */
 export async function deleteFile(fileId) {
   // If the file references a blob, decrement that blob's refcount in
   // the same transaction. GC sweep (phase B) removes blobs that
@@ -2021,6 +2174,7 @@ export async function deleteFile(fileId) {
 // and have the folder survive a refresh.
 
 /** Normalize a folder path: trim slashes, collapse repeats, reject .. */
+/** @param {unknown} rawPath */
 function normalizeFolderPath(rawPath) {
   if (typeof rawPath !== 'string') return null;
   const trimmed = rawPath
@@ -2041,20 +2195,26 @@ function normalizeFolderPath(rawPath) {
  * create a folder named `a%` and have a subsequent delete/rename hit
  * unrelated files in the same project.
  */
+/** @param {string} s */
 function escapeLikePattern(s) {
   return s.replace(/[\\%_]/g, '\\$&');
 }
 
-/** List all explicit empty-folder paths for a project. */
+/** List all explicit empty-folder paths for a project.
+ *  @param {string} projectId
+ */
 export async function listFolders(projectId) {
   const rows = await db.all(
     'SELECT path FROM project_folders WHERE project_id = $1 ORDER BY path',
     [projectId],
   );
-  return rows.map((r) => r.path);
+  return rows.map((/** @type {{ path: string }} */ r) => r.path);
 }
 
-/** Create an empty folder. Idempotent: inserting the same path twice is a no-op. */
+/** Create an empty folder. Idempotent: inserting the same path twice is a no-op.
+ *  @param {string} projectId
+ *  @param {string} path
+ */
 export async function createFolder(projectId, path) {
   const normalized = normalizeFolderPath(path);
   if (!normalized) throw Object.assign(new Error('Invalid folder path'), { status: 400 });
@@ -2071,6 +2231,10 @@ export async function createFolder(projectId, path) {
  * Delete a folder and everything under it: all files at-or-below `path/*`
  * AND any explicit folder rows at-or-below `path`. Atomic. Idempotent on
  * a missing folder (treated as "all the files at that prefix are gone").
+ */
+/**
+ * @param {string} projectId
+ * @param {string} path
  */
 export async function deleteFolder(projectId, path) {
   const normalized = normalizeFolderPath(path);
@@ -2109,6 +2273,11 @@ export async function deleteFolder(projectId, path) {
  * Rename a folder, updating BOTH explicit folder rows and every file path
  * under the prefix. Atomic. Use this instead of looping per-file renames
  * from the client; collaborator UIs that re-fetch see one consistent state.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} oldPath
+ * @param {string} newPath
  */
 export async function renameFolderTree(projectId, oldPath, newPath) {
   const oldNorm = normalizeFolderPath(oldPath);
@@ -2173,7 +2342,10 @@ export async function renameFolderTree(projectId, oldPath, newPath) {
   return { ok: true };
 }
 
-/** Fetch a file's full row if the user has access to its project. */
+/** Fetch a file's full row if the user has access to its project.
+ *  @param {string} fileId
+ *  @param {string | undefined} userId
+ */
 export async function getRawFile(fileId, userId) {
   const file = await db.get(
     'SELECT f.*, pm.user_id FROM files f JOIN project_members pm ON f.project_id = pm.project_id WHERE f.id = $1 AND pm.user_id = $2',
@@ -2193,6 +2365,10 @@ export async function getRawFile(fileId, userId) {
  *  legitimately need emails (to remove members, send invites), so the
  *  route passes `true` when the caller is the owner.
  */
+/**
+ * @param {string} projectId
+ * @param {{ includeEmail?: boolean }} [opts]
+ */
 export async function getProjectMembers(projectId, { includeEmail = false } = {}) {
   const rows = await db.all(
     `SELECT u.id, u.email, u.name, pm.role FROM project_members pm
@@ -2201,7 +2377,10 @@ export async function getProjectMembers(projectId, { includeEmail = false } = {}
     [projectId],
   );
   if (includeEmail) return rows;
-  return rows.map(({ email, ...rest }) => rest);
+  return rows.map((/** @type {{ email: string }} */ row) => {
+    const { email, ...rest } = row;
+    return rest;
+  });
 }
 
 /** Invite a registered user to a project by email. */
@@ -2211,6 +2390,12 @@ export async function getProjectMembers(projectId, { includeEmail = false } = {}
 // can't fan one project out to thousands of addresses.
 const PROJECT_MEMBERSHIP_CAP = 50;
 
+/**
+ * @param {string} projectId
+ * @param {string} email
+ * @param {string} role
+ * @param {string | undefined} inviterId
+ */
 export async function inviteMember(projectId, email, role, inviterId) {
   const normalizedEmail = email.toLowerCase().trim();
   // Unlike before, we DON'T reject when the email has no FlowTex
@@ -2300,7 +2485,10 @@ export async function inviteMember(projectId, email, role, inviterId) {
   };
 }
 
-/** Remove a member from a project and invalidate their cached membership. */
+/** Remove a member from a project and invalidate their cached membership.
+ *  @param {string} projectId
+ *  @param {string | undefined} userId
+ */
 export async function removeMember(projectId, userId) {
   await db.run('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
   invalidateMembership(projectId, userId);
@@ -2308,7 +2496,9 @@ export async function removeMember(projectId, userId) {
 
 // --- Invitations ---
 
-/** Get all pending project invitations for the current user. */
+/** Get all pending project invitations for the current user.
+ *  @param {string | undefined} userId
+ */
 export async function getMyInvitations(userId) {
   const user = await db.get('SELECT email FROM users WHERE id = $1', [userId]);
   if (!user) return [];
@@ -2324,7 +2514,10 @@ export async function getMyInvitations(userId) {
   );
 }
 
-/** Accept a project invitation, adding the user as a member. */
+/** Accept a project invitation, adding the user as a member.
+ *  @param {string} inviteId
+ *  @param {string | undefined} userId
+ */
 export async function acceptInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
@@ -2362,7 +2555,10 @@ export async function acceptInvitation(inviteId, userId) {
   return { ok: true, projectId: invite.project_id };
 }
 
-/** Decline a project invitation. */
+/** Decline a project invitation.
+ *  @param {string} inviteId
+ *  @param {string | undefined} userId
+ */
 export async function declineInvitation(inviteId, userId) {
   const user = await db.get('SELECT id, email FROM users WHERE id = $1', [userId]);
   if (!user) throw new Error('Not logged in');
@@ -2374,7 +2570,9 @@ export async function declineInvitation(inviteId, userId) {
   await db.run("UPDATE project_invitations SET status = 'declined' WHERE id = $1", [invite.id]);
 }
 
-/** List all pending invitations for a project. */
+/** List all pending invitations for a project.
+ *  @param {string} projectId
+ */
 export async function getProjectInvitations(projectId) {
   return db.all(
     `SELECT pi.id, pi.email, pi.role, pi.status, pi.created_at, u.name AS inviter_name
@@ -2385,25 +2583,32 @@ export async function getProjectInvitations(projectId) {
   );
 }
 
-/** Cancel (delete) a pending invitation. */
+/** Cancel (delete) a pending invitation.
+ *  @param {string} inviteId
+ *  @param {string} projectId
+ */
 export async function cancelInvitation(inviteId, projectId) {
   await db.run('DELETE FROM project_invitations WHERE id = $1 AND project_id = $2', [inviteId, projectId]);
 }
 
 // --- Archive / Trash ---
 
+/** @param {string} projectId */
 export async function archiveProject(projectId) {
   await db.run('UPDATE projects SET archived = TRUE WHERE id = $1', [projectId]);
 }
 
+/** @param {string} projectId */
 export async function unarchiveProject(projectId) {
   await db.run('UPDATE projects SET archived = FALSE WHERE id = $1', [projectId]);
 }
 
+/** @param {string} projectId */
 export async function trashProject(projectId) {
   await db.run('UPDATE projects SET trashed = TRUE WHERE id = $1', [projectId]);
 }
 
+/** @param {string} projectId */
 export async function restoreProject(projectId) {
   await db.run('UPDATE projects SET trashed = FALSE WHERE id = $1', [projectId]);
 }

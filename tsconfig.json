@@ -125,7 +125,8 @@
     "server/routes/admin.js",
     "server/routes/compile.js",
     "server/routes/projects.js",
-    "server/services/authService.js"
+    "server/services/authService.js",
+    "server/services/projectService.js"
   ],
   "exclude": [
     "node_modules",

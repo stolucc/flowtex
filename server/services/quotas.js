@@ -93,7 +93,7 @@ const LOCK_NAMESPACE = 0x510a;
  *  serialises concurrent createProject calls from the same user and
  *  closes the "two parallel creates both pass the cap" race.
  *  @param {QueryRunner} tx
- *  @param {string} userId
+ *  @param {string | undefined} userId
  */
 export async function assertProjectCountUnderLimit(tx, userId) {
   await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `user:${userId}`]);
