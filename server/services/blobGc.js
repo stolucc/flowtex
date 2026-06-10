@@ -1,3 +1,4 @@
+// @ts-check
 // Phase B of the blob-storage migration. Two sweeps, both safe to run
 // concurrently with normal uploads/reads:
 //
@@ -124,7 +125,7 @@ export async function reconcileOnDiskBlobs() {
   try {
     projectDirs = await readdir(PROJECTS_DIR, { withFileTypes: true });
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { walked, orphaned, projects };
+    if (err && /** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') return { walked, orphaned, projects };
     throw err;
   }
 
@@ -140,7 +141,7 @@ export async function reconcileOnDiskBlobs() {
     try {
       shards = await readdir(root, { withFileTypes: true });
     } catch (err) {
-      if (err && err.code === 'ENOENT') continue;
+      if (err && /** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') continue;
       throw err;
     }
     projects += 1;
@@ -158,7 +159,7 @@ export async function reconcileOnDiskBlobs() {
         try {
           tmps = await readdir(tmpDir, { withFileTypes: true });
         } catch (err) {
-          if (err && err.code === 'ENOENT') continue;
+          if (err && /** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') continue;
           throw err;
         }
         for (const t of tmps) {
@@ -176,7 +177,7 @@ export async function reconcileOnDiskBlobs() {
             await unlink(tmpPath);
             staleTmp += 1;
           } catch (err) {
-            if (!err || err.code !== 'ENOENT') {
+            if (!err || /** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
               logger.warn({ err, projectId, tmpName: t.name }, 'blobGc: failed to unlink stale tmp');
             }
           }
@@ -192,7 +193,7 @@ export async function reconcileOnDiskBlobs() {
       try {
         files = await readdir(shardPath, { withFileTypes: true });
       } catch (err) {
-        if (err && err.code === 'ENOENT') continue;
+        if (err && /** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') continue;
         throw err;
       }
 
@@ -223,7 +224,7 @@ export async function reconcileOnDiskBlobs() {
           'SELECT sha256 FROM project_blobs WHERE project_id = $1 AND sha256 = ANY($2)',
           [projectId, candidates.map((c) => c.sha256)],
         );
-        referenced = new Set(refRows.map((r) => r.sha256));
+        referenced = new Set(refRows.map((/** @type {{ sha256: string }} */ r) => r.sha256));
       }
 
       for (const { sha256, filePath } of candidates) {
@@ -232,7 +233,7 @@ export async function reconcileOnDiskBlobs() {
           await unlink(filePath);
           orphaned += 1;
         } catch (err) {
-          if (!err || err.code !== 'ENOENT') {
+          if (!err || /** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
             logger.warn(
               { err, projectId, sha256 },
               'blobGc: failed to unlink reconcile-orphan blob',

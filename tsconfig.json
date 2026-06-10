@@ -78,7 +78,9 @@
     "server/services/metrics.js",
     "server/services/yjsLocks.js",
     "server/services/yjsRoomSelector.js",
-    "server/services/blobStore.js"
+    "server/services/blobStore.js",
+    "server/services/blobPersistor.js",
+    "server/services/blobGc.js"
   ],
   "exclude": [
     "node_modules",

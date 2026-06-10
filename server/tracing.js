@@ -127,9 +127,17 @@ if (ENDPOINT) {
  * Throws (sync or async) are recorded with span.recordException +
  * ERROR status, then re-thrown.
  *
+ * @typedef {{
+ *   setAttribute: (key: string, value: string | number | boolean) => void,
+ *   setAttributes: (attrs: Record<string, string | number | boolean>) => void,
+ *   recordException: (err: unknown) => void,
+ *   setStatus: (status: { code: number, message?: string }) => void,
+ *   end: () => void,
+ * }} Span
+ *
  * @template T
  * @param {string} name
- * @param {(span: object) => T | Promise<T>} fn
+ * @param {(span: Span) => T | Promise<T>} fn
  * @returns {T | Promise<T>}
  */
 export function withSpan(name, fn) {

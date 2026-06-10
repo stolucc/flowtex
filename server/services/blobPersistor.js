@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 2 -- pluggable blob storage backend.
 //
 // FlowTex's existing `blobStore.js` writes content-addressed blobs to
@@ -38,15 +39,33 @@ import { withSpan } from '../tracing.js';
 // Short sha helper for span attributes -- carry enough to grep the
 // trace back to a specific blob without leaking the full 64-char
 // hash into trace UIs that truncate badly.
+/** @param {string | undefined | null} sha */
 function shortSha(sha) {
   return typeof sha === 'string' && sha.length >= 8 ? sha.slice(0, 8) : 'unknown';
 }
 
+/**
+ * @typedef {{
+ *   name: string,
+ *   info?: () => object,
+ *   writeBlob: (projectId: string, stream: import('node:stream').Readable, opts?: { maxBytes?: number }) => Promise<{ sha256: string, size: number, deduped: boolean }>,
+ *   statBlob: (projectId: string, sha256: string) => Promise<{ size: number, mtimeMs: number } | null>,
+ *   readBlobStream: (projectId: string, sha256: string) =>
+ *     import('node:stream').Readable | null | Promise<import('node:stream').Readable | null>,
+ *   deleteBlob: (projectId: string, sha256: string) => Promise<void>,
+ * }} BlobBackend
+ */
+
+/** @type {BlobBackend | null} */
 let activeBackend = null;
+/** @type {string | null} */
 let activeName = null;
+/** @type {BlobBackend | null} */
 let fallbackBackend = null;
+/** @type {string | null} */
 let fallbackName = null;
 
+/** @type {Record<string, () => Promise<BlobBackend>>} */
 const BACKENDS = {
   fs: () => Promise.resolve(makeFsBackend()),
   s3: () => import('./blobPersistorS3.js').then((m) => m.makeS3Backend()),
@@ -63,6 +82,7 @@ function makeFsBackend() {
   };
 }
 
+/** @param {string} name */
 async function loadBackend(name) {
   const loader = BACKENDS[name];
   if (!loader) {
@@ -130,6 +150,11 @@ export function getFallbackBackendName() {
 
 // ── Pass-through convenience exports ───────────────────────────────────
 
+/**
+ * @param {string} projectId
+ * @param {import('node:stream').Readable} stream
+ * @param {{ maxBytes?: number }} [opts]
+ */
 export async function writeBlob(projectId, stream, opts) {
   return withSpan('blob.writeBlob', async (span) => {
     const b = await getBlobPersistor();
@@ -149,6 +174,10 @@ export async function writeBlob(projectId, stream, opts) {
  * Stat a blob. Tries the primary backend first; on null result, falls
  * back to the secondary backend if one was configured. Returns null
  * iff neither backend has the blob.
+ */
+/**
+ * @param {string} projectId
+ * @param {string} sha256
  */
 export async function statBlob(projectId, sha256) {
   return withSpan('blob.statBlob', async (span) => {
@@ -191,6 +220,10 @@ export async function statBlob(projectId, sha256) {
  * fall back directly. This adds one stat call per read but is the
  * only correct semantics for "is this blob on this backend?".
  */
+/**
+ * @param {string} projectId
+ * @param {string} sha256
+ */
 export async function readBlobStream(projectId, sha256) {
   return withSpan('blob.readBlobStream', async (span) => {
     span.setAttribute('flowtex.project_id', projectId);
@@ -222,6 +255,10 @@ export async function readBlobStream(projectId, sha256) {
   });
 }
 
+/**
+ * @param {string} projectId
+ * @param {string} sha256
+ */
 export async function deleteBlob(projectId, sha256) {
   return withSpan('blob.deleteBlob', async (span) => {
     span.setAttribute('flowtex.project_id', projectId);
@@ -243,6 +280,11 @@ export async function deleteBlob(projectId, sha256) {
  * directly; this exists for the legacy `await readFile(blobPath(...))`
  * pattern.
  */
+/**
+ * @param {string} projectId
+ * @param {string} sha256
+ * @returns {Promise<Buffer | null>}
+ */
 export async function loadBlobBytes(projectId, sha256) {
   return withSpan('blob.loadBlobBytes', async (span) => {
     span.setAttribute('flowtex.project_id', projectId);
@@ -259,23 +301,30 @@ export async function loadBlobBytes(projectId, sha256) {
     // FS-backend createReadStream returns a stream that may ENOENT on
     // first read rather than the readBlobStream call itself, so handle
     // that as a missing-blob signal too.
-    return new Promise((resolve, reject) => {
-      const chunks = [];
-      let total = 0;
-      stream.on('data', (chunk) => { chunks.push(chunk); total += chunk.length; });
-      stream.on('end', () => {
-        span.setAttribute('flowtex.blob_bytes', total);
-        resolve(Buffer.concat(chunks));
-      });
-      stream.on('error', (err) => {
-        if (err?.code === 'ENOENT') {
-          span.setAttribute('flowtex.found', false);
-          resolve(null);
-        } else {
-          span.recordException(err);
-          reject(err);
-        }
-      });
+    return new Promise(
+      /** @param {(value: Buffer | null) => void} resolve
+       *  @param {(err: unknown) => void} reject */
+      (resolve, reject) => {
+        /** @type {Buffer[]} */
+        const chunks = [];
+        let total = 0;
+        stream.on('data', (/** @type {Buffer} */ chunk) => {
+          chunks.push(chunk);
+          total += chunk.length;
+        });
+        stream.on('end', () => {
+          span.setAttribute('flowtex.blob_bytes', total);
+          resolve(Buffer.concat(chunks));
+        });
+        stream.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
+          if (err?.code === 'ENOENT') {
+            span.setAttribute('flowtex.found', false);
+            resolve(null);
+          } else {
+            span.recordException(err);
+            reject(err);
+          }
+        });
     });
   });
 }
