@@ -202,6 +202,18 @@ const Editor = forwardRef(function Editor(
   currentUserNameRef.current = currentUserName;
   const currentUserIdRef = useRef(currentUserId);
   currentUserIdRef.current = currentUserId;
+  // Stable ref to the yjsIsApplyingRemote prop. Without this, the
+  // TC marks filter's shouldSkip closure (built at mount time inside
+  // EditorState.create) bakes in whatever value the prop had THEN.
+  // useYjsSync's binding is async: the prop is `null` on first
+  // render and becomes the real function on the next render. The
+  // mount effect's dep list is [file?.id] only -- it never re-runs
+  // -- so the editor permanently has shouldSkip wired to null,
+  // meaning every char that yjs-state applies on project open gets
+  // marked as a user insert. The ref pattern lets shouldSkip read
+  // the LATEST function reference at call time.
+  const yjsIsApplyingRemoteRef = useRef(yjsIsApplyingRemote);
+  yjsIsApplyingRemoteRef.current = yjsIsApplyingRemote;
   // Track current file id so any deferred operations pin to the file the user is
   // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
@@ -934,9 +946,15 @@ const Editor = forwardRef(function Editor(
           // open. Without this, every project opens with the whole
           // boilerplate (or full restored content) flagged as a
           // pending tracked change.
-          shouldSkip: yjsIsApplyingRemote
-            ? () => yjsIsApplyingRemote()
-            : undefined,
+          // Read through the ref so the closure sees the LATEST function
+          // reference (the binding might not exist when the editor first
+          // mounts; once it does, the ref updates and shouldSkip starts
+          // returning true during remote applies). Returns false when the
+          // prop is still null -- safe default, just means no skipping.
+          shouldSkip: () => {
+            const f = yjsIsApplyingRemoteRef.current;
+            return f ? f() : false;
+          },
         }),
         tableGutterField,
         tableGutterExtension,
