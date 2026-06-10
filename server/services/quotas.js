@@ -1,3 +1,4 @@
+// @ts-check
 // Static per-user resource caps. Bounds the blast radius of a single
 // misbehaving (or compromised) account on a small VPS deployment.
 //
@@ -52,8 +53,22 @@ export const QUOTA_KEYS = {
   BLOB_BYTES_PER_USER: 'quota_blob_bytes_per_user',
 };
 
+/** @typedef {'PROJECTS_PER_USER' | 'FILES_PER_PROJECT' | 'BLOB_BYTES_PER_USER'} QuotaName */
+
+/** A pg.PoolClient or db.transaction tx -- we only use .run() and .get(),
+ *  so this typedef keeps the JSDoc honest without pulling pg types. */
+/**
+ * @typedef {{
+ *   run: (sql: string, params?: unknown[]) => Promise<unknown>,
+ *   get: (sql: string, params?: unknown[]) => Promise<any>,
+ * }} QueryRunner
+ */
+
 /** Resolve the live value of one quota: admin-set override if present
- *  and parseable, else the static default. */
+ *  and parseable, else the static default.
+ *  @param {QuotaName} name
+ *  @returns {Promise<number>}
+ */
 export async function getEffectiveQuota(name) {
   const fallback = QUOTAS[name];
   const key = QUOTA_KEYS[name];
@@ -76,7 +91,10 @@ const LOCK_NAMESPACE = 0x510a;
  *  Takes `tx` so the SELECT runs against the same snapshot as the
  *  subsequent INSERT. Grabs a per-user xact-advisory lock first, which
  *  serialises concurrent createProject calls from the same user and
- *  closes the "two parallel creates both pass the cap" race. */
+ *  closes the "two parallel creates both pass the cap" race.
+ *  @param {QueryRunner} tx
+ *  @param {string} userId
+ */
 export async function assertProjectCountUnderLimit(tx, userId) {
   await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `user:${userId}`]);
   const limit = await getEffectiveQuota('PROJECTS_PER_USER');
@@ -87,8 +105,10 @@ export async function assertProjectCountUnderLimit(tx, userId) {
     [userId],
   );
   if ((row?.n ?? 0) >= limit) {
-    const err = new Error(
-      `Project limit reached (${limit}). Delete an existing project before creating a new one.`,
+    const err = /** @type {Error & { status: number }} */ (
+      new Error(
+        `Project limit reached (${limit}). Delete an existing project before creating a new one.`,
+      )
     );
     err.status = 413;
     throw err;
@@ -98,7 +118,11 @@ export async function assertProjectCountUnderLimit(tx, userId) {
 /** Throw when the project already holds this many files.
  *  Called inside the same transaction as the INSERT for accuracy.
  *  Per-project advisory lock serialises concurrent writers on this
- *  project so the cap is strict, not eventual. */
+ *  project so the cap is strict, not eventual.
+ *  @param {QueryRunner} tx
+ *  @param {string} projectId
+ *  @param {number} [extraFiles]
+ */
 export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
   await tx.run(`SELECT pg_advisory_xact_lock($1, hashtext($2))`, [LOCK_NAMESPACE, `project:${projectId}`]);
   const limit = await getEffectiveQuota('FILES_PER_PROJECT');
@@ -107,8 +131,10 @@ export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
     [projectId],
   );
   if ((row?.n ?? 0) + extraFiles > limit) {
-    const err = new Error(
-      `File limit reached for this project (${limit}). Delete files before adding more.`,
+    const err = /** @type {Error & { status: number }} */ (
+      new Error(
+        `File limit reached for this project (${limit}). Delete files before adding more.`,
+      )
     );
     err.status = 413;
     throw err;
@@ -120,6 +146,11 @@ export async function assertFileCountUnderLimit(tx, projectId, extraFiles = 1) {
  *  callers only need a projectId. Takes the same per-user advisory lock
  *  the project-count check uses, so parallel uploads from the same
  *  owner are serialised against the SUM. */
+/**
+ * @param {QueryRunner} tx
+ * @param {string} projectId
+ * @param {number} extraBytes
+ */
 export async function assertBlobBytesUnderLimitForProject(tx, projectId, extraBytes) {
   if (extraBytes <= 0) return;
   const owner = await tx.get(
@@ -138,9 +169,11 @@ export async function assertBlobBytesUnderLimitForProject(tx, projectId, extraBy
   );
   const used = Number(row?.used ?? 0);
   if (used + extraBytes > limit) {
-    const err = new Error(
-      `Storage quota exceeded (${formatBytes(limit)}). ` +
-      `Delete some figures or PDFs before uploading more.`,
+    const err = /** @type {Error & { status: number }} */ (
+      new Error(
+        `Storage quota exceeded (${formatBytes(limit)}). ` +
+        `Delete some figures or PDFs before uploading more.`,
+      )
     );
     err.status = 413;
     throw err;
@@ -148,7 +181,9 @@ export async function assertBlobBytesUnderLimitForProject(tx, projectId, extraBy
 }
 
 /** Return a usage snapshot for the given user. Used by /api/me/usage and
- *  by the admin overview. */
+ *  by the admin overview.
+ *  @param {string} userId
+ */
 export async function getUserUsage(userId) {
   const [projectsLimit, filesLimit, blobLimit] = await Promise.all([
     getEffectiveQuota('PROJECTS_PER_USER'),
@@ -175,6 +210,7 @@ export async function getUserUsage(userId) {
   };
 }
 
+/** @param {number} n */
 function formatBytes(n) {
   if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GiB`;
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;

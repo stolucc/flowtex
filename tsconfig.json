@@ -53,6 +53,7 @@
   },
   "include": [
     "shared/types.ts",
+    "server/types.d.ts",
     // First opted-in JS files. Adding more is one-line each (add the
     // path here + `// @ts-check` at the top of the file).
     //
@@ -69,7 +70,11 @@
     "shared/texDeps.js",
     "shared/trackedChanges.js",
     "server/routes/helper.js",
-    "server/utils/featureFlags.js"
+    "server/utils/featureFlags.js",
+    "server/services/readinessCheck.js",
+    "server/services/fileBytes.js",
+    "server/services/errorReporter.js",
+    "server/services/quotas.js"
   ],
   "exclude": [
     "node_modules",

@@ -1,3 +1,5 @@
+// @ts-check
+/// <reference types="express-session" />
 // SAAS-FOUNDATIONS item 5 -- pluggable error reporter.
 //
 // Shape modelled on Sentry's Node SDK (captureException +
@@ -22,6 +24,18 @@
 
 import logger from '../logger.js';
 
+/** Shape every registered implementation must provide. Each method is
+ *  optional -- the helpers below null-check at the call site so an
+ *  implementation can ship only the parts it cares about. */
+/**
+ * @typedef {{
+ *   captureException?: (err: unknown, context?: object) => void,
+ *   setUserContext?: (user: object | null | undefined) => void,
+ *   setTag?: (key: string, value: unknown) => void,
+ * }} ErrorReporterImpl
+ */
+
+/** @type {ErrorReporterImpl | null} */
 let impl = null;
 
 /**
@@ -47,6 +61,7 @@ let impl = null;
  *     setTag: (k, v) => Sentry.setTag(k, v),
  *   });
  */
+/** @param {ErrorReporterImpl} implementation */
 export function registerErrorReporter(implementation) {
   if (!implementation || typeof implementation !== 'object') {
     logger.warn('registerErrorReporter: invalid implementation ignored');
@@ -65,6 +80,10 @@ export function isErrorReporterRegistered() {
   return impl !== null;
 }
 
+/**
+ * @param {unknown} err
+ * @param {object} [context]
+ */
 export function captureException(err, context) {
   if (!impl?.captureException) return;
   try {
@@ -76,6 +95,7 @@ export function captureException(err, context) {
   }
 }
 
+/** @param {object | null | undefined} user */
 export function setUserContext(user) {
   if (!impl?.setUserContext) return;
   try {
@@ -85,6 +105,10 @@ export function setUserContext(user) {
   }
 }
 
+/**
+ * @param {string} key
+ * @param {unknown} value
+ */
 export function setTag(key, value) {
   if (!impl?.setTag) return;
   try {
@@ -98,6 +122,12 @@ export function setTag(key, value) {
  * Express error-handler middleware variant. Mount AFTER all routes;
  * captures the exception and re-emits via next() so the existing
  * error response code path stays in charge.
+ */
+/**
+ * @param {Error} err
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
  */
 export function errorReporterMiddleware(err, req, res, next) {
   captureException(err, {

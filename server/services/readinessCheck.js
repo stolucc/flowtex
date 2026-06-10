@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 6 -- readiness check for the stateless web
 // tier. Returns a `{ ready, reason?, redisStatus? }` shape so the
 // /api/ready route is a thin wrapper around this pure function.
@@ -16,7 +17,7 @@ const READY_STATUSES = new Set(['ready', 'connect']);
  * @param {boolean} args.draining     - true when SIGTERM handler is running
  * @param {() => Promise<unknown>} args.probeDb - throws if DB is unreachable
  * @param {string} args.instanceMode  - process.env.FLOWTEX_INSTANCE_MODE shape
- * @param {object|null} args.redisClient - ioredis-shaped client, or null
+ * @param {{ status?: string } | null} args.redisClient - ioredis-shaped client (we read `.status`), or null
  * @returns {Promise<{ ready: boolean, status: string, error?: string, redisStatus?: string }>}
  */
 export async function evaluateReadiness({ draining, probeDb, instanceMode, redisClient }) {
@@ -31,7 +32,7 @@ export async function evaluateReadiness({ draining, probeDb, instanceMode, redis
   const clusterMode = (instanceMode || 'single').toLowerCase() === 'cluster';
   if (clusterMode) {
     const redisStatus = redisClient?.status;
-    if (!redisClient || !READY_STATUSES.has(redisStatus)) {
+    if (!redisClient || !redisStatus || !READY_STATUSES.has(redisStatus)) {
       return {
         ready: false,
         status: 'not ready',
