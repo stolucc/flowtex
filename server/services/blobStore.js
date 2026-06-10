@@ -1,3 +1,4 @@
+// @ts-check
 // Phase A.1 of the blob-storage migration. Pure-function module that
 // owns disk-side blob persistence for one project. No DB writes here —
 // upload/read routes wire blobs to the project_blobs refcount table
@@ -24,6 +25,7 @@ import { createReadStream } from 'node:fs';
 import { constants as fsConstants } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import { PROJECTS_DIR } from '../paths.js';
 
@@ -31,7 +33,9 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_HEX_RE = /^[0-9a-f-]{36}$/i;
 const PROJECT_ID_RE = /^[0-9a-f-]{36}$/i; // project ids are UUIDs
 
-/** Absolute path to a project's blob root directory. */
+/** Absolute path to a project's blob root directory.
+ *  @param {string} projectId
+ */
 export function blobsDir(projectId) {
   if (!PROJECT_ID_RE.test(projectId)) {
     // Defence-in-depth: callers should only ever pass DB-sourced UUIDs.
@@ -42,7 +46,10 @@ export function blobsDir(projectId) {
   return path.join(PROJECTS_DIR, projectId, '_blobs');
 }
 
-/** Absolute path to a specific blob, derived from its sha256. */
+/** Absolute path to a specific blob, derived from its sha256.
+ *  @param {string} projectId
+ *  @param {string} sha256
+ */
 export function blobPath(projectId, sha256) {
   if (!SHA256_RE.test(sha256)) {
     throw new Error(`blobStore: invalid sha256 ${sha256}`);
@@ -51,7 +58,10 @@ export function blobPath(projectId, sha256) {
   return path.join(blobsDir(projectId), sha256.slice(0, 2), sha256);
 }
 
-/** Ensure the per-project blob root + tmp + a given two-char shard exist. */
+/** Ensure the per-project blob root + tmp + a given two-char shard exist.
+ *  @param {string} projectId
+ *  @param {string} shardPrefix
+ */
 async function ensureDirs(projectId, shardPrefix) {
   const root = blobsDir(projectId);
   await mkdir(path.join(root, '_tmp'), { recursive: true });
@@ -145,6 +155,10 @@ export async function writeBlob(projectId, stream, opts = {}) {
 /**
  * Stat a blob to confirm it exists and matches its hash-derived size.
  * Used by the read path before serving. Returns null if missing.
+ *
+ * @param {string} projectId
+ * @param {string} sha256
+ * @returns {Promise<{ size: number, mtimeMs: number } | null>}
  */
 export async function statBlob(projectId, sha256) {
   try {
@@ -158,6 +172,9 @@ export async function statBlob(projectId, sha256) {
 /**
  * Open a read stream for a blob. Caller is responsible for piping
  * (or closing on error). Returns null if missing.
+ *
+ * @param {string} projectId
+ * @param {string} sha256
  */
 export function readBlobStream(projectId, sha256) {
   return createReadStream(blobPath(projectId, sha256));
@@ -167,11 +184,18 @@ export function readBlobStream(projectId, sha256) {
  * Permanently remove a blob from disk. Called by the GC sweep after
  * ref_count drops to zero. Best-effort: missing file is treated as
  * already-deleted.
+ *
+ * @param {string} projectId
+ * @param {string} sha256
  */
 export async function deleteBlob(projectId, sha256) {
   try {
     await unlink(blobPath(projectId, sha256));
   } catch (err) {
-    if (err && err.code !== 'ENOENT') throw err;
+    // Node's NodeJS.ErrnoException has .code but plain Error doesn't.
+    // Cast to the documented shape; ENOENT is the common "already gone"
+    // case we want to swallow.
+    const e = /** @type {NodeJS.ErrnoException} */ (err);
+    if (e && e.code !== 'ENOENT') throw err;
   }
 }

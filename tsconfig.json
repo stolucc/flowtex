@@ -77,7 +77,8 @@
     "server/services/quotas.js",
     "server/services/metrics.js",
     "server/services/yjsLocks.js",
-    "server/services/yjsRoomSelector.js"
+    "server/services/yjsRoomSelector.js",
+    "server/services/blobStore.js"
   ],
   "exclude": [
     "node_modules",
