@@ -4,7 +4,7 @@ import logger from '../logger.js';
 
 /**
  * Write an entry to the audit log table.
- * @param {string|null} userId
+ * @param {string | null | undefined} userId
  * @param {string} action - e.g. 'login', 'password_reset', 'project_delete'.
  * @param {{
  *   targetType?: string | null,

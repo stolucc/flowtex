@@ -37,7 +37,11 @@
     "noUnusedLocals": false, // existing JS has noisy unused vars; revisit later
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "noImplicitReturns": true,
+    // Disabled: Express handlers conventionally early-return with
+    // `return res.status(...).json(...)`. The handler-level return
+    // value is ignored by Express, and rewriting 100s of sites to
+    // explicit `res.json(...); return;` produces zero safety win.
+    "noImplicitReturns": false,
     "noUncheckedIndexedAccess": false, // too noisy across existing access patterns
 
     // Resolve modules without an actual emit step.
@@ -100,7 +104,8 @@
     "server/utils/latexDiff.js",
     "server/middleware/errorHandler.js",
     "server/middleware/validateBody.js",
-    "server/middleware/auth.js"
+    "server/middleware/auth.js",
+    "server/routes/auth.js"
   ],
   "exclude": [
     "node_modules",

@@ -38,13 +38,18 @@ export function safeMsg(err, fallback = 'Internal server error') {
 }
 
 /** Send a JSON error response using the error's status (default 500).
+ *  Accepts `unknown` because most call sites are `catch (err)` blocks,
+ *  where TypeScript types the error as `unknown`. Narrows internally.
  *  @param {import('express').Response} res
- *  @param {{ status?: number, message?: string }} err
+ *  @param {unknown} err
  */
 export function sendError(res, err) {
-  const status = err.status || 500;
+  const e = /** @type {{ status?: number, message?: string }} */ (
+    err && typeof err === 'object' ? err : {}
+  );
+  const status = e.status || 500;
   // Only expose the message for intentional application errors (status explicitly set).
   // For unexpected 500s, return a generic message to avoid leaking internals.
-  const message = err.status ? err.message : 'Internal server error';
+  const message = e.status ? e.message : 'Internal server error';
   res.status(status).json({ error: message });
 }

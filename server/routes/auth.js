@@ -1,3 +1,4 @@
+// @ts-check
 import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
@@ -60,15 +61,20 @@ const deleteAccountSchema = z.object({
   password: passwordField,
 }).strict();
 
-/** Regenerate the session after login, preserving userId/userName and issuing a new CSRF token. */
+/** Regenerate the session after login, preserving userId/userName and issuing a new CSRF token.
+ *  @param {import('express').Request} req
+ *  @param {import('express').Response} res
+ *  @returns {Promise<void>}
+ */
 function regenerateSession(req, res) {
   return new Promise((resolve, reject) => {
     const { userId, userName } = req.session;
-    req.session.regenerate((err) => {
+    req.session.regenerate((/** @type {Error | null} */ err) => {
       if (err) {
         // Destroy the broken session to prevent inconsistent state
         req.session.destroy(() => {});
-        return reject(new Error('Session regeneration failed'));
+        reject(new Error('Session regeneration failed'));
+        return;
       }
       req.session.userId = userId;
       req.session.userName = userName;
@@ -78,11 +84,12 @@ function regenerateSession(req, res) {
         sameSite: 'lax',
         secure: process.env.NODE_ENV === 'production',
       });
-      req.session.save((saveErr) => {
+      req.session.save((/** @type {Error | null} */ saveErr) => {
         if (saveErr) {
           // Destroy on save failure to prevent half-initialized session
           req.session.destroy(() => {});
-          return reject(new Error('Session save failed'));
+          reject(new Error('Session save failed'));
+          return;
         }
         resolve();
       });
@@ -99,13 +106,25 @@ router.post('/register', validateBody(registerSchema), async (req, res) => {
   if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 200)
     return res.status(400).json({ error: 'Name must be 1–200 characters' });
   try {
-    const user = await authService.registerUser(email, name, password);
+    // registerUser returns either a freshly-created user OR
+    // { alreadyExisted: true, email } when the email is already on
+    // file. authService isn't ts-check'd yet so the inferred return
+    // type doesn't include the alreadyExisted union arm; cast at
+    // the boundary until we type authService end-to-end.
+    const user = /** @type {{ id: string, email: string, name: string, alreadyExisted?: boolean }} */ (
+      await authService.registerUser(email, name, password)
+    );
     // If the email was already registered, registerUser returns
     // { alreadyExisted: true } without creating anything. We still respond
     // with the same shape as the success path to avoid leaking which
     // emails have an account (account-enumeration defense).
     if (user.alreadyExisted) {
-      await auditLog(null, 'register_duplicate', { ip: req.ip, email: user.email });
+      // The previous form passed `email` as a top-level opts field
+      // -- auditLog silently dropped it because email isn't on the
+      // opts shape, leaving register_duplicate audit rows with no
+      // detail. tsc surfaced the silent drop; moving into detail
+      // restores the intent.
+      await auditLog(null, 'register_duplicate', { ip: req.ip, detail: { email: user.email } });
       return res.json({ needsVerification: true, email: user.email });
     }
     await auditLog(user.id, 'register', { ip: req.ip });
@@ -262,7 +281,10 @@ router.get('/me', requireAuth, async (req, res) => {
  *  and the static caps that gate writes. Used by the account-settings
  *  storage pane and by quota-aware client UI. */
 router.get('/me/usage', requireAuth, async (req, res) => {
-  const usage = await getUserUsage(req.session.userId);
+  // req.session.userId is string|undefined per the SessionData
+  // typedef; requireAuth middleware above already returns 401 when
+  // it's missing, so the assertion here is safe.
+  const usage = await getUserUsage(/** @type {string} */ (req.session.userId));
   res.set({ 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' });
   res.json(usage);
 });
@@ -283,6 +305,10 @@ router.post('/totp/setup', requireAuth, async (req, res) => {
  * was created BEFORE the change can't continue at the new envelope —
  * the user must re-authenticate on every other device. ASVS V3.5.1.
  * Best-effort: log on failure, don't fail the calling request.
+ */
+/**
+ * @param {string | undefined} userId
+ * @param {string | undefined} keepSessionId
  */
 async function dropOtherSessions(userId, keepSessionId) {
   try {
@@ -428,8 +454,7 @@ router.post('/change-email', requireAuth, validateBody(changeEmailSchema), async
     req.app?.locals?.disconnectUserSessionsExcept?.(req.session.userId, req.sessionID);
     await auditLog(req.session.userId, 'email_changed', {
       ip: req.ip,
-      oldEmail: result.oldEmail,
-      newEmail: result.email,
+      detail: { oldEmail: result.oldEmail, newEmail: result.email },
     });
     // Notify the OLD address so a stolen-credentials attacker can't
     // silently move the account email to one they control. Best-

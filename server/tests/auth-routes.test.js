@@ -597,8 +597,10 @@ describe('POST /change-email', () => {
       'user-1',
       'email_changed',
       expect.objectContaining({
-        oldEmail: 'old@x.com',
-        newEmail: 'new@x.com',
+        detail: expect.objectContaining({
+          oldEmail: 'old@x.com',
+          newEmail: 'new@x.com',
+        }),
       }),
     );
   });
