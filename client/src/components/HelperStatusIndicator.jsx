@@ -43,13 +43,7 @@ const COLOR_PENDING = 'var(--text-muted)';
  * @param {{ onOpenSettings?: () => void, onOpenGuide?: () => void }} props
  */
 export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
-  // useHelperStatusContext returns the union shape but isn't itself
-  // typed yet (the context module is still pure JS). Cast at the
-  // boundary so the rest of this file gets the proper discrimination.
-  const ctx = /** @type {{ status: HelperStatus, redetect: () => void }} */ (
-    useHelperStatusContext()
-  );
-  const { status, redetect } = ctx;
+  const { status, redetect } = useHelperStatusContext();
   const [open, setOpen] = useState(false);
   /** @type {[LatestHelperVersionResponse | null, (v: LatestHelperVersionResponse | null) => void]} */
   const [latestRelease, setLatestRelease] = useState(

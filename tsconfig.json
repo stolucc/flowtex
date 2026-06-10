@@ -62,7 +62,9 @@
     // need methodical cleanup. Tracked as follow-up; opting them in
     // here without the cleanup would just turn CI red.
     "client/src/utils/platformDetect.js",
-    "client/src/components/HelperStatusIndicator.jsx"
+    "client/src/components/HelperStatusIndicator.jsx",
+    "client/src/hooks/useHelperStatus.js",
+    "client/src/contexts/HelperStatusContext.jsx"
   ],
   "exclude": [
     "node_modules",

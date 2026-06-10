@@ -1,3 +1,4 @@
+// @ts-check
 // Single source of truth for "is the flowtex-helper paired and healthy".
 //
 // Why a context: prior to this, three callers each ran their own probe
@@ -13,14 +14,24 @@
 
 import React, { createContext, useContext } from 'react';
 
-const HelperStatusContext = createContext({
-  status: { available: false, loading: false },
-  redetect: () => {},
-});
+/** @typedef {import('../../../shared/types.ts').HelperStatus} HelperStatus */
+
+/** @typedef {{ status: HelperStatus, redetect: () => void }} HelperStatusContextValue */
+
+/** @type {React.Context<HelperStatusContextValue>} */
+const HelperStatusContext = createContext(
+  /** @type {HelperStatusContextValue} */ ({
+    status: { available: false, loading: false },
+    redetect: () => {},
+  }),
+);
 
 /** Wrap the app once. Pass the already-resolved status / redetect that
  *  comes out of useHelperStatus — the wrapping keeps consumers DRY
- *  without forcing the provider to know about feature-flag plumbing. */
+ *  without forcing the provider to know about feature-flag plumbing.
+ *
+ * @param {{ value: HelperStatusContextValue, children: React.ReactNode }} props
+ */
 export function HelperStatusProvider({ value, children }) {
   return (
     <HelperStatusContext.Provider value={value}>
@@ -29,6 +40,7 @@ export function HelperStatusProvider({ value, children }) {
   );
 }
 
+/** @returns {HelperStatusContextValue} */
 export function useHelperStatusContext() {
   return useContext(HelperStatusContext);
 }

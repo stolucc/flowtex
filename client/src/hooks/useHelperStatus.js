@@ -1,3 +1,4 @@
+// @ts-check
 // Polls the local helper for liveness + version. Adaptive cadence:
 //   - FAST (3 s) on first mount / right after a status change, so a freshly
 //     started or freshly paired helper is discovered quickly.
@@ -37,14 +38,27 @@ import {
   clearHelperOfflineCache,
 } from '../utils/helperBridge.js';
 
+/** @typedef {import('../../../shared/types.ts').HelperStatus} HelperStatus */
+
 const FAST_INTERVAL_MS = 3_000;
 const SLOW_INTERVAL_MS = 60_000;
 // How many consecutive fast-tier failures we tolerate before giving
 // up. 5 × 3 s = ~15 s of rapid discovery before we go quiet.
 const FAILURES_BEFORE_GIVE_UP = 5;
 
+/**
+ * @param {{ enabled: boolean }} opts
+ * @returns {{ status: HelperStatus, redetect: () => void }}
+ */
 export default function useHelperStatus({ enabled }) {
-  const [status, setStatus] = useState({ available: false, loading: enabled });
+  // useState infers T from the runtime literal shape unless we cast.
+  // Without the explicit HelperStatus cast, the inferred T becomes the
+  // narrow `{available: false, loading}` shape and every later
+  // setStatus call that passes a `{available: true, ...}` payload
+  // gets a 'true is not assignable to false' error.
+  const [status, setStatus] = useState(
+    /** @type {HelperStatus} */ ({ available: false, loading: enabled }),
+  );
   const [pokeKey, setPokeKey] = useState(0);
   // Failures count + the live status are kept in refs so the
   // self-rescheduling tick loop can read the freshest value without
@@ -99,6 +113,7 @@ export default function useHelperStatus({ enabled }) {
       return undefined;
     }
     let cancelled = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
     let timer = null;
 
     // Self-rescheduling tick: after each probe, pick the next interval
