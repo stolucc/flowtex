@@ -1,3 +1,4 @@
+// @ts-check
 import { useEffect, useMemo, useState } from 'react';
 import { createYjsBinding, isYjsSyncEnabled } from '../utils/yjsBinding.js';
 
@@ -20,7 +21,7 @@ import { createYjsBinding, isYjsSyncEnabled } from '../utils/yjsBinding.js';
  *   - The CodeMirror extension is returned for Editor.jsx to splice
  *     into its extensions array.
  *
- * @param {object|null} file       active file ({ id, content }) or null
+ * @param {any} file       active file ({ id, content }) or null
  * @param {(msg: object) => void} sendWs  WS send function from App.jsx
  * @param {string} originId        per-tab origin tag (shared with the
  *                                 `changes` flow so a single tab can
@@ -31,7 +32,7 @@ export default function useYjsSync(file, sendWs, originId) {
   // Holding the binding in state (not a ref) so the consumer
   // re-renders once the extension is available — Editor.jsx needs
   // to know to re-init CodeMirror with the new extension.
-  const [binding, setBinding] = useState(null);
+  const [binding, setBinding] = useState(/** @type {any} */ (null));
 
   useEffect(() => {
     if (!enabled) { setBinding(null); return undefined; }
@@ -48,12 +49,12 @@ export default function useYjsSync(file, sendWs, originId) {
     });
     setBinding(b);
 
-    const onWsYjsUpdate = (e) => {
+    const onWsYjsUpdate = (/** @type {any} */ e) => {
       const msg = e?.detail;
       if (!msg || msg.fileId !== file.id) return;
       b.applyRemoteUpdate(msg.update, msg.originId);
     };
-    const onWsYjsState = (e) => {
+    const onWsYjsState = (/** @type {any} */ e) => {
       const msg = e?.detail;
       if (!msg || msg.fileId !== file.id) return;
       b.applyRemoteState(msg.state);

@@ -1,3 +1,4 @@
+// @ts-check
 // LaTeX symbol categories for the symbol picker
 // [command, displayGlyph, requiredPackage or null]
 const SYMBOL_CATEGORIES = [

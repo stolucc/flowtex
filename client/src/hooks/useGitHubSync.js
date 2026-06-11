@@ -1,20 +1,23 @@
+// @ts-check
 import { useState, useEffect, useRef } from 'react';
 import { get, post, patch } from '../api.js';
 
 /**
  * Manages GitHub repository linking, auto-push sync, and sync status for a project.
- * @param {object|null} project - The current project.
+ * @param {any} project - The current project.
  */
 export default function useGitHubSync(project) {
-  const [githubLink, setGithubLink] = useState(null);
+  const [githubLink, setGithubLink] = useState(/** @type {any} */ (null));
   const [hasGithubToken, setHasGithubToken] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('');
+  /** @type {React.MutableRefObject<ReturnType<typeof setInterval> | null>} */
   const autoSyncTimer = useRef(null);
   // Inner timeout that resets the status pill to '' a few seconds after
   // each auto-push attempt. We track it in a ref so the effect cleanup
   // (and the next tick's setStatus) can clear it — without this the
   // setTimeout outlived the hook and would write to an unmounted
   // component's setter after a project switch.
+  /** @type {React.MutableRefObject<ReturnType<typeof setTimeout> | null>} */
   const autoSyncStatusClearTimer = useRef(null);
 
   // Check if the user has a GitHub token
@@ -39,8 +42,9 @@ export default function useGitHubSync(project) {
 
   // Auto-push to GitHub on interval
   useEffect(() => {
-    if (autoSyncTimer.current) {
-      clearInterval(autoSyncTimer.current);
+    const t = autoSyncTimer.current;
+    if (t) {
+      clearInterval(t);
       autoSyncTimer.current = null;
     }
     if (!project || !githubLink?.linked || !githubLink?.autoPush) return;
@@ -53,14 +57,15 @@ export default function useGitHubSync(project) {
         const d = await res.json();
         if (res.ok) {
           setAutoSyncStatus('saved');
-          setGithubLink((prev) =>
+          setGithubLink((/** @type {any} */ prev) =>
             prev ? { ...prev, lastSyncAt: new Date().toISOString(), lastSyncCommit: d.commit } : prev,
           );
         } else {
           setAutoSyncStatus('error');
           // Stop retrying on auth/permission errors — session expired or access revoked
           if (res.status === 401 || res.status === 403) {
-            clearInterval(autoSyncTimer.current);
+            const t2 = autoSyncTimer.current;
+            if (t2) clearInterval(t2);
             autoSyncTimer.current = null;
           }
         }
@@ -75,10 +80,12 @@ export default function useGitHubSync(project) {
     }, intervalMs);
 
     return () => {
-      clearInterval(autoSyncTimer.current);
+      const ti = autoSyncTimer.current;
+      if (ti) clearInterval(ti);
       autoSyncTimer.current = null;
-      if (autoSyncStatusClearTimer.current) {
-        clearTimeout(autoSyncStatusClearTimer.current);
+      const tc = autoSyncStatusClearTimer.current;
+      if (tc) {
+        clearTimeout(tc);
         autoSyncStatusClearTimer.current = null;
       }
     };
@@ -88,7 +95,7 @@ export default function useGitHubSync(project) {
     if (!project || !githubLink?.linked) return;
     const newVal = !githubLink.autoPush;
     await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
-    setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
+    setGithubLink((/** @type {any} */ prev) => (prev ? { ...prev, autoPush: newVal } : prev));
   };
 
   return {

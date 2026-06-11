@@ -1,3 +1,4 @@
+// @ts-check
 // Track-changes V1 — sidecar data layer.
 //
 // See TRACK-CHANGES-RULES.md for the full spec. This file owns:
@@ -26,15 +27,18 @@ import { invertedEffects } from '@codemirror/commands';
 // ─── Effects ────────────────────────────────────────────────────────────
 
 /** Add one or more entries. Effect value: array of validated entry specs. */
+/** @type {import('@codemirror/state').StateEffectType<any[]>} */
 export const addTcMarks = StateEffect.define();
 
 /** Remove an entry by id. Effect value: id string. */
+/** @type {import('@codemirror/state').StateEffectType<string>} */
 export const removeTcMark = StateEffect.define();
 
 /**
  * Replace the entire RangeSet (used for hydration only — see §6.5).
  * Effect value: array of entry specs (will be validated before installation).
  */
+/** @type {import('@codemirror/state').StateEffectType<any[]>} */
 export const setTcMarks = StateEffect.define();
 
 // ─── Annotations ────────────────────────────────────────────────────────
@@ -64,18 +68,23 @@ export const tcMarkSkipAnnotation = Annotation.define();
  *     - Insertion strictly inside: range expands (default mapping).
  */
 class TcMarkValue extends RangeValue {
+  /** @param {any} spec */
   constructor(spec) {
     super();
     this.spec = spec;
     this.startSide = 1;
     this.endSide = -1;
   }
+  /** @param {any} other */
   eq(other) {
     return this.spec.id === other.spec.id;
   }
 }
 
-/** Wrap a spec in the RangeValue. Exposed for tests. */
+/**
+ * Wrap a spec in the RangeValue. Exposed for tests.
+ * @param {any} spec
+ */
 export function tcMark(spec) {
   return new TcMarkValue(spec);
 }
@@ -93,6 +102,8 @@ export function shortId() {
  * Validate one persisted entry against the loaded doc. Returns true if the
  * entry is well-formed and within doc bounds; false otherwise. Caller is
  * responsible for the dedupe-by-id pass.
+ * @param {any} e
+ * @param {any} docLen
  */
 export function isValidEntry(e, docLen) {
   if (!e || typeof e !== 'object') return false;
@@ -111,6 +122,8 @@ export function isValidEntry(e, docLen) {
  *   2. Dedupe by id, keeping the first occurrence (insertion order wins).
  *
  * Returns the validated specs ready to be wrapped in TcMarkValue.
+ * @param {any} entries
+ * @param {any} docLen
  */
 export function validateHydration(entries, docLen) {
   if (!Array.isArray(entries)) return [];
@@ -132,10 +145,11 @@ export function validateHydration(entries, docLen) {
  * RangeSet additions. Sorted by `from` ascending then `to` ascending so
  * that at the same position, a del (to===from) precedes an ins (to>from)
  * — matches the §3.5 / §9.9 render-order invariant.
+ * @param {any} specs
  */
 function specsToSortedRanges(specs) {
-  const sorted = specs.slice().sort((a, b) => a.from - b.from || a.to - b.to);
-  return sorted.map((s) => tcMark(s).range(s.from, s.to));
+  const sorted = specs.slice().sort((/** @type {any} */ a, /** @type {any} */ b) => a.from - b.from || a.to - b.to);
+  return sorted.map((/** @type {any} */ s) => tcMark(s).range(s.from, s.to));
 }
 
 export const tcMarksField = StateField.define({
@@ -182,11 +196,13 @@ export const tcMarksField = StateField.define({
  * Return all entries in document order. Each item:
  *   { id, type, from, to, authorId, authorName, timestamp, text? }
  * For ins, `to > from`. For del, `to === from` and `text` is set.
+ * @param {any} state
  */
 export function listMarks(state) {
+  /** @type {any[]} */
   const out = [];
   const set = state.field(tcMarksField, /* require */ false) || RangeSet.empty;
-  set.between(0, state.doc.length, (from, to, value) => {
+  set.between(0, state.doc.length, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ value) => {
     // Spread spec FIRST so the iteration's `from`/`to` (the live, mapped
     // positions) overwrite the spec's stale stored positions. The spec's
     // `from`/`to` are only valid at creation time; after any
@@ -205,6 +221,7 @@ export function listMarks(state) {
  * Round-trip property: `deserializeMarks(serializeMarks(state))`
  * passed to `setTcMarks` reproduces an equivalent RangeSet (modulo
  * out-of-bounds entries which would be dropped by hydration).
+ * @param {any} state
  */
 export function serializeMarks(state) {
   return listMarks(state).map((e) => ({
@@ -222,6 +239,7 @@ export function serializeMarks(state) {
  * Inverse of serializeMarks. Returns the array of specs to pass to
  * `setTcMarks.of(...)`. Validation happens inside the StateField on
  * setTcMarks application — this is just shape massaging.
+ * @param {any} serialized
  */
 export function deserializeMarks(serialized) {
   if (!Array.isArray(serialized)) return [];
@@ -249,9 +267,10 @@ export function deserializeMarks(serialized) {
 const tcMarksDecorations = EditorView.decorations.compute([tcMarksField], (state) => {
   const set = state.field(tcMarksField, /* require */ false);
   if (!set) return Decoration.none;
+  /** @type {any[]} */
   const decos = [];
   const docLen = state.doc.length;
-  set.between(0, docLen, (from, to, value) => {
+  set.between(0, docLen, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ value) => {
     const spec = value.spec;
     if (to <= from || to > docLen) return;
     const cls = spec.type === 'ins' ? 'cm-tc-insert' : 'cm-tc-delete';
@@ -292,7 +311,9 @@ const tcMarksDecorations = EditorView.decorations.compute([tcMarksField], (state
  * text. See spec §5.
  */
 const tcMarksInvertedEffects = invertedEffects.of((tr) => {
+  /** @type {any[]} */
   const out = [];
+  /** @type {Set<string>} */
   const handledIds = new Set();
   let hasSetTcMarks = false;
   for (const e of tr.effects) {
@@ -305,7 +326,7 @@ const tcMarksInvertedEffects = invertedEffects.of((tr) => {
       // Look up the mark in the pre-tr sidecar and re-add on undo.
       const oldSet = tr.startState.field(tcMarksField, /* require */ false);
       if (!oldSet) continue;
-      oldSet.between(0, tr.startState.doc.length, (from, to, val) => {
+      oldSet.between(0, tr.startState.doc.length, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ val) => {
         if (val.spec.id === e.value) {
           out.push(addTcMarks.of([{ ...val.spec, from, to }]));
           handledIds.add(val.spec.id);
@@ -330,13 +351,14 @@ const tcMarksInvertedEffects = invertedEffects.of((tr) => {
     const oldSet = tr.startState.field(tcMarksField, /* require */ false);
     const newSet = tr.state.field(tcMarksField, /* require */ false);
     if (oldSet) {
+      /** @type {Set<string>} */
       const stillPresent = new Set();
       if (newSet) {
-        newSet.between(0, tr.state.doc.length, (_from, _to, val) => {
+        newSet.between(0, tr.state.doc.length, (/** @type {number} */ _from, /** @type {number} */ _to, /** @type {any} */ val) => {
           stillPresent.add(val.spec.id);
         });
       }
-      oldSet.between(0, tr.startState.doc.length, (from, to, val) => {
+      oldSet.between(0, tr.startState.doc.length, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ val) => {
         if (!stillPresent.has(val.spec.id) && !handledIds.has(val.spec.id)) {
           out.push(addTcMarks.of([{ ...val.spec, from, to }]));
         }
@@ -383,11 +405,15 @@ const tcGutterMarkersField = StateField.define({
   },
 });
 
+/**
+ * @param {any} state
+ */
 function computeGutterMarkers(state) {
   const set = state.field(tcMarksField, /* require */ false);
   if (!set) return RangeSet.empty;
+  /** @type {Map<number, string>} */
   const lineKinds = new Map(); // lineStart -> 'ins' | 'del' | 'both'
-  set.between(0, state.doc.length, (from, to, value) => {
+  set.between(0, state.doc.length, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ value) => {
     if (to <= from) return;
     const startLine = state.doc.lineAt(from).number;
     const endLine = state.doc.lineAt(Math.min(to, state.doc.length)).number;

@@ -1,3 +1,4 @@
+// @ts-check
 import { EditorView, Decoration, ViewPlugin, WidgetType, gutter, GutterMarker } from '@codemirror/view';
 import { StateEffect, StateField, RangeSet } from '@codemirror/state';
 import { foldService } from '@codemirror/language';
@@ -5,6 +6,7 @@ import { parse as parseLatex, findTableAtPos, parseTable, findFigureAtPos, parse
 
 // ─── LaTeX folding ──────────────────────────────────────────────────────────
 
+/** @type {Record<string, number>} */
 const SECTION_LEVELS = {
   'part': 0, 'part*': 0,
   'chapter': 1, 'chapter*': 1,
@@ -17,9 +19,13 @@ const SECTION_LEVELS = {
 
 const SECTION_RE = /\\((?:sub){0,3}(?:section|paragraph)\*?|chapter\*?|part\*?)\s*\{/;
 const BEGIN_RE = /\\begin\{([^}]+)\}/;
+/** @type {Record<string, RegExp>} */
 const END_RE_CACHE = {};
 
-/** Get or create a cached regex matching \end{envName}. */
+/**
+ * Get or create a cached regex matching \end{envName}.
+ * @param {any} envName
+ */
 function getEndRe(envName) {
   if (!END_RE_CACHE[envName]) {
     END_RE_CACHE[envName] = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}');
@@ -105,11 +111,12 @@ export const latexFoldService = foldService.of((state, lineStart) => {
 
 /**
  * Build CodeMirror decorations for unresolved comments.
- * @param {Array} comments - Comment objects with from_pos, to_pos, resolved, id
+ * @param {any[]} comments - Comment objects with from_pos, to_pos, resolved, id
  * @param {number} docLength - Current document length
- * @returns {DecorationSet}
+ * @returns {import('@codemirror/view').DecorationSet}
  */
 function buildCommentDecorations(comments, docLength) {
+  /** @type {Array<import('@codemirror/state').Range<import('@codemirror/view').Decoration>>} */
   const widgets = [];
   for (const c of comments || []) {
     if (c.resolved) continue;
@@ -131,27 +138,34 @@ function buildCommentDecorations(comments, docLength) {
 
 /**
  * Create a ViewPlugin that highlights comment ranges in the editor.
- * @param {Array} comments - Comment objects
- * @returns {ViewPlugin}
+ * @param {any[]} comments - Comment objects
  */
 export function commentHighlighter(comments) {
   return ViewPlugin.fromClass(
     class {
+      /** @type {import('@codemirror/view').DecorationSet} */
+      decorations;
+      /** @param {import('@codemirror/view').EditorView} view */
       constructor(view) {
         this.decorations = buildCommentDecorations(comments, view.state.doc.length);
       }
+      /** @param {import('@codemirror/view').ViewUpdate} update */
       update(update) {
         if (update.docChanged) {
           this.decorations = this.decorations.map(update.changes);
         }
       }
     },
-    { decorations: (v) => v.decorations },
+    { decorations: (/** @type {any} */ v) => v.decorations },
   );
 }
 
 /** Widget that renders a remote collaborator's cursor with a name label. */
 export class CursorWidget extends WidgetType {
+  /**
+   * @param {string} userName
+   * @param {string} color
+   */
   constructor(userName, color) {
     super();
     this.userName = userName;
@@ -170,6 +184,7 @@ export class CursorWidget extends WidgetType {
   }
 }
 
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/view').DecorationSet>} */
 export const setCursorsEffect = StateEffect.define();
 
 export const remoteCursorsField = StateField.define({
@@ -186,6 +201,7 @@ export const remoteCursorsField = StateField.define({
 });
 
 // Error highlight decoration
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/view').DecorationSet>} */
 export const setErrorHighlightEffect = StateEffect.define();
 
 export const errorHighlightField = StateField.define({
@@ -216,6 +232,7 @@ export function cursorColor(userId) {
 // (Tracked-changes pipeline removed — to be rebuilt from scratch.)
 
 // Search highlight decoration
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/view').DecorationSet>} */
 export const setSearchHighlightEffect = StateEffect.define();
 
 export const searchHighlightField = StateField.define({
@@ -232,6 +249,7 @@ export const searchHighlightField = StateField.define({
 });
 
 // Spellcheck decoration
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/view').DecorationSet>} */
 const setSpellcheckEffect = StateEffect.define();
 
 export const spellcheckField = StateField.define({
@@ -248,6 +266,7 @@ export const spellcheckField = StateField.define({
 });
 
 // Lint decoration
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/view').DecorationSet>} */
 const setLintEffect = StateEffect.define();
 
 export const lintField = StateField.define({
@@ -265,6 +284,7 @@ export const lintField = StateField.define({
 
 // Lint gutter markers — shown in a narrow gutter next to line numbers
 class LintErrorMarker extends GutterMarker {
+  /** @param {string} msg */
   constructor(msg) {
     super();
     this.msg = msg;
@@ -278,6 +298,7 @@ class LintErrorMarker extends GutterMarker {
 }
 
 class LintWarningMarker extends GutterMarker {
+  /** @param {string} msg */
   constructor(msg) {
     super();
     this.msg = msg;
@@ -291,6 +312,7 @@ class LintWarningMarker extends GutterMarker {
 }
 
 class SpellGutterMarker extends GutterMarker {
+  /** @param {number} count */
   constructor(count) {
     super();
     this.count = count;
@@ -303,7 +325,9 @@ class SpellGutterMarker extends GutterMarker {
   }
 }
 
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/state').RangeSet<any>>} */
 const setLintGutterEffect = StateEffect.define();
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/state').RangeSet<any>>} */
 const setSpellGutterEffect = StateEffect.define();
 
 export const lintGutterField = StateField.define({
@@ -417,9 +441,10 @@ const citeKeyPattern = /\\cite[tp]?\*?\{([^}]+)\}/g;
 /**
  * Build decorations that highlight citation keys inside \\cite{} commands.
  * @param {EditorView} view
- * @returns {DecorationSet}
+ * @returns {import('@codemirror/view').DecorationSet}
  */
 function buildCiteDecorations(view) {
+  /** @type {Array<import('@codemirror/state').Range<import('@codemirror/view').Decoration>>} */
   const decos = [];
   for (const { from, to } of view.visibleRanges) {
     const text = view.state.sliceDoc(from, to);
@@ -436,16 +461,20 @@ function buildCiteDecorations(view) {
 
 export const citeKeyHighlighter = ViewPlugin.fromClass(
   class {
+    /** @type {import('@codemirror/view').DecorationSet} */
+    decorations;
+    /** @param {import('@codemirror/view').EditorView} view */
     constructor(view) {
       this.decorations = buildCiteDecorations(view);
     }
+    /** @param {import('@codemirror/view').ViewUpdate} update */
     update(update) {
       if (update.docChanged || update.viewportChanged) {
         this.decorations = buildCiteDecorations(update.view);
       }
     }
   },
-  { decorations: (v) => v.decorations },
+  { decorations: (/** @type {any} */ v) => v.decorations },
 );
 
 // ─── Float gutter icons (tables & figures) ──────────────────────────────────
@@ -468,6 +497,10 @@ const FIGURE_ICON =
   '<polyline points="21 15 16 10 5 21"/></svg>';
 
 class FloatGutterMarker extends GutterMarker {
+  /**
+   * @param {number} pos
+   * @param {string} kind
+   */
   constructor(pos, kind) {
     super();
     this.floatPos = pos;
@@ -482,6 +515,7 @@ class FloatGutterMarker extends GutterMarker {
   }
 }
 
+/** @type {import('@codemirror/state').StateEffectType<import('@codemirror/state').RangeSet<any>>} */
 const setFloatGutterEffect = StateEffect.define();
 
 const floatGutterField = StateField.define({
@@ -502,8 +536,9 @@ const floatGutterExtension = gutter({
   domEventHandlers: {
     mousedown(view, line) {
       const markers = view.state.field(floatGutterField);
+      /** @type {any} */
       let found = null;
-      markers.between(line.from, line.from + 1, (from, to, marker) => {
+      markers.between(line.from, line.from + 1, (/** @type {number} */ from, /** @type {number} */ to, /** @type {any} */ marker) => {
         found = marker;
       });
       if (found) {
@@ -522,11 +557,14 @@ const floatGutterExtension = gutter({
  */
 function updateFloatGutterMarkers(view) {
   const doc = view.state.doc.toString();
+  /** @type {Array<import('@codemirror/state').Range<any>>} */
   const markers = [];
+  /** @type {Set<number>} */
   const seenLines = new Set();
 
   // Tables: find float wrappers first, then standalone tabulars
   const FLOAT_RE = /\\begin\{(table\*?)\}/g;
+  /** @type {Array<{ from: number, to: number }>} */
   const floatRanges = [];
   let fm;
   while ((fm = FLOAT_RE.exec(doc)) !== null) {
@@ -545,16 +583,18 @@ function updateFloatGutterMarkers(view) {
     }
   }
   TABLE_BEGIN_RE.lastIndex = 0;
+  /** @type {RegExpExecArray | null} */
   let m;
   while ((m = TABLE_BEGIN_RE.exec(doc)) !== null) {
-    if (/^table\*?$/.test(m[1])) continue;
-    const inside = floatRanges.some((r) => m.index >= r.from && m.index < r.to);
+    const mm = m;
+    if (/^table\*?$/.test(mm[1])) continue;
+    const inside = floatRanges.some((/** @type {any} */ r) => mm.index >= r.from && mm.index < r.to);
     if (inside) continue;
-    const lineNum = view.state.doc.lineAt(m.index).number;
+    const lineNum = view.state.doc.lineAt(mm.index).number;
     if (seenLines.has(lineNum)) continue;
     seenLines.add(lineNum);
     const lineInfo = view.state.doc.line(lineNum);
-    markers.push(new FloatGutterMarker(m.index, 'table').range(lineInfo.from));
+    markers.push(new FloatGutterMarker(mm.index, 'table').range(lineInfo.from));
   }
 
   // Figures
@@ -574,6 +614,9 @@ function updateFloatGutterMarkers(view) {
 // Backward-compatible aliases
 export const tableGutterField = floatGutterField;
 export const tableGutterExtension = floatGutterExtension;
+/**
+ * @param {any} view
+ */
 export function updateTableGutterMarkers(view) { updateFloatGutterMarkers(view); }
 export function updateFigureGutterMarkers() { /* no-op, handled by updateFloatGutterMarkers */ }
 
@@ -729,7 +772,9 @@ function findTableByRegex(source, pos) {
   const tableRe = /\\begin\{table\*?\}/g;
   while ((match = tableRe.exec(source)) !== null) {
     const start = match.index;
-    const envName = match[0].match(/\{(.+)\}/)[1];
+    const envNameMatch = match[0].match(/\{(.+)\}/);
+    if (!envNameMatch) continue;
+    const envName = envNameMatch[1];
     const endRe = new RegExp('\\\\end\\{' + envName.replace(/\*/g, '\\*') + '\\}', 'g');
     endRe.lastIndex = start + match[0].length;
     const endMatch = endRe.exec(source);
@@ -788,6 +833,7 @@ export function findTableAtCursor(view, projectFiles) {
  * @returns {Object} Parsed table data
  */
 function parseTableFromText(text, offset) {
+  /** @type {any} */
   const result = {
     env: 'tabular',
     alignment: 'c',
@@ -881,14 +927,16 @@ function parseTableFromText(text, offset) {
           )
           .trim();
         if (!cleaned || /^\\caption/.test(cleaned) || /^\\label/.test(cleaned)) return null;
-        return cleaned.split('&').map((c) => c.trim());
+        return cleaned.split('&').map((/** @type {string} */ c) => c.trim());
       })
       .filter(Boolean);
-    result.cells = cellRows;
-    result.rows = cellRows.length;
-    if (cellRows.length > 0) result.cols = Math.max(result.cols, ...cellRows.map((r) => r.length));
-    if (cellRows.length > 0) {
-      const first = cellRows[0];
+    /** @type {string[][]} */
+    const cells = /** @type {string[][]} */ (cellRows);
+    result.cells = cells;
+    result.rows = cells.length;
+    if (cells.length > 0) result.cols = Math.max(result.cols, ...cells.map((r) => r.length));
+    if (cells.length > 0) {
+      const first = cells[0];
       if (first.some((c) => c.length > 0)) {
         result.headerRow = true;
         result.boldHeader = first.some((c) => /\\textbf\s*\{/.test(c));

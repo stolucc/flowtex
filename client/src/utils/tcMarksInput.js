@@ -1,3 +1,4 @@
+// @ts-check
 // Track-changes V1 — input filter (M2 model: §3 editing rules).
 //
 // In M2, deleted text STAYS IN THE DOC and is marked with a strikethrough
@@ -23,11 +24,16 @@ import { addTcMarks, removeTcMark, shortId, tcMarkSkipAnnotation, tcMarksField }
  * return the sub-ranges covered by the current author's own pending
  * ins. Each covered sub-range will actually be deleted from the doc
  * (self-retraction §3.3.a).
+ * @param {any} fromA
+ * @param {any} toA
+ * @param {any} authorId
+ * @param {any} oldMarks
  */
 function ownInsSegments(fromA, toA, authorId, oldMarks) {
   if (!oldMarks) return [];
+  /** @type {Array<{ from: number, to: number }>} */
   const out = [];
-  oldMarks.between(fromA, toA, (rfrom, rto, val) => {
+  oldMarks.between(fromA, toA, (/** @type {number} */ rfrom, /** @type {number} */ rto, /** @type {any} */ val) => {
     if (
       val.spec.type === 'ins' &&
       val.spec.authorId === authorId &&
@@ -36,7 +42,7 @@ function ownInsSegments(fromA, toA, authorId, oldMarks) {
       out.push({ from: Math.max(rfrom, fromA), to: Math.min(rto, toA) });
     }
   });
-  out.sort((a, b) => a.from - b.from);
+  out.sort((/** @type {any} */ a, /** @type {any} */ b) => a.from - b.from);
   return out;
 }
 
@@ -44,9 +50,13 @@ function ownInsSegments(fromA, toA, authorId, oldMarks) {
  * Subtract `covered` (sorted, disjoint) from [fromA, toA). Return the
  * uncovered sub-ranges in left-to-right order. These are the ranges
  * that should be marked as del (kept in the doc, struck through).
+ * @param {any} fromA
+ * @param {any} toA
+ * @param {any} covered
  */
 function subtractCovered(fromA, toA, covered) {
   if (covered.length === 0) return [{ from: fromA, to: toA }];
+  /** @type {Array<{ from: number, to: number }>} */
   const out = [];
   let cur = fromA;
   for (const s of covered) {
@@ -86,8 +96,11 @@ export function buildTcMarksInputFilter({ isOn, getAuthorId, getAuthorName, shou
     const oldDocLen = tr.startState.doc.length;
 
     // Build new changes (positions in old doc) and pending mark targets.
+    /** @type {any[]} */
     const customChanges = [];
+    /** @type {any[]} */
     const pendingDel = []; // { fromOld, toOld }
+    /** @type {any[]} */
     const pendingIns = []; // { atOld, length }
 
     // IDs of marks that should be removed in this transaction. Two
@@ -100,6 +113,7 @@ export function buildTcMarksInputFilter({ isOn, getAuthorId, getAuthorName, shou
     //      remove the old, add a combined new one. Keeps continuous
     //      typing as ONE ins entry (rather than one per keystroke) and
     //      consecutive backspaces as ONE del entry.
+    /** @type {string[]} */
     const removedIds = [];
 
     tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
@@ -171,6 +185,7 @@ export function buildTcMarksInputFilter({ isOn, getAuthorId, getAuthorName, shou
         // the old chars plus the new ones. Result: one ins entry per
         // editing run instead of one per keystroke.
         let mergeLeftId = null;
+        /** @type {number | null} */
         let mergeLeftFrom = null;
         // Pure insertion (toA === fromA) strictly inside a del → split
         // the del into a left half [rfrom, fromA) and a right half
@@ -180,9 +195,10 @@ export function buildTcMarksInputFilter({ isOn, getAuthorId, getAuthorName, shou
         // the insertion and visually strike through the new chars, and
         // accepting the del would wipe them away with the original
         // deleted text.
+        /** @type {Array<{ rfrom: number, rto: number, spec: any }>} */
         const delsToSplit = [];
         if (oldMarks) {
-          oldMarks.between(fromA, fromA, (rfrom, rto, val) => {
+          oldMarks.between(fromA, fromA, (/** @type {number} */ rfrom, /** @type {number} */ rto, /** @type {any} */ val) => {
             if (
               val.spec.type === 'ins' &&
               val.spec.authorId === authorId &&
@@ -216,7 +232,7 @@ export function buildTcMarksInputFilter({ isOn, getAuthorId, getAuthorName, shou
         customChanges.push({ from: fromA, to: fromA, insert: insertText });
         if (absorbedByOwnIns) {
           // No new entry — the existing range expands via RangeSet.map.
-        } else if (mergeLeftId !== null) {
+        } else if (mergeLeftId !== null && mergeLeftFrom !== null) {
           removedIds.push(mergeLeftId);
           pendingIns.push({
             atOld: mergeLeftFrom,

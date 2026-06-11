@@ -1,9 +1,12 @@
+// @ts-check
 import { useState, useCallback, useMemo } from 'react';
 import { get, post, put } from '../api.js';
 import tapsCheck from '../utils/tapsChecker.js';
 import { getSetting } from '../utils/settings.js';
 
-/** Provides editor-level actions: SyncTeX, word count, formatting, TAPS checks, and citation/label autocomplete data. */
+/** Provides editor-level actions: SyncTeX, word count, formatting, TAPS checks, and citation/label autocomplete data.
+ *  @param {any} props
+ */
 export default function useEditorActions({
   project,
   files,
@@ -25,15 +28,16 @@ export default function useEditorActions({
   showTrackedChangesInPdf = false,
 }) {
   const [editorLine, setEditorLine] = useState(1);
-  const [pdfClickPos, setPdfClickPos] = useState(null);
-  const [wordCountState, setWordCountState] = useState({ open: false, loading: false, data: null, error: null });
-  const [formatWarning, setFormatWarning] = useState(null);
+  const [pdfClickPos, setPdfClickPos] = useState(/** @type {any} */ (null));
+  /** @type {[any, React.Dispatch<any>]} */
+  const [wordCountState, setWordCountState] = useState(/** @type {any} */ ({ open: false, loading: false, data: null, error: null }));
+  const [formatWarning, setFormatWarning] = useState(/** @type {any} */ (null));
 
   const handleOverwriteFile = useCallback(
-    async (fileId, content) => {
+    async (/** @type {string} */ fileId, /** @type {string} */ content) => {
       await put(`/api/projects/files/${fileId}`, { content });
-      setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, content } : f)));
-      const file = files.find((f) => f.id === fileId);
+      setFiles((/** @type {any[]} */ fs) => fs.map((/** @type {any} */ f) => (f.id === fileId ? { ...f, content } : f)));
+      const file = files.find((/** @type {any} */ f) => f.id === fileId);
       if (file) switchFile({ ...file, content });
       // Trigger recompile since file content changed on the server
       handleCompile?.();
@@ -60,14 +64,14 @@ export default function useEditorActions({
   }, [project, activeFile, pdfUrl, editorLine, pdfRef, tcQuery]);
 
   const handleSyncInverse = useCallback(
-    async (page, x, y) => {
+    async (/** @type {number} */ page, /** @type {number} */ x, /** @type {number} */ y) => {
       if (!project) return;
       try {
         const res = await get(`/api/compile/${project.id}/syncinverse?page=${page}&x=${x}&y=${y}${tcQuery}`);
         if (res.ok) {
           const data = await res.json();
           if (data.file && data.file !== activeFile?.path) {
-            const f = files.find((f) => f.path === data.file);
+            const f = files.find((/** @type {any} */ f) => f.path === data.file);
             if (f) {
               switchFile(f);
               setTimeout(() => editorRef.current?.goToLine(data.line, data.column), 50);
@@ -140,7 +144,7 @@ export default function useEditorActions({
       editorRef.current?.replaceContent(data.formatted);
       setConsoleOutput('Document formatted.');
     } catch (err) {
-      setConsoleOutput(`Format error: ${err.message}`);
+      setConsoleOutput(`Format error: ${err instanceof Error ? err.message : err}`);
     }
   }, [activeFile, editorRef, setConsoleOutput]);
 
@@ -155,12 +159,13 @@ export default function useEditorActions({
       }
       setWordCountState({ open: true, loading: false, data, error: null });
     } catch (e) {
-      setWordCountState({ open: true, loading: false, data: null, error: e.message });
+      setWordCountState({ open: true, loading: false, data: null, error: e instanceof Error ? e.message : String(e) });
     }
   }, [project?.id]);
 
   const citeKeys = useMemo(() => {
-    const bibFiles = files.filter((f) => f.path.endsWith('.bib') && f.content);
+    const bibFiles = files.filter((/** @type {any} */ f) => f.path.endsWith('.bib') && f.content);
+    /** @type {any[]} */
     const keys = [];
     const entryPattern = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
     for (const f of bibFiles) {
@@ -191,9 +196,14 @@ export default function useEditorActions({
 
   const labelKeys = useMemo(() => {
     // Build a path → file map for fast lookup
-    const fileMap = new Map(files.map((f) => [f.path, f]));
+    /** @type {Map<string, any>} */
+    const fileMap = new Map(files.map((/** @type {any} */ f) => [f.path, f]));
 
     // Resolve a relative \input/\include path against the directory of the current file
+    /**
+     * @param {any} currentPath
+     * @param {any} included
+     */
     function resolvePath(currentPath, included) {
       const dir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/') + 1) : '';
       const resolved = dir + included;
@@ -202,9 +212,14 @@ export default function useEditorActions({
     }
 
     // Walk the include tree starting from mainFilePath, collect labels in order
+    /** @type {Set<string>} */
     const visitedFiles = new Set();
+    /** @type {any[]} */
     const orderedFiles = [];
 
+    /**
+     * @param {any} filePath
+     */
     function walk(filePath) {
       if (visitedFiles.has(filePath)) return;
       visitedFiles.add(filePath);
@@ -223,7 +238,9 @@ export default function useEditorActions({
     walk(mainFilePath);
 
     // Extract labels from the ordered file set
+    /** @type {any[]} */
     const keys = [];
+    /** @type {Set<string>} */
     const seenLabels = new Set();
     const labelPattern = /\\label\{([^}]+)\}/g;
 

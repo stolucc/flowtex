@@ -1,3 +1,4 @@
+// @ts-check
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { get, post } from '../api.js';
 import { getSetting } from '../utils/settings.js';
@@ -11,15 +12,15 @@ import {
 
 /**
  * Handles LaTeX compilation lifecycle: streaming compile output, PDF URL management, linting, and diff compilation.
- * @param {object|null} project - The current project.
- * @param {object|null} activeFile - The currently active file.
+ * @param {any} project - The current project.
+ * @param {any} activeFile - The currently active file.
  * @param {Function} handleSave - Saves the current editor content before compiling.
- * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ * @param {import('react').RefObject<any>} editorRef - Ref to the editor instance.
  * @param {object} [opts]
  * @param {boolean} [opts.showTrackedChanges]
- * @param {object|null} [opts.user] - Current user, for compileLocation resolution.
- * @param {object} [opts.helperStatus] - Local helper status, for compileLocation resolution.
- * @param {Array} [opts.files] - The full project files array. Required for the local-compile
+ * @param {any} [opts.user] - Current user, for compileLocation resolution.
+ * @param {any} [opts.helperStatus] - Local helper status, for compileLocation resolution.
+ * @param {any[]} [opts.files] - The full project files array. Required for the local-compile
  *                                path so the helper can write source to disk; ignored on the
  *                                server path (server pulls fresh from PostgreSQL).
  */
@@ -30,14 +31,15 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   // on the next compile without a manual refresh.
   const compileChoice = resolveCompileLocation(project, user, helperStatus || { available: false });
   const [compiling, setCompiling] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(/** @type {any} */ (null));
   const [compileLog, setCompileLog] = useState('');
-  const [compileProfile, setCompileProfile] = useState(null);
-  const [rebuildReason, setRebuildReason] = useState(null);
+  const [compileProfile, setCompileProfile] = useState(/** @type {any} */ (null));
+  const [rebuildReason, setRebuildReason] = useState(/** @type {any} */ (null));
   const [consoleOutput, setConsoleOutput] = useState('');
-  const [lintDiagnostics, setLintDiagnostics] = useState([]);
-  const [generatedFiles, setGeneratedFiles] = useState([]);
-  const [activeGenFile, setActiveGenFile] = useState(null);
+  const [lintDiagnostics, setLintDiagnostics] = useState(/** @type {any[]} */ ([]));
+  const [generatedFiles, setGeneratedFiles] = useState(/** @type {any[]} */ ([]));
+  const [activeGenFile, setActiveGenFile] = useState(/** @type {any} */ (null));
+  /** @type {React.MutableRefObject<EventSource | null>} */
   const compileSourceRef = useRef(null);
   const compilingRef = useRef(false);
 
@@ -119,9 +121,10 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   // be revoked on the next compile / on project switch — otherwise they
   // sit in the browser until reload (real memory cost: ~5-20 MB per
   // typical PDF).
+  /** @type {React.MutableRefObject<string | null>} */
   const lastBlobUrlRef = useRef(null);
-  const setPdfUrlSmart = useCallback((next) => {
-    setPdfUrl((_prev) => {
+  const setPdfUrlSmart = useCallback((/** @type {any} */ next) => {
+    setPdfUrl((/** @type {any} */ _prev) => {
       if (lastBlobUrlRef.current && lastBlobUrlRef.current !== next) {
         URL.revokeObjectURL(lastBlobUrlRef.current);
         lastBlobUrlRef.current = null;
@@ -144,10 +147,10 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   // Apply the same tracked-changes transform the server applies before
   // shipping source to the helper. Stays in sync with the server
   // because both call the same `shared/trackedChanges.js` module.
-  const buildLocalPayloadFiles = useCallback((proj, allFiles) => {
+  const buildLocalPayloadFiles = useCallback((/** @type {any} */ proj, /** @type {any[]} */ allFiles) => {
     if (!Array.isArray(allFiles)) return [];
     const mainFile = proj?.main_file || 'main.tex';
-    return allFiles.map((f) => {
+    return allFiles.map((/** @type {any} */ f) => {
       if (f.is_binary) {
         return { path: f.path, content: f.content || '', isBinary: true };
       }
@@ -213,13 +216,13 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         // any). Empty string = use whatever the helper has as default
         // — matches the server-side fallback behaviour.
         texDistribution: project.tex_distribution || '',
-        files: buildLocalPayloadFiles(project, files),
+        files: buildLocalPayloadFiles(project, files || []),
       });
       if (result.ok) {
-        const blobUrl = URL.createObjectURL(result.pdfBlob);
+        const blobUrl = URL.createObjectURL(/** @type {Blob} */ (result.pdfBlob));
         setPdfUrlSmart(blobUrl);
         setCompileLog(result.log || '');
-        setConsoleOutput((prev) => prev + (result.log || ''));
+        setConsoleOutput((/** @type {string} */ prev) => prev + (result.log || ''));
         setCompiling(false);
         return; // skip server path, skip server-side lint (helper doesn't lint)
       }
@@ -245,7 +248,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
       // the user (re)triggered another compile mid-stream, this EventSource is
       // superseded and any late events from it must NOT update UI state, or we'd
       // overwrite the new compile's output/PDF with stale data.
-      await new Promise((resolve, reject) => {
+      await new Promise(/** @type {(resolve: (v?: any) => void, reject: (err: any) => void) => void} */ ((resolve, reject) => {
         evtSource.addEventListener('output', (e) => {
           if (compileSourceRef.current !== evtSource) return;
           const { text } = JSON.parse(e.data);
@@ -272,7 +275,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
               // for nothing — a visible flicker on every save-and-compile
               // that didn't change anything build-tracked. Set the URL
               // only if it wasn't set yet (first compile of the session).
-              setPdfUrl((prev) => prev || pdfUrlForMode);
+              setPdfUrl((/** @type {any} */ prev) => prev || pdfUrlForMode);
             } else {
               setPdfUrlSmart(pdfUrlForMode);
             }
@@ -287,9 +290,9 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           compileSourceRef.current = null;
           reject(new Error('Compile stream failed'));
         };
-      });
+      }));
     } catch (err) {
-      setCompileLog(err.message);
+      setCompileLog(err instanceof Error ? err.message : String(err));
     }
     setCompiling(false);
     if (project) {
@@ -312,7 +315,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
           post(`/api/compile/${project.id}/lint`, { content, filename: fileAtStart.path, linter: serverLinter })
             .then((r) => r.json())
             .then((data) => {
-              setLintDiagnostics((data.diagnostics || []).map((d) => ({ ...d, source: serverLinter })));
+              setLintDiagnostics((data.diagnostics || []).map((/** @type {any} */ d) => ({ ...d, source: serverLinter })));
             })
             .catch((e) => console.warn('Server lint error:', e));
         }
@@ -323,7 +326,7 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
   }, [project, activeFile, handleSave, editorRef, showTrackedChanges, compileChoice, buildLocalPayloadFiles, files, setPdfUrlSmart]);
 
   const handleDiff = useCallback(
-    (oldFileId, newFileId) => {
+    (/** @type {string} */ oldFileId, /** @type {string} */ newFileId) => {
       if (!project) return;
       if (compilingRef.current) return;
       setCompiling(true);

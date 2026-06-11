@@ -1,9 +1,10 @@
+// @ts-check
 /**
  * Get the merge definition originating at cell (r, c), or null.
- * @param {Array} merges
+ * @param {any[]} merges
  * @param {number} r - Row index
  * @param {number} c - Column index
- * @returns {Object|null}
+ * @returns {any}
  */
 export function getMergeAt(merges, r, c) {
   return merges?.find((m) => m.row === r && m.col === c) || null;
@@ -11,7 +12,7 @@ export function getMergeAt(merges, r, c) {
 
 /**
  * Check if cell (r, c) is covered by a merge but is not the merge origin.
- * @param {Array} merges
+ * @param {any[]} merges
  * @param {number} r - Row index
  * @param {number} c - Column index
  * @returns {boolean}
@@ -26,10 +27,10 @@ export function isCoveredByMerge(merges, r, c) {
 
 /**
  * Return the merge that covers cell (r, c), excluding the origin cell itself.
- * @param {Array} merges
+ * @param {any[]} merges
  * @param {number} r - Row index
  * @param {number} c - Column index
- * @returns {Object|null}
+ * @returns {any}
  */
 function getCoveringMerge(merges, r, c) {
   if (!merges) return null;
@@ -43,7 +44,7 @@ function getCoveringMerge(merges, r, c) {
 
 /**
  * Generate LaTeX source for a table from structured options.
- * @param {Object} options - Table configuration (rows, cols, colSettings, borders, cells, merges, etc.)
+ * @param {any} options - Table configuration (rows, cols, colSettings, borders, cells, merges, etc.)
  * @returns {string} LaTeX source string
  */
 export default function generateLatexTable({
@@ -131,7 +132,7 @@ export default function generateLatexTable({
   }
 
   // Add row spacing when using rules (hlines or vlines make tables look cramped)
-  const hasAnyRules = hlineTop || hlineAll || hlineHeader || isBooktabs || (vlines && vlines.some((v) => v));
+  const hasAnyRules = hlineTop || hlineAll || hlineHeader || isBooktabs || (vlines && vlines.some((/** @type {any} */ v) => v));
   if (hasAnyRules) {
     lines.push('\\renewcommand{\\arraystretch}{1.3}');
   }
@@ -286,7 +287,7 @@ export default function generateLatexTable({
     }
     const rowStr = rowParts.join(' & ') + ' \\\\';
     // Determine if any multirow spans cross from this row to the next
-    const needsCline = activeMerges.some((m) => r >= m.row && r < m.row + m.rowSpan - 1);
+    const needsCline = activeMerges.some((/** @type {any} */ m) => r >= m.row && r < m.row + m.rowSpan - 1);
     const wantRule = (isHeader && (isBooktabs || hlineHeader)) || (!isHeader && hlineAll && r < rows - 1);
     const isLastRow = r === rows - 1;
 
@@ -297,7 +298,7 @@ export default function generateLatexTable({
       let c = 0;
       while (c < cols) {
         const spanning = activeMerges.find(
-          (m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan,
+          (/** @type {any} */ m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan,
         );
         if (spanning) {
           c = spanning.col + spanning.colSpan;
@@ -305,7 +306,7 @@ export default function generateLatexTable({
           const start = c + 1; // \cline is 1-based
           while (
             c < cols &&
-            !activeMerges.find((m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan)
+            !activeMerges.find((/** @type {any} */ m) => r >= m.row && r < m.row + m.rowSpan - 1 && c >= m.col && c < m.col + m.colSpan)
           )
             c++;
           lines.push(`\\cline{${start}-${c}}`);
@@ -324,7 +325,7 @@ export default function generateLatexTable({
 
     // User-defined partial horizontal rules (\cline or \cmidrule)
     const activeClines = clines || [];
-    const rowClines = activeClines.filter((cl) => cl.row === r);
+    const rowClines = activeClines.filter((/** @type {any} */ cl) => cl.row === r);
     for (const cl of rowClines) {
       const from = cl.fromCol + 1; // 1-based
       const to = cl.toCol + 1;

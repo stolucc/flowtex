@@ -1,3 +1,4 @@
+// @ts-check
 import { useState, useEffect } from 'react';
 
 /** Read the persisted theme preference, defaulting to 'dark'. */
@@ -28,19 +29,19 @@ export default function useUIState() {
   const [showComments, setShowComments] = useState(false);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
   const [wordWrap, setWordWrap] = useState(true);
-  const [pdfWidth, setPdfWidth] = useState(null);
+  const [pdfWidth, setPdfWidth] = useState(/** @type {any} */ (null));
   const [showShareModal, setShowShareModal] = useState(false);
   const [showGitHubSync, setShowGitHubSync] = useState(false);
   const [showBibEnrich, setShowBibEnrich] = useState(false);
   const [showZotero, setShowZotero] = useState(false);
   const [showCompareFiles, setShowCompareFiles] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [historyEditedFileIds, setHistoryEditedFileIds] = useState([]);
-  const [historyFiles, setHistoryFiles] = useState(null);
-  const [historySelectedFile, setHistorySelectedFile] = useState(null);
+  const [historyEditedFileIds, setHistoryEditedFileIds] = useState(/** @type {any[]} */ ([]));
+  const [historyFiles, setHistoryFiles] = useState(/** @type {any} */ (null));
+  const [historySelectedFile, setHistorySelectedFile] = useState(/** @type {any} */ (null));
   const [genPanelHeight, setGenPanelHeight] = useState(150);
   const [outlinePanelHeight, setOutlinePanelHeight] = useState(200);
-  const [genContextMenu, setGenContextMenu] = useState(null);
+  const [genContextMenu, setGenContextMenu] = useState(/** @type {any} */ (null));
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -69,7 +70,7 @@ export default function useUIState() {
   // Wrapper: when the user changes layout from the menu, mirror the new
   // value into the URL so a refresh restores it. Default ('split') is
   // represented by removing the param so the URL stays clean.
-  const setLayoutMode = (next) => {
+  const setLayoutMode = (/** @type {string} */ next) => {
     setLayoutModeRaw(next);
     if (typeof window === 'undefined') return;
     try {

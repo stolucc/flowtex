@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Visual Mode — WYSIWYG-like decorations for the LaTeX editor.
  *
@@ -225,6 +226,9 @@ const LATEX_COLORS = {
 // Case-insensitive color lookup (builds lowercase index once)
 const _colorLower = {};
 for (const [k, v] of Object.entries(LATEX_COLORS)) _colorLower[k.toLowerCase()] = v;
+/**
+ * @param {any} name
+ */
 function resolveColor(name) {
   return LATEX_COLORS[name] || _colorLower[name.toLowerCase()] || name;
 }
@@ -253,7 +257,10 @@ let _bibMap = {}; // cite key → { author, year, title }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'ico']);
 
-/** Resolve an \includegraphics path to a file ID from the project file list. */
+/**
+ * Resolve an \includegraphics path to a file ID from the project file list.
+ * @param {any} texPath
+ */
 function resolveImageFile(texPath) {
   if (!_projectFiles || _projectFiles.length === 0) return null;
   // Normalize: strip leading ./ or /
@@ -277,7 +284,10 @@ function resolveImageFile(texPath) {
 
 const PDF_EXTS = new Set(['pdf']);
 
-/** Check if a file path has a renderable extension (image or PDF) */
+/**
+ * Check if a file path has a renderable extension (image or PDF)
+ * @param {any} path
+ */
 function isRenderableFile(path) {
   const ext = (path || '').split('.').pop().toLowerCase();
   return IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext);
@@ -341,6 +351,8 @@ class RefBadgeWidget extends WidgetType {
  * Generic widget-DOM hover popup. `buildContent` is called when the popup is
  * about to be shown and should return a DocumentFragment / element to mount.
  * The popup lives on document.body so it isn't clipped by editor scrollbars.
+ * @param {any} el
+ * @param {any} buildContent
  */
 function attachHoverPopup(el, buildContent) {
   let popup = null;
@@ -378,6 +390,12 @@ function attachHoverPopup(el, buildContent) {
   });
 }
 
+/**
+ * @param {any} el
+ * @param {any} rawLabel
+ * @param {any} cmdName
+ * @param {any} view
+ */
 function attachRefHoverPopup(el, rawLabel, cmdName, view) {
   attachHoverPopup(el, () => {
     if (!view) return null;
@@ -424,6 +442,11 @@ function attachRefHoverPopup(el, rawLabel, cmdName, view) {
   });
 }
 
+/**
+ * @param {any} el
+ * @param {any} rawLabel
+ * @param {any} cmdName
+ */
 function attachCiteHoverPopup(el, rawLabel, cmdName) {
   attachHoverPopup(el, () => {
     const keys = rawLabel.split(',').map((k) => k.trim()).filter(Boolean);
@@ -562,7 +585,10 @@ class ListMarkerWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-/** Convert integer to Roman numeral */
+/**
+ * Convert integer to Roman numeral
+ * @param {any} n
+ */
 function toRoman(n) {
   const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
   const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
@@ -581,6 +607,9 @@ const SECTION_LEVELS = { part: 0, chapter: 1, section: 2, subsection: 3, subsubs
 /**
  * Scan the full document text for section commands and build a Map<position, label>.
  * Starred variants (e.g. \section*) are not numbered.
+ * @param {any} doc
+ * @param {any} preambleEnd
+ * @param {any} endDocFrom
  */
 function buildSectionNumbers(doc, preambleEnd, endDocFrom) {
   const text = doc.sliceString(preambleEnd, endDocFrom ?? doc.length);
@@ -621,6 +650,10 @@ const EDITABLE_META_REGEXES = Object.keys(EDITABLE_META).map((cmd) => ({
   re: new RegExp('\\\\' + cmd + '\\s*(?:\\[[^\\]]*\\]\\s*)?\\{', 'g'),
 }));
 
+/**
+ * @param {any} text
+ * @param {any} baseOffset
+ */
 function findEditableSpansInRange(text, baseOffset) {
   const spans = [];
   for (const { cmd, re } of EDITABLE_META_REGEXES) {
@@ -655,6 +688,10 @@ function findEditableSpansInRange(text, baseOffset) {
 
 // ── Preamble metadata extraction ────────────────────────────────────────────
 
+/**
+ * @param {any} text
+ * @param {any} startIdx
+ */
 function extractBraceContent(text, startIdx) {
   // Extract content of {...} starting at the { at startIdx, handling nested braces
   if (text[startIdx] !== '{') return null;
@@ -668,6 +705,9 @@ function extractBraceContent(text, startIdx) {
 
 // ── Preamble detection ──────────────────────────────────────────────────────
 
+/**
+ * @param {any} doc
+ */
 function findBeginDocument(doc) {
   const scanLen = Math.min(doc.length, 30000);
   const text = doc.sliceString(0, scanLen);
@@ -676,6 +716,9 @@ function findBeginDocument(doc) {
   return { from: 0, to: m.index + m[0].length };
 }
 
+/**
+ * @param {any} doc
+ */
 function findEndDocument(doc) {
   const tailLen = Math.min(doc.length, 2000);
   const startPos = doc.length - tailLen;
@@ -715,6 +758,10 @@ const expandedTableField = StateField.define({
 // signature changes localised).
 let _expandedTableFrom = -1;
 
+/**
+ * @param {any} state
+ * @param {any} visibleRanges
+ */
 function buildDecorations(state, visibleRanges) {
   const doc = state.doc;
   const decos = [];
@@ -879,6 +926,10 @@ function buildDecorations(state, visibleRanges) {
       merged.push([iv[0], iv[1]]);
     }
   }
+  /**
+   * @param {any} from
+   * @param {any} to
+   */
   function isCovered(from, to) {
     let lo = 0, hi = merged.length - 1;
     while (lo <= hi) {
@@ -1096,7 +1147,20 @@ function buildDecorations(state, visibleRanges) {
   }
 }
 
+/**
+ * @param {any} tree
+ * @param {any} offset
+ * @param {any} decos
+ * @param {any} doc
+ * @param {any} sectionNumbers
+ * @param {any} preambleMeta
+ * @param {any} listDepth
+ */
 function walkAndDecorate(tree, offset, decos, doc, sectionNumbers, preambleMeta, listDepth = 0) {
+  /**
+   * @param {any} node
+   * @param {any} depth
+   */
   function visit(node, depth) {
     const from = node.from + offset;
     const to = node.to + offset;
@@ -1228,7 +1292,14 @@ function walkAndDecorate(tree, offset, decos, doc, sectionNumbers, preambleMeta,
 // `false` (which means "handled, skip children").
 const DISPATCH_FALLTHROUGH = Symbol('vm.command.fallthrough');
 
-/** Decorate \affiliation{...} — hide wrapper markup, re-parse content for nested cmds. */
+/**
+ * Decorate \affiliation{...} — hide wrapper markup, re-parse content for nested cmds.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateAffiliation(node, from, to, offset, decos /* doc */) {
   const arg = node.args.find(a => a.type === N.GROUP);
   if (arg && !arg.unclosed) {
@@ -1248,7 +1319,18 @@ function decorateAffiliation(node, from, to, offset, decos /* doc */) {
   return DISPATCH_FALLTHROUGH;
 }
 
-/** Decorate \item — both inside a parsed list (already marked) and standalone (preamble-out-of-slice case). */
+/**
+ * Decorate \item — both inside a parsed list (already marked) and standalone (preamble-out-of-slice case).
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ * @param {any} doc
+ * @param {any} _sectionNumbers
+ * @param {any} _preambleMeta
+ * @param {any} listDepth
+ */
 function decorateItem(node, from, to, offset, decos, doc, _sectionNumbers, _preambleMeta, listDepth) {
   // Inside a parsed list — marker already placed by decorateEnvironment.
   if (listDepth > 0) {
@@ -1283,7 +1365,15 @@ function decorateItem(node, from, to, offset, decos, doc, _sectionNumbers, _prea
   return undefined; // continue into children
 }
 
-/** Decorate \footnote{text} → superscript numbered marker with tooltip. */
+/**
+ * Decorate \footnote{text} → superscript numbered marker with tooltip.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ * @param {any} doc
+ */
 function decorateFootnote(node, from, to, offset, decos, doc) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
   const arg = node.args.find(a => a.type === N.GROUP);
@@ -1305,7 +1395,14 @@ function decorateFootnote(node, from, to, offset, decos, doc) {
   return false;
 }
 
-/** Decorate \keywords{...} → "Keywords: " label + editable content. */
+/**
+ * Decorate \keywords{...} → "Keywords: " label + editable content.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateKeywords(node, from, to, offset, decos /* doc */) {
   const arg = node.args.find(a => a.type === N.GROUP);
   if (!arg || arg.unclosed) return DISPATCH_FALLTHROUGH;
@@ -1326,7 +1423,14 @@ function decorateKeywords(node, from, to, offset, decos /* doc */) {
   return false;
 }
 
-/** Decorate \lettrine{X}{rest} → show both args as plain text. */
+/**
+ * Decorate \lettrine{X}{rest} → show both args as plain text.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateLettrine(node, from, to, offset, decos /* doc */) {
   const groups = (node.args || []).filter(a => a.type === N.GROUP);
   if (groups.length < 2) return DISPATCH_FALLTHROUGH;
@@ -1345,7 +1449,14 @@ function decorateLettrine(node, from, to, offset, decos /* doc */) {
   return false;
 }
 
-/** Decorate \textcolor{color}{text} or \colorbox{color}{text}. */
+/**
+ * Decorate \textcolor{color}{text} or \colorbox{color}{text}.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateColorWrap(node, from, to, offset, decos /* doc */) {
   const name = node.name;
   if (node.args.length < 2) return DISPATCH_FALLTHROUGH;
@@ -1374,7 +1485,15 @@ function decorateColorWrap(node, from, to, offset, decos /* doc */) {
   return undefined;
 }
 
-/** Decorate \hl{text} — yellow (or \sethlcolor-set) highlight. */
+/**
+ * Decorate \hl{text} — yellow (or \sethlcolor-set) highlight.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ * @param {any} doc
+ */
 function decorateHl(node, from, to, offset, decos, doc) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
   const arg = node.args.find(a => a.type === N.GROUP);
@@ -1399,7 +1518,14 @@ function decorateHl(node, from, to, offset, decos, doc) {
   return undefined;
 }
 
-/** Decorate \href{url}{text} → show text only, styled as link. */
+/**
+ * Decorate \href{url}{text} → show text only, styled as link.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateHref(node, from, to, offset, decos /* doc */) {
   if (node.args.length < 2) return DISPATCH_FALLTHROUGH;
   const urlArg = node.args[0];
@@ -1432,7 +1558,14 @@ function decorateHref(node, from, to, offset, decos /* doc */) {
   return false;
 }
 
-/** Decorate \url{text} → show as link. */
+/**
+ * Decorate \url{text} → show as link.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateUrl(node, from, to, offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
   const arg = node.args.find(a => a.type === N.GROUP);
@@ -1451,7 +1584,14 @@ function decorateUrl(node, from, to, offset, decos /* doc */) {
   return false;
 }
 
-/** Decorate \includegraphics[opts]{file} → render image or show filename badge. */
+/**
+ * Decorate \includegraphics[opts]{file} → render image or show filename badge.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} _offset
+ * @param {any} decos
+ */
 function decorateIncludegraphics(node, from, to, _offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
   const arg = node.args.find(a => a.type === N.GROUP);
@@ -1471,7 +1611,14 @@ function decorateIncludegraphics(node, from, to, _offset, decos /* doc */) {
   return false;
 }
 
-/** Decorate \caption{text} or \caption*{text} — show as styled text. */
+/**
+ * Decorate \caption{text} or \caption*{text} — show as styled text.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ */
 function decorateCaption(node, from, to, offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
   const arg = node.args.find(a => a.type === N.GROUP);
@@ -1490,7 +1637,14 @@ function decorateCaption(node, from, to, offset, decos /* doc */) {
   return undefined;
 }
 
-/** Decorate \smallskip / \medskip / \bigskip — visual gap widget. */
+/**
+ * Decorate \smallskip / \medskip / \bigskip — visual gap widget.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} _offset
+ * @param {any} decos
+ */
 function decorateSkip(node, from, to, _offset, decos /* doc */) {
   const name = node.name;
   const sz = name === 'smallskip' ? '6px' : name === 'medskip' ? '12px' : '24px';
@@ -1522,6 +1676,15 @@ const COMMAND_DECORATORS = {
 
 /**
  * Decorate a COMMAND node. Returns false to skip children, or undefined to continue.
+ * @param {any} node
+ * @param {any} from
+ * @param {any} to
+ * @param {any} offset
+ * @param {any} decos
+ * @param {any} doc
+ * @param {any} sectionNumbers
+ * @param {any} preambleMeta
+ * @param {any} listDepth
  */
 function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, preambleMeta, listDepth = 0) {
   const name = node.name;
@@ -1990,6 +2153,11 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
 
 let _secNumCache = { doc: null, preambleEnd: 0, endDocFrom: 0, labels: new Map() };
 
+/**
+ * @param {any} doc
+ * @param {any} preambleEnd
+ * @param {any} endDocFrom
+ */
 function getCachedSectionNumbers(doc, preambleEnd, endDocFrom) {
   // CM6 Doc objects are immutable — same reference means same content
   if (_secNumCache.doc === doc &&
@@ -2860,6 +3028,8 @@ const envAutoCloser = EditorState.transactionFilter.of((tr) => {
  *   block: 'chapter' | 'section' | 'subsection' | 'subsubsection' | 'paragraph'
  *          | 'itemize' | 'enumerate' | 'description' | 'quote' | 'abstract' | 'normal'
  *   inline: subset of ['bold', 'italic', 'underline', 'monospace', 'smallcaps', 'emphasis']
+ * @param {any} doc
+ * @param {any} pos
  */
 export function getCursorStyle(doc, pos) {
   const text = typeof doc === 'string' ? doc : doc.toString();
@@ -2942,6 +3112,11 @@ export function getCursorStyle(doc, pos) {
   ];
 
   // Helper: check if pos is inside a brace-delimited command found by regex
+  /**
+   * @param {any} re
+   * @param {any} searchText
+   * @param {any} searchOffset
+   */
   function isInsideBraces(re, searchText, searchOffset) {
     re.lastIndex = 0;
     let m;
@@ -3039,7 +3214,11 @@ const hrefClickHandler = EditorView.domEventHandlers({
 const REF_CMD_RE = /\\(ref|eqref|pageref|autoref|nameref|cref|Cref)\*?\{([^}]+)\}/g;
 const CITE_CMD_RE = /\\(cite|citep|citet|citeauthor|citeyear|parencite|textcite|autocite|citealt|citealp|nocite)\*?(?:\[[^\]]*\](?:\[[^\]]*\])?)?\{([^}]+)\}/g;
 
-/** Find `\label{key}` in the doc and classify what it labels. */
+/**
+ * Find `\label{key}` in the doc and classify what it labels.
+ * @param {any} text
+ * @param {any} key
+ */
 function describeLabel(text, key) {
   const labelRe = new RegExp('\\\\label\\{' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\}');
   const m = labelRe.exec(text);
@@ -3209,7 +3388,11 @@ export const refHoverTooltip = hoverTooltip((view, pos) => {
   return null;
 });
 
-/** Build a single citation row for the tooltip popup. */
+/**
+ * Build a single citation row for the tooltip popup.
+ * @param {any} cmdName
+ * @param {any} key
+ */
 function buildCiteTooltipRow(cmdName, key) {
   const row = document.createElement('div');
   row.className = 'cm-vm-ref-tooltip-row';
@@ -3279,6 +3462,9 @@ function buildCiteTooltipRow(cmdName, key) {
  */
 // Strip outer braces and case-preservation braces ({A} → A), and trim.
 // Used to clean up BibTeX field values for display.
+/**
+ * @param {any} s
+ */
 function _stripBibBraces(s) {
   if (!s) return '';
   return s.replace(/\{([^{}]*)\}/g, '$1').trim();
@@ -3287,6 +3473,10 @@ function _stripBibBraces(s) {
 // Extract a single field value from a bib entry body, honoring balanced braces
 // or quoted strings. The simpler regex `[^}"]+` breaks on titles like
 // `title = {A {Special} Title}` or authors with embedded braces.
+/**
+ * @param {any} entryBody
+ * @param {any} fieldName
+ */
 function _extractBibField(entryBody, fieldName) {
   const re = new RegExp(`\\b${fieldName}\\s*=\\s*`, 'i');
   const m = re.exec(entryBody);
@@ -3322,6 +3512,10 @@ function _extractBibField(entryBody, fieldName) {
 // first `{` and returns the substring up to (but not including) the matching
 // closing `}`, honoring nested braces and skipping quoted strings. Bounds
 // `_extractBibField` so it can't accidentally read fields from the next entry.
+/**
+ * @param {any} text
+ * @param {any} entryStart
+ */
 function _entryBodyAt(text, entryStart) {
   let i = text.indexOf('{', entryStart);
   if (i < 0) return '';
@@ -3350,6 +3544,9 @@ function _entryBodyAt(text, entryStart) {
 // Format a BibTeX `author` field as a readable list. BibTeX separates authors
 // with " and "; each name is "Last, First" or "First Last". We normalize each
 // to "First Last" and join with commas + Oxford "and" for the final author.
+/**
+ * @param {any} raw
+ */
 function _formatBibAuthors(raw) {
   if (!raw) return '';
   const list = raw.split(/\s+and\s+/i).map((s) => s.trim()).filter(Boolean);
@@ -3367,6 +3564,10 @@ function _formatBibAuthors(raw) {
   return normalized.slice(0, -1).join(', ') + ', and ' + normalized[normalized.length - 1];
 }
 
+/**
+ * @param {any} projectFiles
+ * @param {any} bibEntries
+ */
 export function updateBibContext(projectFiles, bibEntries) {
   _projectFiles = projectFiles || [];
   // Build bib lookup: key → { author, authorsFull, year, title, venue, entryType }
@@ -3450,6 +3651,10 @@ export function updateBibContext(projectFiles, bibEntries) {
   }
 }
 
+/**
+ * @param {any} projectFiles
+ * @param {any} bibEntries
+ */
 export function visualModeExtension(projectFiles, bibEntries) {
   updateBibContext(projectFiles, bibEntries);
   return [

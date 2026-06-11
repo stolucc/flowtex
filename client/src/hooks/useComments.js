@@ -1,17 +1,22 @@
+// @ts-check
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, patch, del } from '../api.js';
 
 /**
  * Manages inline comments: CRUD operations, position tracking, and WebSocket broadcast.
- * @param {object|null} activeFile - The currently active file.
- * @param {import('react').RefObject} sendWsRef - Ref to the WebSocket send function.
- * @param {import('react').RefObject} editorRef - Ref to the editor instance.
+ * @param {any} activeFile - The currently active file.
+ * @param {import('react').RefObject<any>} sendWsRef - Ref to the WebSocket send function.
+ * @param {import('react').RefObject<any>} editorRef - Ref to the editor instance.
  */
 export default function useComments(activeFile, sendWsRef, editorRef) {
-  const [comments, setComments] = useState([]);
-  const [selection, setSelection] = useState(null);
-  const [selectionFormTop, setSelectionFormTop] = useState(null);
-  const [commentPositions, setCommentPositions] = useState([]);
+  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
+  const [comments, setComments] = useState(/** @type {any[]} */ ([]));
+  /** @type {[any, React.Dispatch<any>]} */
+  const [selection, setSelection] = useState(/** @type {any} */ (null));
+  const [selectionFormTop, setSelectionFormTop] = useState(/** @type {number | null} */ (null));
+  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
+  const [commentPositions, setCommentPositions] = useState(/** @type {any[]} */ ([]));
+  /** @type {React.MutableRefObject<any>} */
   const selectionRef = useRef(null);
   selectionRef.current = selection;
 
@@ -38,7 +43,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   }, [activeFile]);
 
   const handleAddComment = useCallback(
-    async (text, { assignedTo } = {}) => {
+    async (/** @type {string} */ text, /** @type {{ assignedTo?: string }} */ { assignedTo } = {}) => {
       if (!activeFile || !selection) return;
       const res = await post(`/api/comments/${activeFile.id}`, {
         from_pos: selection.from,
@@ -61,7 +66,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   );
 
   const handleResolveComment = useCallback(
-    async (commentId, resolved) => {
+    async (/** @type {string} */ commentId, /** @type {boolean} */ resolved) => {
       await patch(`/api/comments/${commentId}/resolve`, { resolved });
       setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, resolved: resolved ? 1 : 0 } : c)));
       sendWsRef.current?.({ type: 'comment-resolve', commentId, resolved });
@@ -70,7 +75,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   );
 
   const handleDeleteComment = useCallback(
-    async (commentId) => {
+    async (/** @type {string} */ commentId) => {
       await del(`/api/comments/${commentId}`);
       setComments((cs) => cs.filter((c) => c.id !== commentId));
       sendWsRef.current?.({ type: 'comment-delete', commentId });
@@ -79,7 +84,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   );
 
   const handleReplyComment = useCallback(
-    async (commentId, text) => {
+    async (/** @type {string} */ commentId, /** @type {string} */ text) => {
       const res = await post(`/api/comments/${commentId}/reply`, { text });
       const reply = await res.json();
       // Same dedup story as handleAddComment: server-originated WS
@@ -89,7 +94,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
           c.id === commentId
             ? {
                 ...c,
-                replies: (c.replies || []).some((r) => r.id === reply.id)
+                replies: (c.replies || []).some((/** @type {any} */ r) => r.id === reply.id)
                   ? c.replies
                   : [...(c.replies || []), reply],
               }
@@ -102,7 +107,7 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   );
 
   const handleEditComment = useCallback(
-    async (commentId, text) => {
+    async (/** @type {string} */ commentId, /** @type {string} */ text) => {
       await patch(`/api/comments/${commentId}`, { text });
       setComments((cs) => cs.map((c) => (c.id === commentId ? { ...c, text } : c)));
       sendWsRef.current?.({ type: 'comment-edit', commentId, text });
@@ -115,14 +120,14 @@ export default function useComments(activeFile, sendWsRef, editorRef) {
   // 'comment-reaction-update' / 'reply-reaction-update', so no optimistic
   // local mutation here.
   const handleReactComment = useCallback(
-    (commentId, emoji) => {
+    (/** @type {string} */ commentId, /** @type {string} */ emoji) => {
       sendWsRef.current?.({ type: 'comment-react', commentId, emoji });
     },
     [sendWsRef],
   );
 
   const handleReactReply = useCallback(
-    (replyId, emoji) => {
+    (/** @type {string} */ replyId, /** @type {string} */ emoji) => {
       sendWsRef.current?.({ type: 'reply-react', replyId, emoji });
     },
     [sendWsRef],

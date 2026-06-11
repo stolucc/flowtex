@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * LaTeX Parser — tokenizer, tree builder, and query utilities.
  *
@@ -526,6 +527,9 @@ const MACRO_DEF_COMMANDS = new Set([
 //   - \( \) \[ \] math delimiters
 //   - \\ line breaks (vs commands starting with \\)
 
+/**
+ * @param {any} source
+ */
 export function tokenize(source) {
   const tokens = [];
   const len = source.length;
@@ -533,6 +537,12 @@ export function tokenize(source) {
   let line = 1;
   let lineStart = 0;
 
+  /**
+   * @param {any} type
+   * @param {any} from
+   * @param {any} to
+   * @param {any} value
+   */
   function push(type, from, to, value) {
     tokens.push({ type, value: value ?? source.slice(from, to), from, to, line, col: from - lineStart + 1 });
   }
@@ -763,6 +773,9 @@ export function tokenize(source) {
 // Group nodes represent:       { ... }
 // Math nodes represent:        $ ... $ or $$ ... $$ or \( \) or \[ \]
 
+/**
+ * @param {any} source
+ */
 export function parse(source) {
   const tokens = tokenize(source);
   const root = { type: N.ROOT, from: 0, to: source.length, children: [], source };
@@ -773,10 +786,16 @@ export function parse(source) {
     return stack[stack.length - 1];
   }
 
+  /**
+   * @param {any} node
+   */
   function pushChild(node) {
     current().children.push(node);
   }
 
+  /**
+   * @param {any} node
+   */
   function openContainer(node) {
     pushChild(node);
     stack.push(node);
@@ -786,6 +805,9 @@ export function parse(source) {
   const tlen = tokens.length;
 
   // Lookahead helpers
+  /**
+   * @param {any} offset
+   */
   function peek(offset = 0) {
     return ti + offset < tlen ? tokens[ti + offset] : null;
   }
@@ -801,6 +823,11 @@ export function parse(source) {
   // Walks tokens with a depth counter; collects children; emits a faithful `text`
   // slice from the source so newlines and dropped tokens survive (re-parsers
   // depend on `%` comments terminating at end-of-line).
+  /**
+   * @param {any} openType
+   * @param {any} closeType
+   * @param {any} nodeType
+   */
   function readDelimited(openType, closeType, nodeType) {
     if (!peek() || peek().type !== openType) return null;
     const open = advance();
@@ -1076,6 +1103,9 @@ export function parse(source) {
 /**
  * Walk the tree depth-first, calling visitor(node, depth) for each node.
  * Return false from visitor to skip children.
+ * @param {any} node
+ * @param {any} visitor
+ * @param {any} depth
  */
 export function walk(node, visitor, depth = 0) {
   const result = visitor(node, depth);
@@ -1089,6 +1119,8 @@ export function walk(node, visitor, depth = 0) {
 
 /**
  * Collect all nodes matching a predicate.
+ * @param {any} tree
+ * @param {any} predicate
  */
 export function findAll(tree, predicate) {
   const results = [];
@@ -1100,6 +1132,8 @@ export function findAll(tree, predicate) {
 
 /**
  * Find the deepest node containing a given position.
+ * @param {any} tree
+ * @param {any} pos
  */
 export function nodeAtPos(tree, pos) {
   let best = tree;
@@ -1116,9 +1150,14 @@ export function nodeAtPos(tree, pos) {
 /**
  * Find all ancestors of the deepest node at a position.
  * Returns [root, ..., deepest] — outermost to innermost.
+ * @param {any} tree
+ * @param {any} pos
  */
 export function ancestorsAtPos(tree, pos) {
   const path = [];
+  /**
+   * @param {any} node
+   */
   function descend(node) {
     if (pos >= node.from && pos <= node.to) {
       path.push(node);
@@ -1135,6 +1174,8 @@ export function ancestorsAtPos(tree, pos) {
 
 /**
  * Find all environment nodes, optionally filtered by name.
+ * @param {any} tree
+ * @param {any} name
  */
 export function findEnvironments(tree, name) {
   return findAll(tree, (node) => node.type === N.ENVIRONMENT && (name == null || node.name === name));
@@ -1143,6 +1184,7 @@ export function findEnvironments(tree, name) {
 /**
  * Find all table environments (tabular, tabularx, longtable, array, etc.)
  * and their optional \begin{table} float wrappers.
+ * @param {any} tree
  */
 export function findTables(tree) {
   const tables = [];
@@ -1159,6 +1201,8 @@ export function findTables(tree) {
  * Find the table environment (or table float) containing a position.
  * Returns { inner, outer, from, to } where inner is the tabular env
  * and outer is the table float wrapper (if any).
+ * @param {any} tree
+ * @param {any} pos
  */
 export function findTableAtPos(tree, pos) {
   const ancestors = ancestorsAtPos(tree, pos);
@@ -1194,6 +1238,10 @@ export function findTableAtPos(tree, pos) {
 
 // ─── Figure parsing ──────────────────────────────────────────────────────────
 
+/**
+ * @param {any} tree
+ * @param {any} pos
+ */
 export function findFigureAtPos(tree, pos) {
   const ancestors = ancestorsAtPos(tree, pos);
   let figure = null;
@@ -1206,6 +1254,10 @@ export function findFigureAtPos(tree, pos) {
   return { node: figure, from: figure.from, to: figure.to };
 }
 
+/**
+ * @param {any} figInfo
+ * @param {any} source
+ */
 export function parseFigure(figInfo, source) {
   const { node } = figInfo;
   let from = figInfo.from;
@@ -1312,6 +1364,8 @@ export function parseFigure(figInfo, source) {
 
 /**
  * Find all command nodes by name.
+ * @param {any} tree
+ * @param {any} name
  */
 export function findCommands(tree, name) {
   return findAll(tree, (node) => node.type === N.COMMAND && node.name === name);
@@ -1320,6 +1374,7 @@ export function findCommands(tree, name) {
 /**
  * Get the document structure: sections, subsections, etc.
  * Returns a flat list of { level, title, from, to } objects.
+ * @param {any} tree
  */
 export function getStructure(tree) {
   const levels = {
@@ -1363,6 +1418,9 @@ export function getStructure(tree) {
 /**
  * Parse a table from its AST node(s) into structured data.
  * Accepts the result of findTableAtPos() or a single environment node.
+ * @param {any} tableInfo
+ * @param {any} source
+ * @param {any} preambleSource
  */
 export function parseTable(tableInfo, source, preambleSource) {
   const inner = tableInfo.inner || tableInfo;
@@ -1524,6 +1582,9 @@ export function parseTable(tableInfo, source, preambleSource) {
 
 /**
  * Parse a LaTeX column specification string like |c|l|r| or >{\centering}p{5cm}
+ * @param {any} spec
+ * @param {any} result
+ * @param {any} customTypes
  */
 function parseColumnSpec(spec, result, customTypes) {
   const alignments = [];
@@ -1713,6 +1774,9 @@ function parseColumnSpec(spec, result, customTypes) {
 
 /**
  * Parse table rows from the environment's children.
+ * @param {any} envNode
+ * @param {any} source
+ * @param {any} result
  */
 function parseTableRows(envNode, source, result) {
   // Extract the body text between \begin{env}{spec} and \end{env}
@@ -1950,6 +2014,7 @@ function parseTableRows(envNode, source, result) {
 
 /**
  * Extract the 3rd brace-group content from \multicolumn{n}{align}{content}.
+ * @param {any} cell
  */
 function extractMulticolContent(cell) {
   let depth = 0,
@@ -1973,6 +2038,7 @@ function extractMulticolContent(cell) {
 /**
  * Extract the 3rd brace-group content from \multirow{n}{width}{content}.
  * Handles optional [] arg: \multirow[vpos]{n}{width}{content}
+ * @param {any} cell
  */
 function extractMultirowContent(cell) {
   let i = 0;
@@ -1999,6 +2065,7 @@ function extractMultirowContent(cell) {
 
 /**
  * Split table body on \\ respecting brace nesting.
+ * @param {any} body
  */
 function splitTableRows(body) {
   const rows = [];
@@ -2052,6 +2119,7 @@ function splitTableRows(body) {
 
 /**
  * Split a row on & characters, respecting brace nesting.
+ * @param {any} text
  */
 function splitOnAmpersand(text) {
   const cells = [];
@@ -2074,6 +2142,9 @@ function splitOnAmpersand(text) {
   return cells;
 }
 
+/**
+ * @param {any} str
+ */
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -2086,6 +2157,8 @@ function escapeRegex(str) {
  * Determine the context at a given position.
  * Returns an object describing the context:
  *   { inMath, inAlign, inVerbatim, inComment, inMacroDef, environments }
+ * @param {any} tree
+ * @param {any} pos
  */
 export function contextAtPos(tree, pos) {
   const ancestors = ancestorsAtPos(tree, pos);
@@ -2134,6 +2207,8 @@ export function contextAtPos(tree, pos) {
 
 /**
  * Check if a position is inside math mode.
+ * @param {any} tree
+ * @param {any} pos
  */
 export function inMath(tree, pos) {
   return contextAtPos(tree, pos).inMath;
@@ -2141,6 +2216,8 @@ export function inMath(tree, pos) {
 
 /**
  * Check if a position is inside a verbatim context.
+ * @param {any} tree
+ * @param {any} pos
  */
 export function inVerbatim(tree, pos) {
   return contextAtPos(tree, pos).inVerbatim;
@@ -2153,6 +2230,8 @@ export function inVerbatim(tree, pos) {
 /**
  * Lint using the parsed AST. Returns array of { line, col, len, severity, message }.
  * This replaces the character-by-character linter with one that understands structure.
+ * @param {any} tree
+ * @param {any} source
  */
 export function lint(tree, source) {
   const diagnostics = [];
@@ -2163,6 +2242,9 @@ export function lint(tree, source) {
     if (source[i] === '\n') lineOffsets.push(i + 1);
   }
 
+  /**
+   * @param {any} pos
+   */
   function posToLineCol(pos) {
     // Binary search for line
     let lo = 0,
@@ -2175,6 +2257,12 @@ export function lint(tree, source) {
     return { line: lo + 1, col: pos - lineOffsets[lo] + 1 };
   }
 
+  /**
+   * @param {any} from
+   * @param {any} len
+   * @param {any} severity
+   * @param {any} message
+   */
   function report(from, len, severity, message) {
     const { line, col } = posToLineCol(from);
     diagnostics.push({ line, col, len, severity, message });
@@ -2187,6 +2275,9 @@ export function lint(tree, source) {
     return ctxStack[ctxStack.length - 1];
   }
 
+  /**
+   * @param {any} node
+   */
   function lintWalk(node) {
     // Push context for container nodes
     let pushed = false;
@@ -2270,6 +2361,7 @@ export function lint(tree, source) {
  * Parse \newcolumntype declarations from the document preamble.
  * Returns a Map of letter -> { hasWidth: boolean, alignment: string, definition: string }
  * e.g. \newcolumntype{P}[1]{>{\centering\arraybackslash}p{#1}} -> P: { hasWidth: true, alignment: 'c', definition: '...' }
+ * @param {any} source
  */
 export function parseCustomColumnTypes(source) {
   const types = new Map();

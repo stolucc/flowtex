@@ -1,10 +1,12 @@
+// @ts-check
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post } from '../api.js';
 
 /** In-app @mention notifications. Fetches the recent set on mount, then
  *  appends real-time mentions delivered via `ws:mention` events. */
+/** @param {any} user */
 export default function useNotifications(user) {
-  const [mentions, setMentions] = useState([]);
+  const [mentions, setMentions] = useState(/** @type {any[]} */ ([]));
   const [loaded, setLoaded] = useState(false);
   const mentionsRef = useRef(mentions);
   mentionsRef.current = mentions;
@@ -47,7 +49,7 @@ export default function useNotifications(user) {
   // will reconcile fields like project_name / file_path that WS doesn't send.
   useEffect(() => {
     if (!user) return;
-    const onWs = (e) => {
+    const onWs = (/** @type {any} */ e) => {
       const m = e.detail;
       if (!m?.id) return;
       // Dedupe in case server retried — keep the first arrival.
@@ -72,7 +74,7 @@ export default function useNotifications(user) {
     return () => window.removeEventListener('ws:mention', onWs);
   }, [user]);
 
-  const markSeen = useCallback(async (id) => {
+  const markSeen = useCallback(async (/** @type {string} */ id) => {
     setMentions((prev) => prev.map((m) => (m.id === id ? { ...m, seen_at: new Date().toISOString() } : m)));
     try {
       await post(`/api/notifications/mentions/${id}/seen`, {});

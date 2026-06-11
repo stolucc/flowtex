@@ -1,3 +1,4 @@
+// @ts-check
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
@@ -16,12 +17,12 @@ function getFileIdFromUrl() {
 
 /**
  * Core project state hook: manages project/file/member data, URL-based routing, and file CRUD operations.
- * @param {object|null} user - The authenticated user.
+ * @param {any} user - The authenticated user.
  */
 export default function useProject(user) {
   const { alert: showAlert } = useAlert();
-  const [project, setProject] = useState(null);
-  const [files, setFiles] = useState([]);
+  const [project, setProject] = useState(/** @type {any} */ (null));
+  const [files, setFiles] = useState(/** @type {any[]} */ ([]));
   // Tracks whether the files HTTP response for the current project has
   // arrived. Used by the PDF viewer to avoid flashing "No main file
   // found" during the brief render where project is set but files is
@@ -36,24 +37,25 @@ export default function useProject(user) {
   // Mirror of `project` for async resolvers — lets late-arriving fetches
   // detect a project switch and drop their result instead of overwriting
   // the new project's state.
+  /** @type {React.MutableRefObject<any>} */
   const projectRef = useRef(null);
-  const [emptyFolders, setEmptyFolders] = useState([]);
-  const [activeFile, setActiveFile] = useState(null);
-  const [members, setMembers] = useState([]);
+  const [emptyFolders, setEmptyFolders] = useState(/** @type {any[]} */ ([]));
+  const [activeFile, setActiveFile] = useState(/** @type {any} */ (null));
+  const [members, setMembers] = useState(/** @type {any[]} */ ([]));
   const [newFileCounter, setNewFileCounter] = useState(0);
   const [newFolderCounter, setNewFolderCounter] = useState(0);
   const needsAutoCompile = useRef(false);
 
-  const switchFile = useCallback((f) => {
+  const switchFile = useCallback((/** @type {any} */ f) => {
     setActiveFile(f);
     if (f) {
-      const url = new URL(window.location);
+      const url = new URL(window.location.href);
       url.searchParams.set('file', f.id);
       window.history.replaceState(null, '', url);
     }
   }, []);
 
-  const selectProject = useCallback((p) => {
+  const selectProject = useCallback((/** @type {any} */ p) => {
     setProject(p);
     setFilesLoaded(false);
     needsAutoCompile.current = true;
@@ -78,7 +80,7 @@ export default function useProject(user) {
       get('/api/projects')
         .then((r) => r.json())
         .then((projects) => {
-          const found = projects.find((p) => p.id === id);
+          const found = projects.find((/** @type {any} */ p) => p.id === id);
           if (found) setProject(found);
           else window.history.replaceState(null, '', '/');
         });
@@ -99,7 +101,7 @@ export default function useProject(user) {
         get('/api/projects')
           .then((r) => r.json())
           .then((projects) => {
-            const found = projects.find((p) => p.id === id);
+            const found = projects.find((/** @type {any} */ p) => p.id === id);
             if (found) setProject(found);
           });
       }
@@ -136,12 +138,12 @@ export default function useProject(user) {
         setFilesLoaded(true);
         if (loadedFiles.length > 0 && !activeFile) {
           const fileId = getFileIdFromUrl();
-          const target = fileId && loadedFiles.find((f) => f.id === fileId);
+          const target = fileId && loadedFiles.find((/** @type {any} */ f) => f.id === fileId);
           if (target) {
             setActiveFile(target);
           } else {
             const mainName = project.main_file || 'main.tex';
-            const mainFile = loadedFiles.find((f) => f.path === mainName);
+            const mainFile = loadedFiles.find((/** @type {any} */ f) => f.path === mainName);
             setActiveFile(mainFile || loadedFiles[0]);
           }
         }
@@ -196,7 +198,7 @@ export default function useProject(user) {
   // is also rewritten for delete/rename because those endpoints affect
   // file paths server-side.
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (/** @type {any} */ e) => {
       const msg = e.detail || {};
       if (msg.type === 'folder-create') {
         if (typeof msg.path !== 'string' || !msg.path) return;
@@ -228,7 +230,7 @@ export default function useProject(user) {
 
   // File operations
   const handleSave = useCallback(
-    async (content, fileId, tcMarks) => {
+    async (/** @type {string} */ content, /** @type {string=} */ fileId, /** @type {any[]=} */ tcMarks) => {
       // Caller may pass an explicit fileId. The editor *must* do this for
       // debounced saves and file-switch flushes — otherwise this falls back
       // to whichever file is *currently* active, which can race the user's
@@ -241,8 +243,9 @@ export default function useProject(user) {
       // file (the documented hot path: debounced save / file-switch
       // flush), we need to find it in `files` instead of falling through
       // to undefined and silently losing conflict detection.
-      const target = activeFile?.id === targetId ? activeFile : filesRef.current.find((f) => f.id === targetId);
+      const target = activeFile?.id === targetId ? activeFile : filesRef.current.find((/** @type {any} */ f) => f.id === targetId);
       const baseVersion = target?.updated_at ?? undefined;
+      /** @type {any} */
       const body = { content };
       if (Array.isArray(tcMarks)) body.tcMarks = tcMarks;
       if (baseVersion) body.baseVersion = baseVersion;
@@ -262,7 +265,7 @@ export default function useProject(user) {
       } catch {
         // Body wasn't JSON; keep baseVersion as-is.
       }
-      setActiveFile((f) =>
+      setActiveFile((/** @type {any} */ f) =>
         f?.id === targetId
           ? {
               ...f,
@@ -273,7 +276,7 @@ export default function useProject(user) {
           : f,
       );
       setFiles((fs) =>
-        fs.map((f) =>
+        fs.map((/** @type {any} */ f) =>
           f.id === targetId
             ? {
                 ...f,
@@ -289,7 +292,7 @@ export default function useProject(user) {
   );
 
   const handleCreateFile = useCallback(
-    async (filePath, content) => {
+    async (/** @type {string} */ filePath, /** @type {string} */ content) => {
       if (!project) return;
       const res = await post(`/api/projects/${project.id}/files`, { path: filePath, content });
       const file = await res.json();
@@ -300,10 +303,10 @@ export default function useProject(user) {
   );
 
   const handleDeleteFile = useCallback(
-    async (fileId) => {
+    async (/** @type {string} */ fileId) => {
       await del(`/api/projects/files/${fileId}`);
       setFiles((fs) => {
-        const remaining = fs.filter((f) => f.id !== fileId);
+        const remaining = fs.filter((/** @type {any} */ f) => f.id !== fileId);
         if (activeFile?.id === fileId) {
           switchFile(remaining[0] || null);
         }
@@ -314,25 +317,25 @@ export default function useProject(user) {
   );
 
   const handleRenameFile = useCallback(
-    async (fileId, newPath) => {
-      const old = files.find((f) => f.id === fileId);
+    async (/** @type {string} */ fileId, /** @type {string} */ newPath) => {
+      const old = files.find((/** @type {any} */ f) => f.id === fileId);
       await patch(`/api/projects/files/${fileId}`, { path: newPath });
-      setFiles((fs) => fs.map((f) => (f.id === fileId ? { ...f, path: newPath } : f)));
+      setFiles((fs) => fs.map((/** @type {any} */ f) => (f.id === fileId ? { ...f, path: newPath } : f)));
       // Editor header reads activeFile.path directly; if the renamed file is the
       // open one, update activeFile too so the header reflects the new name.
-      setActiveFile((f) => (f?.id === fileId ? { ...f, path: newPath } : f));
+      setActiveFile((/** @type {any} */ f) => (f?.id === fileId ? { ...f, path: newPath } : f));
       // If we just renamed the project's main file, follow the rename in client
       // state too. The server-side rename does the same DB update, so this keeps
       // the two in sync without a refetch.
       if (old && project && project.main_file === old.path) {
-        setProject((p) => (p ? { ...p, main_file: newPath } : p));
+        setProject((/** @type {any} */ p) => (p ? { ...p, main_file: newPath } : p));
       }
     },
     [files, project],
   );
 
   const handleRenameFolder = useCallback(
-    async (oldPrefix, newPrefix) => {
+    async (/** @type {string} */ oldPrefix, /** @type {string} */ newPrefix) => {
       if (!project) return;
       // Single atomic server call: rewrites every file path under the
       // prefix AND every explicit folder row, plus main_file if it's
@@ -347,22 +350,22 @@ export default function useProject(user) {
         return;
       }
       setFiles((fs) =>
-        fs.map((f) => {
+        fs.map((/** @type {any} */ f) => {
           if (f.path === oldPrefix || f.path.startsWith(oldPrefix + '/')) {
             return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
           }
           return f;
         }),
       );
-      setEmptyFolders((prev) =>
-        prev.map((p) => {
+      setEmptyFolders((/** @type {string[]} */ prev) =>
+        prev.map((/** @type {string} */ p) => {
           if (p === oldPrefix || p.startsWith(oldPrefix + '/')) {
             return newPrefix + p.slice(oldPrefix.length);
           }
           return p;
         }),
       );
-      setActiveFile((f) => {
+      setActiveFile((/** @type {any} */ f) => {
         if (!f) return f;
         if (f.path === oldPrefix || f.path.startsWith(oldPrefix + '/')) {
           return { ...f, path: newPrefix + f.path.slice(oldPrefix.length) };
@@ -372,21 +375,21 @@ export default function useProject(user) {
       // Folder rename can move the main file along with everything else.
       if (project.main_file && (project.main_file === oldPrefix || project.main_file.startsWith(oldPrefix + '/'))) {
         const newMain = newPrefix + project.main_file.slice(oldPrefix.length);
-        setProject((p) => (p ? { ...p, main_file: newMain } : p));
+        setProject((/** @type {any} */ p) => (p ? { ...p, main_file: newMain } : p));
       }
     },
     [project, showAlert],
   );
 
   const handleDeleteFolder = useCallback(
-    async (folderPath) => {
+    async (/** @type {string} */ folderPath) => {
       if (!project) return;
       // Single server call: deletes all files under the prefix AND any
       // explicit folder rows for the same prefix, atomically.
       await del(`/api/projects/${project.id}/folders`, { path: folderPath });
       setFiles((fs) => {
         const remaining = fs.filter(
-          (f) => f.path !== folderPath && !f.path.startsWith(folderPath + '/'),
+          (/** @type {any} */ f) => f.path !== folderPath && !f.path.startsWith(folderPath + '/'),
         );
         if (
           activeFile &&
@@ -397,14 +400,14 @@ export default function useProject(user) {
         return remaining;
       });
       setEmptyFolders((prev) =>
-        prev.filter((p) => p !== folderPath && !p.startsWith(folderPath + '/')),
+        prev.filter((/** @type {string} */ p) => p !== folderPath && !p.startsWith(folderPath + '/')),
       );
     },
     [project, activeFile, switchFile],
   );
 
   const handleCreateFolder = useCallback(
-    async (folderPath) => {
+    async (/** @type {string} */ folderPath) => {
       if (!project) return;
       const trimmed = (folderPath || '').trim();
       if (!trimmed) return;
@@ -418,7 +421,7 @@ export default function useProject(user) {
   );
 
   const handleSetMainFile = useCallback(
-    async (filePath) => {
+    async (/** @type {string} */ filePath) => {
       if (!project) return;
       // Verify the PATCH actually persisted before flipping local state.
       // The previous version updated optimistically and swallowed errors,
@@ -434,7 +437,7 @@ export default function useProject(user) {
         } catch { /* keep default */ }
         throw new Error(msg);
       }
-      setProject((p) => ({ ...p, main_file: filePath }));
+      setProject((/** @type {any} */ p) => ({ ...p, main_file: filePath }));
     },
     [project],
   );

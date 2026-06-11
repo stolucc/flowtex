@@ -1,3 +1,4 @@
+// @ts-check
 import { useState, useCallback, useEffect, useRef } from 'react';
 
 // Server-side WS maxPayload is 4 MiB; cap below that to leave headroom and
@@ -6,10 +7,16 @@ const WS_MAX_FRAME = 3 * 1024 * 1024;
 
 /**
  * Manages WebSocket connection lifecycle, reconnection, and real-time message handling for collaboration.
- * @param {object|null} user - The authenticated user.
- * @param {object|null} project - The current project.
- * @param {import('react').RefObject} activeFileRef - Ref to the currently active file.
- * @param {object} callbacks - State setters for comments, tracked changes, and history version.
+ * @param {any} user - The authenticated user.
+ * @param {any} project - The current project.
+ * @param {import('react').RefObject<any>} activeFileRef - Ref to the currently active file.
+ * @param {any} callbacks - State setters for comments, tracked changes, and history version.
+ */
+/**
+ * @param {any} user
+ * @param {any} project
+ * @param {any} activeFileRef
+ * @param {{ setComments: (fn: (cs: any[]) => any[]) => void, setHistoryVersion: (fn: (v: number) => number) => void }} callbacks
  */
 export default function useWebSocket(
   user,
@@ -17,9 +24,9 @@ export default function useWebSocket(
   activeFileRef,
   { setComments, setHistoryVersion },
 ) {
-  const [activeUsers, setActiveUsers] = useState([]);
+  const [activeUsers, setActiveUsers] = useState(/** @type {any[]} */ ([]));
   const [remoteCursors, setRemoteCursors] = useState({});
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState(/** @type {any[]} */ ([]));
   // Per-member "last read at" timestamp for the active project's chat.
   // Map of userId -> ISO timestamp (or null if they've never opened it).
   // Hydrated from the GET /api/chat/:projectId response in App.jsx, then
@@ -31,7 +38,9 @@ export default function useWebSocket(
   const [wsConnected, setWsConnected] = useState(false);
   const showChatRef = useRef(false);
   showChatRef.current = showChat;
+  /** @type {React.MutableRefObject<WebSocket | null>} */
   const wsRef = useRef(null);
+  /** @type {React.MutableRefObject<ReturnType<typeof setTimeout> | null>} */
   const reconnectTimer = useRef(null);
   const reconnectDelay = useRef(1000);
   const intentionalClose = useRef(false);
@@ -110,16 +119,16 @@ export default function useWebSocket(
           // the same browser legitimately need the broadcast to pick
           // up tab-A's comment, which this still allows (their state
           // doesn't have msg.comment.id yet).
-          setComments((cs) => (cs.some((c) => c.id === msg.comment.id) ? cs : [...cs, msg.comment]));
+          setComments((cs) => (cs.some((/** @type {any} */ c) => c.id === msg.comment.id) ? cs : [...cs, msg.comment]));
         }
       } else if (msg.type === 'comment-reply') {
         // Same dedup story for replies (HTTP-originated broadcast).
         setComments((cs) =>
-          cs.map((c) =>
+          cs.map((/** @type {any} */ c) =>
             c.id === msg.commentId
               ? {
                   ...c,
-                  replies: (c.replies || []).some((r) => r.id === msg.reply.id)
+                  replies: (c.replies || []).some((/** @type {any} */ r) => r.id === msg.reply.id)
                     ? c.replies
                     : [...(c.replies || []), msg.reply],
                 }
@@ -127,22 +136,22 @@ export default function useWebSocket(
           ),
         );
       } else if (msg.type === 'comment-resolve') {
-        setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, resolved: msg.resolved ? 1 : 0 } : c)));
+        setComments((cs) => cs.map((/** @type {any} */ c) => (c.id === msg.commentId ? { ...c, resolved: msg.resolved ? 1 : 0 } : c)));
       } else if (msg.type === 'comment-delete') {
-        setComments((cs) => cs.filter((c) => c.id !== msg.commentId));
+        setComments((cs) => cs.filter((/** @type {any} */ c) => c.id !== msg.commentId));
       } else if (msg.type === 'comment-edit') {
-        setComments((cs) => cs.map((c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
+        setComments((cs) => cs.map((/** @type {any} */ c) => (c.id === msg.commentId ? { ...c, text: msg.text } : c)));
       } else if (msg.type === 'comment-reaction-update') {
         setComments((cs) =>
-          cs.map((c) => (c.id === msg.commentId ? { ...c, reactions: msg.reactions } : c)),
+          cs.map((/** @type {any} */ c) => (c.id === msg.commentId ? { ...c, reactions: msg.reactions } : c)),
         );
       } else if (msg.type === 'reply-reaction-update') {
         setComments((cs) =>
-          cs.map((c) =>
+          cs.map((/** @type {any} */ c) =>
             c.id === msg.commentId
               ? {
                   ...c,
-                  replies: (c.replies || []).map((r) =>
+                  replies: (c.replies || []).map((/** @type {any} */ r) =>
                     r.id === msg.replyId ? { ...r, reactions: msg.reactions } : r,
                   ),
                 }
@@ -218,7 +227,7 @@ export default function useWebSocket(
 
     return () => {
       intentionalClose.current = true;
-      clearTimeout(reconnectTimer.current);
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -265,7 +274,7 @@ export default function useWebSocket(
   // Drop oversized frames client-side (see WS_MAX_FRAME above): if a single
   // edit serializes too large, the local doc still updates and the next HTTP
   // save will bring collaborators back in sync.
-  const sendWsMessage = useCallback((msg) => {
+  const sendWsMessage = useCallback((/** @type {any} */ msg) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== 1) return;
     // Stamp our origin on outgoing edit/cursor frames so the server's

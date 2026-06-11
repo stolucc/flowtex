@@ -1,3 +1,4 @@
+// @ts-check
 // V1 tracked-changes hook (M2 model — see TRACK-CHANGES-RULES.md).
 //
 // Reads the live list of pending TC entries from the editor's imperative
@@ -13,8 +14,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSetting, setSetting } from '../utils/settings.js';
 
+/** @type {any[]} */
 const EMPTY = [];
 
+/**
+ * @param {any} activeFile
+ * @param {any} _user
+ * @param {any} _sendWsRef
+ * @param {any} editorRef
+ */
 export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorRef) {
   const [trackChangesMode, setTrackChangesMode] = useState(
     () => getSetting('track-changes') === 'true',
@@ -46,7 +54,7 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     }
     const marks = handle.listTcMarks();
     setTrackedChanges(
-      marks.map((m) => ({
+      marks.map((/** @type {any} */ m) => ({
         id: m.id,
         type: m.type,
         from: m.from,
@@ -69,7 +77,7 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
   // Viewport-relative top for each pending mark, so the review panel can
   // place its cards alongside the marked text and slide them in lockstep
   // with editor scroll (mirrors commentPositions in useComments).
-  const [tcPositions, setTcPositions] = useState([]);
+  const [tcPositions, setTcPositions] = useState(/** @type {any[]} */ ([]));
   const updateTcPositions = useCallback(() => {
     const handle = editorRefRef.current?.current;
     if (!handle || typeof handle.getTopForPos !== 'function') {
@@ -79,7 +87,7 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     const { scrollTop } = handle.getScrollInfo();
     const marks = typeof handle.listTcMarks === 'function' ? handle.listTcMarks() : [];
     setTcPositions(
-      marks.map((m) => ({ id: m.id, top: handle.getTopForPos(m.from) - scrollTop })),
+      marks.map((/** @type {any} */ m) => ({ id: m.id, top: handle.getTopForPos(m.from) - scrollTop })),
     );
   }, []);
   useEffect(() => {
@@ -87,12 +95,12 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
   }, [trackedChanges, updateTcPositions]);
 
   // ── Single-mark resolve ────────────────────────────────────────────
-  const handleAcceptChange = useCallback((id) => {
+  const handleAcceptChange = useCallback((/** @type {string} */ id) => {
     editorRefRef.current?.current?.applyMarkResolution?.(id, 'accept');
     refreshFromDoc();
   }, [refreshFromDoc]);
 
-  const handleRejectChange = useCallback((id) => {
+  const handleRejectChange = useCallback((/** @type {string} */ id) => {
     editorRefRef.current?.current?.applyMarkResolution?.(id, 'reject');
     refreshFromDoc();
   }, [refreshFromDoc]);
@@ -132,7 +140,7 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     setReviewIndex(0);
   }, []);
 
-  const goToReviewIndex = useCallback((idx) => {
+  const goToReviewIndex = useCallback((/** @type {number} */ idx) => {
     if (pendingChanges[idx]) {
       setReviewIndex(idx);
       editorRefRef.current?.current?.goToPosition?.(pendingChanges[idx].from);
@@ -152,7 +160,7 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     queueMicrotask(() => {
       const handle = editorRefRef.current?.current;
       if (!handle?.listTcMarks) return;
-      const remaining = handle.listTcMarks().sort((a, b) => a.from - b.from);
+      const remaining = handle.listTcMarks().sort((/** @type {any} */ a, /** @type {any} */ b) => a.from - b.from);
       if (remaining.length === 0) {
         setReviewing(false);
         setReviewIndex(0);
@@ -164,12 +172,12 @@ export default function useTrackedChanges(activeFile, _user, _sendWsRef, editorR
     });
   }, [reviewIndex]);
 
-  const acceptAndNext = useCallback((id) => {
+  const acceptAndNext = useCallback((/** @type {string} */ id) => {
     handleAcceptChange(id);
     advanceAfterResolution();
   }, [handleAcceptChange, advanceAfterResolution]);
 
-  const rejectAndNext = useCallback((id) => {
+  const rejectAndNext = useCallback((/** @type {string} */ id) => {
     handleRejectChange(id);
     advanceAfterResolution();
   }, [handleRejectChange, advanceAfterResolution]);
