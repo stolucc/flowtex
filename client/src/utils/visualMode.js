@@ -16,6 +16,7 @@ import { isSafeWebUrl } from './urlSafety.js';
 
 // ── Formatting command → CSS class map ──────────────────────────────────────
 
+/** @type {Record<string, string>} */
 const FORMAT_COMMANDS = {
   textbf: 'cm-vm-bold',
   emph: 'cm-vm-italic',
@@ -32,6 +33,7 @@ const FORMAT_COMMANDS = {
   textsubscript: 'cm-vm-subscript',
 };
 
+/** @type {Record<string, string>} */
 const SECTION_COMMANDS = {
   part: 'cm-vm-part',
   'part*': 'cm-vm-part',
@@ -77,6 +79,7 @@ const NON_TEXT_COMMANDS = new Set([
 
 // Bare commands (no brace args) that represent displayable text.
 // These are replaced with their Unicode/text equivalents instead of being hidden.
+/** @type {Record<string, string>} */
 const TEXT_COMMANDS = {
   // TeX logos
   LaTeX: 'LaTeX', TeX: 'TeX', BibTeX: 'BibTeX', XeTeX: 'XeTeX',
@@ -110,6 +113,7 @@ const TEXT_COMMANDS = {
 };
 
 // ── Escaped special characters → Unicode ─────────────────────────────────────
+/** @type {Record<string, string>} */
 const ESCAPED_CHARS = {
   '&': '&', '%': '%', '$': '$', '#': '#', '_': '_',
   '{': '{', '}': '}',
@@ -117,6 +121,7 @@ const ESCAPED_CHARS = {
 
 // ── Accent commands → precomposed Unicode ────────────────────────────────────
 // Single-char accent modifiers: \'e → é, \"u → ü, etc.
+/** @type {Record<string, Record<string, string>>} */
 const ACCENT_MAP = {
   "'": { a:'á',e:'é',i:'í',o:'ó',u:'ú',y:'ý',A:'Á',E:'É',I:'Í',O:'Ó',U:'Ú',Y:'Ý',c:'ć',C:'Ć',n:'ń',N:'Ń',s:'ś',S:'Ś',z:'ź',Z:'Ź',l:'ĺ',L:'Ĺ',r:'ŕ',R:'Ŕ' },
   '`': { a:'à',e:'è',i:'ì',o:'ò',u:'ù',A:'À',E:'È',I:'Ì',O:'Ò',U:'Ù' },
@@ -128,6 +133,7 @@ const ACCENT_MAP = {
 };
 
 // Multi-char accent commands: \v{c} → č, \c{c} → ç, etc.
+/** @type {Record<string, Record<string, string>>} */
 const ACCENT_CMD_MAP = {
   v: { c:'č',C:'Č',s:'š',S:'Š',z:'ž',Z:'Ž',r:'ř',R:'Ř',e:'ě',d:'ď',t:'ť',n:'ň',N:'Ň',a:'ǎ' },
   u: { a:'ă',g:'ğ',G:'Ğ',u:'ŭ' },
@@ -139,6 +145,7 @@ const ACCENT_CMD_MAP = {
 
 // ── Font size/switch commands → CSS class ────────────────────────────────────
 // These are scope-affecting: {\large text} makes "text" large.
+/** @type {Record<string, string>} */
 const FONT_SIZE_COMMANDS = {
   tiny: 'cm-vm-tiny', scriptsize: 'cm-vm-scriptsize',
   footnotesize: 'cm-vm-footnotesize', small: 'cm-vm-small',
@@ -146,6 +153,7 @@ const FONT_SIZE_COMMANDS = {
   LARGE: 'cm-vm-LARGE', huge: 'cm-vm-huge', Huge: 'cm-vm-Huge',
 };
 
+/** @type {Record<string, string>} */
 const FONT_SWITCH_COMMANDS = {
   bfseries: 'cm-vm-bold', mdseries: '', itshape: 'cm-vm-italic',
   slshape: 'cm-vm-italic', scshape: 'cm-vm-smallcaps', upshape: '',
@@ -156,6 +164,7 @@ const FONT_SWITCH_COMMANDS = {
 const BREAK_COMMANDS = new Set(['newpage', 'clearpage', 'cleardoublepage', 'pagebreak']);
 
 // Editable metadata commands — hide markup (\cmd{ and }), show styled content
+/** @type {Record<string, string>} */
 const EDITABLE_META = {
   title: 'cm-vm-edit-title',
   subtitle: 'cm-vm-edit-subtitle',
@@ -195,6 +204,7 @@ const LIST_ENVS = new Set(['itemize', 'enumerate', 'description']);
 const QUOTE_ENVS = new Set(['quote', 'quotation', 'displayquote', 'blockquote']);
 
 // Standard LaTeX/xcolor named colors → CSS
+/** @type {Record<string, string>} */
 const LATEX_COLORS = {
   red: '#e53935', blue: '#1e88e5', green: '#43a047', yellow: '#fdd835',
   orange: '#fb8c00', purple: '#8e24aa', cyan: '#00acc1', magenta: '#d81b60',
@@ -224,6 +234,7 @@ const LATEX_COLORS = {
 };
 
 // Case-insensitive color lookup (builds lowercase index once)
+/** @type {Record<string, string>} */
 const _colorLower = {};
 for (const [k, v] of Object.entries(LATEX_COLORS)) _colorLower[k.toLowerCase()] = v;
 /**
@@ -250,9 +261,11 @@ const REPARSE_COMMANDS = new Set([
 const BUFFER = 12000;
 
 // ── Project files for image resolution (set by visualModeExtension) ─────────
+/** @type {any[]} */
 let _projectFiles = [];
 
 // ── Bibliography data for citation display (set by visualModeExtension) ─────
+/** @type {Record<string, any>} */
 let _bibMap = {}; // cite key → { author, year, title }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'ico']);
@@ -266,16 +279,16 @@ function resolveImageFile(texPath) {
   // Normalize: strip leading ./ or /
   let needle = texPath.replace(/^\.\//, '').replace(/^\//, '');
   // Try exact match first
-  let found = _projectFiles.find(f => f.path === needle || f.path === '/' + needle);
+  let found = _projectFiles.find((/** @type {any} */ f) => f.path === needle || f.path === '/' + needle);
   if (found) return found;
   // Try with common extensions appended
   for (const ext of ['png', 'jpg', 'jpeg', 'pdf', 'eps', 'svg', 'gif', 'bmp', 'webp']) {
-    found = _projectFiles.find(f => f.path === needle + '.' + ext || f.path === '/' + needle + '.' + ext);
+    found = _projectFiles.find((/** @type {any} */ f) => f.path === needle + '.' + ext || f.path === '/' + needle + '.' + ext);
     if (found) return found;
   }
   // Try basename match (file might be in a subfolder referenced without path)
   const base = needle.split('/').pop();
-  found = _projectFiles.find(f => {
+  found = _projectFiles.find((/** @type {any} */ f) => {
     const fBase = f.path.split('/').pop();
     return fBase === base || fBase === base + '.png' || fBase === base + '.jpg' || fBase === base + '.jpeg' || fBase === base + '.pdf';
   });
@@ -289,26 +302,30 @@ const PDF_EXTS = new Set(['pdf']);
  * @param {any} path
  */
 function isRenderableFile(path) {
-  const ext = (path || '').split('.').pop().toLowerCase();
+  const parts = (path || '').split('.');
+  const ext = (parts.pop() || '').toLowerCase();
   return IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext);
 }
 
 // ── Widget Types ────────────────────────────────────────────────────────────
 
 class RefBadgeWidget extends WidgetType {
+  /** @param {string} label @param {string} cmdName */
   constructor(label, cmdName) {
     super();
     this.label = label;
     this.cmdName = cmdName;
     this.isCite = CITE_COMMANDS.has(cmdName);
   }
-  eq(other) { return other.label === this.label && other.cmdName === this.cmdName; }
-  toDOM(view) {
+  /** @param {any} other */
+  eq(/** @type {any} */ other) { return other.label === this.label && other.cmdName === this.cmdName; }
+  /** @param {any} _view */
+  toDOM(_view) {
     const span = document.createElement('span');
     if (this.isCite) {
       // Render citations naturally: "Author (Year)" or "[key]"
-      const keys = this.label.split(',').map(k => k.trim());
-      const parts = keys.map(key => {
+      const keys = this.label.split(',').map((/** @type {string} */ k) => k.trim());
+      const parts = keys.map((/** @type {string} */ key) => {
         const bib = _bibMap[key];
         if (!bib) return key;
         if (this.cmdName === 'citeauthor') return bib.author || key;
@@ -323,11 +340,11 @@ class RefBadgeWidget extends WidgetType {
         && this.cmdName !== 'citeauthor' && this.cmdName !== 'citeyear';
       span.className = 'cm-vm-cite';
       span.textContent = isParenthetical ? `(${parts.join('; ')})` : parts.join('; ');
-      span.title = keys.map(k => {
+      span.title = keys.map((/** @type {string} */ k) => {
         const b = _bibMap[k];
         return b?.title ? `${k}: ${b.title}` : k;
       }).join('\n');
-      attachCiteHoverPopup(span, this.label, this.cmdName, view);
+      attachCiteHoverPopup(span, this.label, this.cmdName);
     } else {
       // \ref, \eqref, \pageref — keep as badge
       span.className = 'cm-vm-ref-badge';
@@ -335,7 +352,7 @@ class RefBadgeWidget extends WidgetType {
       span.title = `\\${this.cmdName}{${this.label}}`;
       // Hover popup with the labelled element's kind + caption / title.
       // Lives on document.body so it isn't clipped by the editor scroll area.
-      attachRefHoverPopup(span, this.label, this.cmdName, view);
+      attachRefHoverPopup(span, this.label, this.cmdName, _view);
     }
     return span;
   }
@@ -355,7 +372,9 @@ class RefBadgeWidget extends WidgetType {
  * @param {any} buildContent
  */
 function attachHoverPopup(el, buildContent) {
+  /** @type {HTMLDivElement | null} */
   let popup = null;
+  /** @type {ReturnType<typeof setTimeout> | 0} */
   let timer = 0;
   const hide = () => {
     if (timer) { clearTimeout(timer); timer = 0; }
@@ -400,7 +419,7 @@ function attachRefHoverPopup(el, rawLabel, cmdName, view) {
   attachHoverPopup(el, () => {
     if (!view) return null;
     const text = view.state.doc.toString();
-    const keys = rawLabel.split(',').map((k) => k.trim()).filter(Boolean);
+    const keys = rawLabel.split(',').map((/** @type {string} */ k) => k.trim()).filter(Boolean);
     const frag = document.createDocumentFragment();
     for (const key of keys) {
       const row = document.createElement('div');
@@ -449,7 +468,7 @@ function attachRefHoverPopup(el, rawLabel, cmdName, view) {
  */
 function attachCiteHoverPopup(el, rawLabel, cmdName) {
   attachHoverPopup(el, () => {
-    const keys = rawLabel.split(',').map((k) => k.trim()).filter(Boolean);
+    const keys = rawLabel.split(',').map((/** @type {string} */ k) => k.trim()).filter(Boolean);
     const frag = document.createDocumentFragment();
     for (const key of keys) frag.appendChild(buildCiteTooltipRow(cmdName, key));
     return frag;
@@ -458,18 +477,20 @@ function attachCiteHoverPopup(el, rawLabel, cmdName) {
 
 /** Renders an inline image or PDF preview from the project files */
 class ImageWidget extends WidgetType {
+  /** @param {string} fileId @param {string} filePath */
   constructor(fileId, filePath) {
     super();
     this.fileId = fileId;
     this.filePath = filePath;
   }
-  eq(other) { return other.fileId === this.fileId; }
+  eq(/** @type {any} */ other) { return other.fileId === this.fileId; }
   toDOM() {
     const wrap = document.createElement('div');
     wrap.className = 'cm-vm-image-wrap';
     const rawUrl = `/api/projects/files/${this.fileId}/raw`;
-    const ext = (this.filePath || '').split('.').pop().toLowerCase();
-    const fileName = this.filePath.split('/').pop();
+    const parts = (this.filePath || '').split('.');
+    const ext = (parts.pop() || '').toLowerCase();
+    const fileName = this.filePath.split('/').pop() || '';
 
     const showBadgeFallback = () => {
       wrap.textContent = '';
@@ -504,7 +525,7 @@ class ImageWidget extends WidgetType {
           canvas.style.width = viewport.width + 'px';
           canvas.style.height = viewport.height + 'px';
           const ctx = canvas.getContext('2d');
-          ctx.scale(dpr, dpr);
+          if (ctx) ctx.scale(dpr, dpr);
           await page.render({ canvas, viewport }).promise;
         } catch { showBadgeFallback(); }
       }).catch(() => showBadgeFallback());
@@ -524,6 +545,7 @@ class ImageWidget extends WidgetType {
 }
 
 /** Map section CSS class → matching font size from baseTheme */
+/** @type {Record<string, string>} */
 const SEC_FONT_SIZES = {
   'cm-vm-part': '20pt',
   'cm-vm-chapter': '18pt',
@@ -534,12 +556,13 @@ const SEC_FONT_SIZES = {
 };
 
 class SectionNumberWidget extends WidgetType {
+  /** @param {string} label @param {string} secClass */
   constructor(label, secClass) {
     super();
     this.label = label;
     this.secClass = secClass;
   }
-  eq(other) { return other.label === this.label && other.secClass === this.secClass; }
+  eq(/** @type {any} */ other) { return other.label === this.label && other.secClass === this.secClass; }
   toDOM() {
     const span = document.createElement('span');
     span.className = 'cm-vm-section-number';
@@ -553,11 +576,12 @@ class SectionNumberWidget extends WidgetType {
 
 /** Replaces a bare LaTeX command with its text equivalent (e.g. \LaTeX → "LaTeX") */
 class TextWidget extends WidgetType {
+  /** @param {string} text */
   constructor(text) {
     super();
     this.text = text;
   }
-  eq(other) { return other.text === this.text; }
+  eq(/** @type {any} */ other) { return other.text === this.text; }
   toDOM() {
     const span = document.createElement('span');
     span.textContent = this.text;
@@ -567,12 +591,13 @@ class TextWidget extends WidgetType {
 }
 
 class ListMarkerWidget extends WidgetType {
+  /** @param {string} marker @param {number} [depth] */
   constructor(marker, depth = 0) {
     super();
     this.marker = marker;
     this.depth = depth;
   }
-  eq(other) { return other.marker === this.marker && other.depth === this.depth; }
+  eq(/** @type {any} */ other) { return other.marker === this.marker && other.depth === this.depth; }
   toDOM() {
     const span = document.createElement('span');
     span.className = 'cm-vm-list-marker';
@@ -602,6 +627,7 @@ function toRoman(n) {
 // ── Section numbering ───────────────────────────────────────────────────────
 
 /** Hierarchy: part > chapter > section > subsection > subsubsection */
+/** @type {Record<string, number>} */
 const SECTION_LEVELS = { part: 0, chapter: 1, section: 2, subsection: 3, subsubsection: 4 };
 
 /**
@@ -676,11 +702,12 @@ function findEditableSpansInRange(text, baseOffset) {
       });
     }
   }
-  spans.sort((a, b) => a.from - b.from);
+  spans.sort((/** @type {any} */ a, /** @type {any} */ b) => a.from - b.from);
   // Remove spans that are fully contained inside other spans (nested commands)
+  /** @type {any[]} */
   const filtered = [];
   for (const span of spans) {
-    const parent = filtered.find(p => span.from >= p.from && span.cmdEnd <= p.cmdEnd);
+    const parent = filtered.find((/** @type {any} */ p) => span.from >= p.from && span.cmdEnd <= p.cmdEnd);
     if (!parent) filtered.push(span);
   }
   return filtered;
@@ -730,12 +757,15 @@ function findEndDocument(doc) {
 
 // ── StateEffect to trigger decoration rebuild on viewport change ────────────
 
+/** @type {import('@codemirror/state').StateEffectType<readonly { from: number, to: number }[]>} */
 const viewportChanged = StateEffect.define();
 
 // ── "Expanded" tables: the user clicked one to drop into source-edit mode ──
 // `from` is the document position of the table env's `\begin{...}`. At most one
 // table is expanded at a time; expanding a different one replaces the value.
+/** @type {import('@codemirror/state').StateEffectType<number>} */
 const setExpandedTable = StateEffect.define();
+/** @type {import('@codemirror/state').StateField<number>} */
 const expandedTableField = StateField.define({
   create() { return -1; },
   update(value, tr) {
@@ -909,6 +939,7 @@ function buildDecorations(state, visibleRanges) {
   // 6. Final safety net (runs AFTER overlap filter): scan for ANY remaining
   // LaTeX markup that isn't covered by the cleaned decoration set.
   // Build merged intervals from cleaned replaces.
+  /** @type {Array<[number, number]>} */
   const coveredIntervals = [];
   for (const d of cleaned) {
     const spec = d.value?.spec;
@@ -918,6 +949,7 @@ function buildDecorations(state, visibleRanges) {
     }
   }
   coveredIntervals.sort((a, b) => a[0] - b[0]);
+  /** @type {Array<[number, number]>} */
   const merged = [];
   for (const iv of coveredIntervals) {
     if (merged.length > 0 && iv[0] <= merged[merged.length - 1][1]) {
@@ -1142,7 +1174,7 @@ function buildDecorations(state, visibleRanges) {
   try {
     return Decoration.set(final, true);
   } catch (e) {
-    console.error('[VisualMode] Decoration.set failed:', e.message);
+    console.error('[VisualMode] Decoration.set failed:', e instanceof Error ? e.message : e);
     return Decoration.none;
   }
 }
@@ -1201,7 +1233,7 @@ function walkAndDecorate(tree, offset, decos, doc, sectionNumbers, preambleMeta,
       if (to - from >= 2) {
         // Check if ALL children are non-text commands (layout/spacing only, no prose)
         const children = node.children || [];
-        const allNonText = children.length > 0 && children.every(c => {
+        const allNonText = children.length > 0 && children.every((/** @type {any} */ c) => {
           if (c.type === N.COMMAND) {
             return NON_TEXT_COMMANDS.has(c.name) || TEXT_COMMANDS[c.name] === '' || TEXT_COMMANDS[c.name] === '\n';
           }
@@ -1242,7 +1274,7 @@ function walkAndDecorate(tree, offset, decos, doc, sectionNumbers, preambleMeta,
       // Only do this for commands whose visible arg may contain further markup.
       if (REPARSE_COMMANDS.has(node.name)) {
         // Find the "content" arg (last GROUP arg — skips color-name args etc.)
-        const groups = (node.args || []).filter(a => a.type === N.GROUP);
+        const groups = (node.args || []).filter((/** @type {any} */ a) => a.type === N.GROUP);
         const contentArg = groups.length > 0 ? groups[groups.length - 1] : null;
         if (contentArg && contentArg.text && contentArg.text.includes('\\')) {
           const argContentFrom = contentArg.from + 1;
@@ -1301,7 +1333,7 @@ const DISPATCH_FALLTHROUGH = Symbol('vm.command.fallthrough');
  * @param {any} decos
  */
 function decorateAffiliation(node, from, to, offset, decos /* doc */) {
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (arg && !arg.unclosed) {
     const contentFrom = arg.from + offset + 1;
     const contentTo = arg.to + offset - 1;
@@ -1376,7 +1408,7 @@ function decorateItem(node, from, to, offset, decos, doc, _sectionNumbers, _prea
  */
 function decorateFootnote(node, from, to, offset, decos, doc) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg) return DISPATCH_FALLTHROUGH;
   // Count footnotes before this one to assign a number
   const docText = doc.sliceString(0, from);
@@ -1389,7 +1421,7 @@ function decorateFootnote(node, from, to, offset, decos, doc) {
     .replace(/[{}]/g, '').trim();
   decos.push(
     Decoration.replace({
-      widget: new FootnoteWidget(String(fnNum), fnText),
+      widget: new FootnoteWidget(/** @type {any} */ (String(fnNum)), fnText),
     }).range(from, to)
   );
   return false;
@@ -1404,7 +1436,7 @@ function decorateFootnote(node, from, to, offset, decos, doc) {
  * @param {any} decos
  */
 function decorateKeywords(node, from, to, offset, decos /* doc */) {
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg || arg.unclosed) return DISPATCH_FALLTHROUGH;
   const contentFrom = arg.from + offset + 1;
   const contentTo = arg.to + offset - 1;
@@ -1432,7 +1464,7 @@ function decorateKeywords(node, from, to, offset, decos /* doc */) {
  * @param {any} decos
  */
 function decorateLettrine(node, from, to, offset, decos /* doc */) {
-  const groups = (node.args || []).filter(a => a.type === N.GROUP);
+  const groups = (node.args || []).filter((/** @type {any} */ a) => a.type === N.GROUP);
   if (groups.length < 2) return DISPATCH_FALLTHROUGH;
   // Hide \lettrine{ up to first arg content
   const firstContentFrom = groups[0].from + offset + 1;
@@ -1496,7 +1528,7 @@ function decorateColorWrap(node, from, to, offset, decos /* doc */) {
  */
 function decorateHl(node, from, to, offset, decos, doc) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg || arg.unclosed) return DISPATCH_FALLTHROUGH;
   const contentFrom = arg.from + offset + 1;
   const contentTo = arg.to + offset - 1;
@@ -1545,6 +1577,7 @@ function decorateHref(node, from, to, offset, decos /* doc */) {
     // otherwise turn into a click-to-execute trap. The title still shows
     // the raw URL so the reader can see something is off.
     const rawUrl = urlArg.text || '';
+    /** @type {Record<string, string>} */
     const attributes = { title: `${rawUrl} (Ctrl+Click to open)` };
     if (isSafeWebUrl(rawUrl)) attributes['data-href'] = rawUrl;
     decos.push(Decoration.mark({
@@ -1568,7 +1601,7 @@ function decorateHref(node, from, to, offset, decos /* doc */) {
  */
 function decorateUrl(node, from, to, offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg || arg.unclosed) return DISPATCH_FALLTHROUGH;
   const contentFrom = arg.from + offset + 1;
   const contentTo = arg.to + offset - 1;
@@ -1594,7 +1627,7 @@ function decorateUrl(node, from, to, offset, decos /* doc */) {
  */
 function decorateIncludegraphics(node, from, to, _offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg) return DISPATCH_FALLTHROUGH;
   const texPath = (arg.text || '').trim();
   const resolved = resolveImageFile(texPath);
@@ -1621,7 +1654,7 @@ function decorateIncludegraphics(node, from, to, _offset, decos /* doc */) {
  */
 function decorateCaption(node, from, to, offset, decos /* doc */) {
   if (node.args.length === 0) return DISPATCH_FALLTHROUGH;
-  const arg = node.args.find(a => a.type === N.GROUP);
+  const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
   if (!arg || arg.unclosed) return DISPATCH_FALLTHROUGH;
   const contentFrom = arg.from + offset + 1;
   const contentTo = arg.to + offset - 1;
@@ -1655,6 +1688,7 @@ function decorateSkip(node, from, to, _offset, decos /* doc */) {
 // ── Exact-name dispatch table ───────────────────────────────────────────────
 // Each entry is (node, from, to, offset, decos, doc, sectionNumbers, preambleMeta, listDepth) =>
 //   `false` (handled, skip children) | `undefined` (handled, recurse) | `DISPATCH_FALLTHROUGH`.
+/** @type {Record<string, (...args: any[]) => any>} */
 const COMMAND_DECORATORS = {
   affiliation: decorateAffiliation,
   item: decorateItem,
@@ -1692,7 +1726,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
   // ── Formatting commands: hide markup, style content ──
   const fmtClass = FORMAT_COMMANDS[name];
   if (fmtClass && node.args.length > 0) {
-    const arg = node.args.find(a => a.type === N.GROUP);
+    const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
     if (arg && !arg.unclosed) {
       const argFrom = arg.from + offset;
       const argTo = arg.to + offset;
@@ -1717,7 +1751,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
   // ── Section headings: hide command, style title, add numbering ──
   const secClass = SECTION_COMMANDS[name];
   if (secClass && node.args.length > 0) {
-    const arg = node.args.find(a => a.type === N.GROUP);
+    const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
     if (arg && !arg.unclosed) {
       const argFrom = arg.from + offset;
       const argTo = arg.to + offset;
@@ -1755,7 +1789,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
 
   // ── Badge commands: \ref, \cite, etc. → inline badge ──
   if (BADGE_COMMANDS.has(name) && node.args.length > 0) {
-    const arg = node.args.find(a => a.type === N.GROUP);
+    const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
     if (arg) {
       decos.push(
         Decoration.replace({
@@ -1768,7 +1802,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
 
   // ── Editable metadata: hide \cmd{ and }, show styled content ──
   if (EDITABLE_META[name]) {
-    const arg = node.args.find(a => a.type === N.GROUP);
+    const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
     if (arg && !arg.unclosed) {
       const contentFrom = arg.from + offset + 1;
       const contentTo = arg.to + offset - 1;
@@ -1816,7 +1850,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
 
   // ── Multi-char accent commands: \v{c} → č, \c{c} → ç, etc. ──
   if (ACCENT_CMD_MAP[name] && node.args && node.args.length > 0) {
-    const arg = node.args.find(a => a.type === N.GROUP);
+    const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
     if (arg) {
       const charText = doc.sliceString(arg.from + offset + 1, arg.to + offset - 1).trim();
       if (charText.length === 1 && ACCENT_CMD_MAP[name][charText]) {
@@ -1875,7 +1909,7 @@ function decorateCommand(node, from, to, offset, decos, doc, sectionNumbers, pre
   // This handles \makecell{text}, \mbox{text}, \rotatebox{90}{text},
   // \adjustbox{...}{text}, \thanks{text}, etc. without needing explicit lists.
   if (node.args && node.args.length > 0) {
-    const groups = node.args.filter(a => a.type === N.GROUP);
+    const groups = node.args.filter((/** @type {any} */ a) => a.type === N.GROUP);
     if (groups.length > 0) {
       const lastGroup = groups[groups.length - 1];
       const contentFrom = lastGroup.from + offset + 1;
@@ -1905,6 +1939,15 @@ const ITEMIZE_BULLETS = ['\u2022', '\u2013', '\u2217', '\u00B7']; // •, –, �
  * Decorate an ENVIRONMENT node.
  * @param {number} listDepth — 0-based nesting depth for list environments
  */
+/**
+ * @param {any} node
+ * @param {number} from
+ * @param {number} to
+ * @param {number} offset
+ * @param {any[]} decos
+ * @param {any} doc
+ * @param {number} [listDepth]
+ */
 function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) {
   const envName = node.name;
 
@@ -1921,6 +1964,7 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
     let reParsed = false; // true if tableNode came from a re-parse (source-relative offsets)
     if (isTableFloat) {
       // 1) AST search: recursively descend through GROUP and ENVIRONMENT children
+      /** @type {(children: any[]) => any} */
       const findTabular = (children) => {
         for (const c of children || []) {
           if (c.type === N.ENVIRONMENT && TABLE_ENVS.has(c.name)) return c;
@@ -1953,6 +1997,7 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
             try {
               const subTree = parseLatex(innerSource);
               // Find the environment node in the re-parsed sub-tree
+              /** @type {(n: any) => any} */
               const findEnv = (n) => {
                 if (n.type === N.ENVIRONMENT && n.name === innerName) return n;
                 for (const c of n.children || []) {
@@ -1966,7 +2011,7 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
                 // Adjust offsets: inner positions are relative to innerSource,
                 // shift to be relative to the table env source (0-based)
                 inner = { ...inner, from: innerStart + inner.from, to: innerStart + inner.to };
-                inner.args = (inner.args || []).map(a => ({
+                inner.args = (inner.args || []).map((/** @type {any} */ a) => ({
                   ...a, from: innerStart + a.from, to: innerStart + a.to, text: a.text
                 }));
                 reParsed = true;
@@ -1994,7 +2039,7 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
     // Copy name/args into the relative-offset copy
     tableInfo.inner.name = tableNode.name;
     if (!reParsed) {
-      tableInfo.inner.args = (tableNode.args || []).map(a => ({
+      tableInfo.inner.args = (tableNode.args || []).map((/** @type {any} */ a) => ({
         ...a,
         from: a.from + offset - from,
         to: a.to + offset - from,
@@ -2003,22 +2048,22 @@ function decorateEnvironment(node, from, to, offset, decos, doc, listDepth = 0) 
     }
     if (tableInfo.outer) {
       tableInfo.outer.name = node.name;
-      tableInfo.outer.children = (node.children || []).map(c => ({
+      tableInfo.outer.children = (node.children || []).map((/** @type {any} */ c) => ({
         ...c,
         from: c.from + offset - from,
         to: c.to + offset - from,
         name: c.name,
-        args: (c.args || []).map(a => ({ ...a, from: a.from + offset - from, to: a.to + offset - from, text: a.text })),
+        args: (c.args || []).map((/** @type {any} */ a) => ({ ...a, from: a.from + offset - from, to: a.to + offset - from, text: a.text })),
         children: c.children,
       }));
     }
     try {
-      const parsed = parseTable(tableInfo, source);
+      const parsed = parseTable(tableInfo, source, '');
       if (parsed && parsed.rows > 0 && parsed.cols > 0) {
-        const d = Decoration.replace({
+        const d = /** @type {any} */ (Decoration.replace({
           block: true,
           widget: new TableWidget(parsed, from),
-        }).range(from, to);
+        }).range(from, to));
         d._vmPriority = true; // mark as high-priority block widget
         decos.push(d);
         return false;
@@ -2194,6 +2239,11 @@ const visualModeField = StateField.define({
 
 const viewportNotifier = ViewPlugin.fromClass(
   class {
+    /** @type {number} */ _rafId = 0;
+    /** @type {number} */ _decoratedFrom = -1;
+    /** @type {number} */ _decoratedTo = -1;
+    /** @type {number} */ _docLen = -1;
+    /** @param {import('@codemirror/view').EditorView} view */
     constructor(view) {
       this._rafId = 0;
       this._decoratedFrom = -1;
@@ -2206,6 +2256,7 @@ const viewportNotifier = ViewPlugin.fromClass(
         }
       });
     }
+    /** @param {import('@codemirror/view').ViewUpdate} update */
     update(update) {
       if (update.docChanged) {
         // Doc changed — always rebuild (debounced)
@@ -2238,6 +2289,7 @@ const viewportNotifier = ViewPlugin.fromClass(
         }
       }
     }
+    /** @param {import('@codemirror/view').EditorView} view */
     _scheduleRaf(view) {
       if (this._rafId) return; // already scheduled
       this._rafId = requestAnimationFrame(() => {
@@ -2247,6 +2299,7 @@ const viewportNotifier = ViewPlugin.fromClass(
         }
       });
     }
+    /** @param {import('@codemirror/view').EditorView} view */
     _dispatch(view) {
       const vr = view.visibleRanges;
       // Track what we're about to decorate (including BUFFER)
@@ -2266,11 +2319,13 @@ const viewportNotifier = ViewPlugin.fromClass(
 // ── Table widget ─────────────────────────────────────────────────────────────
 
 class TableWidget extends WidgetType {
+  /** @param {any} parsed @param {number} tableFrom */
   constructor(parsed, tableFrom) {
     super();
     this.parsed = parsed;
     this.tableFrom = tableFrom;
   }
+  /** @param {any} other */
   eq(other) {
     if (other.tableFrom !== this.tableFrom) return false;
     if (other.parsed.rows !== this.parsed.rows || other.parsed.cols !== this.parsed.cols) return false;
@@ -2287,14 +2342,15 @@ class TableWidget extends WidgetType {
   }
 
   /** Strip LaTeX markup from cell text for display — universal approach */
+  /** @param {string} text */
   static cleanCell(text) {
     if (text == null) return '';
     let s = text;
     // 1. Known text-bearing commands → extract content
     s = s.replace(/\\(?:textbf|textit|emph|textsc|texttt|textrm|textsf|textsl|underline|mbox|makecell|multicolumn\{[^}]*\}\{[^}]*\})\{([^}]*)\}/g, '$1');
     // 2. MakeUppercase/MakeLowercase
-    s = s.replace(/\\MakeUppercase\{([^}]*)\}/g, (_, c) => c.toUpperCase());
-    s = s.replace(/\\MakeLowercase\{([^}]*)\}/g, (_, c) => c.toLowerCase());
+    s = s.replace(/\\MakeUppercase\{([^}]*)\}/g, (/** @type {string} */ _, /** @type {string} */ c) => c.toUpperCase());
+    s = s.replace(/\\MakeLowercase\{([^}]*)\}/g, (/** @type {string} */ _, /** @type {string} */ c) => c.toLowerCase());
     // 3. Citations and refs → bracketed
     s = s.replace(/\\cite[tp]?\{([^}]*)\}/g, '[$1]');
     s = s.replace(/\\ref\{([^}]*)\}/g, '$1');
@@ -2332,6 +2388,7 @@ class TableWidget extends WidgetType {
     return s.trim();
   }
 
+  /** @param {import('@codemirror/view').EditorView} view */
   toDOM(view) {
     const { parsed } = this;
     const wrap = document.createElement('div');
@@ -2401,6 +2458,7 @@ class TableWidget extends WidgetType {
           if (merge.colSpan > 1) td.colSpan = merge.colSpan;
           if (merge.rowSpan > 1) td.rowSpan = merge.rowSpan;
           if (merge.align) {
+            /** @type {Record<string, string>} */
             const alignMap = { l: 'left', c: 'center', r: 'right' };
             td.style.textAlign = alignMap[merge.align] || '';
           }
@@ -2439,16 +2497,17 @@ class TableWidget extends WidgetType {
 // ── Footnote widget ─────────────────────────────────────────────────────────
 
 class FootnoteWidget extends WidgetType {
+  /** @param {number} num @param {string} text */
   constructor(num, text) {
     super();
     this.num = num || '*';
     this.text = text || '';
   }
-  eq(other) { return other.num === this.num && other.text === this.text; }
+  eq(/** @type {any} */ other) { return other.num === this.num && other.text === this.text; }
   toDOM() {
     const span = document.createElement('sup');
     span.className = 'cm-vm-footnote';
-    span.textContent = this.num;
+    span.textContent = String(this.num);
     if (this.text) span.title = this.text;
     return span;
   }
@@ -2471,8 +2530,9 @@ class PageBreakWidget extends WidgetType {
 }
 
 class SpacingWidget extends WidgetType {
+  /** @param {string} size */
   constructor(size) { super(); this.size = size; }
-  eq(other) { return other.size === this.size; }
+  eq(/** @type {any} */ other) { return other.size === this.size; }
   toDOM() {
     const div = document.createElement('div');
     div.className = 'cm-vm-spacing';
@@ -2865,7 +2925,7 @@ const visualModeBaseTheme = EditorView.theme({
 
 const LIST_ENV_NAMES = ['itemize', 'enumerate', 'description'];
 
-const envAutoCloser = EditorState.transactionFilter.of((tr) => {
+const envAutoCloser = EditorState.transactionFilter.of(/** @type {(tr: import('@codemirror/state').Transaction) => any} */ ((tr) => {
   if (!tr.docChanged) return tr;
 
   // Fast bail: only scan if the change is large enough to contain a list keyword.
@@ -3018,7 +3078,7 @@ const envAutoCloser = EditorState.transactionFilter.of((tr) => {
 
   // Apply fixes as a follow-up transaction
   return [tr, { changes: fixes, sequential: true }];
-});
+}));
 
 // ── Cursor style detection ──────────────────────────────────────────────────
 
@@ -3034,6 +3094,7 @@ const envAutoCloser = EditorState.transactionFilter.of((tr) => {
 export function getCursorStyle(doc, pos) {
   const text = typeof doc === 'string' ? doc : doc.toString();
 
+  /** @type {{ block: string, inline: string[], textColor?: string, highlight?: string }} */
   const result = { block: 'Normal', inline: [] };
 
   // ── Detect block style ──
@@ -3183,6 +3244,7 @@ export function getCursorStyle(doc, pos) {
 const hrefClickHandler = EditorView.domEventHandlers({
   click(event, view) {
     if (!event.ctrlKey && !event.metaKey) return false;
+    /** @type {any} */
     let el = event.target;
     while (el && el !== view.dom) {
       const href = el.getAttribute?.('data-href');
@@ -3549,8 +3611,8 @@ function _entryBodyAt(text, entryStart) {
  */
 function _formatBibAuthors(raw) {
   if (!raw) return '';
-  const list = raw.split(/\s+and\s+/i).map((s) => s.trim()).filter(Boolean);
-  const normalized = list.map((name) => {
+  const list = raw.split(/\s+and\s+/i).map((/** @type {string} */ s) => s.trim()).filter(Boolean);
+  const normalized = list.map((/** @type {string} */ name) => {
     if (name.includes(',')) {
       const [last, ...firstParts] = name.split(',');
       const first = firstParts.join(',').trim();

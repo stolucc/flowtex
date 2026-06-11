@@ -531,6 +531,7 @@ const MACRO_DEF_COMMANDS = new Set([
  * @param {any} source
  */
 export function tokenize(source) {
+  /** @type {any[]} */
   const tokens = [];
   const len = source.length;
   let i = 0;
@@ -539,9 +540,9 @@ export function tokenize(source) {
 
   /**
    * @param {any} type
-   * @param {any} from
-   * @param {any} to
-   * @param {any} value
+   * @param {number} from
+   * @param {number} to
+   * @param {any} [value]
    */
   function push(type, from, to, value) {
     tokens.push({ type, value: value ?? source.slice(from, to), from, to, line, col: from - lineStart + 1 });
@@ -778,8 +779,10 @@ export function tokenize(source) {
  */
 export function parse(source) {
   const tokens = tokenize(source);
+  /** @type {any} */
   const root = { type: N.ROOT, from: 0, to: source.length, children: [], source };
 
+  /** @type {any[]} */
   const stack = [root]; // stack of open containers
 
   function current() {
@@ -831,6 +834,7 @@ export function parse(source) {
   function readDelimited(openType, closeType, nodeType) {
     if (!peek() || peek().type !== openType) return null;
     const open = advance();
+    /** @type {any} */
     const node = { type: nodeType, from: open.from, to: open.to, children: [] };
     let depth = 1;
     while (ti < tlen && depth > 0) {
@@ -849,7 +853,7 @@ export function parse(source) {
     }
     node.text = node.to > open.to
       ? source.slice(open.to, node.to - 1)
-      : node.children.map((t) => t.value).join('');
+      : node.children.map((/** @type {any} */ t) => t.value).join('');
     return node;
   }
 
@@ -890,6 +894,7 @@ export function parse(source) {
   // ── Main parse loop ──
 
   // Math mode tracking (to pair open/close)
+  /** @type {Array<{ type: any, node: any }>} */
   const mathStack = []; // stack of { type, node }
 
   while (ti < tlen) {
@@ -963,7 +968,7 @@ export function parse(source) {
           // Close everything down to and including the match
           while (stack.length > s) {
             const closed = stack.pop();
-            closed.to = endTo;
+            if (closed) closed.to = endTo;
           }
           // The matched environment is now popped; it was already a child of its parent
           found = true;
@@ -1022,14 +1027,15 @@ export function parse(source) {
       if (inMath && isClose) {
         // Close math
         const openInfo = mathStack.pop();
+        if (!openInfo) continue;
         // Close everything down to the math container
         while (stack.length > 0 && stack[stack.length - 1] !== openInfo.node) {
           const closed = stack.pop();
-          closed.to = tok.to;
+          if (closed) closed.to = tok.to;
         }
         if (stack.length > 0 && stack[stack.length - 1] === openInfo.node) {
           const closed = stack.pop();
-          closed.to = tok.to;
+          if (closed) closed.to = tok.to;
         }
       } else if (isOpen) {
         // Open math
@@ -1123,8 +1129,9 @@ export function walk(node, visitor, depth = 0) {
  * @param {any} predicate
  */
 export function findAll(tree, predicate) {
+  /** @type {any[]} */
   const results = [];
-  walk(tree, (node) => {
+  walk(tree, (/** @type {any} */ node) => {
     if (predicate(node)) results.push(node);
   });
   return results;
@@ -1137,7 +1144,7 @@ export function findAll(tree, predicate) {
  */
 export function nodeAtPos(tree, pos) {
   let best = tree;
-  walk(tree, (node) => {
+  walk(tree, (/** @type {any} */ node) => {
     if (pos >= node.from && pos <= node.to) {
       best = node;
       return; // continue into children
@@ -1154,6 +1161,7 @@ export function nodeAtPos(tree, pos) {
  * @param {any} pos
  */
 export function ancestorsAtPos(tree, pos) {
+  /** @type {any[]} */
   const path = [];
   /**
    * @param {any} node
@@ -1178,7 +1186,7 @@ export function ancestorsAtPos(tree, pos) {
  * @param {any} name
  */
 export function findEnvironments(tree, name) {
-  return findAll(tree, (node) => node.type === N.ENVIRONMENT && (name == null || node.name === name));
+  return findAll(tree, (/** @type {any} */ node) => node.type === N.ENVIRONMENT && (name == null || node.name === name));
 }
 
 /**
@@ -1187,8 +1195,9 @@ export function findEnvironments(tree, name) {
  * @param {any} tree
  */
 export function findTables(tree) {
+  /** @type {any[]} */
   const tables = [];
-  walk(tree, (node) => {
+  walk(tree, (/** @type {any} */ node) => {
     if (node.type === N.ENVIRONMENT && node.isTable) {
       tables.push(node);
       return false; // don't recurse into nested tables
@@ -1220,7 +1229,7 @@ export function findTableAtPos(tree, pos) {
   // If cursor is on the \begin{table} line but not inside the tabular,
   // find the first tabular-like child inside the table wrapper
   if (!inner && outer) {
-    const firstTabular = findAll(outer, (node) => node.type === N.ENVIRONMENT && node.isTable);
+    const firstTabular = findAll(outer, (/** @type {any} */ node) => node.type === N.ENVIRONMENT && node.isTable);
     if (firstTabular.length > 0) inner = firstTabular[0];
   }
 
@@ -1264,6 +1273,7 @@ export function parseFigure(figInfo, source) {
   let to = figInfo.to;
   const text = source.slice(from, to);
 
+  /** @type {any} */
   const result = {
     env: node.name,
     placement: 'htbp',
@@ -1287,23 +1297,23 @@ export function parseFigure(figInfo, source) {
   // Walk AST for commands
   let captionFrom = null;
   let imgFrom = null;
-  walk(node, (n) => {
+  walk(node, (/** @type {any} */ n) => {
     if (n.type === N.COMMAND) {
       if (n.name === 'centering') result.centering = true;
       if (n.name === 'caption' || n.name === 'caption*') {
         result.caption = true;
         captionFrom = n.from;
-        const arg = n.args.find((a) => a.type === N.GROUP);
+        const arg = n.args.find((/** @type {any} */ a) => a.type === N.GROUP);
         if (arg) result.captionText = arg.text;
       }
       if (n.name === 'label') {
-        const arg = n.args.find((a) => a.type === N.GROUP);
+        const arg = n.args.find((/** @type {any} */ a) => a.type === N.GROUP);
         if (arg) result.label = arg.text;
       }
       if (n.name === 'includegraphics') {
         imgFrom = n.from;
         // Parse optional args for width
-        const optArg = n.args.find((a) => a.type === N.OPT_ARG);
+        const optArg = n.args.find((/** @type {any} */ a) => a.type === N.OPT_ARG);
         if (optArg) {
           const optText = optArg.text;
           const wm = optText.match(/width\s*=\s*([\d.]+)\s*\\?(textwidth|linewidth|columnwidth)/);
@@ -1314,7 +1324,7 @@ export function parseFigure(figInfo, source) {
           }
         }
         // Required arg: image path
-        const reqArg = n.args.find((a) => a.type === N.GROUP);
+        const reqArg = n.args.find((/** @type {any} */ a) => a.type === N.GROUP);
         if (reqArg) result.imagePath = reqArg.text;
       }
     }
@@ -1368,7 +1378,7 @@ export function parseFigure(figInfo, source) {
  * @param {any} name
  */
 export function findCommands(tree, name) {
-  return findAll(tree, (node) => node.type === N.COMMAND && node.name === name);
+  return findAll(tree, (/** @type {any} */ node) => node.type === N.COMMAND && node.name === name);
 }
 
 /**
@@ -1377,6 +1387,7 @@ export function findCommands(tree, name) {
  * @param {any} tree
  */
 export function getStructure(tree) {
+  /** @type {Record<string, number>} */
   const levels = {
     part: 0,
     'part*': 0,
@@ -1394,10 +1405,11 @@ export function getStructure(tree) {
     'subparagraph*': 6,
   };
 
+  /** @type {any[]} */
   const structure = [];
-  walk(tree, (node) => {
+  walk(tree, (/** @type {any} */ node) => {
     if (node.type === N.COMMAND && node.name in levels) {
-      const titleArg = node.args.find((a) => a.type === N.GROUP);
+      const titleArg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
       structure.push({
         level: levels[node.name],
         name: node.name,
@@ -1426,6 +1438,7 @@ export function parseTable(tableInfo, source, preambleSource) {
   const inner = tableInfo.inner || tableInfo;
   const outer = tableInfo.outer || null;
 
+  /** @type {any} */
   const result = {
     env: inner.name,
     alignment: 'c',
@@ -1457,9 +1470,9 @@ export function parseTable(tableInfo, source, preambleSource) {
   const innerArgs = inner.args || [];
   let colSpecArg = null;
   if (inner.name === 'tabularx' || inner.name === 'tabulary') {
-    colSpecArg = innerArgs.filter((a) => a.type === N.GROUP)[1]; // second brace group
+    colSpecArg = innerArgs.filter((/** @type {any} */ a) => a.type === N.GROUP)[1]; // second brace group
   } else {
-    colSpecArg = innerArgs.find((a) => a.type === N.GROUP);
+    colSpecArg = innerArgs.find((/** @type {any} */ a) => a.type === N.GROUP);
   }
 
   if (colSpecArg) {
@@ -1474,22 +1487,22 @@ export function parseTable(tableInfo, source, preambleSource) {
   if (outer) {
     // Detect float placement [htbp], [H], etc.
     const outerArgs = outer.args || [];
-    const optArg = outerArgs.find((a) => a.type === N.OPTIONAL);
+    const optArg = outerArgs.find((/** @type {any} */ a) => a.type === N.OPT_ARG);
     if (optArg && optArg.text) {
       result.placement = optArg.text.trim();
     }
     let captionFrom = null;
-    walk(outer, (node) => {
+    walk(outer, (/** @type {any} */ node) => {
       if (node === inner) return false; // don't recurse into the tabular itself
       if (node.type === N.COMMAND) {
         if (node.name === 'caption' || node.name === 'caption*') {
           result.caption = true;
           captionFrom = node.from;
-          const arg = node.args.find((a) => a.type === N.GROUP);
+          const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
           result.captionText = arg ? arg.text : '';
         }
         if (node.name === 'label') {
-          const arg = node.args.find((a) => a.type === N.GROUP);
+          const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
           result.label = arg ? arg.text : '';
         }
         if (node.name === 'centering') {
@@ -1557,15 +1570,15 @@ export function parseTable(tableInfo, source, preambleSource) {
 
   // Also check inside longtable for caption/label (they go inside)
   if (inner.name === 'longtable') {
-    walk(inner, (node) => {
+    walk(inner, (/** @type {any} */ node) => {
       if (node.type === N.COMMAND) {
         if (node.name === 'caption' || node.name === 'caption*') {
           result.caption = true;
-          const arg = node.args.find((a) => a.type === N.GROUP);
+          const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
           result.captionText = arg ? arg.text : '';
         }
         if (node.name === 'label') {
-          const arg = node.args.find((a) => a.type === N.GROUP);
+          const arg = node.args.find((/** @type {any} */ a) => a.type === N.GROUP);
           result.label = arg ? arg.text : '';
         }
       }
@@ -1584,7 +1597,7 @@ export function parseTable(tableInfo, source, preambleSource) {
  * Parse a LaTeX column specification string like |c|l|r| or >{\centering}p{5cm}
  * @param {any} spec
  * @param {any} result
- * @param {any} customTypes
+ * @param {any} [customTypes]
  */
 function parseColumnSpec(spec, result, customTypes) {
   const alignments = [];
@@ -1750,6 +1763,7 @@ function parseColumnSpec(spec, result, customTypes) {
   result.colWidths = colWidths;
   if (alignments.length > 0) {
     // Determine dominant alignment (ignoring 'p' for this purpose)
+    /** @type {Record<string, number>} */
     const counts = { l: 0, c: 0, r: 0 };
     for (const a of alignments) {
       if (a !== 'p') counts[a] = (counts[a] || 0) + 1;
@@ -1881,7 +1895,9 @@ function parseTableRows(envNode, source, result) {
   // Split on \\ (line breaks), being careful with brace nesting
   const rows = splitTableRows(body);
 
+  /** @type {Array<Array<string | null>>} */
   const dataRows = [];
+  /** @type {Array<any>} */
   const parsedClines = []; // { row (0-based data row index), fromCol, toCol }
   for (const rowText of rows) {
     const trimmed = rowText.trim();
@@ -2163,6 +2179,7 @@ function escapeRegex(str) {
 export function contextAtPos(tree, pos) {
   const ancestors = ancestorsAtPos(tree, pos);
 
+  /** @type {any} */
   const ctx = {
     inMath: false,
     inMathInline: false,
@@ -2234,6 +2251,7 @@ export function inVerbatim(tree, pos) {
  * @param {any} source
  */
 export function lint(tree, source) {
+  /** @type {any[]} */
   const diagnostics = [];
 
   // Pre-build line offset table for O(1) position lookups
