@@ -72,6 +72,15 @@ export default function prettyBib(input) {
           i++;
         }
         if (macro) value += macro;
+        else {
+          // Malformed: src[i] is none of {, ", digit, #, ',', '}', or a
+          // macro-name char (e.g. ':', ';', '<' inside an unquoted value).
+          // Without forward progress here we'd spin forever on the outer
+          // while-loop. Consume the stray character verbatim into the
+          // value so a partial pretty-print still completes.
+          value += src[i];
+          i++;
+        }
       }
       skipWhitespace();
     }

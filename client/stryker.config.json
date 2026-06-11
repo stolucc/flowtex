@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Client-side mutation testing for pure-logic / security-critical utility modules. Run with: npm run test:mutation. Slow — not in default CI. Mirrors the server's stryker.config.json approach.",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "reporters": ["progress", "clear-text", "html", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/mutation.html" },
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "coverageAnalysis": "perTest",
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "mutate": [
+    "src/utils/urlSafety.js",
+    "src/utils/tcMarks.js",
+    "src/utils/tcMarksInput.js",
+    "src/utils/lineDiff.js",
+    "src/utils/prettyBib.js",
+    "src/utils/bibtexLint.js",
+    "src/utils/latexLint.js",
+    "src/utils/compileLocation.js",
+    "src/utils/commentsRail.js",
+    "src/utils/projectRole.js",
+    "src/utils/dateFormat.js",
+    "src/utils/mimeType.js",
+    "src/utils/latexLogParser.js",
+    "src/utils/latexOutline.js",
+    "src/utils/latexFigureGenerator.js"
+  ],
+  "vitest": {
+    "configFile": "vitest.mutation.config.js"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": "always"
+}

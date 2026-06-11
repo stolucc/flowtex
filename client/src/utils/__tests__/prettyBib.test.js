@@ -98,4 +98,46 @@ describe('prettyBib', () => {
     const output = prettyBib(input);
     expect(output.split('\n').filter((l) => l.includes('=')).length).toBe(6);
   });
+
+  // Termination guarantees. Mutation testing produced 67 timeout mutants
+  // against the original file; the root cause was a missing forward-
+  // progress branch in readFieldValue's else arm when src[i] is none of
+  // {, ", digit, #, ',', '}', or a macro-name char. Without that
+  // guarantee, a stray `:` / `;` / `<` inside an unquoted value spins
+  // the outer while-loop forever. These tests pin the fix.
+
+  it('terminates on a malformed unquoted value containing a colon', () => {
+    // Pre-fix: this input infinite-loops at the ':' between 'bar' and
+    // 'baz' inside readFieldValue. Post-fix: the stray character is
+    // consumed verbatim and the pretty-print completes.
+    const input = `@article{key, foo = bar:baz}`;
+    expect(() => prettyBib(input)).not.toThrow();
+    const out = prettyBib(input);
+    expect(out).toContain('@article{key,');
+    expect(out).toContain('foo');
+  });
+
+  it('terminates on a malformed value containing a semicolon', () => {
+    const input = `@article{key, foo = a;b}`;
+    expect(() => prettyBib(input)).not.toThrow();
+  });
+
+  it('terminates on a malformed value with a non-ascii character outside the macro charset', () => {
+    // A character like '<' or '%' isn't in [a-zA-Z0-9_], isn't a digit,
+    // not in the structural set ({ " # , }), so the same loop would
+    // wedge without a fallback i++.
+    expect(() => prettyBib('@article{k, foo = a<b}')).not.toThrow();
+    expect(() => prettyBib('@article{k, foo = a%b}')).not.toThrow();
+  });
+
+  it('completes within a generous deadline on every malformed-value shape (defensive)', () => {
+    // Sanity wall-clock: even if a future mutation re-introduces a slow
+    // path, anything that takes more than a few seconds on a one-line
+    // input is broken. (vitest's default test timeout would otherwise
+    // also catch this; we keep the explicit check so the failure
+    // message clearly says "termination".)
+    const start = Date.now();
+    prettyBib('@article{k, foo = a:b:c:d:e:f:g}');
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
 });

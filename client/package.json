@@ -7,7 +7,8 @@
     "prebuild": "node scripts/build-docs.mjs",
     "build": "VITE_BUILD_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo dev) VITE_BUILD_TIME=$(date -u +%FT%TZ) vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@codemirror/language": "^6.10.0",
@@ -25,6 +26,8 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.14",
