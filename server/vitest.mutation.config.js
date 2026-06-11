@@ -15,6 +15,11 @@ export default defineConfig({
     include: ['tests/**/*.test.js'],
     exclude: [
       'node_modules/**',
+      // Integration tests need a live Postgres and have between-test state
+      // dependencies; Stryker's per-mutant test runs would surface those as
+      // false-positive kills/survivals. The default vitest config (mirrored
+      // here) excludes the whole integration tree.
+      'tests/integration/**',
       'tests/tracked-changes-integration.test.js',
       'tests/load-test.js',
     ],
