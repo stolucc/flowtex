@@ -1,7 +1,9 @@
+// @ts-check
 import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import Redis from 'ioredis';
 import cookie from 'cookie';
+// @ts-ignore -- cookie-signature has no bundled types
 import signature from 'cookie-signature';
 import logger from './logger.js';
 import db from './db.js';
@@ -18,7 +20,20 @@ import { setRedisClient as setYjsRoomClientRedis } from './services/yjsRoomClien
 import { setWsConnectionsActive, recordWsFrame } from './services/metrics.js';
 import { captureException as reportException } from './services/errorReporter.js';
 
+/** @typedef {import('ws').WebSocket} WSClient */
+/**
+ * @typedef {{
+ *   ws: WSClient,
+ *   userId: string,
+ *   userName: string,
+ *   sessionId?: string,
+ *   isApplyingRemoteYjs?: boolean,
+ *   cursor?: { fileId: string, head: number, anchor: number },
+ * }} RoomClient
+ */
+
 let wsConnectionGauge = 0;
+/** @param {number} delta */
 function bumpConnections(delta) {
   wsConnectionGauge = Math.max(0, wsConnectionGauge + delta);
   setWsConnectionsActive(wsConnectionGauge);
@@ -29,10 +44,13 @@ function bumpConnections(delta) {
 // across all their connections, including connections currently joined
 // to a different project. Capture a module-scoped reference once the WS
 // server initialises so handleChat can call it.
+/** @type {((userId: string, msg: object) => void) | null} */
 let sendToUserFn = null;
 
 // ── Redis pub/sub for horizontal scaling (optional) ─────────────────────
+/** @type {Redis | null} */
 let redisPub = null;
+/** @type {Redis | null} */
 let redisSub = null;
 const REDIS_CHANNEL = 'flowtex:ws';
 // Separate control channel for cluster-wide WS commands (kick a user
@@ -45,15 +63,21 @@ const REDIS_CHANNEL = 'flowtex:ws';
 // can't forge kicks. The shared key is derived from SESSION_SECRET
 // at init time -- already strong and consistent across instances.
 const REDIS_CONTROL_CHANNEL = 'flowtex:ws:control';
+/** @type {Buffer | null} */
 let controlChannelHmacKey = null;
+/** @param {string} payload */
 function signControlPayload(payload) {
   return crypto
-    .createHmac('sha256', controlChannelHmacKey)
+    .createHmac('sha256', /** @type {Buffer} */ (controlChannelHmacKey))
     .update(REDIS_CONTROL_CHANNEL)
     .update('|')
     .update(payload)
     .digest('hex');
 }
+/**
+ * @param {string} payload
+ * @param {unknown} sig
+ */
 function verifyControlPayload(payload, sig) {
   if (typeof sig !== 'string' || !controlChannelHmacKey) return false;
   const expected = signControlPayload(payload);
@@ -66,20 +90,29 @@ function verifyControlPayload(payload, sig) {
 const SERVER_ID = crypto.randomUUID();
 
 // ── Room management ─────────────────────────────────────────────────────
+/** @type {Map<string, Set<RoomClient>>} */
 const projectRooms = new Map();
 
-/** Get or create the Set of clients for a project room. */
+/** Get or create the Set of clients for a project room.
+ *  @param {string} projectId
+ *  @returns {Set<RoomClient>}
+ */
 function getRoom(projectId) {
   if (!projectRooms.has(projectId)) {
     projectRooms.set(projectId, new Set());
   }
-  return projectRooms.get(projectId);
+  return /** @type {Set<RoomClient>} */ (projectRooms.get(projectId));
 }
 
 // React's JSX escaping handles output encoding — server-side HTML encoding
 // would cause double-encoding. Message length limits are enforced in handlers.
 
 /** Broadcast a message to all clients in a project room, optionally excluding one. */
+/**
+ * @param {string} projectId
+ * @param {object} message
+ * @param {WSClient} [excludeWs]
+ */
 function broadcastToRoom(projectId, message, excludeWs) {
   const outMessage = message;
   const room = projectRooms.get(projectId);
@@ -101,13 +134,15 @@ function broadcastToRoom(projectId, message, excludeWs) {
           fromServer: SERVER_ID,
         }),
       )
-      .catch((e) => logger.warn({ err: e }, 'Redis publish failed'));
+      .catch((/** @type {unknown} */ e) => logger.warn({ err: e }, 'Redis publish failed'));
   }
 }
 
 /** Close all WebSocket connections for a user in a specific project room
  *  ON THIS INSTANCE. Use disconnectUserFromProjectClusterWide() in cluster
  *  mode to also kick connections held by peer web instances.
+ *  @param {string} projectId
+ *  @param {string} userId
  */
 function disconnectUserFromProjectLocal(projectId, userId) {
   const room = projectRooms.get(projectId);
@@ -126,6 +161,10 @@ function disconnectUserFromProjectLocal(projectId, userId) {
  * instance keeps receiving broadcasts until natural disconnect (real
  * audit finding 2026-06-09).
  */
+/**
+ * @param {string} projectId
+ * @param {string} userId
+ */
 function disconnectUserFromProject(projectId, userId) {
   disconnectUserFromProjectLocal(projectId, userId);
   if (redisPub && controlChannelHmacKey) {
@@ -142,11 +181,13 @@ function disconnectUserFromProject(projectId, userId) {
     const sig = signControlPayload(payload);
     redisPub
       .publish(REDIS_CONTROL_CHANNEL, JSON.stringify({ payload, sig }))
-      .catch((e) => logger.warn({ err: e }, 'Redis publish kick failed'));
+      .catch((/** @type {unknown} */ e) => logger.warn({ err: e }, 'Redis publish kick failed'));
   }
 }
 
-/** Send an updated presence list (unique users) to all clients in a room. */
+/** Send an updated presence list (unique users) to all clients in a room.
+ *  @param {string} projectId
+ */
 function broadcastPresence(projectId) {
   const room = projectRooms.get(projectId);
   if (!room) return;
@@ -164,6 +205,10 @@ function broadcastPresence(projectId) {
  *  the MAC check stays in lockstep with upstream and we don't carry our own
  *  bespoke crypto routine. The leading "s:" prefix is express-session's
  *  encoding marker; cookie-signature itself doesn't expect it. */
+/**
+ * @param {string} signedValue
+ * @param {string} secret
+ */
 function unsignCookie(signedValue, secret) {
   if (typeof signedValue !== 'string' || !signedValue.startsWith('s:')) return null;
   const unsigned = signature.unsign(signedValue.slice(2), secret);
@@ -171,6 +216,10 @@ function unsignCookie(signedValue, secret) {
 }
 
 /** Parse the session cookie from a raw HTTP request and load session data from DB. */
+/**
+ * @param {import('node:http').IncomingMessage} req
+ * @param {string} sessionSecret
+ */
 async function getSessionFromRequest(req, sessionSecret) {
   try {
     const cookieHeader = req.headers.cookie;
@@ -208,10 +257,25 @@ async function getSessionFromRequest(req, sessionSecret) {
 // ── Message handlers ────────────────────────────────────────────────────
 
 /**
+ * Per-connection state. Many fields are populated lazily across the
+ * dozen-plus handlers (projectId on 'join', fileIds on first apply,
+ * rate-limit counters on first action, yjs room handles on subscribe,
+ * etc.). Modelled wide so each handler doesn't have to redeclare what
+ * it touches. Tightening this into discriminated unions is queued for
+ * a follow-up commit.
+ *
+ * @typedef {any} ConnState
+ */
+
+/**
  * Verify msg.fileId belongs to the project the WS connection joined.
  * Caches valid IDs per-connection to avoid a DB hit on every keystroke
  * broadcast; falls back to a single DB lookup on cache miss (handles new
  * files created mid-session). Returns true on valid, false otherwise.
+ */
+/**
+ * @param {ConnState} state
+ * @param {unknown} fileId
  */
 async function isFileInProject(state, fileId) {
   if (typeof fileId !== 'string' || !UUID_RE.test(fileId)) return false;
@@ -225,6 +289,11 @@ async function isFileInProject(state, fileId) {
 }
 
 /** Handle a 'join' message: verify membership and add client to the project room. */
+/**
+ * @param {WSClient} ws
+ * @param {any} msg
+ * @param {ConnState} state
+ */
 async function handleJoin(ws, msg, state) {
   if (typeof msg.projectId !== 'string' || !UUID_RE.test(msg.projectId)) return;
 
@@ -273,10 +342,15 @@ async function handleJoin(ws, msg, state) {
 }
 
 /** Broadcast editor changes (+ optional TC mark mutations) to other clients in the room. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ * @param {WSClient} ws
+ */
 async function handleChanges(msg, state, ws) {
   if (!Array.isArray(msg.changes) || msg.changes.length > 1000) return;
   const valid = msg.changes.every(
-    (c) =>
+    (/** @type {any} */ c) =>
       c &&
       typeof c === 'object' &&
       (c.from === undefined || typeof c.from === 'number') &&
@@ -296,14 +370,14 @@ async function handleChanges(msg, state, ws) {
   if (msg.tcMarks && typeof msg.tcMarks === 'object') {
     const rawAdded = Array.isArray(msg.tcMarks.added) ? msg.tcMarks.added.slice(0, 1000) : [];
     const added = rawAdded
-      .filter((e) => e && typeof e === 'object')
-      .map((e) => ({
+      .filter((/** @type {unknown} */ e) => e && typeof e === 'object')
+      .map((/** @type {object} */ e) => ({
         ...e,
         authorId: state.authenticatedUserId,
         authorName: state.authenticatedUserName,
       }));
     const removed = Array.isArray(msg.tcMarks.removed)
-      ? msg.tcMarks.removed.filter((x) => typeof x === 'string').slice(0, 1000)
+      ? msg.tcMarks.removed.filter((/** @type {unknown} */ x) => typeof x === 'string').slice(0, 1000)
       : [];
     if (added.length > 0 || removed.length > 0) {
       // Cap each entry's serialized size defensively.
@@ -363,6 +437,7 @@ const MAX_YJS_UPDATE_B64 = 256 * 1024; // 256 KB base64 ≈ 192 KB of Y.js updat
 // Lazy refill on each call -- no extra timer needed.
 const YJS_BUDGET_MAX = 200;
 const YJS_REFILL_PER_SEC = 20;
+/** @param {ConnState} state */
 function takeYjsUpdateToken(state) {
   const now = Date.now();
   if (!state.yjsBudget) {
@@ -379,6 +454,11 @@ function takeYjsUpdateToken(state) {
   return true;
 }
 
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ * @param {WSClient} ws
+ */
 async function handleYjsUpdate(msg, state, ws) {
   if (typeof msg.update !== 'string') return;
   if (msg.update.length === 0 || msg.update.length > MAX_YJS_UPDATE_B64) return;
@@ -440,6 +520,11 @@ async function handleYjsUpdate(msg, state, ws) {
  * acquires the room from PG (loads files.content_yjs) so the client
  * still gets the durable state, then immediately releases it.
  */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ * @param {WSClient} ws
+ */
 async function handleYjsRequestState(msg, state, ws) {
   if (!(await isFileInProject(state, msg.fileId))) return;
   // The client is about to start editing this file -- hold a room
@@ -466,6 +551,10 @@ async function handleYjsRequestState(msg, state, ws) {
  * close. Returns true on success (room is held), false if the file
  * row went missing between isFileInProject and acquireRoom.
  */
+/**
+ * @param {ConnState} state
+ * @param {string} fileId
+ */
 async function ensureRoomSubscribed(state, fileId) {
   if (!state.yjsRoomsHeld) state.yjsRoomsHeld = new Set();
   if (state.yjsRoomsHeld.has(fileId)) return true;
@@ -480,6 +569,7 @@ async function ensureRoomSubscribed(state, fileId) {
  * Called from the WS close handler so the in-memory Y.Doc can be
  * freed (and a final snapshot flushed) when the last client leaves.
  */
+/** @param {ConnState} state */
 export async function releaseYjsRoomsForState(state) {
   if (!state || !state.yjsRoomsHeld || state.yjsRoomsHeld.size === 0) return;
   const fileIds = [...state.yjsRoomsHeld];
@@ -490,6 +580,11 @@ export async function releaseYjsRoomsForState(state) {
 }
 
 /** Broadcast cursor position updates to other clients. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ * @param {WSClient} ws
+ */
 async function handleCursor(msg, state, ws) {
   if (typeof msg.head !== 'number' || typeof msg.anchor !== 'number') return;
   if (!(await isFileInProject(state, msg.fileId))) return;
@@ -532,7 +627,9 @@ async function handleCursor(msg, state, ws) {
 // surface (a malicious authenticated room member could broadcast
 // arbitrary tracked-change payloads).
 
-/** Build the current reaction summary for an editor comment. */
+/** Build the current reaction summary for an editor comment.
+ *  @param {string} commentId
+ */
 async function fetchCommentReactionsFor(commentId) {
   const rows = await db.all(
     `SELECT emoji, user_id AS "userId", user_name AS "userName"
@@ -540,10 +637,12 @@ async function fetchCommentReactionsFor(commentId) {
      ORDER BY created_at ASC`,
     [commentId],
   );
+  /** @type {Map<string, Array<{ id: string, name: string }>>} */
   const byEmoji = new Map();
   for (const r of rows) {
     if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
-    byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+    /** @type {Array<{ id: string, name: string }>} */
+    (byEmoji.get(r.emoji)).push({ id: r.userId, name: r.userName });
   }
   return Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }));
 }
@@ -551,6 +650,10 @@ async function fetchCommentReactionsFor(commentId) {
 /** Toggle the current user's reaction on a comment. Confirms the comment
  *  belongs to a file in the sender's room, then rebroadcasts the full
  *  reaction list so every client converges. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ */
 async function handleCommentReact(msg, state) {
   const commentId = typeof msg.commentId === 'string' ? msg.commentId : null;
   const emoji = typeof msg.emoji === 'string' ? msg.emoji.trim() : '';
@@ -582,7 +685,9 @@ async function handleCommentReact(msg, state) {
   broadcastToRoom(state.projectId, { type: 'comment-reaction-update', commentId, reactions });
 }
 
-/** Build the current reaction summary for a comment reply. */
+/** Build the current reaction summary for a comment reply.
+ *  @param {string} replyId
+ */
 async function fetchReplyReactionsFor(replyId) {
   const rows = await db.all(
     `SELECT emoji, user_id AS "userId", user_name AS "userName"
@@ -590,16 +695,22 @@ async function fetchReplyReactionsFor(replyId) {
      ORDER BY created_at ASC`,
     [replyId],
   );
+  /** @type {Map<string, Array<{ id: string, name: string }>>} */
   const byEmoji = new Map();
   for (const r of rows) {
     if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
-    byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+    /** @type {Array<{ id: string, name: string }>} */
+    (byEmoji.get(r.emoji)).push({ id: r.userId, name: r.userName });
   }
   return Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }));
 }
 
 /** Toggle the current user's reaction on a comment reply. Confirms the reply
  *  belongs to a comment in a file in the sender's room. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ */
 async function handleReplyReact(msg, state) {
   const replyId = typeof msg.replyId === 'string' ? msg.replyId : null;
   const emoji = typeof msg.emoji === 'string' ? msg.emoji.trim() : '';
@@ -641,6 +752,7 @@ async function handleReplyReact(msg, state) {
 
 /** Build the current reaction summary for a chat message: one row per emoji
  *  with the list of users who reacted with it. */
+/** @param {string} messageId */
 async function fetchReactionsFor(messageId) {
   const rows = await db.all(
     `SELECT emoji, user_id AS "userId", user_name AS "userName"
@@ -648,10 +760,12 @@ async function fetchReactionsFor(messageId) {
      ORDER BY created_at ASC`,
     [messageId],
   );
+  /** @type {Map<string, Array<{ id: string, name: string }>>} */
   const byEmoji = new Map();
   for (const r of rows) {
     if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
-    byEmoji.get(r.emoji).push({ id: r.userId, name: r.userName });
+    /** @type {Array<{ id: string, name: string }>} */
+    (byEmoji.get(r.emoji)).push({ id: r.userId, name: r.userName });
   }
   return Array.from(byEmoji.entries()).map(([emoji, users]) => ({ emoji, count: users.length, users }));
 }
@@ -659,6 +773,10 @@ async function fetchReactionsFor(messageId) {
 /** Toggle the current user's reaction (emoji) on a chat message; rebroadcasts
  *  the full reaction list for that message so every client lands on the same
  *  state regardless of arrival order. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ */
 async function handleChatReact(msg, state) {
   const messageId = typeof msg.messageId === 'string' ? msg.messageId : null;
   const emoji = typeof msg.emoji === 'string' ? msg.emoji.trim() : '';
@@ -692,9 +810,13 @@ async function handleChatReact(msg, state) {
 }
 
 /** Persist a chat message to DB and broadcast it to the project room.
- *  Also extracts any @-mentions and records them in the comment_mentions
+ *  Also extracts any `@`-mentions and records them in the comment_mentions
  *  inbox (chat_message_id non-null), then pushes a live `mention` WS event
  *  to each mentioned user so the bell badge updates without a refresh. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ */
 async function handleChat(msg, state) {
   const id = crypto.randomUUID();
   const text = (msg.text || '').trim().slice(0, 5000);
@@ -756,6 +878,10 @@ async function handleChat(msg, state) {
  *  scroll-to-bottom — coarse-grained so the cursor write rate stays
  *  manageable.
  */
+/**
+ * @param {any} _msg
+ * @param {ConnState} state
+ */
 async function handleChatRead(_msg, state) {
   if (!state.projectId || !state.authenticatedUserId) return;
   try {
@@ -810,6 +936,10 @@ const writeTypes = new Set([
 const editorOnlyWriteTypes = new Set(['changes', 'yjs-update']);
 const EDITOR_WS_ROLES = new Set(['owner', 'editor']);
 const COMMENTER_WS_ROLES = new Set(['owner', 'editor', 'commenter']);
+/**
+ * @param {string} type
+ * @param {string} role
+ */
 function isAllowedWriteRole(type, role) {
   if (editorOnlyWriteTypes.has(type)) return EDITOR_WS_ROLES.has(role);
   return COMMENTER_WS_ROLES.has(role);
@@ -825,6 +955,11 @@ function isAllowedWriteRole(type, role) {
  *  privilege change. The real callers always pass req.sessionID so
  *  this only fires on misuse, but the fail-closed posture matters.
  */
+/**
+ * @param {WSClient & { _flowtexUserId?: string, _flowtexSessionId?: string }} client
+ * @param {string} userId
+ * @param {string | undefined} keepSessionId
+ */
 export function shouldDisconnectExcept(client, userId, keepSessionId) {
   if (client._flowtexUserId !== userId) return false;
   if (!keepSessionId) return true;
@@ -832,6 +967,11 @@ export function shouldDisconnectExcept(client, userId, keepSessionId) {
 }
 
 /** Broadcast a typing indicator to other clients in the room. */
+/**
+ * @param {any} msg
+ * @param {ConnState} state
+ * @param {WSClient} ws
+ */
 function handleTyping(msg, state, ws) {
   broadcastToRoom(
     state.projectId,
@@ -1060,9 +1200,13 @@ export function initWebSocket(server, app, sessionSecret) {
   });
 
   // Send a message to a specific user across all their WS connections
+  /**
+   * @param {string} userId
+   * @param {object} message
+   */
   function sendToUser(userId, message) {
     const data = JSON.stringify(message);
-    for (const client of wss.clients) {
+    for (const client of /** @type {Set<WSClient & { _flowtexUserId?: string }>} */ (wss.clients)) {
       if (client._flowtexUserId === userId && client.readyState === 1) {
         client.send(data);
       }
@@ -1072,8 +1216,9 @@ export function initWebSocket(server, app, sessionSecret) {
   // Forcibly close all of a user's WS connections (used when a user is
   // soft-deleted or restored — any in-flight session must not continue
   // reading data after auth state changes).
+  /** @param {string} userId */
   function disconnectUserEverywhere(userId) {
-    for (const client of wss.clients) {
+    for (const client of /** @type {Set<WSClient & { _flowtexUserId?: string }>} */ (wss.clients)) {
       if (client._flowtexUserId === userId) {
         try {
           client.close(1000, 'session-revoked');
@@ -1093,8 +1238,12 @@ export function initWebSocket(server, app, sessionSecret) {
   // HTTP. Without this, an attacker holding a stolen session whose HTTP
   // path was just killed could keep editing files via their already-
   // upgraded WS until natural disconnect.
+  /**
+   * @param {string} userId
+   * @param {string | undefined} keepSessionId
+   */
   function disconnectUserSessionsExcept(userId, keepSessionId) {
-    for (const client of wss.clients) {
+    for (const client of /** @type {Set<WSClient & { _flowtexUserId?: string, _flowtexSessionId?: string }>} */ (wss.clients)) {
       if (shouldDisconnectExcept(client, userId, keepSessionId)) {
         try {
           client.close(1000, 'session-revoked');
@@ -1118,7 +1267,8 @@ export function initWebSocket(server, app, sessionSecret) {
   // dashboard. The per-user wsConnectionCounts map is intentionally NOT
   // surfaced: dumping userId → connection count to the admin live-monitor
   // is information disclosure with no UI consumer.
-  app.getLiveStats = () => ({
+  /** @type {any} */
+  (app).getLiveStats = () => ({
     wsConnections: wss.clients.size,
     wsUniqueUsers: wsConnectionCounts.size,
   });
@@ -1127,7 +1277,7 @@ export function initWebSocket(server, app, sessionSecret) {
   // still let the event loop exit (the wss.on('close') handler still
   // clears the timer on a clean shutdown).
   const heartbeatTimer = setInterval(() => {
-    for (const ws of wss.clients) {
+    for (const ws of /** @type {Set<WSClient & { isAlive?: boolean }>} */ (wss.clients)) {
       if (ws.isAlive === false) {
         ws.terminate();
         continue;
@@ -1143,7 +1293,7 @@ export function initWebSocket(server, app, sessionSecret) {
   // process. The `ws` library emits 'wsClientError' for frame-decoding errors
   // (e.g. a payload larger than maxPayload). Logging + closing the socket is
   // the right response, not crashing the whole Node process.
-  wss.on('wsClientError', (err, socket) => {
+  wss.on('wsClientError', (/** @type {NodeJS.ErrnoException} */ err, /** @type {import('node:net').Socket} */ socket) => {
     logger.warn({ err: err.message, code: err.code }, 'WS client error — closing socket');
     try { socket.destroy(); } catch {}
   });
@@ -1152,14 +1302,14 @@ export function initWebSocket(server, app, sessionSecret) {
   });
 
   // Connection handler
-  wss.on('connection', async (ws, req) => {
+  wss.on('connection', async (/** @type {WSClient & { isAlive?: boolean, _flowtexUserId?: string, _flowtexSessionId?: string }} */ ws, /** @type {import('node:http').IncomingMessage} */ req) => {
     bumpConnections(+1);
     ws.once('close', () => bumpConnections(-1));
     ws.isAlive = true;
     ws.on('pong', () => {
       ws.isAlive = true;
     });
-    ws.on('error', (err) => {
+    ws.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
       logger.warn({ err: err.message, code: err.code }, 'WS socket error — closing');
       try { ws.terminate(); } catch {}
     });
@@ -1172,16 +1322,17 @@ export function initWebSocket(server, app, sessionSecret) {
     // against a logged-in user DoS'ing the box they're connected to.
     const MAX_PENDING_MESSAGES = 64;
     const MAX_PRE_AUTH_MESSAGE_BYTES = 256 * 1024;
+    /** @type {import('ws').RawData[]} */
     const pendingMessages = [];
     let preAuthAbort = false;
     let authenticated = false;
-    ws.on('message', (raw) => {
+    ws.on('message', (/** @type {import('ws').RawData} */ raw) => {
       if (authenticated) {
         handleMessage(raw);
         return;
       }
       if (preAuthAbort) return;
-      if (raw.length > MAX_PRE_AUTH_MESSAGE_BYTES) {
+      if (/** @type {Buffer} */ (raw).length > MAX_PRE_AUTH_MESSAGE_BYTES) {
         preAuthAbort = true;
         pendingMessages.length = 0;
         try { ws.close(1009, 'Message too large'); } catch { /* already closed */ }
@@ -1232,6 +1383,7 @@ export function initWebSocket(server, app, sessionSecret) {
     });
 
     // Per-connection state
+    /** @type {ConnState} */
     const state = {
       authenticatedUserId,
       authenticatedUserName,
@@ -1243,6 +1395,7 @@ export function initWebSocket(server, app, sessionSecret) {
     let wsRateStart = Date.now();
     let wsRateCount = 0;
 
+    /** @param {import('ws').RawData} raw */
     async function handleMessage(raw) {
       // Rate limiting
       const now = Date.now();
@@ -1253,7 +1406,7 @@ export function initWebSocket(server, app, sessionSecret) {
       wsRateCount++;
       if (wsRateCount > WS_RATE_MAX) return;
 
-      if (raw.length > 256 * 1024) return;
+      if (/** @type {Buffer} */ (raw).length > 256 * 1024) return;
 
       let msg;
       try {
@@ -1293,7 +1446,7 @@ export function initWebSocket(server, app, sessionSecret) {
           state.memberRole = member.role;
         }
 
-        const handler = messageHandlers[msg.type];
+        const handler = /** @type {Record<string, any>} */ (messageHandlers)[msg.type];
         if (handler) {
           recordWsFrame(msg.type || 'unknown', 'in');
           await handler(msg, state, ws);
@@ -1354,7 +1507,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   // Test helpers for the control-channel HMAC. Tests inject a key
   // directly via _setControlChannelHmacKey because they don't go
   // through initWebSocket.
-  _setControlChannelHmacKey: (k) => { controlChannelHmacKey = k; },
+  _setControlChannelHmacKey: (/** @type {Buffer | null} */ k) => { controlChannelHmacKey = k; },
   _getControlChannelHmacKey: () => controlChannelHmacKey,
   // handleComment / handleCommentReply / handleCommentResolve /
   // handleCommentDelete / handleCommentEdit were removed when their

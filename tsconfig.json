@@ -138,7 +138,8 @@
     "server/compiler.js",
     "server/db.js",
     "server/loadtest.js",
-    "server/index.js"
+    "server/index.js",
+    "server/websocket.js"
   ],
   "exclude": [
     "node_modules",
