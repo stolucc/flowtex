@@ -139,7 +139,8 @@
     "server/db.js",
     "server/loadtest.js",
     "server/index.js",
-    "server/websocket.js"
+    "server/websocket.js",
+    "server/utils/docxToLatex.js"
   ],
   "exclude": [
     "node_modules",

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Custom DOCX-to-LaTeX converter.
  * Replaces pandoc for DOCX import. Parses OOXML directly and emits LaTeX with
@@ -15,6 +16,8 @@
 // in the codebase — re-review on every periodic security pass.
 /* eslint-disable security/detect-unsafe-regex */
 /* eslint-disable security/detect-non-literal-regexp */
+// adm-zip ships no .d.ts.
+// @ts-ignore
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { execFileSync, execFile as execFileCb } from 'node:child_process';
@@ -26,6 +29,7 @@ import path from 'node:path';
 const execFile = promisify(execFileCb);
 
 // Cache: avoid re-checking the filesystem on every WMF/EMF media item.
+/** @type {string | false | null} */
 let _sofficeCache = null;
 /**
  * Find the LibreOffice headless binary. Linux deployments install it as
@@ -35,13 +39,14 @@ let _sofficeCache = null;
  */
 function resolveSoffice() {
   if (_sofficeCache !== null) return _sofficeCache || null;
-  const candidates = [
+  /** @type {string[]} */
+  const candidates = /** @type {string[]} */ ([
     process.env.SOFFICE_BIN,
     '/usr/bin/soffice',
     '/usr/bin/libreoffice',
     '/usr/local/bin/soffice',
     '/Applications/LibreOffice.app/Contents/MacOS/soffice',
-  ].filter(Boolean);
+  ].filter(Boolean));
   for (const c of candidates) {
     try {
       if (fs.existsSync(c) && fs.statSync(c).isFile()) {
@@ -103,15 +108,22 @@ function createOrderedParser() {
 // ── LaTeX special character escaping ─────────────────────────────────────────
 
 const LATEX_SPECIALS = /[&%$#_{}~^\\]/g;
+/** @type {Record<string, string>} */
 const LATEX_ESCAPE_MAP = {
   '&': '\\&', '%': '\\%', '$': '\\$', '#': '\\#', '_': '\\_',
   '{': '\\{', '}': '\\}', '~': '\\textasciitilde{}',
   '^': '\\textasciicircum{}', '\\': '\\textbackslash{}',
 };
+/**
+ * @param {string} text
+ */
 function escapeLatex(text) {
-  return text.replace(LATEX_SPECIALS, (ch) => LATEX_ESCAPE_MAP[ch]);
+  return text.replace(LATEX_SPECIALS, (/** @type {string} */ ch) => LATEX_ESCAPE_MAP[ch]);
 }
 
+/**
+ * @param {any} v
+ */
 function asArray(v) {
   if (v == null) return [];
   return Array.isArray(v) ? v : [v];
@@ -126,6 +138,8 @@ function asArray(v) {
  * This helper expects the unordered (object) parser shape, where
  * `props['w:b']` is the value object (or array) — not the ordered shape that
  * exposes attributes via `:@`.
+ * @param {any} props
+ * @param {any} name
  */
 function boolProp(props, name) {
   const v = props?.[name];
@@ -138,9 +152,11 @@ function boolProp(props, name) {
 
 class LatexBuffer {
   constructor() {
+    /** @type {string[]} */
     this.parts = [];
     this.length = 0;
   }
+  /** @param {string | null | undefined} s */
   write(s) {
     if (s) {
       this.parts.push(s);
@@ -154,10 +170,20 @@ class LatexBuffer {
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
+/**
+ * @typedef {{
+ *   onProgress?: (msg: string, pct: number) => void,
+ *   signal?: AbortSignal,
+ *   docType?: string,
+ * }} ConvertOpts
+ *
+ * @param {Buffer} buffer
+ * @param {ConvertOpts} [options]
+ */
 export async function convertDocxToLatex(buffer, options = {}) {
-  const _progress = options.onProgress || (() => {});
+  const _progress = options.onProgress || ((/** @type {string} */ _m, /** @type {number} */ _p) => {});
   // Yield event loop after progress so SSE events flush to the client
-  const progress = async (msg, pct) => { _progress(msg, pct); await new Promise(r => setImmediate(r)); };
+  const progress = async (/** @type {string} */ msg, /** @type {number} */ pct) => { _progress(msg, pct); await new Promise(r => setImmediate(r)); };
   const zip = new AdmZip(buffer);
   const parser = createParser();
   const orderedParser = createOrderedParser();
@@ -236,7 +262,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
   // Phase 2b: Resolve header/footer content from rIds
   if (metadata.headerFooter) {
     const hf = metadata.headerFooter;
-    const resolveHF = (rId) => {
+    const resolveHF = (/** @type {string} */ rId) => {
       const rel = rels.get(rId);
       const target = rel?.target; // e.g. "header2.xml"
       if (!target) return null;
@@ -269,7 +295,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
   const unconvertible = new Set(); // tracks images that couldn't be converted
   const CONVERT_TO_PNG = new Set(['gif', 'tiff', 'tif', 'bmp']);
   const NEEDS_LIBREOFFICE = new Set(['wmf', 'emf']);
-  const mediaEntries = zip.getEntries().filter(e => e.entryName.startsWith('word/media/'));
+  const mediaEntries = zip.getEntries().filter((/** @type {any} */ e) => e.entryName.startsWith('word/media/'));
   // Cap to bound the worst-case CPU cost of the per-image conversion
   // loop: each image up to 30 s of ImageMagick / rsvg-convert /
   // LibreOffice work. Without this a crafted DOCX with thousands of
@@ -358,6 +384,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
 
   await progress('Analysing document layout…', 45);
   // Phase 4: Build preamble
+  /** @type {any} */
   const ctx = {
     metadata, rels, numbering, footnoteMap, endnoteMap, unconvertible,
     buf: new LatexBuffer(),
@@ -379,6 +406,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
 
   await progress('Converting document body (pass 1)…', 50);
   // First pass: determine which packages are needed (write to a temp buffer)
+  /** @type {any} */
   const tempCtx = { ...ctx, buf: new LatexBuffer(), trackedChanges: [], comments: [], commentStarts: new Map(), listStack: [], inLandscape: false, bibEntries: new Map() };
   emitOrderedBody(bodyContent, tempCtx);
   ctx.usedPackages = tempCtx.usedPackages;
@@ -450,6 +478,8 @@ export async function convertDocxToLatex(buffer, options = {}) {
 /**
  * Detect patterns like "Author et al. \cite{AuthorYear}" and replace with \citet{}.
  * Also handles "Author and Other \cite{}", "Author, Other and Third \cite{}", etc.
+ * @param {any} latex
+ * @param {any} bibEntries
  */
 function deduplicateCiteAuthors(latex, bibEntries) {
   if (!bibEntries || bibEntries.size === 0) return latex;
@@ -476,11 +506,11 @@ function deduplicateCiteAuthors(latex, bibEntries) {
   // We process each \cite{...} occurrence and look back for author text
   return latex.replace(
     /([A-ZÀ-ÖØ-öø-ÿĀ-žǍ-ǜ][A-Za-zÀ-ÖØ-öø-ÿĀ-žǍ-ǜ'-]+(?:\s+(?:et\s+al\.?|and\s+[A-ZÀ-ÖØ-öø-ÿĀ-žǍ-ǜ][A-Za-zÀ-ÖØ-öø-ÿĀ-žǍ-ǜ'-]+(?:\s+and\s+[A-ZÀ-ÖØ-öø-ÿĀ-žǍ-ǜ][A-Za-zÀ-ÖØ-öø-ÿĀ-žǍ-ǜ'-]+)*))?)\s*\\cite\{([^}]+)\}/g,
-    (match, authorText, citeKeys) => {
-      const keys = citeKeys.split(',').map(k => k.trim());
+    (/** @type {string} */ match, /** @type {string} */ authorText, /** @type {string} */ citeKeys) => {
+      const keys = citeKeys.split(',').map((/** @type {string} */ k) => k.trim());
       // Check if the preceding author text matches any of the cited authors
       const authorTextClean = authorText.replace(/\\emph\{([^}]*)\}/g, '$1').trim();
-      const matchesAuthor = keys.some(key => {
+      const matchesAuthor = keys.some((/** @type {string} */ key) => {
         const surname = keyToSurname.get(key);
         if (!surname) return false;
         return authorTextClean.startsWith(surname);
@@ -503,6 +533,8 @@ function deduplicateCiteAuthors(latex, bibEntries) {
  *   {\fontsize{24}{29}\selectfont \textbf{supporting}}
  *
  * Also merges adjacent \textbf{}, \emph{}, \textsc{} with no intervening content.
+ * @param {any} latex
+ * @param {any} skipFormattingMerge
  */
 function mergeAdjacentFontSizeRuns(latex, skipFormattingMerge) {
   // Merge adjacent {\fontsize{X}{Y}\selectfont CONTENT} blocks with same size
@@ -539,6 +571,7 @@ function mergeAdjacentFontSizeRuns(latex, skipFormattingMerge) {
 /**
  * Find and merge one pair of adjacent fontsize blocks with identical sizes.
  * Returns the modified string, or the original if no merge was possible.
+ * @param {any} latex
  */
 function mergeOneFontSizePair(latex) {
   // Pattern: {\fontsize{N}{M}\selectfont CONTENT}{\fontsize{N}{M}\selectfont CONTENT}
@@ -586,12 +619,13 @@ function mergeOneFontSizePair(latex) {
 
 /**
  * Prettify generated LaTeX: normalize blank lines, indent environments, trim trailing whitespace.
+ * @param {any} latex
  */
 export function prettifyLatex(latex) {
   let lines = latex.split('\n');
 
   // 1. Trim trailing whitespace from each line
-  lines = lines.map(l => l.replace(/\s+$/, ''));
+  lines = lines.map((/** @type {string} */ l) => l.replace(/\s+$/, ''));
 
   // 2. Collapse 3+ consecutive blank lines down to 2
   const collapsed = [];
@@ -666,6 +700,11 @@ export function prettifyLatex(latex) {
 // generous for these — real-world auxiliary parts are kilobytes.
 const MAX_OOXML_PART_BYTES = 10 * 1024 * 1024;
 
+/**
+ * @param {any} zip
+ * @param {any} parser
+ * @param {any} path
+ */
 function parseXml(zip, parser, path) {
   const entry = zip.getEntry(path);
   if (!entry) return null;
@@ -675,19 +714,30 @@ function parseXml(zip, parser, path) {
   catch { return null; }
 }
 
-/** Find first child object with given key in a preserveOrder array. */
+/**
+ * Find first child object with given key in a preserveOrder array.
+ * @param {any} arr
+ * @param {any} key
+ */
 function findChild(arr, key) {
   if (!Array.isArray(arr)) return null;
   return arr.find(el => el[key]) || null;
 }
 
-/** Find all child objects with given key. */
+/**
+ * Find all child objects with given key.
+ * @param {any} arr
+ * @param {any} key
+ */
 function findChildren(arr, key) {
   if (!Array.isArray(arr)) return [];
   return arr.filter(el => el[key]);
 }
 
-/** Get attributes from a preserveOrder element. */
+/**
+ * Get attributes from a preserveOrder element.
+ * @param {any} el
+ */
 function attrs(el) {
   return el?.[':@'] || {};
 }
@@ -704,6 +754,8 @@ function attrs(el) {
  *   - border object { style, sz, color } if the border is visible
  *   - false if the border element is present but explicitly none/nil
  *   - undefined if the border element is absent (no override)
+ * @param {any} bordersChildren
+ * @param {any} sideName
  */
 function parseBorderSide(bordersChildren, sideName) {
   const el = findChild(bordersChildren, sideName);
@@ -722,6 +774,7 @@ function parseBorderSide(bordersChildren, sideName) {
  * Extract table-level border config from w:tblPr.
  * Returns { top, bottom, left, right, insideH, insideV } where each is
  * a border object or null.
+ * @param {any} tblChildren
  */
 function parseTableBorders(tblChildren) {
   const tblPr = findChild(tblChildren, 'w:tblPr');
@@ -746,6 +799,8 @@ function parseTableBorders(tblChildren) {
 /**
  * Resolve table borders: first check direct w:tblBorders, then fall back to
  * the named table style from styles.xml. `tblChildren` is preserveOrder array.
+ * @param {any} tblChildren
+ * @param {any} ctx
  */
 function resolveTableBorders(tblChildren, ctx) {
   const direct = parseTableBorders(tblChildren);
@@ -770,6 +825,7 @@ function resolveTableBorders(tblChildren, ctx) {
 /**
  * Extract cell-level border overrides from w:tcPr > w:tcBorders.
  * Returns { top, bottom, left, right } or null.
+ * @param {any} tcContent
  */
 function parseCellBorders(tcContent) {
   if (!Array.isArray(tcContent)) return null;
@@ -792,7 +848,13 @@ function parseCellBorders(tcContent) {
 
 // ── Metadata ─────────────────────────────────────────────────────────────────
 
+/**
+ * @param {any} stylesXml
+ * @param {any} docXml
+ * @param {any} docXmlRaw
+ */
 function parseMetadata(stylesXml, docXml, docXmlRaw) {
+  /** @type {any} */
   const meta = { mainFont: '', mainFontSize: '', lineSpacing: '', margins: null, headingStyles: {}, headingStyleNumbered: {}, defaultParSpacing: null };
   if (!stylesXml) return meta;
 
@@ -834,6 +896,7 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
 
     if (type === 'paragraph' && styleId === 'Title') {
       const rPr = style['w:rPr'];
+      /** @type {any} */
       const info = {};
       if (rPr) {
         if (rPr['w:rFonts']?.['@_w:ascii']) info.font = rPr['w:rFonts']['@_w:ascii'];
@@ -846,6 +909,7 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
 
     if (type === 'paragraph' && /^Heading\d$/.test(styleId)) {
       const level = styleId.replace('Heading', '');
+      /** @type {any} */
       const info = {};
       const rPr = style['w:rPr'];
       if (rPr) {
@@ -950,6 +1014,7 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
 
   // If no font size from styles, scan the document body for the most common w:sz
   if (!meta.mainFontSize && docXmlRaw) {
+    /** @type {Record<string, number>} */
     const szCounts = {};
     const szRe = /<w:sz\s+w:val="(\d+)"/g;
     let szm;
@@ -972,6 +1037,7 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
     if (style['@_w:type'] !== 'paragraph') continue;
     const psId = style['@_w:styleId'];
     if (!psId) continue;
+    /** @type {any} */
     const info = {};
     const basedOnVal = style['w:basedOn']?.['@_w:val'];
     if (basedOnVal) info.basedOn = basedOnVal;
@@ -1044,7 +1110,7 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
     const tblPr = style['w:tblPr'];
     if (!tblPr?.['w:tblBorders']) continue;
     const borders = tblPr['w:tblBorders'];
-    const parseSide = (el) => {
+    const parseSide = (/** @type {any} */ el) => {
       if (!el) return undefined;
       const val = el['@_w:val'] || '';
       if (!val || val === 'none' || val === 'nil') return false;
@@ -1063,6 +1129,9 @@ function parseMetadata(stylesXml, docXml, docXmlRaw) {
   return meta;
 }
 
+/**
+ * @param {any} body
+ */
 function findSectPrInParagraphs(body) {
   if (!body) return null;
   for (const p of asArray(body['w:p']).reverse()) {
@@ -1076,6 +1145,7 @@ function findSectPrInParagraphs(body) {
  * Returns { segments: string[], hasPageNum: boolean } for each non-empty paragraph,
  * where segments are split by tabs (typically [left, center, right]).
  * The combined result is an array of paragraph objects.
+ * @param {any} xml
  */
 function extractHeaderFooterContent(xml) {
   if (!xml) return [];
@@ -1124,6 +1194,9 @@ function extractHeaderFooterContent(xml) {
 
 // ── Relationships ────────────────────────────────────────────────────────────
 
+/**
+ * @param {any} relsXml
+ */
 function parseRelationships(relsXml) {
   const map = new Map();
   if (!relsXml) return map;
@@ -1146,6 +1219,9 @@ function parseRelationships(relsXml) {
 
 // ── Numbering ────────────────────────────────────────────────────────────────
 
+/**
+ * @param {any} numberingXml
+ */
 function parseNumbering(numberingXml) {
   const result = { abstracts: new Map(), nums: new Map() };
   if (!numberingXml?.['w:numbering']) return result;
@@ -1165,6 +1241,11 @@ function parseNumbering(numberingXml) {
   return result;
 }
 
+/**
+ * @param {any} numbering
+ * @param {any} numId
+ * @param {any} ilvl
+ */
 function getListType(numbering, numId, ilvl) {
   const absId = numbering.nums.get(numId);
   const levels = absId ? numbering.abstracts.get(absId) : null;
@@ -1174,6 +1255,12 @@ function getListType(numbering, numId, ilvl) {
 
 // ── Footnotes / Endnotes ─────────────────────────────────────────────────────
 
+/**
+ * @param {any} footnotesXml
+ * @param {any} rels
+ * @param {any} numbering
+ * @param {any} metadata
+ */
 function parseFootnotes(footnotesXml, rels, numbering, metadata) {
   const map = new Map();
   if (!footnotesXml?.['w:footnotes']) return map;
@@ -1191,6 +1278,12 @@ function parseFootnotes(footnotesXml, rels, numbering, metadata) {
   return map;
 }
 
+/**
+ * @param {any} endnotesXml
+ * @param {any} rels
+ * @param {any} numbering
+ * @param {any} metadata
+ */
 function parseEndnotes(endnotesXml, rels, numbering, metadata) {
   const map = new Map();
   if (!endnotesXml?.['w:endnotes']) return map;
@@ -1213,6 +1306,7 @@ function parseEndnotes(endnotesXml, rels, numbering, metadata) {
 /**
  * Check if a preserveOrder sectPr element specifies landscape orientation.
  * In preserveOrder mode, w:sectPr children are an array of element wrappers.
+ * @param {any} sectPrChildren
  */
 function isSectPrLandscape(sectPrChildren) {
   if (!Array.isArray(sectPrChildren)) return false;
@@ -1224,6 +1318,7 @@ function isSectPrLandscape(sectPrChildren) {
 /**
  * Extract the section break type from a preserveOrder sectPr element.
  * Returns 'oddPage', 'evenPage', 'nextPage', 'continuous', or 'nextPage' (default).
+ * @param {any} sectPrChildren
  */
 function getSectPrBreakType(sectPrChildren) {
   if (!Array.isArray(sectPrChildren)) return 'nextPage';
@@ -1240,6 +1335,7 @@ function getSectPrBreakType(sectPrChildren) {
  *
  * OOXML rule: w:sectPr inside w:pPr describes the section that ENDS at that
  * paragraph. The body-level w:sectPr describes the final section.
+ * @param {any} children
  */
 function scanLandscapeSections(children) {
   if (!Array.isArray(children)) return null;
@@ -1312,10 +1408,14 @@ function scanLandscapeSections(children) {
 
 // ── Body emission (preserveOrder) ────────────────────────────────────────────
 
+/**
+ * @param {any} children
+ * @param {any} ctx
+ */
 function emitOrderedBody(children, ctx) {
   if (!Array.isArray(children)) return;
   const landscape = scanLandscapeSections(children);
-  if (landscape?.starts.size > 0) ctx.usedPackages.add('pdflscape');
+  if ((landscape?.starts.size ?? 0) > 0) ctx.usedPackages.add('pdflscape');
 
   // Pre-scan: identify Caption paragraphs that will be consumed by lookahead
   const consumedIndices = new Set();
@@ -1488,6 +1588,11 @@ function emitOrderedBody(children, ctx) {
 
 // ── Paragraph (preserveOrder) ────────────────────────────────────────────────
 
+/**
+ * @param {any} pChildren
+ * @param {any} pAttrs
+ * @param {any} ctx
+ */
 function emitParagraphOrdered(pChildren, pAttrs, ctx) {
   if (!Array.isArray(pChildren)) return;
 
@@ -1624,11 +1729,11 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
       // Check if there are any delete TCs within this paragraph range.
       // If so, the paragraph has mixed old/new text and we need gap-filling.
       // If not, the entire paragraph is new and we can use a single TC.
-      const hasDeletes = ctx.trackedChanges.some(tc =>
+      const hasDeletes = ctx.trackedChanges.some((/** @type {any} */ tc) =>
         tc.type === 'delete' && tc.from >= inlineStart && tc.to <= inlineEnd);
       if (!hasDeletes) {
         // Pure insertion — remove inline insert TCs and use a single paragraph TC
-        const before = ctx.trackedChanges.filter(tc =>
+        const before = ctx.trackedChanges.filter((/** @type {any} */ tc) =>
           !(tc.type === 'insert' && tc.from >= inlineStart && tc.to <= inlineEnd));
         ctx.trackedChanges.length = 0;
         ctx.trackedChanges.push(...before);
@@ -1944,6 +2049,7 @@ function emitParagraphOrdered(pChildren, pAttrs, ctx) {
 
 /** Strip {\fontspec{Name}...} wrappers, keeping the inner content. Used
  *  to keep heading content clean — fontspec on a section title is loud
+ * @param {any} str
  *  and almost never what the LaTeX user wants. */
 function stripInlineFontspec(str) {
   let result = str;
@@ -1977,7 +2083,10 @@ function stripInlineFontspec(str) {
 }
 
 /** Extract text written since position `from` by removing it from the buffer end. */
-/** Strip {\fontsize{N}{M}\selectfont ...} wrappers, keeping the inner content. */
+/**
+ * Strip {\fontsize{N}{M}\selectfont ...} wrappers, keeping the inner content.
+ * @param {any} str
+ */
 function stripFontsizeWrappers(str) {
   let result = str;
   let idx;
@@ -2003,6 +2112,10 @@ function stripFontsizeWrappers(str) {
   return result;
 }
 
+/**
+ * @param {any} buf
+ * @param {any} from
+ */
 function extractSince(buf, from) {
   // Reconstruct what was written since `from`
   const full = buf.toString();
@@ -2013,7 +2126,12 @@ function extractSince(buf, from) {
   return content;
 }
 
-/** After extractSince + re-write with a prefix, shift tracked change positions that fall in the extracted range. */
+/**
+ * After extractSince + re-write with a prefix, shift tracked change positions that fall in the extracted range.
+ * @param {any} ctx
+ * @param {any} rangeStart
+ * @param {any} prefixLen
+ */
 function adjustTrackedChangePositions(ctx, rangeStart, prefixLen) {
   for (const tc of ctx.trackedChanges) {
     if (tc.from >= rangeStart) {
@@ -2030,6 +2148,9 @@ function adjustTrackedChangePositions(ctx, rangeStart, prefixLen) {
  * Builds a character-level position map from oldLatex to newLatex using a two-pointer scan.
  * Since the merge only removes characters (never inserts or reorders), every character in
  * newLatex has a unique source position in oldLatex, preserving relative order.
+ * @param {any} trackedChanges
+ * @param {any} oldLatex
+ * @param {any} newLatex
  */
 function remapTrackedChangePositions(trackedChanges, oldLatex, newLatex) {
   // Build old→new position map via two-pointer scan
@@ -2047,6 +2168,9 @@ function remapTrackedChangePositions(trackedChanges, oldLatex, newLatex) {
   map[oldLatex.length] = newLatex.length;
 
   // Snap a position forward to the next surviving character
+  /**
+   * @param {any} pos
+   */
   function remapPos(pos) {
     if (pos >= map.length) return newLatex.length;
     if (map[pos] !== -1) return map[pos];
@@ -2067,6 +2191,10 @@ function remapTrackedChangePositions(trackedChanges, oldLatex, newLatex) {
 
 // ── Inline content (preserveOrder) ───────────────────────────────────────────
 
+/**
+ * @param {any} pChildren
+ * @param {any} ctx
+ */
 function emitInlineContentOrdered(pChildren, ctx) {
   if (!Array.isArray(pChildren)) return;
 
@@ -2267,6 +2395,11 @@ function emitInlineContentOrdered(pChildren, ctx) {
 
 // ── Run emission (preserveOrder) ─────────────────────────────────────────────
 
+/**
+ * @param {any} rChildren
+ * @param {any} rAttrs
+ * @param {any} ctx
+ */
 function emitRunOrdered(rChildren, rAttrs, ctx) {
   if (!Array.isArray(rChildren)) return;
 
@@ -2407,7 +2540,12 @@ function emitRunOrdered(rChildren, rAttrs, ctx) {
   ctx.buf.write(text);
 }
 
-/** Emit a deletion run (uses w:delText). */
+/**
+ * Emit a deletion run (uses w:delText).
+ * @param {any} rChildren
+ * @param {any} rAttrs
+ * @param {any} ctx
+ */
 function emitRunDeletionOrdered(rChildren, rAttrs, ctx) {
   if (!Array.isArray(rChildren)) return;
 
@@ -2443,6 +2581,10 @@ function emitRunDeletionOrdered(rChildren, rAttrs, ctx) {
 
 // ── Inline content (regular parsed format, for footnotes) ────────────────────
 
+/**
+ * @param {any} p
+ * @param {any} ctx
+ */
 function emitInlineContentParsed(p, ctx) {
   for (const r of asArray(p['w:r'])) {
     emitRunParsed(r, ctx);
@@ -2464,6 +2606,10 @@ function emitInlineContentParsed(p, ctx) {
   }
 }
 
+/**
+ * @param {any} r
+ * @param {any} ctx
+ */
 function emitRunParsed(r, ctx) {
   const rPr = r['w:rPr'];
   const bold = boolProp(rPr, 'w:b');
@@ -2491,6 +2637,11 @@ function emitRunParsed(r, ctx) {
 
 // ── Hyperlinks (preserveOrder) ───────────────────────────────────────────────
 
+/**
+ * @param {any} hlChildren
+ * @param {any} hlAttrs
+ * @param {any} ctx
+ */
 function emitHyperlinkOrdered(hlChildren, hlAttrs, ctx) {
   const rId = hlAttrs['@_r:id'];
   const rel = ctx.rels.get(rId);
@@ -2512,6 +2663,10 @@ function emitHyperlinkOrdered(hlChildren, hlAttrs, ctx) {
 
 // ── Image emission ───────────────────────────────────────────────────────────
 
+/**
+ * @param {any} drawing
+ * @param {any} ctx
+ */
 function emitDrawing(drawing, ctx) {
   ctx.usedPackages.add('graphicx');
   const blipId = findDeep(drawing, '@_r:embed');
@@ -2543,6 +2698,11 @@ function emitDrawing(drawing, ctx) {
   return `\\includegraphics[${widthOpt}]{${target}}`;
 }
 
+/**
+ * @param {any} obj
+ * @param {string} key
+ * @returns {any}
+ */
 function findDeep(obj, key) {
   if (!obj || typeof obj !== 'object') return null;
   if (obj[key] != null) return obj[key];
@@ -2566,7 +2726,7 @@ function findDeep(obj, key) {
 
 /**
  * Extract column widths (in inches) from `w:tblGrid`/`w:gridCol`.
- * @param {Array} tblChildren - ordered children of a `w:tbl` element.
+ * @param {any[]} tblChildren - ordered children of a `w:tbl` element.
  * @returns {number[]} array of column widths in inches; empty if none defined.
  */
 function parseTableGrid(tblChildren) {
@@ -2587,8 +2747,8 @@ function parseTableGrid(tblChildren) {
 /**
  * Pre-parse all rows of a table: cell content, gridSpan, vMerge, text rotation,
  * alignment, borders, plus per-row height/header markers.
- * @param {Array} rowChildren - array of `w:tr` wrapper objects from `findChildren`.
- * @returns {Array<{cells: Array, rowHeight: ({twips:number,rule:string}|null), isHeader: boolean}>}
+ * @param {any[]} rowChildren - array of `w:tr` wrapper objects from `findChildren`.
+ * @returns {Array<{cells: any[], rowHeight: ({twips:number,rule:string}|null), isHeader: boolean}>}
  *   one entry per row; `cells` is an array of
  *   `{tcContent, gridSpan, vMerge, textRotation, borders, align}`.
  */
@@ -2672,7 +2832,7 @@ function parseTableRows(rowChildren) {
 /**
  * For each `vMerge: 'restart'` cell, compute how many subsequent rows continue
  * the merge at the same grid column, and stamp `vMergeSpan` onto that cell.
- * @param {Array} parsedRows - output of `parseTableRows`; mutated in place.
+ * @param {any[]} parsedRows - output of `parseTableRows`; mutated in place.
  * @returns {boolean} true if any merge with span > 1 exists (caller should add `multirow` package).
  */
 function computeVMergeSpans(parsedRows) {
@@ -2710,19 +2870,20 @@ function computeVMergeSpans(parsedRows) {
  * is long enough to overflow, otherwise uses majority-vote alignment letters.
  * @param {object} args
  * @param {number[]} args.colWidths - DOCX grid widths in inches (may be empty).
- * @param {Array} args.parsedRows - rows from `parseTableRows`.
+ * @param {any[]} args.parsedRows - rows from `parseTableRows`.
  * @param {number} args.numCols - resolved column count.
  * @param {boolean} args.hasLeft
  * @param {boolean} args.hasRight
  * @param {boolean} args.hasInsideV
  * @param {boolean} args.inLandscape
- * @param {object|null} args.margins - `{left, right}` in inches, or null.
+ * @param {{ left: number, right: number } | null} args.margins - `{left, right}` in inches, or null.
  * @returns {{colSpec: string, colWidthsCm: (number[]|null), colBaseAlign: string[]}}
  */
 function buildColumnSpec({ colWidths, parsedRows, numCols, hasLeft, hasRight, hasInsideV, inLandscape, margins }) {
   // Determine base alignment per column: majority alignment from data cells
   const colBaseAlign = Array(numCols).fill('l');
   for (let ci = 0; ci < numCols; ci++) {
+    /** @type {Record<string, number>} */
     const counts = { l: 0, c: 0, r: 0 };
     for (const row of parsedRows) {
       let col = 0;
@@ -2825,7 +2986,7 @@ function buildColumnSpec({ colWidths, parsedRows, numCols, hasLeft, hasRight, ha
  * Estimate the rendered table height (in points) by summing per-row height
  * estimates derived from text length and per-column wrap width.
  * @param {object} args
- * @param {Array} args.parsedRows - rows from `parseTableRows`.
+ * @param {any[]} args.parsedRows - rows from `parseTableRows`.
  * @param {number} args.dataRowCount - number of rows to count (excludes any caption row).
  * @param {(number[]|null)} args.colWidthsCm - resolved column widths in cm, or null.
  * @param {number[]} args.colWidths - raw DOCX column widths in inches (fallback).
@@ -2883,10 +3044,10 @@ function estimateTableHeight({ parsedRows, dataRowCount, colWidthsCm, colWidths,
  * as a string, or '' to use the document default).
  * Samples the first non-merged cell of the first body row.
  * @param {object} args
- * @param {Array} args.parsedRows
+ * @param {any[]} args.parsedRows
  * @param {number} args.headerRowCount
  * @param {number} args.tableFontPt
- * @param {object} args.metadata - `ctx.metadata`; uses `lineSpacing` and `styleLineSpacing`.
+ * @param {any} args.metadata - `ctx.metadata`; uses `lineSpacing` and `styleLineSpacing`.
  * @returns {string} stretch ratio formatted to 1-2 decimals, or '' if none.
  */
 function detectTableLineSpacing({ parsedRows, headerRowCount, tableFontPt, metadata }) {
@@ -2942,6 +3103,12 @@ function detectTableLineSpacing({ parsedRows, headerRowCount, tableFontPt, metad
   return '';
 }
 
+/**
+ * @param {any} tblChildren
+ * @param {any} ctx
+ * @param {any} externalCaptionPChildren
+ * @param {any} captionPosition
+ */
 function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, captionPosition = 'below') {
   if (!Array.isArray(tblChildren)) return;
 
@@ -3071,6 +3238,8 @@ function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, cap
    * specifies a visible border. If both specify, the wider one wins;
    * if equal, the top cell wins. We simplify: visible if either says so,
    * falling back to the table-level insideH (or top/bottom for edges).
+   * @param {any} ri
+   * @param {any} gc
    */
   function resolveHBorder(ri, gc) {
     // Find which cell covers gc in row ri (bottom side)
@@ -3088,7 +3257,12 @@ function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, cap
     return hasInsideH;
   }
 
-  /** Get a cell's border for a given grid column. Returns border obj, false, or undefined. */
+  /**
+   * Get a cell's border for a given grid column. Returns border obj, false, or undefined.
+   * @param {any} ri
+   * @param {any} gc
+   * @param {any} side
+   */
   function getCellBorderAtCol(ri, gc, side) {
     if (ri < 0 || ri >= parsedRows.length) return undefined;
     const row = parsedRows[ri];
@@ -3102,7 +3276,11 @@ function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, cap
     return undefined;
   }
 
-  /** Resolve vertical border between column gc-1 and gc in row ri. */
+  /**
+   * Resolve vertical border between column gc-1 and gc in row ri.
+   * @param {any} ri
+   * @param {any} gc
+   */
   function resolveVBorder(ri, gc) {
     if (gc === 0) {
       // Left edge — check cell left override, fallback to table left
@@ -3208,7 +3386,7 @@ function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, cap
   if (useLongtable) ctx.usedPackages.add('longtable');
 
   // Helper: emit a single data row
-  const emitRow = (ri) => {
+  const emitRow = (/** @type {number} */ ri) => {
     const row = parsedRows[ri];
     const cellParts = [];
     let colIdx = 0;
@@ -3403,7 +3581,11 @@ function emitTableOrdered(tblChildren, ctx, externalCaptionPChildren = null, cap
   ctx.buf.write('\n');
 }
 
-/** Emit \\cline commands for partial horizontal borders. */
+/**
+ * Emit \\cline commands for partial horizontal borders.
+ * @param {any} borderArray
+ * @param {any} ctx
+ */
 function emitClines(borderArray, ctx) {
   let ci = 0;
   while (ci < borderArray.length) {
@@ -3417,6 +3599,9 @@ function emitClines(borderArray, ctx) {
   }
 }
 
+/**
+ * @param {any} rowChildren
+ */
 function guessNumColsOrdered(rowChildren) {
   let maxCols = 0;
   for (const rowWrapper of rowChildren) {
@@ -3444,6 +3629,11 @@ function guessNumColsOrdered(rowChildren) {
 
 // ── List handling ────────────────────────────────────────────────────────────
 
+/**
+ * @param {any} ctx
+ * @param {any} listType
+ * @param {any} depth
+ */
 function handleListItem(ctx, listType, depth) {
   while (ctx.listStack.length > depth + 1) {
     ctx.buf.write(`\\end{${ctx.listStack.pop()}}\n`);
@@ -3457,13 +3647,19 @@ function handleListItem(ctx, listType, depth) {
   }
 }
 
+/**
+ * @param {any} ctx
+ */
 function closeAllLists(ctx) {
   while (ctx.listStack.length > 0) {
     ctx.buf.write(`\\end{${ctx.listStack.pop()}}\n`);
   }
 }
 
-/** Map TOC/LoF/LoT heading text to a LaTeX command replacement. */
+/**
+ * Map TOC/LoF/LoT heading text to a LaTeX command replacement.
+ * @param {any} plainText
+ */
 function getTocReplacementCommand(plainText) {
   if (/table\s*of\s*contents/i.test(plainText)) {
     return '\\begin{spacing}{1}\\tableofcontents\\end{spacing}\n\n';
@@ -3480,6 +3676,9 @@ function getTocReplacementCommand(plainText) {
 
 // ── Heading ──────────────────────────────────────────────────────────────────
 
+/**
+ * @param {any} styleId
+ */
 function getHeadingLevel(styleId) {
   if (!styleId) return 0;
   // Match Heading1, Heading1NoChapNo, Heading1PreTOC, etc.
@@ -3487,7 +3686,10 @@ function getHeadingLevel(styleId) {
   return m ? parseInt(m[1]) : 0;
 }
 
-/** Style IDs that represent TOC/LoF/LoT entries (should be skipped). */
+/**
+ * Style IDs that represent TOC/LoF/LoT entries (should be skipped).
+ * @param {any} styleId
+ */
 function isTocStyle(styleId) {
   return /^(TOC\d|TableofFigures)$/i.test(styleId);
 }
@@ -3495,13 +3697,17 @@ function isTocStyle(styleId) {
 /** Style IDs that represent block quotes. Recognises Words built-in
  *  quote styles plus common author conventions (PullQuote, BlockQuote,
  *  Aside, Epigraph, …). Whitespace and hyphens are tolerated, matching
+ * @param {any} styleId
  *  is case-insensitive. All map to \begin{quotation} on the LaTeX side. */
 function isQuoteStyle(styleId) {
   if (!styleId) return false;
   return /^(?:Block ?-? ?Quote|Intense ?-? ?Quote|Pull ?-? ?Quote|Quote|Quotation|QuoteTempStyle|paperquote|Aside|Epigraph)$/i.test(styleId);
 }
 
-/** Style IDs that represent verse / line-broken poetry. */
+/**
+ * Style IDs that represent verse / line-broken poetry.
+ * @param {any} styleId
+ */
 function isVerseStyle(styleId) {
   if (!styleId) return false;
   return /^(?:Verse|Poetry|Poem)$/i.test(styleId);
@@ -3509,12 +3715,16 @@ function isVerseStyle(styleId) {
 
 /** Style IDs that represent monospace / code blocks. Matches common
  *  author conventions; the inline-font heuristic in resolveCodeBlock
+ * @param {any} styleId
  *  catches the rest. */
 function isCodeStyle(styleId) {
   if (!styleId) return false;
   return /^(?:Code|CodeBlock|SourceCode|Listing|Preformatted|Verbatim|HTMLPreformatted)$/i.test(styleId);
 }
 
+/**
+ * @param {any} styleId
+ */
 function isTitleStyle(styleId) {
   if (!styleId) return false;
   return /^(Title|Subtitle)$/i.test(styleId);
@@ -3522,12 +3732,18 @@ function isTitleStyle(styleId) {
 
 // ── Caption style helpers ─────────────────────────────────────────────────────
 
-/** Check if a style ID is a Caption style. */
+/**
+ * Check if a style ID is a Caption style.
+ * @param {any} styleId
+ */
 function isCaptionStyle(styleId) {
   return /^Caption$/i.test(styleId);
 }
 
-/** Extract paragraph style ID from preserveOrder paragraph children. */
+/**
+ * Extract paragraph style ID from preserveOrder paragraph children.
+ * @param {any} pChildren
+ */
 function getParagraphStyleId(pChildren) {
   if (!Array.isArray(pChildren)) return '';
   const pPrChild = findChild(pChildren, 'w:pPr');
@@ -3539,7 +3755,10 @@ function getParagraphStyleId(pChildren) {
   return '';
 }
 
-/** Check if a preserveOrder paragraph contains an image (w:drawing). */
+/**
+ * Check if a preserveOrder paragraph contains an image (w:drawing).
+ * @param {any} pChildren
+ */
 function paragraphHasImage(pChildren) {
   if (!Array.isArray(pChildren)) return false;
   for (const child of pChildren) {
@@ -3553,32 +3772,43 @@ function paragraphHasImage(pChildren) {
   return false;
 }
 
-/** Find the next table (w:tbl) index starting from `from`. Skips empty paragraphs. */
+/**
+ * Find the next table (w:tbl) index starting from `from`. Skips empty paragraphs.
+ * @param {any} children
+ * @param {any} from
+ */
 function findNextTableIndex(children, from) {
   for (let i = from; i < children.length && i < from + 3; i++) {
     if (children[i]['w:tbl']) return i;
     if (!children[i]['w:p']) break; // stop at non-paragraph/non-table
     // Allow skipping empty paragraphs between caption and table
-    const hasContent = children[i]['w:p']?.some?.(c => c['w:r']);
+    const hasContent = children[i]['w:p']?.some?.((/** @type {any} */ c) => c['w:r']);
     if (hasContent) break; // non-empty paragraph — no table follows
   }
   return -1;
 }
 
-/** Find the next Caption paragraph index starting from `from`. Skips empty paragraphs. */
+/**
+ * Find the next Caption paragraph index starting from `from`. Skips empty paragraphs.
+ * @param {any} children
+ * @param {any} from
+ */
 function findNextCaptionIndex(children, from) {
   for (let i = from; i < children.length && i < from + 3; i++) {
     if (!children[i]['w:p']) break; // stop at non-paragraph
     const styleId = getParagraphStyleId(children[i]['w:p']);
     if (isCaptionStyle(styleId)) return i;
     // Allow skipping one empty paragraph between image/table and caption
-    const hasContent = children[i]['w:p']?.some?.(c => c['w:r']);
+    const hasContent = children[i]['w:p']?.some?.((/** @type {any} */ c) => c['w:r']);
     if (hasContent && !isCaptionStyle(styleId)) break;
   }
   return -1;
 }
 
-/** Strip "Figure 1-1." or "Table 3." prefix from caption text (handles compound numbers). */
+/**
+ * Strip "Figure 1-1." or "Table 3." prefix from caption text (handles compound numbers).
+ * @param {any} text
+ */
 function stripCaptionPrefix(text) {
   if (!text) return text;
   // Handle \textbf-wrapped fragments: \textbf{Table }\textbf{1}\textbf{-}\textbf{1}\textbf{. }
@@ -3600,6 +3830,7 @@ function stripCaptionPrefix(text) {
  * Build a \caption command. If the text contains fragile commands (\cite, \ref,
  * etc.) that break when written to .lof/.lot, emit \caption[short]{long} with
  * a sanitized short caption for the list entries.
+ * @param {any} text
  */
 function buildCaption(text) {
   if (!text) return '';
@@ -3623,7 +3854,12 @@ function buildCaption(text) {
   return `\\caption{${text}}`;
 }
 
-/** Emit a standalone figure (image paragraph + caption paragraph). */
+/**
+ * Emit a standalone figure (image paragraph + caption paragraph).
+ * @param {any} imgPChildren
+ * @param {any} captionPChildren
+ * @param {any} ctx
+ */
 function emitStandaloneFigure(imgPChildren, captionPChildren, ctx) {
   ctx.buf.write('\n\\begin{figure}[htbp]\n\\centering\n');
   // Emit image
@@ -3644,7 +3880,10 @@ function emitStandaloneFigure(imgPChildren, captionPChildren, ctx) {
 
 // ── Text extraction helpers ──────────────────────────────────────────────────
 
-/** Extract text content from a preserveOrder element's children array. */
+/**
+ * Extract text content from a preserveOrder element's children array.
+ * @param {any} elemChildren
+ */
 function getPreserveOrderText(elemChildren) {
   if (!Array.isArray(elemChildren)) {
     if (typeof elemChildren === 'string') return elemChildren;
@@ -3663,6 +3902,8 @@ function getPreserveOrderText(elemChildren) {
 /**
  * Parse EndNote citation XML from a field instruction text.
  * Returns array of cite keys. Adds bib entries to ctx.bibEntries.
+ * @param {any} instrText
+ * @param {any} ctx
  */
 function parseEndNoteCitations(instrText, ctx) {
   const xmlMatch = instrText.match(/<EndNote>([\s\S]*)<\/EndNote>/);
@@ -3687,6 +3928,7 @@ function parseEndNoteCitations(instrText, ctx) {
   } catch { return []; }
 
   const cites = asArray(parsed?.EndNote?.Cite);
+  /** @type {Array<any>} */
   const keys = [];
 
   for (const cite of cites) {
@@ -3765,13 +4007,14 @@ function parseEndNoteCitations(instrText, ctx) {
  * - Single citation with pages: \cite[p.~175]{key}
  * - Multiple citations, none with pages: \cite{key1,key2}
  * - Multiple citations, some with pages: emit separate \cite commands
+ * @param {any} citeInfos
  */
 function buildCiteCommand(citeInfos) {
   if (citeInfos.length === 0) return '';
   // If no citations have pages, emit a single \cite{key1,key2,...}
-  const anyPages = citeInfos.some(c => c.pages);
+  const anyPages = citeInfos.some((/** @type {any} */ c) => c.pages);
   if (!anyPages) {
-    return `\\cite{${citeInfos.map(c => c.key).join(',')}}`;
+    return `\\cite{${citeInfos.map((/** @type {any} */ c) => c.key).join(',')}}`;
   }
   // If single citation with pages
   if (citeInfos.length === 1) {
@@ -3795,7 +4038,10 @@ function buildCiteCommand(citeInfos) {
   return parts.join('');
 }
 
-/** Extract text from an EndNote XML field that may be a string or an object with #text. */
+/**
+ * Extract text from an EndNote XML field that may be a string or an object with #text.
+ * @param {any} val
+ */
 function extractTextField(val) {
   if (val == null) return '';
   if (typeof val === 'string') return val;
@@ -3804,11 +4050,15 @@ function extractTextField(val) {
   return '';
 }
 
-/** Generate .bib file content from collected bib entries. */
+/**
+ * Generate .bib file content from collected bib entries.
+ * @param {any} bibEntries
+ */
 function generateBibContent(bibEntries) {
   if (!bibEntries || bibEntries.size === 0) return '';
   // Escape special BibTeX characters in field values
-  const esc = (v) => v ? v.replace(/&/g, '\\&') : v;
+  const esc = (/** @type {string | undefined} */ v) => v ? v.replace(/&/g, '\\&') : v;
+  /** @type {string[]} */
   const lines = [];
   for (const [key, entry] of bibEntries) {
     lines.push(`@${entry.type}{${key},`);
@@ -3834,6 +4084,11 @@ function generateBibContent(bibEntries) {
 // preserve the docxs font, the alias map should be restored at the
 // same time as the fontspec line.
 
+/**
+ * @param {any} metadata
+ * @param {any} usedPackages
+ * @param {any} docClass
+ */
 function buildPreamble(metadata, usedPackages, docClass = 'article') {
   const lines = [];
   let fontOpt = '12pt';
@@ -3904,13 +4159,13 @@ function buildPreamble(metadata, usedPackages, docClass = 'article') {
     lines.push('\\fancyhf{}'); // clear defaults
 
     // Helper: convert structured paragraphs to fancyhdr commands
-    const emitHFCommands = (paragraphs, prefix, indent) => {
+    const emitHFCommands = (/** @type {any[]} */ paragraphs, /** @type {string} */ prefix, /** @type {string} */ indent) => {
       if (!paragraphs || paragraphs.length === 0) return;
       for (const para of paragraphs) {
-        const segs = para.segments.map(s => {
+        const segs = para.segments.map((/** @type {string} */ s) => {
           // Escape text but preserve \thepage
           return s.replace(/\\thepage/g, '\x00TP\x00')
-            .replace(/[&%$#_{}~^\\]/g, ch => LATEX_ESCAPE_MAP[ch] || ch)
+            .replace(/[&%$#_{}~^\\]/g, (/** @type {string} */ ch) => LATEX_ESCAPE_MAP[ch] || ch)
             // eslint-disable-next-line no-control-regex
             .replace(/\x00TP\x00/g, '\\thepage');
         });
