@@ -1,7 +1,10 @@
+// @ts-check
 import React, { useRef, useState } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 
 /** Friendly relative time for the notification dropdown ("3m ago", "2h ago"). */
+/** @param {any} iso */
+/** @param {any} iso */
 function relativeTime(iso) {
   if (!iso) return '';
   const ts = new Date(iso).getTime();
@@ -17,10 +20,11 @@ function relativeTime(iso) {
 }
 
 /** Bell icon in the toolbar with an unread badge and a dropdown listing
+ * @param {any} props
  *  recent @mentions. Clicking a mention navigates to the project. */
 export default function NotificationBell({ mentions, unreadCount, currentProjectId, onOpen, onMarkSeen, onMarkAllSeen, onNavigate }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   useClickOutside(ref, () => setOpen(false), open);
 
   const toggle = () => {
@@ -28,7 +32,7 @@ export default function NotificationBell({ mentions, unreadCount, currentProject
     setOpen((v) => !v);
   };
 
-  const handleClickMention = (m) => {
+  const handleClickMention = (/** @type {any} */ m) => {
     setOpen(false);
     if (!m.seen_at) onMarkSeen?.(m.id);
     onNavigate?.(m);
@@ -62,7 +66,7 @@ export default function NotificationBell({ mentions, unreadCount, currentProject
             <div className="notif-empty">No mentions yet.</div>
           ) : (
             <ul className="notif-list">
-              {mentions.map((m) => (
+              {mentions.map((/** @type {any} */ m) => (
                 <li
                   key={m.id}
                   className={`notif-item ${!m.seen_at ? 'unread' : ''}`}

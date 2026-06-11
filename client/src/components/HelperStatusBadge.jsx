@@ -1,3 +1,4 @@
+// @ts-check
 // HelperStatusBadge: one-line indicator of the helpers state, reused
 // in Account Settings → Compile and Project Settings → Compiler.
 //
@@ -18,6 +19,7 @@ const COLOR_WARN = '#f59e0b';
 const COLOR_FAIL = '#ef4444';
 const COLOR_PENDING = 'var(--text-muted)';
 
+/** @param {any} props */
 export default function HelperStatusBadge({ size = 'normal' }) {
   const { status } = useHelperStatusContext();
   const fontSize = size === 'small' ? 12 : 13;

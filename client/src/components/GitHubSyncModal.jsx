@@ -1,21 +1,25 @@
+// @ts-check
 import React, { useState, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 
-/** Modal for linking a project to a GitHub repository and pushing/pulling changes. */
+/**
+ * Modal for linking a project to a GitHub repository and pushing/pulling changes.
+ * @param {any} props
+ */
 export default function GitHubSyncModal({ projectId, projectName, onClose, onFilesUpdated, onLinkChanged }) {
   const [hasToken, setHasToken] = useState(false);
-  const [link, setLink] = useState(null);
+  const [link, setLink] = useState(/** @type {any} */ (null));
   const [repoMode, setRepoMode] = useState('create'); // 'create' | 'existing'
   const [newRepoName, setNewRepoName] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
-  const [repos, setRepos] = useState(null);
+  const [repos, setRepos] = useState(/** @type {any} */ (null));
   const [repoSearch, setRepoSearch] = useState('');
   const [commitMsg, setCommitMsg] = useState('');
   const [loading, setLoading] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const overlayRef = useRef(null);
+  const overlayRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     if (projectName) {
@@ -31,30 +35,30 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
 
   useEffect(() => {
     get('/api/github/token')
-      .then((r) => r.json())
-      .then((d) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ d) => {
         setHasToken(d.hasToken);
       })
-      .catch((e) => console.warn('Failed to check GitHub token:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to check GitHub token:', e));
     get(`/api/github/link/${projectId}`)
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setLink)
-      .catch((e) => console.warn('Failed to load GitHub link:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load GitHub link:', e));
   }, [projectId]);
 
   /** Fetch the user's GitHub repositories, optionally forcing a refresh. */
-  const fetchRepos = (force) => {
+  const fetchRepos = (/** @type {any} */ force) => {
     if (repos !== null && !force) return;
     setRepos([]);
     get('/api/github/repos')
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         if (Array.isArray(data)) setRepos(data);
       })
-      .catch((e) => console.warn('Failed to load GitHub repos:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load GitHub repos:', e));
   };
 
-  const handleOverlayClick = (e) => {
+  const handleOverlayClick = (/** @type {any} */ e) => {
     if (e.target === overlayRef.current) onClose();
   };
 
@@ -91,13 +95,13 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       onLinkChanged?.(freshData);
       setSuccess(`Created and linked ${repoData.fullName}`);
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading('');
   };
 
   /** Link an existing GitHub repository to the current project. */
-  const linkExisting = async (repo) => {
+  const linkExisting = async (/** @type {any} */ repo) => {
     setError('');
     setLoading('link');
     try {
@@ -115,7 +119,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       onLinkChanged?.(freshData);
       setSuccess('Repository linked');
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading('');
   };
@@ -142,7 +146,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       const linkRes = await get(`/api/github/link/${projectId}`);
       setLink(await linkRes.json());
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading('');
   };
@@ -161,12 +165,12 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       const linkRes = await get(`/api/github/link/${projectId}`);
       setLink(await linkRes.json());
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading('');
   };
 
-  const filteredRepos = repos ? repos.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase())) : [];
+  const filteredRepos = repos ? repos.filter((/** @type {any} */ r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase())) : [];
 
   return (
     <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick}>
@@ -215,8 +219,8 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                   <input
                     placeholder="repository-name"
                     value={newRepoName}
-                    onChange={(e) => setNewRepoName(e.target.value)}
-                    onKeyDown={(e) => {
+                    onChange={(/** @type {any} */ e) => setNewRepoName(e.target.value)}
+                    onKeyDown={(/** @type {any} */ e) => {
                       if (e.key === 'Enter') createAndLink();
                     }}
                     autoFocus
@@ -228,7 +232,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 <label className="github-sync-autosave-toggle">
                   <span className="github-sync-toggle-label">Private repository</span>
                   <span className={`github-sync-switch ${isPrivate ? 'on' : ''}`}>
-                    <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
+                    <input type="checkbox" checked={isPrivate} onChange={(/** @type {any} */ e) => setIsPrivate(e.target.checked)} />
                     <span className="github-sync-switch-slider" />
                   </span>
                 </label>
@@ -247,7 +251,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                       className="github-sync-repo-search"
                       placeholder="Search repositories..."
                       value={repoSearch}
-                      onChange={(e) => setRepoSearch(e.target.value)}
+                      onChange={(/** @type {any} */ e) => setRepoSearch(e.target.value)}
                       autoFocus
                     />
                     <div className="github-sync-repo-list">
@@ -256,7 +260,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                           {repoSearch ? 'No matching repositories' : 'No repositories found'}
                         </div>
                       )}
-                      {filteredRepos.slice(0, 50).map((repo) => (
+                      {filteredRepos.slice(0, 50).map((/** @type {any} */ repo) => (
                         <button
                           key={repo.fullName}
                           className="github-sync-repo-item"
@@ -317,8 +321,8 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
               <input
                 placeholder="Commit message (optional)"
                 value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                onKeyDown={(e) => {
+                onChange={(/** @type {any} */ e) => setCommitMsg(e.target.value)}
+                onKeyDown={(/** @type {any} */ e) => {
                   if (e.key === 'Enter') handlePush();
                 }}
               />

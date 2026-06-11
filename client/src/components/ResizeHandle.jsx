@@ -1,15 +1,19 @@
+// @ts-check
 import React, { useCallback, useRef } from 'react';
 
-/** Draggable vertical resize handle that reports horizontal delta to the parent. */
+/**
+ * Draggable vertical resize handle that reports horizontal delta to the parent.
+ * @param {any} props
+ */
 export default function ResizeHandle({ onResize }) {
   const startXRef = useRef(0);
 
   const onMouseDown = useCallback(
-    (e) => {
+    (/** @type {any} */ e) => {
       e.preventDefault();
       startXRef.current = e.clientX;
 
-      const onMouseMove = (e) => {
+      const onMouseMove = (/** @type {any} */ e) => {
         const delta = e.clientX - startXRef.current;
         startXRef.current = e.clientX;
         onResize(delta);

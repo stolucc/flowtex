@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useRef, useEffect } from 'react';
 import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
@@ -7,9 +8,10 @@ import { HomeIcon } from './Icons.jsx';
 /** Avatar-triggered user menu in the editor toolbar: opens to Account
  *  settings + Sign out. Replaces the standalone log-out icon so the user
  *  has the same access to settings inside a project that they have on the
+ * @param {any} props
  *  dashboard sidebar. */
 function UserMenu({ user, onOpenSettings, onSignOut }) {
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   const [open, setOpen] = useState(false);
   useClickOutside(ref, () => setOpen(false), open);
   useEffect(() => {
@@ -55,9 +57,10 @@ function UserMenu({ user, onOpenSettings, onSignOut }) {
  *  Mirrors UserMenu's pattern (click to open, click-outside / Escape
  *  to close) so the affordance is consistent. The dropdown lets the
  *  user pick Split / Editor only / PDF only, plus a one-shot "Open
+ * @param {any} props
  *  PDF in new tab" action. */
 function LayoutMenu({ layoutMode, onSetLayoutMode, onOpenPdfInNewTab }) {
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   const [open, setOpen] = useState(false);
   useClickOutside(ref, () => setOpen(false), open);
   useEffect(() => {
@@ -108,9 +111,12 @@ function LayoutMenu({ layoutMode, onSetLayoutMode, onOpenPdfInNewTab }) {
   );
 }
 
-/** Generic toolbar dropdown menu that opens on click and follows hover when another menu is already open. */
+/**
+ * Generic toolbar dropdown menu that opens on click and follows hover when another menu is already open.
+ * @param {any} props
+ */
 function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   const open = activeMenu === menuId;
 
   return (
@@ -126,7 +132,7 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
       </button>
       {open && (
         <div className="toolbar-dropdown-menu">
-          {items.map((item, i) =>
+          {items.map((/** @type {any} */ item, /** @type {any} */ i) =>
             item.label === 'separator' ? (
               <div key={i} className="toolbar-dropdown-separator" />
             ) : (
@@ -148,7 +154,10 @@ function DropdownMenu({ label, items, menuId, activeMenu, setActiveMenu }) {
   );
 }
 
-/** Main menu bar with File, Edit, Insert, View, Format, Tools, and Help dropdowns plus collaborator avatars. */
+/**
+ * Main menu bar with File, Edit, Insert, View, Format, Tools, and Help dropdowns plus collaborator avatars.
+ * @param {any} props
+ */
 export default function Toolbar({
   projectName,
   projectId,
@@ -209,12 +218,12 @@ export default function Toolbar({
   onToggleTheme,
   notificationsSlot,
 }) {
-  const zipInputRef = useRef(null);
+  const zipInputRef = useRef(/** @type {any} */ (null));
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(projectName);
-  const inputRef = useRef(null);
-  const [activeMenu, setActiveMenu] = useState(null);
-  const menuBarRef = useRef(null);
+  const inputRef = useRef(/** @type {any} */ (null));
+  const [activeMenu, setActiveMenu] = useState(/** @type {any} */ (null));
+  const menuBarRef = useRef(/** @type {any} */ (null));
 
   useClickOutside(menuBarRef, () => setActiveMenu(null), activeMenu !== null);
 
@@ -355,7 +364,7 @@ export default function Toolbar({
     { label: 'separator' },
     { label: `${githubLink?.autoPush ? '✓ ' : ''}Auto-push to GitHub`, action: onToggleAutoSync, disabled: !githubLink?.linked },
     { label: 'separator' },
-    ...(spellLanguages || []).map((l) => ({
+    ...(spellLanguages || []).map((/** @type {any} */ l) => ({
       label: `${spellLang === l.code ? '✓ ' : '  '}${l.label}`,
       action: () => onSpellLangChange?.(l.code),
     })),
@@ -458,9 +467,9 @@ export default function Toolbar({
             ref={inputRef}
             className="toolbar-title-input"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(/** @type {any} */ e) => setName(e.target.value)}
             onBlur={save}
-            onKeyDown={(e) => {
+            onKeyDown={(/** @type {any} */ e) => {
               if (e.key === 'Enter') save();
               if (e.key === 'Escape') {
                 setName(projectName);
@@ -483,15 +492,15 @@ export default function Toolbar({
       <div className="toolbar-right">
         <div className="toolbar-users">
           {(users || [])
-            .filter((u) => u.id !== currentUser?.id)
-            .map((u) => (
+            .filter((/** @type {any} */ u) => u.id !== currentUser?.id)
+            .map((/** @type {any} */ u) => (
               <span
                 key={u.id || u.name}
                 className={onUserClick ? 'toolbar-avatar-clickable' : ''}
-                onMouseDown={(e) => {
+                onMouseDown={(/** @type {any} */ e) => {
                   if (e.detail > 1) e.preventDefault();
                 }}
-                onClick={(e) => {
+                onClick={(/** @type {any} */ e) => {
                   e.preventDefault();
                   onUserClick && onUserClick(u);
                 }}
@@ -570,7 +579,7 @@ export default function Toolbar({
         type="file"
         accept=".zip"
         style={{ display: 'none' }}
-        onChange={(e) => {
+        onChange={(/** @type {any} */ e) => {
           const file = e.target.files?.[0];
           if (file) onUploadZip?.(file);
           e.target.value = '';

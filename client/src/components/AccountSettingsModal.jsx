@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 import {
@@ -11,6 +12,7 @@ import HelperStatusBadge from './HelperStatusBadge.jsx';
 /** Helper-install guide for the "not detected" state. Detects the
  *  users platform and offers a one-click download to the matching
  *  pre-built binary, with a "build from source" fallback for
+ * @param {any} props
  *  unsupported platforms and dev mode. */
 function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiagnostics }) {
   const [showBuildFromSource, setShowBuildFromSource] = useState(false);
@@ -247,6 +249,7 @@ Common causes:
 
 /** Boxed command snippet with a copy-to-clipboard button. Used in the
  *  "Helper not detected" walkthrough so users can run the install
+ * @param {any} props
  *  commands without manually retyping. */
 function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
   const isCopied = copiedCommand === copyKey;
@@ -288,13 +291,16 @@ function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
   );
 }
 
-/** Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion. */
+/**
+ * Account settings modal with tabs for 2FA, email, password, GitHub connection, and account deletion.
+ * @param {any} props
+ */
 export default function AccountSettingsModal({ user, onClose, onUpdate, onAccountDeleted, initialTab }) {
   const [tab, setTab] = useState(initialTab || 'mfa');
 
   // ── MFA state ──────────────────────────────────────────────────────
   const [step, setStep] = useState(user.totpEnabled ? 'disable' : 'start');
-  const [qrCode, setQrCode] = useState(null);
+  const [qrCode, setQrCode] = useState(/** @type {any} */ (null));
   const [secret, setSecret] = useState('');
   const [code, setCode] = useState('');
   const [mfaPassword, setMfaPassword] = useState('');
@@ -325,9 +331,9 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
   const [pairLoading, setPairLoading] = useState(false);
   const [showPairInput, setShowPairInput] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [copiedCommand, setCopiedCommand] = useState(null);
+  const [copiedCommand, setCopiedCommand] = useState(/** @type {any} */ (null));
 
-  const copyToClipboard = (text, key) => {
+  const copyToClipboard = (/** @type {any} */ text, /** @type {any} */ key) => {
     try {
       navigator.clipboard.writeText(text);
       setCopiedCommand(key);
@@ -338,7 +344,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
     }
   };
 
-  const handlePairSubmit = async (e) => {
+  const handlePairSubmit = async (/** @type {any} */ e) => {
     e.preventDefault();
     setPairError('');
     if (!/^\d{6}$/.test(pairCode)) {
@@ -404,13 +410,13 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setStep('scan');
       }
     } catch (err) {
-      setMfaError(err.message);
+      setMfaError(err instanceof Error ? err.message : String(err));
     }
     setMfaLoading(false);
   };
 
   /** Verify the user's TOTP code and enable 2FA. */
-  const handleVerify = async (e) => {
+  const handleVerify = async (/** @type {any} */ e) => {
     e.preventDefault();
     setMfaError('');
     setMfaLoading(true);
@@ -424,13 +430,13 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onUpdate({ ...user, totpEnabled: true });
       }
     } catch (err) {
-      setMfaError(err.message);
+      setMfaError(err instanceof Error ? err.message : String(err));
     }
     setMfaLoading(false);
   };
 
   /** Disable 2FA after password confirmation. */
-  const handleDisable = async (e) => {
+  const handleDisable = async (/** @type {any} */ e) => {
     e.preventDefault();
     setMfaError('');
     setMfaLoading(true);
@@ -444,14 +450,14 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onClose();
       }
     } catch (err) {
-      setMfaError(err.message);
+      setMfaError(err instanceof Error ? err.message : String(err));
     }
     setMfaLoading(false);
   };
 
   // ── GitHub connection state ───────────────────────────────────────
   const [ghHasToken, setGhHasToken] = useState(false);
-  const [ghUsername, setGhUsername] = useState(null);
+  const [ghUsername, setGhUsername] = useState(/** @type {any} */ (null));
   const [ghOauthAvailable, setGhOauthAvailable] = useState(false);
   const [ghTokenInput, setGhTokenInput] = useState('');
   const [ghShowTokenInput, setGhShowTokenInput] = useState(false);
@@ -465,10 +471,10 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
       setGhLoading(true);
       Promise.all([
         get('/api/github/token')
-          .then((r) => r.json())
+          .then((/** @type {any} */ r) => r.json())
           .catch(() => ({ hasToken: false })),
         get('/api/github/oauth/available')
-          .then((r) => r.json())
+          .then((/** @type {any} */ r) => r.json())
           .catch(() => ({ available: false })),
       ]).then(([tokenData, oauthData]) => {
         setGhHasToken(tokenData.hasToken);
@@ -524,7 +530,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
   };
 
   // ── Profile (display name) handler ─────────────────────────────────
-  const handleSaveProfile = async (e) => {
+  const handleSaveProfile = async (/** @type {any} */ e) => {
     e.preventDefault();
     setProfileError('');
     setProfileSuccess('');
@@ -549,7 +555,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
   };
 
   // ── Compile location handler ───────────────────────────────────────
-  const handleSaveCompileLocation = async (e) => {
+  const handleSaveCompileLocation = async (/** @type {any} */ e) => {
     e.preventDefault();
     setCompileLocError('');
     setCompileLocSuccess('');
@@ -576,7 +582,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
 
   // ── Change email handler ───────────────────────────────────────────
   /** Submit a request to change the user's email address. */
-  const handleChangeEmail = async (e) => {
+  const handleChangeEmail = async (/** @type {any} */ e) => {
     e.preventDefault();
     setEmailError('');
     setEmailSuccess('');
@@ -593,14 +599,14 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setEmailPassword('');
       }
     } catch (err) {
-      setEmailError(err.message);
+      setEmailError(err instanceof Error ? err.message : String(err));
     }
     setEmailLoading(false);
   };
 
   // ── Change password handler ────────────────────────────────────────
   /** Submit a request to change the user's password. */
-  const handleChangePassword = async (e) => {
+  const handleChangePassword = async (/** @type {any} */ e) => {
     e.preventDefault();
     setPwError('');
     setPwSuccess('');
@@ -621,14 +627,14 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setConfirmPw('');
       }
     } catch (err) {
-      setPwError(err.message);
+      setPwError(err instanceof Error ? err.message : String(err));
     }
     setPwLoading(false);
   };
 
   // ── Delete account handler ─────────────────────────────────────────
   /** Permanently delete the user's account after password and confirmation check. */
-  const handleDeleteAccount = async (e) => {
+  const handleDeleteAccount = async (/** @type {any} */ e) => {
     e.preventDefault();
     setDeleteError('');
     if (deleteConfirm !== 'DELETE') {
@@ -645,14 +651,14 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onAccountDeleted();
       }
     } catch (err) {
-      setDeleteError(err.message);
+      setDeleteError(err instanceof Error ? err.message : String(err));
     }
     setDeleteLoading(false);
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card settings-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <h2>Account Settings</h2>
         <p className="settings-user-info">
           {user.name} &mdash; {user.email}
@@ -694,7 +700,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="text"
                 placeholder="Display name"
                 value={profileName}
-                onChange={(e) => { setProfileName(e.target.value); setProfileError(''); setProfileSuccess(''); }}
+                onChange={(/** @type {any} */ e) => { setProfileName(e.target.value); setProfileError(''); setProfileSuccess(''); }}
                 maxLength={200}
                 autoComplete="name"
                 required
@@ -744,7 +750,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                     type="text"
                     placeholder="000000"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onChange={(/** @type {any} */ e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     required
                     autoFocus
                     className="auth-input auth-input-totp"
@@ -777,7 +783,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                     type="password"
                     placeholder="Your password"
                     value={mfaPassword}
-                    onChange={(e) => setMfaPassword(e.target.value)}
+                    onChange={(/** @type {any} */ e) => setMfaPassword(e.target.value)}
                     required
                     className="auth-input"
                   />
@@ -801,7 +807,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="email"
                 placeholder="New email address"
                 value={emailNewVal}
-                onChange={(e) => setEmailNewVal(e.target.value)}
+                onChange={(/** @type {any} */ e) => setEmailNewVal(e.target.value)}
                 required
                 className="auth-input"
                 autoComplete="email"
@@ -810,7 +816,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="password"
                 placeholder="Your password"
                 value={emailPassword}
-                onChange={(e) => setEmailPassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setEmailPassword(e.target.value)}
                 required
                 className="auth-input"
                 autoComplete="current-password"
@@ -832,7 +838,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="password"
                 placeholder="Current password"
                 value={currentPw}
-                onChange={(e) => setCurrentPw(e.target.value)}
+                onChange={(/** @type {any} */ e) => setCurrentPw(e.target.value)}
                 required
                 className="auth-input"
                 autoComplete="current-password"
@@ -841,7 +847,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="password"
                 placeholder="New password"
                 value={newPw}
-                onChange={(e) => setNewPw(e.target.value)}
+                onChange={(/** @type {any} */ e) => setNewPw(e.target.value)}
                 required
                 className="auth-input"
                 autoComplete="new-password"
@@ -850,7 +856,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="password"
                 placeholder="Confirm new password"
                 value={confirmPw}
-                onChange={(e) => setConfirmPw(e.target.value)}
+                onChange={(/** @type {any} */ e) => setConfirmPw(e.target.value)}
                 required
                 className="auth-input"
                 autoComplete="new-password"
@@ -926,7 +932,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                   // the autofill so it cannot escape this form.
                   <form
                     autoComplete="off"
-                    onSubmit={(e) => { e.preventDefault(); ghSaveToken(); }}
+                    onSubmit={(/** @type {any} */ e) => { e.preventDefault(); ghSaveToken(); }}
                     style={{ display: 'flex', gap: 8, marginTop: 8 }}
                   >
                     <input type="text" autoComplete="username" name="username" hidden readOnly value="" />
@@ -937,8 +943,8 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                       autoComplete="new-password"
                       name="github-pat"
                       value={ghTokenInput}
-                      onChange={(e) => setGhTokenInput(e.target.value)}
-                      onKeyDown={(e) => {
+                      onChange={(/** @type {any} */ e) => setGhTokenInput(e.target.value)}
+                      onKeyDown={(/** @type {any} */ e) => {
                         if (e.key === 'Enter') ghSaveToken();
                       }}
                       style={{ flex: 1 }}
@@ -1009,7 +1015,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                     autoFocus
                     placeholder="6-digit code"
                     value={pairCode}
-                    onChange={(e) => { setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setPairError(''); }}
+                    onChange={(/** @type {any} */ e) => { setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setPairError(''); }}
                     maxLength={6}
                     style={{ padding: '4px 8px', fontSize: 13, width: 110, fontFamily: 'monospace', letterSpacing: 2, border: '1px solid var(--border)', borderRadius: 4 }}
                   />
@@ -1096,7 +1102,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="password"
                 placeholder="Your password"
                 value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setDeletePassword(e.target.value)}
                 required
                 className="auth-input"
               />
@@ -1107,7 +1113,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 type="text"
                 placeholder="DELETE"
                 value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
+                onChange={(/** @type {any} */ e) => setDeleteConfirm(e.target.value)}
                 required
                 className="auth-input"
               />

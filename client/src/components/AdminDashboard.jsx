@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { get, put, post, del, patch } from '../api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -8,7 +9,10 @@ import { ChevronLeftIcon, RedoIcon } from './Icons.jsx';
 // bundle.
 const SamlConfig = lazy(() => import('./admin/SamlConfig.jsx'));
 
-/** Displays a single metric card with a value, label, and optional subtitle. */
+/**
+ * Displays a single metric card with a value, label, and optional subtitle.
+ * @param {any} props
+ */
 function StatCard({ label, value, sub }) {
   return (
     <div className="admin-card">
@@ -19,10 +23,13 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-/** Renders a vertical bar chart from time-series data. */
+/**
+ * Renders a vertical bar chart from time-series data.
+ * @param {any} props
+ */
 function BarChart({ data, label, color = 'var(--accent)' }) {
   if (!data || !data.length) return null;
-  const max = Math.max(...data.map((d) => d.count), 1);
+  const max = Math.max(...data.map((/** @type {any} */ d) => d.count), 1);
   const step = Math.max(Math.floor(data.length / 6), 1);
 
   return (
@@ -36,14 +43,14 @@ function BarChart({ data, label, color = 'var(--accent)' }) {
         </div>
         <div className="admin-chart-area">
           <div className="admin-chart-bars">
-            {data.map((d) => (
+            {data.map((/** @type {any} */ d) => (
               <div key={d.date} className="admin-chart-bar-col" title={`${d.date}: ${d.count}`}>
                 <div className="admin-chart-bar" style={{ height: `${(d.count / max) * 100}%`, background: color }} />
               </div>
             ))}
           </div>
           <div className="admin-chart-x">
-            {data.map((d, i) => (
+            {data.map((/** @type {any} */ d, /** @type {any} */ i) => (
               <span key={d.date} className="admin-chart-x-label">
                 {i % step === 0 ? d.date.slice(5) : ''}
               </span>
@@ -55,15 +62,18 @@ function BarChart({ data, label, color = 'var(--accent)' }) {
   );
 }
 
-/** Renders a compact SVG sparkline chart for real-time system metrics. */
+/**
+ * Renders a compact SVG sparkline chart for real-time system metrics.
+ * @param {any} props
+ */
 function MiniLineChart({ data, valueKey, label, color = 'var(--accent)', maxVal }) {
   if (!data || data.length < 2) return null;
-  const values = data.map((d) => d[valueKey]);
+  const values = data.map((/** @type {any} */ d) => d[valueKey]);
   const max = maxVal || Math.max(...values, 1);
   const w = 100;
   const h = 40;
   const points = values
-    .map((v, i) => {
+    .map((/** @type {any} */ v, /** @type {any} */ i) => {
       const x = (i / (values.length - 1)) * w;
       const y = h - (v / max) * h;
       return `${x},${y}`;
@@ -87,7 +97,10 @@ function MiniLineChart({ data, valueKey, label, color = 'var(--accent)', maxVal 
   );
 }
 
-/** Generic data table with configurable columns and optional custom renderers. */
+/**
+ * Generic data table with configurable columns and optional custom renderers.
+ * @param {any} props
+ */
 function DataTable({ columns, rows, emptyMsg = 'No data' }) {
   if (!rows || !rows.length) return <div className="admin-empty">{emptyMsg}</div>;
   return (
@@ -95,15 +108,15 @@ function DataTable({ columns, rows, emptyMsg = 'No data' }) {
       <table className="admin-table">
         <thead>
           <tr>
-            {columns.map((c) => (
+            {columns.map((/** @type {any} */ c) => (
               <th key={c.key}>{c.label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {rows.map((/** @type {any} */ row, /** @type {any} */ i) => (
             <tr key={row.id || i}>
-              {columns.map((c) => (
+              {columns.map((/** @type {any} */ c) => (
                 <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>
               ))}
             </tr>
@@ -119,6 +132,8 @@ function DataTable({ columns, rows, emptyMsg = 'No data' }) {
  * @param {number} bytes
  * @returns {string}
  */
+/** @param {any} bytes */
+/** @param {any} bytes */
 function formatBytes(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
@@ -131,6 +146,8 @@ function formatBytes(bytes) {
  * @param {number} seconds
  * @returns {string}
  */
+/** @param {any} seconds */
+/** @param {any} seconds */
 function formatUptime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -138,17 +155,24 @@ function formatUptime(seconds) {
   return `${m}m`;
 }
 
+/** @param {any} d */
+/** @param {any} d */
 function formatDate(d) {
   if (!d) return '-';
   return new Date(d).toLocaleDateString();
 }
 
+/** @param {any} d */
+/** @param {any} d */
 function formatDateTime(d) {
   if (!d) return '-';
   return new Date(d).toLocaleString();
 }
 
-/** Expanded detail panel showing a single user's projects, edits, comments, chat, logins, and audit log. */
+/**
+ * Expanded detail panel showing a single user's projects, edits, comments, chat, logins, and audit log.
+ * @param {any} props
+ */
 function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   const { user, projects = [], recentEdits = [], recentComments = [], recentChat = [], auditLog = [], loginHistory = [] } = activity;
   const [toggling, setToggling] = useState(false);
@@ -157,13 +181,13 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   // password prompt. Promote and revoke both require the acting
   // admin's password — granting admin is at least as consequential as
   // delete + restore, which already step up.
-  const [togglePrompt, setTogglePrompt] = useState(null);
+  const [togglePrompt, setTogglePrompt] = useState(/** @type {any} */ (null));
   const [togglePassword, setTogglePassword] = useState('');
   if (!user) return <div className="admin-user-detail-loading">No user data available</div>;
 
   const isSelf = user.id === currentAdminId;
 
-  const performToggle = async (desired, password) => {
+  const performToggle = async (/** @type {any} */ desired, /** @type {any} */ password) => {
     setToggling(true);
     setToggleError('');
     try {
@@ -234,7 +258,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Project</th><th>Role</th><th>Edits</th><th>Comments</th></tr>
               </thead>
               <tbody>
-                {projects.map((p) => (
+                {projects.map((/** @type {any} */ p) => (
                   <tr key={p.id}>
                     <td>{p.name}</td>
                     <td>{p.role}</td>
@@ -258,7 +282,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Time</th><th>Project</th><th>Label</th></tr>
               </thead>
               <tbody>
-                {recentEdits.map((e) => (
+                {recentEdits.map((/** @type {any} */ e) => (
                   <tr key={e.id}>
                     <td>{formatDateTime(e.createdAt)}</td>
                     <td>{e.projectName}</td>
@@ -281,7 +305,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Time</th><th>Project</th><th>File</th><th>Comment</th></tr>
               </thead>
               <tbody>
-                {recentComments.map((c) => (
+                {recentComments.map((/** @type {any} */ c) => (
                   <tr key={c.id}>
                     <td>{formatDateTime(c.createdAt)}</td>
                     <td>{c.projectName}</td>
@@ -305,7 +329,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Time</th><th>Project</th><th>Message</th></tr>
               </thead>
               <tbody>
-                {recentChat.map((m) => (
+                {recentChat.map((/** @type {any} */ m) => (
                   <tr key={m.id}>
                     <td>{formatDateTime(m.createdAt)}</td>
                     <td>{m.projectName}</td>
@@ -328,7 +352,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Time</th><th>IP</th><th>Result</th></tr>
               </thead>
               <tbody>
-                {loginHistory.map((l, i) => (
+                {loginHistory.map((/** @type {any} */ l, /** @type {any} */ i) => (
                   <tr key={i}>
                     <td>{formatDateTime(l.createdAt)}</td>
                     <td>{l.ip}</td>
@@ -351,7 +375,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 <tr><th>Time</th><th>Action</th><th>IP</th></tr>
               </thead>
               <tbody>
-                {auditLog.map((a, i) => (
+                {auditLog.map((/** @type {any} */ a, /** @type {any} */ i) => (
                   <tr key={i}>
                     <td>{formatDateTime(a.createdAt)}</td>
                     <td>{a.action}</td>
@@ -368,7 +392,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
         <div className="admin-delete-user-overlay">
           <form
             className="admin-delete-user-modal"
-            onSubmit={(e) => {
+            onSubmit={(/** @type {any} */ e) => {
               e.preventDefault();
               if (!togglePassword || toggling) return;
               performToggle(togglePrompt.desired, togglePassword);
@@ -386,7 +410,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
                 type="password"
                 autoComplete="current-password"
                 value={togglePassword}
-                onChange={(e) => setTogglePassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setTogglePassword(e.target.value)}
                 autoFocus
               />
             </label>
@@ -414,40 +438,43 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
   );
 }
 
-/** Admin dashboard with system monitoring, user/project analytics, audit log, and settings management. */
+/**
+ * Admin dashboard with system monitoring, user/project analytics, audit log, and settings management.
+ * @param {any} props
+ */
 export default function AdminDashboard({ onBack }) {
-  const [overview, setOverview] = useState(null);
+  const [overview, setOverview] = useState(/** @type {any} */ (null));
   const [days, setDays] = useState(30);
-  const [timeseries, setTimeseries] = useState({});
-  const [activeUsers, setActiveUsers] = useState([]);
-  const [topProjects, setTopProjects] = useState([]);
-  const [topUsers, setTopUsers] = useState([]);
-  const [deletedUsers, setDeletedUsers] = useState([]);
-  const [restoreBusy, setRestoreBusy] = useState(null);
+  const [timeseries, setTimeseries] = useState(/** @type {any} */ ({}));
+  const [activeUsers, setActiveUsers] = useState(/** @type {any[]} */ ([]));
+  const [topProjects, setTopProjects] = useState(/** @type {any[]} */ ([]));
+  const [topUsers, setTopUsers] = useState(/** @type {any[]} */ ([]));
+  const [deletedUsers, setDeletedUsers] = useState(/** @type {any[]} */ ([]));
+  const [restoreBusy, setRestoreBusy] = useState(/** @type {any} */ (null));
   const [auditLog, setAuditLog] = useState({ entries: [], total: 0, page: 1, pages: 1 });
   const [auditPage, setAuditPage] = useState(1);
   const [tab, setTab] = useState('overview');
-  const [adminSettings, setAdminSettings] = useState({});
+  const [adminSettings, setAdminSettings] = useState(/** @type {any} */ ({}));
   const [settingsMsg, setSettingsMsg] = useState('');
-  const [expandedUser, setExpandedUser] = useState(null);
-  const [userActivity, setUserActivity] = useState(null);
+  const [expandedUser, setExpandedUser] = useState(/** @type {any} */ (null));
+  const [userActivity, setUserActivity] = useState(/** @type {any} */ (null));
   const [userActivityLoading, setUserActivityLoading] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { id, email, name } | null
+  const [deleteTarget, setDeleteTarget] = useState(/** @type {any} */ (null)); // { id, email, name } | null
   const { user: currentAdmin } = useAuth();
   const [live, setLive] = useState(false);
-  const [, setLastRefresh] = useState(null);
-  const [system, setSystem] = useState(null);
-  const [cpuHistory, setCpuHistory] = useState([]);
-  const [compileHistory, setCompileHistory] = useState([]);
-  const [dbWrites, setDbWrites] = useState(null);
+  const [, setLastRefresh] = useState(/** @type {any} */ (null));
+  const [system, setSystem] = useState(/** @type {any} */ (null));
+  const [cpuHistory, setCpuHistory] = useState(/** @type {any[]} */ ([]));
+  const [compileHistory, setCompileHistory] = useState(/** @type {any[]} */ ([]));
+  const [dbWrites, setDbWrites] = useState(/** @type {any} */ (null));
   const liveRef = useRef(live);
   liveRef.current = live;
   const MAX_SYSTEM_POINTS = 60;
 
   const fetchSystem = useCallback(() => {
     get('/api/admin/stats/system')
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         if (!data?.cpu) return;
         setSystem(data);
         const now = new Date().toLocaleTimeString();
@@ -480,47 +507,47 @@ export default function AdminDashboard({ onBack }) {
   const fetchAll = useCallback(() => {
     // Overview is cheap and shows the header counts in every tab.
     get('/api/admin/stats/overview')
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setOverview);
 
     if (tab === 'overview') {
       const metrics = ['users', 'projects', 'file_versions', 'comments', 'logins', 'login_failures'];
-      metrics.forEach((m) => {
+      metrics.forEach((/** @type {any} */ m) => {
         get(`/api/admin/stats/timeseries?metric=${m}&days=${days}`)
-          .then((r) => r.json())
-          .then((data) => setTimeseries((prev) => ({ ...prev, [m]: data })));
+          .then((/** @type {any} */ r) => r.json())
+          .then((/** @type {any} */ data) => setTimeseries((prev) => ({ ...prev, [m]: data })));
       });
       get(`/api/admin/stats/active-users?days=${days}`)
-        .then((r) => r.json())
+        .then((/** @type {any} */ r) => r.json())
         .then(setActiveUsers);
     }
 
     if (tab === 'projects') {
       get('/api/admin/stats/top-projects?limit=20')
-        .then((r) => r.json())
+        .then((/** @type {any} */ r) => r.json())
         .then(setTopProjects);
     }
 
     if (tab === 'users') {
       get('/api/admin/stats/top-users?limit=20')
-        .then((r) => r.json())
+        .then((/** @type {any} */ r) => r.json())
         .then(setTopUsers);
       get('/api/admin/users/deleted')
-        .then((r) => (r.ok ? r.json() : []))
+        .then((/** @type {any} */ r) => (r.ok ? r.json() : []))
         .then(setDeletedUsers)
         .catch(() => setDeletedUsers([]));
     }
 
     if (tab === 'audit') {
       get(`/api/admin/audit-log?page=${auditPage}&limit=50`)
-        .then((r) => r.json())
+        .then((/** @type {any} */ r) => r.json())
         .then(setAuditLog);
     }
 
     if (tab === 'system') {
       get('/api/admin/stats/db-writes')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
+        .then((/** @type {any} */ r) => (r.ok ? r.json() : null))
+        .then((/** @type {any} */ data) => {
           if (data && typeof data.total === 'number') setDbWrites(data);
           else setDbWrites(null);
         })
@@ -538,9 +565,9 @@ export default function AdminDashboard({ onBack }) {
   useEffect(() => {
     if (tab === 'settings') {
       get('/api/admin/settings')
-        .then((r) => r.json())
+        .then((/** @type {any} */ r) => r.json())
         .then(setAdminSettings)
-        .catch((e) => console.warn('Failed to load admin settings:', e));
+        .catch((/** @type {any} */ e) => console.warn('Failed to load admin settings:', e));
     }
   }, [tab]);
 
@@ -628,7 +655,7 @@ export default function AdminDashboard({ onBack }) {
             type="button"
             className="admin-user-delete-btn"
             title="Delete this user permanently"
-            onClick={(e) => {
+            onClick={(/** @type {any} */ e) => {
               e.stopPropagation();
               setDeleteTarget({ id: r.id, email: r.email, name: r.name });
             }}
@@ -662,7 +689,7 @@ export default function AdminDashboard({ onBack }) {
           <RedoIcon />
         </button>
         <div className="admin-period">
-          {[7, 30, 90].map((d) => (
+          {[7, 30, 90].map((/** @type {any} */ d) => (
             <button key={d} className={days === d ? 'active' : ''} onClick={() => setDays(d)}>
               {d}d
             </button>
@@ -671,7 +698,7 @@ export default function AdminDashboard({ onBack }) {
       </div>
 
       <div className="admin-tabs">
-        {['overview', 'system', 'projects', 'users', 'audit', 'settings', 'saml'].map((t) => (
+        {['overview', 'system', 'projects', 'users', 'audit', 'settings', 'saml'].map((/** @type {any} */ t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {t === 'saml' ? 'SSO' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -843,13 +870,13 @@ export default function AdminDashboard({ onBack }) {
                   <table className="admin-table admin-table-clickable">
                     <thead>
                       <tr>
-                        {userCols.map((c) => (
+                        {userCols.map((/** @type {any} */ c) => (
                           <th key={c.key}>{c.label}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {topUsers.map((row) => (
+                      {topUsers.map((/** @type {any} */ row) => (
                         <tr
                           key={row.id}
                           className={expandedUser === row.id ? 'admin-row-expanded' : ''}
@@ -862,7 +889,7 @@ export default function AdminDashboard({ onBack }) {
                               setUserActivity(null);
                               setUserActivityLoading(true);
                               get(`/api/admin/users/${row.id}/activity`)
-                                .then((r) => {
+                                .then((/** @type {any} */ r) => {
                                   if (!r.ok) throw new Error('Failed');
                                   return r.json();
                                 })
@@ -872,7 +899,7 @@ export default function AdminDashboard({ onBack }) {
                             }
                           }}
                         >
-                          {userCols.map((c) => (
+                          {userCols.map((/** @type {any} */ c) => (
                             <td key={c.key}>{c.render ? c.render(row) : row[c.key]}</td>
                           ))}
                         </tr>
@@ -917,7 +944,7 @@ export default function AdminDashboard({ onBack }) {
                   const data = await res.json().catch(() => ({}));
                   throw new Error(data.error || 'Restore failed');
                 }
-                setDeletedUsers((prev) => prev.filter((r) => r.id !== row.id));
+                setDeletedUsers((prev) => prev.filter((/** @type {any} */ r) => r.id !== row.id));
               } finally {
                 setRestoreBusy(null);
               }
@@ -999,7 +1026,7 @@ export default function AdminDashboard({ onBack }) {
                 min="10"
                 max="600"
                 value={adminSettings.compile_timeout || '120'}
-                onChange={(e) => setAdminSettings((s) => ({ ...s, compile_timeout: e.target.value }))}
+                onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, compile_timeout: e.target.value }))}
                 className="auth-input"
                 style={{ width: 100 }}
               />
@@ -1071,7 +1098,7 @@ export default function AdminDashboard({ onBack }) {
                   min={min}
                   max={max}
                   value={adminSettings[key] || fallback}
-                  onChange={(e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
                   className="auth-input"
                   style={{ width }}
                 />
@@ -1115,7 +1142,7 @@ export default function AdminDashboard({ onBack }) {
                 <input
                   type={type}
                   value={adminSettings[key] || ''}
-                  onChange={(e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
                   placeholder={placeholder}
                   className="auth-input"
                   style={{ width: width || 260 }}
@@ -1215,10 +1242,10 @@ export default function AdminDashboard({ onBack }) {
               setExpandedUser(null);
               setUserActivity(null);
             }
-            get('/api/admin/stats/top-users?limit=20').then((r) => r.json()).then(setTopUsers);
-            get('/api/admin/stats/overview').then((r) => r.json()).then(setOverview);
+            get('/api/admin/stats/top-users?limit=20').then((/** @type {any} */ r) => r.json()).then(setTopUsers);
+            get('/api/admin/stats/overview').then((/** @type {any} */ r) => r.json()).then(setOverview);
             get('/api/admin/users/deleted')
-              .then((r) => (r.ok ? r.json() : []))
+              .then((/** @type {any} */ r) => (r.ok ? r.json() : []))
               .then(setDeletedUsers)
               .catch(() => {});
           }}
@@ -1233,6 +1260,7 @@ export default function AdminDashboard({ onBack }) {
  *    1. "I understand" checkbox
  *    2. Type the target's exact email
  *    3. Enter the admin's own password
+ * @param {any} props
  */
 function AdminDeleteUserModal({ target, onClose, onDeleted }) {
   const [ack, setAck] = useState(false);
@@ -1244,7 +1272,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
   const emailMatches = emailConfirm.trim().toLowerCase() === (target.email || '').toLowerCase();
   const ready = ack && emailMatches && adminPassword.length > 0 && !submitting;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (/** @type {any} */ e) => {
     e?.preventDefault?.();
     if (!ready) return;
     setSubmitting(true);
@@ -1265,7 +1293,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay" onClick={(/** @type {any} */ e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal admin-delete-user-modal">
         <div className="modal-header">
           <h2>Delete user</h2>
@@ -1277,7 +1305,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
             deleted. This cannot be undone.
           </p>
           <label className="admin-delete-user-check">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+            <input type="checkbox" checked={ack} onChange={(/** @type {any} */ e) => setAck(e.target.checked)} />
             I understand this is permanent.
           </label>
           <label className="admin-delete-user-field">
@@ -1309,9 +1337,9 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
               data-1p-ignore="true"
               data-bwignore
               readOnly
-              onFocus={(e) => e.target.removeAttribute('readonly')}
+              onFocus={(/** @type {any} */ e) => e.target.removeAttribute('readonly')}
               value={emailConfirm}
-              onChange={(e) => setEmailConfirm(e.target.value)}
+              onChange={(/** @type {any} */ e) => setEmailConfirm(e.target.value)}
               placeholder={target.email}
             />
           </label>
@@ -1321,7 +1349,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
               type="password"
               autoComplete="current-password"
               value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
+              onChange={(/** @type {any} */ e) => setAdminPassword(e.target.value)}
             />
           </label>
           {error && <div className="admin-delete-user-error">{error}</div>}
@@ -1339,9 +1367,10 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
 
 /** Shows users currently in the soft-delete recovery bin. Each row exposes
  *  a Restore button (with on-theme confirm) and shows when the cron will
+ * @param {any} props
  *  permanently purge the account. */
 function DeletedUsersPanel({ rows, busyId, onRestore }) {
-  const [confirmRow, setConfirmRow] = useState(null);
+  const [confirmRow, setConfirmRow] = useState(/** @type {any} */ (null));
   const [error, setError] = useState('');
   // Tick once a minute so the relative countdown stays current without
   // a full data refetch. The actual purge is cron-driven server-side; this
@@ -1351,12 +1380,12 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
-  const formatDate = (iso) => {
+  const formatDate = (/** @type {any} */ iso) => {
     if (!iso) return '—';
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
   };
-  const formatCountdown = (iso) => {
+  const formatCountdown = (/** @type {any} */ iso) => {
     if (!iso) return { text: '—', tone: 'normal' };
     const target = new Date(iso).getTime();
     if (Number.isNaN(target)) return { text: '—', tone: 'normal' };
@@ -1395,7 +1424,7 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {rows.map((/** @type {any} */ r) => {
                 const cd = formatCountdown(r.purgeAt);
                 return (
                 <tr key={r.id}>
@@ -1446,14 +1475,15 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
 /** Password-gated restore confirmation. Mirrors AdminDeleteUserModal's
  *  password requirement so restore is no easier than delete (a hijacked
  *  admin session can't un-quarantine a binned user without re-presenting
+ * @param {any} props
  *  the admin's password). */
 function AdminRestoreUserModal({ target, busy, onClose, onConfirm }) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}>
-      <div className="modal-card" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={(/** @type {any} */ e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}>
+      <div className="modal-card" style={{ maxWidth: 420 }} onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Restore account</h2>
         <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
           Restore <strong>{target.email}</strong>? They&rsquo;ll be able to sign in again with their existing password. All projects and memberships stay intact.
@@ -1480,7 +1510,7 @@ function AdminRestoreUserModal({ target, busy, onClose, onConfirm }) {
               type="password"
               autoComplete="current-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(/** @type {any} */ e) => setPassword(e.target.value)}
               autoFocus
             />
           </label>

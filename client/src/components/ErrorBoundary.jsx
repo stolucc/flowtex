@@ -1,3 +1,4 @@
+// @ts-check
 import React from 'react';
 
 /** Top-level error boundary that catches render errors and shows a reload prompt. */

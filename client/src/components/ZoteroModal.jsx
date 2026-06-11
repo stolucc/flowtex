@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useRef } from 'react';
 import { get, post, del } from '../api.js';
 import { SearchIcon, FolderIcon, ChevronRightIcon } from './Icons.jsx';
@@ -24,6 +25,8 @@ const EXCLUDABLE_FIELDS = [
 ];
 
 /** Map a Zotero item type key to a human-readable label. */
+/** @param {any} type */
+/** @param {any} type */
 function itemTypeLabel(type) {
   return ITEM_TYPE_LABELS[type] || type;
 }
@@ -34,6 +37,8 @@ function itemTypeLabel(type) {
  * @param {Set<string>} excludedFields - Field names to remove.
  * @returns {string} Cleaned BibTeX.
  */
+/** @param {any} bibtex */
+/** @param {any} excludedFields */
 function filterBibtex(bibtex, excludedFields) {
   if (!excludedFields.size) return bibtex;
   // Handle multi-line field values (braces can span lines)
@@ -73,6 +78,8 @@ function filterBibtex(bibtex, excludedFields) {
  * @param {string} bibtex - Raw BibTeX content.
  * @returns {string[]} Array of citation keys.
  */
+/** @param {any} bibtex */
+/** @param {any} bibtex */
 function extractBibKeys(bibtex) {
   const keys = [];
   const re = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
@@ -81,17 +88,20 @@ function extractBibKeys(bibtex) {
   return keys;
 }
 
-/** Modal for connecting to Zotero, browsing collections, and importing references as BibTeX. */
+/**
+ * Modal for connecting to Zotero, browsing collections, and importing references as BibTeX.
+ * @param {any} props
+ */
 export default function ZoteroModal({ onClose, onInsert, bibFileExists, existingBibKeys }) {
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(/** @type {any} */ (null));
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
 
   // Library state
-  const [collections, setCollections] = useState([]);
-  const [selectedCollection, setSelectedCollection] = useState(null);
-  const [items, setItems] = useState([]);
+  const [collections, setCollections] = useState(/** @type {any[]} */ ([]));
+  const [selectedCollection, setSelectedCollection] = useState(/** @type {any} */ (null));
+  const [items, setItems] = useState(/** @type {any[]} */ ([]));
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -105,21 +115,21 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
   const [excludedFields, setExcludedFields] = useState(new Set(['abstract', 'file']));
   const [showFieldOptions, setShowFieldOptions] = useState(false);
 
-  const searchTimeout = useRef(null);
+  const searchTimeout = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     get('/api/zotero/status')
-      .then((r) => r.json())
-      .then((data) => setStatus(data))
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => setStatus(data))
       .catch(() => setStatus({ connected: false }));
   }, []);
 
   useEffect(() => {
     if (!status?.connected) return;
     get('/api/zotero/collections')
-      .then((r) => r.json())
-      .then((data) => setCollections(data))
-      .catch((e) => console.warn('Failed to load Zotero collections:', e));
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => setCollections(data))
+      .catch((/** @type {any} */ e) => console.warn('Failed to load Zotero collections:', e));
   }, [status?.connected]);
 
   useEffect(() => {
@@ -133,8 +143,8 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     if (search) params.set('q', search);
 
     get(`/api/zotero/items?${params}`)
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         setItems(data.items || []);
         setTotal(data.total || 0);
         setLoading(false);
@@ -174,7 +184,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     setSelectedKeys(new Set());
   };
 
-  const handleSearchInput = (val) => {
+  const handleSearchInput = (/** @type {any} */ val) => {
     setSearchInput(val);
     clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => {
@@ -183,7 +193,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     }, 400);
   };
 
-  const toggleItem = (key) => {
+  const toggleItem = (/** @type {any} */ key) => {
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -196,11 +206,11 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     if (selectedKeys.size === items.length) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(items.map((i) => i.key)));
+      setSelectedKeys(new Set(items.map((/** @type {any} */ i) => i.key)));
     }
   };
 
-  const toggleField = (field) => {
+  const toggleField = (/** @type {any} */ field) => {
     setExcludedFields((prev) => {
       const next = new Set(prev);
       if (next.has(field)) next.delete(field);
@@ -209,7 +219,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     });
   };
 
-  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [duplicateWarning, setDuplicateWarning] = useState(/** @type {any} */ (null));
 
   const handleImport = async () => {
     if (selectedKeys.size === 0) return;
@@ -223,7 +233,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
         if (existingBibKeys?.length) {
           const incoming = extractBibKeys(filtered);
           const existingSet = new Set(existingBibKeys);
-          const dupes = incoming.filter((k) => existingSet.has(k));
+          const dupes = incoming.filter((/** @type {any} */ k) => existingSet.has(k));
           if (dupes.length > 0) {
             setDuplicateWarning({ keys: dupes, bibtex: filtered });
             setImporting(false);
@@ -240,7 +250,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
   };
 
   // Build collection tree
-  const rootCollections = collections.filter((c) => !c.parentKey);
+  const rootCollections = collections.filter((/** @type {any} */ c) => !c.parentKey);
   const childMap = {};
   for (const c of collections) {
     if (c.parentKey) {
@@ -266,7 +276,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
           <span className="zotero-collection-name">{col.name}</span>
           <span className="zotero-collection-count">{col.numItems}</span>
         </div>
-        {children.map((child) => renderCollection(child, depth + 1))}
+        {children.map((/** @type {any} */ child) => renderCollection(child, depth + 1))}
       </React.Fragment>
     );
   }
@@ -275,7 +285,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card zotero-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card zotero-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <h2>
           <svg
             width="20"
@@ -314,8 +324,8 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
                 className="auth-input"
                 placeholder="Zotero API Key"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+                onChange={(/** @type {any} */ e) => setApiKey(e.target.value)}
+                onKeyDown={(/** @type {any} */ e) => e.key === 'Enter' && handleConnect()}
               />
               <button className="auth-button" onClick={handleConnect} disabled={connecting || !apiKey.trim()}>
                 {connecting ? 'Connecting...' : 'Connect'}
@@ -335,7 +345,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
                   type="text"
                   placeholder="Search library..."
                   value={searchInput}
-                  onChange={(e) => handleSearchInput(e.target.value)}
+                  onChange={(/** @type {any} */ e) => handleSearchInput(e.target.value)}
                 />
               </div>
               <button className="zotero-disconnect-btn" onClick={handleDisconnect}>
@@ -366,7 +376,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
                   </svg>
                   <span className="zotero-collection-name">My Library</span>
                 </div>
-                {rootCollections.map((c) => renderCollection(c))}
+                {rootCollections.map((/** @type {any} */ c) => renderCollection(c))}
               </div>
               <div className="zotero-items">
                 {loading ? (
@@ -389,7 +399,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
                       </span>
                     </div>
                     <div className="zotero-items-list">
-                      {items.map((item) => (
+                      {items.map((/** @type {any} */ item) => (
                         <div
                           key={item.key}
                           className={`zotero-item ${selectedKeys.has(item.key) ? 'selected' : ''}`}
@@ -444,7 +454,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
               </button>
               {showFieldOptions && (
                 <div className="zotero-fields-list">
-                  {EXCLUDABLE_FIELDS.map((f) => (
+                  {EXCLUDABLE_FIELDS.map((/** @type {any} */ f) => (
                     <label key={f.key} className="zotero-field-option">
                       <input type="checkbox" checked={excludedFields.has(f.key)} onChange={() => toggleField(f.key)} />
                       {f.label}

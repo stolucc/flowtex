@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { get, post, del } from '../api.js';
 import { getColor } from './Avatar.jsx';
@@ -6,12 +7,15 @@ import { formatRelativeTime as formatDate } from '../utils/dateFormat.js';
 import { CloseIcon, UndoIcon } from './Icons.jsx';
 
 /** Format a date string to a short locale time (e.g. "3:42 PM"). */
+/** @param {any} dateStr */
 function formatTime(dateStr) {
   const d = new Date(dateStr);
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 /** Group an array of snapshot versions by their calendar date. */
+/** @param {any} versions */
+/** @param {any} versions */
 function groupByDate(versions) {
   const groups = {};
   for (const v of versions) {
@@ -23,10 +27,13 @@ function groupByDate(versions) {
   return Object.entries(groups);
 }
 
-/** Inline badge showing +added / -removed line counts for a diff. */
+/**
+ * Inline badge showing +added / -removed line counts for a diff.
+ * @param {any} props
+ */
 function DiffStats({ diff }) {
-  const added = diff.filter((l) => l.type === 'add').length;
-  const removed = diff.filter((l) => l.type === 'remove').length;
+  const added = diff.filter((/** @type {any} */ l) => l.type === 'add').length;
+  const removed = diff.filter((/** @type {any} */ l) => l.type === 'remove').length;
   return (
     <span className="history-diff-stats">
       {added > 0 && <span className="diff-stat-add">+{added}</span>}
@@ -39,10 +46,12 @@ function DiffStats({ diff }) {
 const CONTEXT_LINES = 3;
 
 /** Build GitHub-style hunks from a flat diff */
+/** @param {any} diff */
+/** @param {any} diff */
 function buildHunks(diff) {
   let oldLine = 0,
     newLine = 0;
-  const numbered = diff.map((line, i) => {
+  const numbered = diff.map((/** @type {any} */ line, /** @type {any} */ i) => {
     let oldNum = null,
       newNum = null;
     if (line.type === 'same') {
@@ -95,10 +104,10 @@ function buildHunks(diff) {
     const ctxEnd = Math.min(numbered.length - 1, rangeEnd + CONTEXT_LINES);
     const lines = numbered.slice(ctxStart, ctxEnd + 1);
 
-    const firstOld = lines.find((l) => l.oldNum !== null)?.oldNum || 1;
-    const firstNew = lines.find((l) => l.newNum !== null)?.newNum || 1;
-    const oldCount = lines.filter((l) => l.type === 'same' || l.type === 'remove').length;
-    const newCount = lines.filter((l) => l.type === 'same' || l.type === 'add').length;
+    const firstOld = lines.find((/** @type {any} */ l) => l.oldNum !== null)?.oldNum || 1;
+    const firstNew = lines.find((/** @type {any} */ l) => l.newNum !== null)?.newNum || 1;
+    const oldCount = lines.filter((/** @type {any} */ l) => l.type === 'same' || l.type === 'remove').length;
+    const newCount = lines.filter((/** @type {any} */ l) => l.type === 'same' || l.type === 'add').length;
     const header = `@@ -${firstOld},${oldCount} +${firstNew},${newCount} @@`;
 
     const collapsedBefore = ctxStart > 0 ? ctxStart - (hunks.length > 0 ? hunks[hunks.length - 1]._ctxEnd + 1 : 0) : 0;
@@ -115,6 +124,8 @@ function buildHunks(diff) {
 }
 
 /** Character-level diff between two strings. Returns array of [highlighted, text] pairs. */
+/** @param {any} oldStr */
+/** @param {any} newStr */
 function charDiff(oldStr, newStr) {
   // Find common prefix
   let pre = 0;
@@ -137,6 +148,8 @@ function charDiff(oldStr, newStr) {
 }
 
 /** Pair up adjacent remove/add blocks and compute inline highlights */
+/** @param {any} lines */
+/** @param {any} lines */
 function annotateHunkLines(lines) {
   const annotated = [];
   let i = 0;
@@ -197,11 +210,12 @@ function renderSegments(prefix, mid, suffix) {
 // blocks the main thread for hundreds of ms. The user can expand on demand.
 const MAX_HUNK_ROWS = 400;
 
+/** @param {any} props */
 function HunkRows({ rows }) {
   return (
     <table className="gh-diff-table">
       <tbody>
-        {rows.map((row, ri) => (
+        {rows.map((/** @type {any} */ row, /** @type {any} */ ri) => (
           <tr key={ri} className={`gh-diff-row gh-diff-row-${row.type}`}>
             <td className="gh-diff-num gh-diff-num-old">{row.oldNum ?? ''}</td>
             <td className="gh-diff-num gh-diff-num-new">{row.newNum ?? ''}</td>
@@ -214,14 +228,17 @@ function HunkRows({ rows }) {
   );
 }
 
-/** Renders a GitHub-style unified diff with line numbers and inline highlights. */
+/**
+ * Renders a GitHub-style unified diff with line numbers and inline highlights.
+ * @param {any} props
+ */
 function DiffView({ diff }) {
   const [expanded, setExpanded] = useState(() => new Set());
   // Hooks must run unconditionally, so build hunks + collect state
   // first and branch on the diff shape only at render time.
   const isBinaryNote = diff.length === 1 && diff[0].type === 'binary';
   const hunks = isBinaryNote ? [] : buildHunks(diff);
-  const toggleHunk = (hi) => {
+  const toggleHunk = (/** @type {any} */ hi) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(hi)) next.delete(hi); else next.add(hi);
@@ -238,7 +255,7 @@ function DiffView({ diff }) {
 
   return (
     <div className="gh-diff">
-      {hunks.map((hunk, hi) => {
+      {hunks.map((/** @type {any} */ hunk, /** @type {any} */ hi) => {
         if (hunk.collapsed && !hunk.header) {
           return (
             <div key={`trail-${hi}`} className="gh-diff-expand">
@@ -288,7 +305,10 @@ function DiffView({ diff }) {
   );
 }
 
-/** Side panel for browsing project snapshots, viewing diffs, and restoring previous versions. */
+/**
+ * Side panel for browsing project snapshots, viewing diffs, and restoring previous versions.
+ * @param {any} props
+ */
 export default function HistoryPanel({
   projectId,
   currentUserName,
@@ -301,21 +321,21 @@ export default function HistoryPanel({
   historyFileId,
   historyFilePath,
 }) {
-  const [snapshots, setSnapshots] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [diff, setDiff] = useState(null);
+  const [snapshots, setSnapshots] = useState(/** @type {any[]} */ ([]));
+  const [selected, setSelected] = useState(/** @type {any} */ (null));
+  const [diff, setDiff] = useState(/** @type {any} */ (null));
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
-  const [viewingFile, setViewingFile] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null); // { snap, x, y, targets: string[] }
-  const [confirmDelete, setConfirmDelete] = useState(null); // { targets: string[], primary: snap } | null
+  const [viewingFile, setViewingFile] = useState(/** @type {any} */ (null));
+  const [contextMenu, setContextMenu] = useState(/** @type {any} */ (null)); // { snap, x, y, targets: string[] }
+  const [confirmDelete, setConfirmDelete] = useState(/** @type {any} */ (null)); // { targets: string[], primary: snap } | null
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState(null);
+  const [deleteError, setDeleteError] = useState(/** @type {any} */ (null));
   // Multi-select state for the history list. Plain click collapses to one,
   // shift-click extends a range from the anchor, cmd/ctrl-click toggles.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [anchorId, setAnchorId] = useState(null);
+  const [anchorId, setAnchorId] = useState(/** @type {any} */ (null));
 
   const pendingAutoSelect = useRef(true);
   // Per-mount memo of computed diffs, keyed by `${snapshotId}:${fileId}`.
@@ -329,8 +349,8 @@ export default function HistoryPanel({
     setLoading(true);
     pendingAutoSelect.current = true;
     get(`/api/history/${projectId}`)
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         setSnapshots(data);
         setLoading(false);
       })
@@ -351,7 +371,7 @@ export default function HistoryPanel({
 
   /** Select a snapshot and notify the parent to load its details. */
   const selectSnapshot = useCallback(
-    async (snap) => {
+    async (/** @type {any} */ snap) => {
       setSelected(snap);
       setDiff(null);
       setViewingFile(null);
@@ -411,14 +431,14 @@ export default function HistoryPanel({
 
   /** Click on a history entry — handles plain / shift / cmd-or-ctrl. */
   const handleEntryClick = useCallback(
-    (e, snap) => {
-      const idx = snapshots.findIndex((s) => s.id === snap.id);
+    (/** @type {any} */ e, /** @type {any} */ snap) => {
+      const idx = snapshots.findIndex((/** @type {any} */ s) => s.id === snap.id);
       if (idx < 0) return;
       if (e.shiftKey && anchorId) {
-        const aIdx = snapshots.findIndex((s) => s.id === anchorId);
+        const aIdx = snapshots.findIndex((/** @type {any} */ s) => s.id === anchorId);
         if (aIdx >= 0) {
           const [lo, hi] = aIdx < idx ? [aIdx, idx] : [idx, aIdx];
-          setSelectedIds(new Set(snapshots.slice(lo, hi + 1).map((s) => s.id)));
+          setSelectedIds(new Set(snapshots.slice(lo, hi + 1).map((/** @type {any} */ s) => s.id)));
           // Still show the diff for the just-clicked one — anchor stays put.
           selectSnapshot(snap);
           return;
@@ -473,7 +493,7 @@ export default function HistoryPanel({
         return;
       }
       const targetSet = new Set(targets);
-      setSnapshots((prev) => prev.filter((s) => !targetSet.has(s.id)));
+      setSnapshots((prev) => prev.filter((/** @type {any} */ s) => !targetSet.has(s.id)));
       setSelectedIds(new Set());
       setAnchorId(null);
       if (selected && targetSet.has(selected.id)) {
@@ -550,7 +570,7 @@ export default function HistoryPanel({
             <select
               className="history-interval-select"
               value={snapshotInterval || 30}
-              onChange={(e) => onSnapshotIntervalChange?.(parseInt(e.target.value))}
+              onChange={(/** @type {any} */ e) => onSnapshotIntervalChange?.(parseInt(e.target.value))}
               title="Snapshot interval"
             >
               <option value={10}>10s</option>
@@ -573,12 +593,12 @@ export default function HistoryPanel({
           {grouped.map(([date, items]) => (
             <div key={date}>
               <div className="history-date-header">{date}</div>
-              {items.map((v) => (
+              {items.map((/** @type {any} */ v) => (
                 <div
                   key={v.id}
                   className={`history-entry${selected?.id === v.id ? ' active' : ''}${selectedIds.has(v.id) ? ' multi-selected' : ''}`}
-                  onClick={(e) => handleEntryClick(e, v)}
-                  onContextMenu={(e) => {
+                  onClick={(/** @type {any} */ e) => handleEntryClick(e, v)}
+                  onContextMenu={(/** @type {any} */ e) => {
                     e.preventDefault();
                     // Right-clicking outside the multi-selection collapses
                     // it to just this one; right-clicking inside keeps it.
@@ -611,7 +631,7 @@ export default function HistoryPanel({
         <div
           className="history-context-menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(/** @type {any} */ e) => e.stopPropagation()}
           role="menu"
         >
           <button
@@ -631,7 +651,7 @@ export default function HistoryPanel({
       )}
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => { if (!deleting) { setConfirmDelete(null); setDeleteError(null); } }}>
-          <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card history-restore-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <h2>
               {confirmDelete.targets.length > 1
                 ? `Delete ${confirmDelete.targets.length} snapshots?`
@@ -674,7 +694,7 @@ export default function HistoryPanel({
       )}
       {confirmRestore && selected && (
         <div className="modal-overlay" onClick={() => setConfirmRestore(false)}>
-          <div className="modal-card history-restore-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card history-restore-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <div className="history-restore-modal-icon">
               <UndoIcon size={32} stroke="var(--accent)" />
             </div>

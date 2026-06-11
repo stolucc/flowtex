@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getColor } from './Avatar.jsx';
 
@@ -26,7 +27,7 @@ export function extractMentions(text, members) {
   let m;
   while ((m = re.exec(text))) {
     const name = (m[1] || m[2]).toLowerCase();
-    if (members.some((mb) => mb.name.toLowerCase() === name)) found.push(name);
+    if (members.some((/** @type {any} */ mb) => mb.name.toLowerCase() === name)) found.push(name);
   }
   return [...new Set(found)];
 }
@@ -40,6 +41,7 @@ export function extractMentions(text, members) {
  *  Hitting space (or any char that breaks the @\S* run) hides the
  *  picker naturally. When closed, all keystrokes pass through to the
  *  caller's onKeyDown (so chat's Enter-to-send keeps working).
+ * @param {any} props
  */
 export function MentionInput({
   value,
@@ -59,7 +61,7 @@ export function MentionInput({
 }) {
   const [cursorPos, setCursorPos] = useState(0);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const localRef = useRef(null);
+  const localRef = useRef(/** @type {any} */ (null));
   const ref = innerRef || localRef;
 
   // Candidate list is derived from value + cursor + members. Computed
@@ -71,7 +73,7 @@ export function MentionInput({
     if (!match) return [];
     const query = match[1].toLowerCase();
     return (members || [])
-      .filter((m) => m.name.toLowerCase().startsWith(query))
+      .filter((/** @type {any} */ m) => m.name.toLowerCase().startsWith(query))
       .slice(0, 6);
   }, [value, cursorPos, members]);
 
@@ -81,16 +83,16 @@ export function MentionInput({
     if (selectedIdx >= candidates.length) setSelectedIdx(0);
   }, [candidates.length, selectedIdx]);
 
-  const handleChange = (e) => {
+  const handleChange = (/** @type {any} */ e) => {
     onChange(e);
     setCursorPos(e.target.selectionStart ?? 0);
   };
 
-  const handleSelect = (e) => {
+  const handleSelect = (/** @type {any} */ e) => {
     setCursorPos(e.target.selectionStart ?? 0);
   };
 
-  const applyPick = (member) => {
+  const applyPick = (/** @type {any} */ member) => {
     const before = (value || '').slice(0, cursorPos);
     const match = before.match(/@(\S*)$/);
     if (!match) return;
@@ -108,7 +110,7 @@ export function MentionInput({
     });
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (/** @type {any} */ e) => {
     if (candidates.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -149,13 +151,13 @@ export function MentionInput({
         : <textarea {...commonProps} rows={rows} />}
       {showPicker && (
         <div className="mention-autocomplete">
-          {candidates.map((m, i) => (
+          {candidates.map((/** @type {any} */ m, /** @type {any} */ i) => (
             <button
               key={m.id}
               type="button"
               className={`mention-option${i === selectedIdx ? ' selected' : ''}`}
               onMouseEnter={() => setSelectedIdx(i)}
-              onMouseDown={(e) => { e.preventDefault(); applyPick(m); }}
+              onMouseDown={(/** @type {any} */ e) => { e.preventDefault(); applyPick(m); }}
             >
               <span className="mention-option-swatch" style={{ backgroundColor: getColor(m.name) }} />
               {m.name}

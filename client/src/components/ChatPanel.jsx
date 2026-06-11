@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useRef } from 'react';
 import { getColor } from './Avatar.jsx';
 import { CloseIcon } from './Icons.jsx';
@@ -7,7 +8,10 @@ import { MentionInput, renderMentionText } from './MentionInput.jsx';
 // emoji widget. If users want more, swap for a real picker later.
 const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅', '❌'];
 
-/** Real-time project chat panel with typing indicators and date-grouped messages. */
+/**
+ * Real-time project chat panel with typing indicators and date-grouped messages.
+ * @param {any} props
+ */
 export default function ChatPanel({
   messages,
   currentUser,
@@ -21,9 +25,9 @@ export default function ChatPanel({
   typingUsers,
 }) {
   const [text, setText] = useState('');
-  const [pickerForId, setPickerForId] = useState(null);
-  const listRef = useRef(null);
-  const inputRef = useRef(null);
+  const [pickerForId, setPickerForId] = useState(/** @type {any} */ (null));
+  const listRef = useRef(/** @type {any} */ (null));
+  const inputRef = useRef(/** @type {any} */ (null));
   const lastTypingSentRef = useRef(0);
   const [, setTick] = useState(0);
 
@@ -55,13 +59,13 @@ export default function ChatPanel({
   // need to consult for the seen-by indicator on own messages. Members
   // arrive via the parent's WS-driven hook and may be empty for a
   // brief moment after project switch; default to [] silently.
-  const otherMembers = (members || []).filter((m) => m.id && m.id !== currentUser?.id);
+  const otherMembers = (members || []).filter((/** @type {any} */ m) => m.id && m.id !== currentUser?.id);
 
   // For a given message, return the names of OTHER members who've
   // read it (cursor timestamp ≥ message timestamp). Used to build
   // the "Read by Alice, Bob" tooltip — counts alone don't tell the
   // sender which collaborator has actually seen the message.
-  const readerNames = (msg) => {
+  const readerNames = (/** @type {any} */ msg) => {
     if (!otherMembers.length || !readCursors) return [];
     const msgTs = new Date(msg.created_at).getTime();
     const names = [];
@@ -72,7 +76,7 @@ export default function ChatPanel({
     return names;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = (/** @type {any} */ e) => {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -81,12 +85,12 @@ export default function ChatPanel({
     inputRef.current?.focus();
   };
 
-  const formatTime = (ts) => {
+  const formatTime = (/** @type {any} */ ts) => {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleInput = (e) => {
+  const handleInput = (/** @type {any} */ e) => {
     setText(e.target.value);
     if (onTyping && Date.now() - lastTypingSentRef.current > 2000) {
       lastTypingSentRef.current = Date.now();
@@ -111,7 +115,7 @@ export default function ChatPanel({
   // Close the reaction picker on outside click / Escape.
   useEffect(() => {
     if (!pickerForId) return;
-    const close = (e) => {
+    const close = (/** @type {any} */ e) => {
       if (e.target.closest?.('.chat-react-picker, .chat-react-trigger')) return;
       setPickerForId(null);
     };
@@ -134,7 +138,7 @@ export default function ChatPanel({
       </div>
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 && <div className="chat-empty">No messages yet. Say hello!</div>}
-        {messages.map((m, i) => {
+        {messages.map((/** @type {any} */ m, /** @type {any} */ i) => {
           const isOwn = m.userId === currentUser?.id;
           const showAuthor = i === 0 || messages[i - 1].userId !== m.userId;
           const dateStr = new Date(m.created_at).toLocaleDateString([], {
@@ -202,7 +206,7 @@ export default function ChatPanel({
                   )}
                   {pickerForId === m.id && (
                     <div className="chat-react-picker" role="menu">
-                      {REACTION_PALETTE.map((e) => (
+                      {REACTION_PALETTE.map((/** @type {any} */ e) => (
                         <button
                           key={e}
                           type="button"
@@ -220,9 +224,9 @@ export default function ChatPanel({
                 </div>
                 {Array.isArray(m.reactions) && m.reactions.length > 0 && (
                   <div className="chat-reactions">
-                    {m.reactions.map((r) => {
-                      const mine = r.users.some((u) => u.id === currentUser?.id);
-                      const tip = r.users.map((u) => u.name).join(', ');
+                    {m.reactions.map((/** @type {any} */ r) => {
+                      const mine = r.users.some((/** @type {any} */ u) => u.id === currentUser?.id);
+                      const tip = r.users.map((/** @type {any} */ u) => u.name).join(', ');
                       return (
                         <button
                           key={r.emoji}
@@ -265,7 +269,7 @@ export default function ChatPanel({
           placeholder="Type a message... (@ to mention)"
           value={text}
           onChange={handleInput}
-          onKeyDown={(e) => {
+          onKeyDown={(/** @type {any} */ e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSubmit(e);

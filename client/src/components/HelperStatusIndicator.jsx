@@ -49,7 +49,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
   const [latestRelease, setLatestRelease] = useState(
     /** @type {LatestHelperVersionResponse | null} */ (null),
   );
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   useClickOutside(ref, () => setOpen(false), open);
 
   useEffect(() => {
@@ -310,10 +310,12 @@ function PopoverActions({ primary, secondary }) {
  * @param {string | null | undefined} latest
  * @returns {VersionVerdict}
  */
+/** @param {any} installed */
+/** @param {any} latest */
 function compareHelperVersion(installed, latest) {
   if (!installed || !latest) return 'unknown';
   /** @param {string} s */
-  const parse = (s) => {
+  const parse = (/** @type {any} */ s) => {
     const m = /^(\d+)\.(\d+)\.(\d+)/.exec(s);
     return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
   };
@@ -376,6 +378,8 @@ function HelperVersionLine({ installed, latest }) {
  * @param {Platform | undefined | null} p
  * @returns {string}
  */
+/** @param {any} p */
+/** @param {any} p */
 function labelForPlatform(p) {
   if (!p) return 'your platform';
   if (p.os === 'darwin') return 'macOS';

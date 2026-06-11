@@ -1,3 +1,4 @@
+// @ts-check
 // Admin: SAML / SSO configuration tab.
 //
 // Three sections, top to bottom:
@@ -22,12 +23,12 @@ const PRESETS = [
 ];
 
 export default function SamlConfig() {
-  const [spInfo, setSpInfo] = useState(null);
-  const [idps, setIdps] = useState([]);
+  const [spInfo, setSpInfo] = useState(/** @type {any} */ (null));
+  const [idps, setIdps] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editing, setEditing] = useState(null);  // null | 'new' | <idpId>
-  const [confirmDelete, setConfirmDelete] = useState(null); // <idpId> | null
+  const [editing, setEditing] = useState(/** @type {any} */ (null));  // null | 'new' | <idpId>
+  const [confirmDelete, setConfirmDelete] = useState(/** @type {any} */ (null)); // <idpId> | null
   const [confirmRotate, setConfirmRotate] = useState(false);
 
   const refresh = async () => {
@@ -52,7 +53,7 @@ export default function SamlConfig() {
 
   useEffect(() => { refresh(); }, []);
 
-  const handleToggleEnabled = async (idp) => {
+  const handleToggleEnabled = async (/** @type {any} */ idp) => {
     try {
       const res = await patch(`/api/admin/saml/idps/${idp.id}`, { enabled: !idp.enabled });
       if (!res.ok) {
@@ -66,7 +67,7 @@ export default function SamlConfig() {
     }
   };
 
-  const handleDelete = async (idp) => {
+  const handleDelete = async (/** @type {any} */ idp) => {
     try {
       const res = await del(`/api/admin/saml/idps/${idp.id}`);
       if (!res.ok) {
@@ -117,7 +118,7 @@ export default function SamlConfig() {
           No SSO providers configured. Users sign in with email and password.
         </p>
       )}
-      {idps.map((idp) => (
+      {idps.map((/** @type {any} */ idp) => (
         <IdPRow
           key={idp.id}
           idp={idp}
@@ -151,6 +152,7 @@ export default function SamlConfig() {
   );
 }
 
+/** @param {any} props */
 function SpInfoCard({ spInfo, confirmRotate, onRotateRequest, onRotateConfirm, onRotateCancel }) {
   if (!spInfo) return null;
   return (
@@ -215,6 +217,7 @@ function SpInfoCard({ spInfo, confirmRotate, onRotateRequest, onRotateConfirm, o
   );
 }
 
+/** @param {any} props */
 function CopyField({ label, value, note }) {
   const [copied, setCopied] = useState(false);
   const onCopy = () => {
@@ -237,6 +240,7 @@ function CopyField({ label, value, note }) {
   );
 }
 
+/** @param {any} props */
 function IdPRow({ idp, confirmDelete, onEdit, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleEnabled }) {
   return (
     <div className="saml-config-idp-row">
@@ -283,6 +287,7 @@ function IdPRow({ idp, confirmDelete, onEdit, onDeleteRequest, onDeleteConfirm, 
   );
 }
 
+/** @param {any} props */
 function IdPEditorModal({ idpId, onClose, onSaved }) {
   const isNew = !idpId;
   const [mode, setMode] = useState('metadata');  // 'metadata' | 'fields'
@@ -300,7 +305,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [testPreview, setTestPreview] = useState(null);
+  const [testPreview, setTestPreview] = useState(/** @type {any} */ (null));
 
   useEffect(() => {
     if (isNew) return;
@@ -352,7 +357,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
     setError('');
     const domains = form.allowedEmailDomains
       .split(/[,\s]+/)
-      .map((d) => d.trim().toLowerCase())
+      .map((/** @type {any} */ d) => d.trim().toLowerCase())
       .filter(Boolean);
     if (domains.length === 0) {
       setError('At least one email domain is required.');
@@ -393,7 +398,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="saml-config-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="saml-config-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <h3 className="saml-config-section-title">
           {isNew ? 'Add identity provider' : 'Edit identity provider'}
         </h3>
@@ -401,7 +406,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
         <Field
           label="Display name"
           value={form.displayName}
-          onChange={(v) => setForm({ ...form, displayName: v })}
+          onChange={(/** @type {any} */ v) => setForm({ ...form, displayName: v })}
           placeholder="UCC, TCD, Acme Corp, …"
         />
 
@@ -431,7 +436,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
               <textarea
                 className="saml-config-textarea"
                 value={form.metadataXml}
-                onChange={(e) => setForm({ ...form, metadataXml: e.target.value })}
+                onChange={(/** @type {any} */ e) => setForm({ ...form, metadataXml: e.target.value })}
                 placeholder="<EntityDescriptor xmlns:md=…>…"
                 rows={10}
               />
@@ -460,7 +465,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
             <Field
               label="Entity ID"
               value={form.entityId}
-              onChange={(v) => setForm({ ...form, entityId: v })}
+              onChange={(/** @type {any} */ v) => setForm({ ...form, entityId: v })}
               placeholder="https://idp.ucc.ie/idp/shibboleth"
               disabled={!isNew}
               note={!isNew ? 'Entity ID is immutable — delete and re-create the IdP if it needs to change.' : null}
@@ -468,13 +473,13 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
             <Field
               label="SSO URL"
               value={form.ssoUrl}
-              onChange={(v) => setForm({ ...form, ssoUrl: v })}
+              onChange={(/** @type {any} */ v) => setForm({ ...form, ssoUrl: v })}
               placeholder="https://idp.ucc.ie/idp/profile/SAML2/POST/SSO"
             />
             <Field
               label="SLO URL (optional)"
               value={form.sloUrl}
-              onChange={(v) => setForm({ ...form, sloUrl: v })}
+              onChange={(/** @type {any} */ v) => setForm({ ...form, sloUrl: v })}
               placeholder="https://idp.ucc.ie/idp/profile/SAML2/Redirect/SLO"
             />
             <label className="saml-config-field">
@@ -482,7 +487,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
               <textarea
                 className="saml-config-textarea saml-config-textarea--cert"
                 value={form.certPem}
-                onChange={(e) => setForm({ ...form, certPem: e.target.value })}
+                onChange={(/** @type {any} */ e) => setForm({ ...form, certPem: e.target.value })}
                 placeholder="-----BEGIN CERTIFICATE-----…"
                 rows={5}
               />
@@ -495,9 +500,9 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
           <select
             className="saml-config-select"
             value={form.attributeMapping}
-            onChange={(e) => setForm({ ...form, attributeMapping: e.target.value })}
+            onChange={(/** @type {any} */ e) => setForm({ ...form, attributeMapping: e.target.value })}
           >
-            {PRESETS.map((p) => (
+            {PRESETS.map((/** @type {any} */ p) => (
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
@@ -506,7 +511,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
         <Field
           label="Allowed email domains (comma or space separated)"
           value={form.allowedEmailDomains}
-          onChange={(v) => setForm({ ...form, allowedEmailDomains: v })}
+          onChange={(/** @type {any} */ v) => setForm({ ...form, allowedEmailDomains: v })}
           placeholder="ucc.ie, cs.ucc.ie"
           note="Users with emails in these domains will be routed to this IdP."
         />
@@ -515,7 +520,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
           <input
             type="checkbox"
             checked={form.jitProvisioning}
-            onChange={(e) => setForm({ ...form, jitProvisioning: e.target.checked })}
+            onChange={(/** @type {any} */ e) => setForm({ ...form, jitProvisioning: e.target.checked })}
           />
           Just-in-time user provisioning (auto-create accounts on first login)
         </label>
@@ -523,7 +528,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
           <input
             type="checkbox"
             checked={form.enabled}
-            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            onChange={(/** @type {any} */ e) => setForm({ ...form, enabled: e.target.checked })}
           />
           Enabled (visible on the login page; users can sign in via this IdP)
         </label>
@@ -545,6 +550,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
   );
 }
 
+/** @param {any} props */
 function Field({ label, value, onChange, placeholder, disabled, note }) {
   return (
     <label className="saml-config-field">
@@ -553,7 +559,7 @@ function Field({ label, value, onChange, placeholder, disabled, note }) {
         type="text"
         className="saml-config-input"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(/** @type {any} */ e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
       />

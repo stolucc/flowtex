@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { formatFullDate as formatDate } from '../utils/dateFormat.js';
@@ -8,10 +9,11 @@ const REACTION_PALETTE = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '✅
 
 /** Reaction pill row + ☺ trigger + popover picker. Used on both top-level
  *  comments and on replies — `targetId` is whichever entity the parent wants
+ * @param {any} props
  *  to react on, passed straight through to `onReact`. */
 function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   useClickOutside(ref, () => setPickerOpen(false), pickerOpen);
 
   useEffect(() => {
@@ -23,9 +25,9 @@ function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) 
     <div className="comment-reactions-row" ref={ref}>
       {Array.isArray(reactions) && reactions.length > 0 && (
         <div className="comment-reactions">
-          {reactions.map((r) => {
-            const mine = r.users.some((u) => u.id === currentUserId);
-            const tip = r.users.map((u) => u.name).join(', ');
+          {reactions.map((/** @type {any} */ r) => {
+            const mine = r.users.some((/** @type {any} */ u) => u.id === currentUserId);
+            const tip = r.users.map((/** @type {any} */ u) => u.name).join(', ');
             return (
               <button
                 key={r.emoji}
@@ -52,7 +54,7 @@ function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) 
       </button>
       {pickerOpen && (
         <div className="comment-react-picker" role="menu">
-          {REACTION_PALETTE.map((e) => (
+          {REACTION_PALETTE.map((/** @type {any} */ e) => (
             <button
               key={e}
               type="button"
@@ -71,13 +73,16 @@ function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) 
   );
 }
 
-/** Single comment thread with inline replies, edit/delete actions, and resolve toggle. */
+/**
+ * Single comment thread with inline replies, edit/delete actions, and resolve toggle.
+ * @param {any} props
+ */
 function CommentBubble({ comment, currentUserName, members, currentUserId, onResolve, onDelete, onEdit, onReply, onReact, onReactReply, innerRef, onLayoutChange }) {
   const [replyText, setReplyText] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
-  const menuRef = useRef(null);
+  const menuRef = useRef(/** @type {any} */ (null));
 
   const hadText = useRef(false);
 
@@ -118,7 +123,7 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
     >
       {comment.assigned_to && (
         <div className="comment-assignment">
-          Assigned to {comment.assigned_to === currentUserId ? 'you' : (members?.find((m) => m.id === comment.assigned_to)?.name || 'someone')}
+          Assigned to {comment.assigned_to === currentUserId ? 'you' : (members?.find((/** @type {any} */ m) => m.id === comment.assigned_to)?.name || 'someone')}
         </div>
       )}
       <div className="comment-top-actions">
@@ -166,8 +171,8 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
           <textarea
             autoFocus
             value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            onKeyDown={(e) => {
+            onChange={(/** @type {any} */ e) => setEditText(e.target.value)}
+            onKeyDown={(/** @type {any} */ e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleEdit();
@@ -197,7 +202,7 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
       )}
       {(comment.replies || []).length > 0 && (
         <div className="comment-replies">
-          {comment.replies.map((r) => (
+          {comment.replies.map((/** @type {any} */ r) => (
             <div key={r.id} className="comment-reply">
               <div className="comment-reply-author">
                 {r.author === currentUserName ? 'You' : r.author}
@@ -222,8 +227,8 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
           <MentionInput
             placeholder="Reply..."
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            onKeyDown={(e) => {
+            onChange={(/** @type {any} */ e) => setReplyText(e.target.value)}
+            onKeyDown={(/** @type {any} */ e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleReply();
@@ -247,7 +252,10 @@ function CommentBubble({ comment, currentUserName, members, currentUserId, onRes
   );
 }
 
-/** Sidebar displaying editor comments with elastic positioning aligned to source lines. */
+/**
+ * Sidebar displaying editor comments with elastic positioning aligned to source lines.
+ * @param {any} props
+ */
 export default function CommentsSidebar({
   currentUserName,
   currentUserId,
@@ -269,19 +277,19 @@ export default function CommentsSidebar({
   style,
 }) {
   const [text, setText] = useState('');
-  const [assignTo, setAssignTo] = useState(null);
+  const [assignTo, setAssignTo] = useState(/** @type {any} */ (null));
   const [resolvedCollapsed, setResolvedCollapsed] = useState(true);
-  const textareaRef = useRef(null);
-  const prevSelectionRef = useRef(null);
-  const formRef = useRef(null);
+  const textareaRef = useRef(/** @type {any} */ (null));
+  const prevSelectionRef = useRef(/** @type {any} */ (null));
+  const formRef = useRef(/** @type {any} */ (null));
   const commentRefs = useRef({});
-  const listRef = useRef(null);
+  const listRef = useRef(/** @type {any} */ (null));
 
   // Detect @mentions in the new comment text
   const mentionedMembers = useMemo(() => {
     if (!text || !members?.length) return [];
     const names = extractMentions(text, members);
-    return members.filter((m) => names.includes(m.name.toLowerCase()));
+    return members.filter((/** @type {any} */ m) => names.includes(m.name.toLowerCase()));
   }, [text, members]);
 
   useEffect(() => {
@@ -298,12 +306,12 @@ export default function CommentsSidebar({
 
   // Clear assignTo if the mentioned member is removed from text
   useEffect(() => {
-    if (assignTo && !mentionedMembers.some((m) => m.id === assignTo)) {
+    if (assignTo && !mentionedMembers.some((/** @type {any} */ m) => m.id === assignTo)) {
       setAssignTo(null);
     }
   }, [mentionedMembers, assignTo]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (/** @type {any} */ e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selection) return;
     await onAdd(text.trim(), { assignedTo: assignTo });
@@ -317,8 +325,8 @@ export default function CommentsSidebar({
     onCancelComment?.();
   };
 
-  const unresolvedComments = comments.filter((c) => !c.resolved);
-  const resolvedComments = comments.filter((c) => c.resolved);
+  const unresolvedComments = comments.filter((/** @type {any} */ c) => !c.resolved);
+  const resolvedComments = comments.filter((/** @type {any} */ c) => c.resolved);
 
   // Build target position map from commentPositions
   const posMap = useMemo(() => {
@@ -409,8 +417,8 @@ export default function CommentsSidebar({
                 autoFocus
                 placeholder="Write a comment..."
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
+                onChange={(/** @type {any} */ e) => setText(e.target.value)}
+                onKeyDown={(/** @type {any} */ e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSubmit();
@@ -422,7 +430,7 @@ export default function CommentsSidebar({
               />
               {mentionedMembers.length > 0 && (
                 <div className="comment-assign-section">
-                  {mentionedMembers.map((m) => (
+                  {mentionedMembers.map((/** @type {any} */ m) => (
                     <label key={m.id} className="comment-assign-option">
                       <input
                         type="checkbox"
@@ -444,7 +452,7 @@ export default function CommentsSidebar({
               </div>
             </div>
           )}
-          {unresolvedComments.map((c) => (
+          {unresolvedComments.map((/** @type {any} */ c) => (
             <CommentBubble
               key={c.id}
               comment={c}
@@ -477,7 +485,7 @@ export default function CommentsSidebar({
             </div>
             {!resolvedCollapsed && (
               <div className="comments-list">
-                {resolvedComments.map((c) => (
+                {resolvedComments.map((/** @type {any} */ c) => (
                   <CommentBubble
                     key={c.id}
                     comment={c}

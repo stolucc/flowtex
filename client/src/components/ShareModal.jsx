@@ -1,27 +1,31 @@
+// @ts-check
 import React, { useState, useEffect } from 'react';
 import { get, post, del } from '../api.js';
 import Avatar from './Avatar.jsx';
 
-/** Modal for inviting collaborators, managing members, and cancelling pending invitations. */
+/**
+ * Modal for inviting collaborators, managing members, and cancelling pending invitations.
+ * @param {any} props
+ */
 export default function ShareModal({ projectId, onClose }) {
-  const [members, setMembers] = useState([]);
-  const [invitations, setInvitations] = useState([]);
+  const [members, setMembers] = useState(/** @type {any[]} */ ([]));
+  const [invitations, setInvitations] = useState(/** @type {any[]} */ ([]));
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('editor');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [confirmRemove, setConfirmRemove] = useState(null); // { userId, name }
+  const [confirmRemove, setConfirmRemove] = useState(/** @type {any} */ (null)); // { userId, name }
 
   useEffect(() => {
     get(`/api/projects/${projectId}/members`)
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setMembers);
     get(`/api/projects/${projectId}/invitations`)
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setInvitations);
   }, [projectId]);
 
-  const handleAdd = async (e) => {
+  const handleAdd = async (/** @type {any} */ e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -40,30 +44,30 @@ export default function ShareModal({ projectId, onClose }) {
     if (!confirmRemove) return;
     const res = await del(`/api/projects/${projectId}/members/${confirmRemove.userId}`);
     if (res.ok) {
-      setMembers((m) => m.filter((u) => u.id !== confirmRemove.userId));
+      setMembers((m) => m.filter((/** @type {any} */ u) => u.id !== confirmRemove.userId));
     }
     setConfirmRemove(null);
   };
 
-  const handleCancelInvite = async (inviteId) => {
+  const handleCancelInvite = async (/** @type {any} */ inviteId) => {
     await del(`/api/projects/${projectId}/invitations/${inviteId}`);
-    setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+    setInvitations((inv) => inv.filter((/** @type {any} */ i) => i.id !== inviteId));
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <h2>Share Project</h2>
         <form onSubmit={handleAdd} className="share-form">
           <input
             type="email"
             placeholder="Email address"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(/** @type {any} */ e) => setEmail(e.target.value)}
             required
             className="auth-input"
           />
-          <select value={role} onChange={(e) => setRole(e.target.value)} className="share-role-select">
+          <select value={role} onChange={(/** @type {any} */ e) => setRole(e.target.value)} className="share-role-select">
             <option value="editor">Editor</option>
             <option value="commenter">Commenter</option>
             <option value="viewer">Viewer</option>
@@ -76,7 +80,7 @@ export default function ShareModal({ projectId, onClose }) {
         {success && <div className="auth-success">{success}</div>}
 
         <ul className="member-list">
-          {members.map((m) => (
+          {members.map((/** @type {any} */ m) => (
             <li key={m.id} className="member-item">
               <Avatar name={m.name} />
               <div className="member-info">
@@ -101,7 +105,7 @@ export default function ShareModal({ projectId, onClose }) {
           <>
             <h3 className="share-section-title">Pending Invitations</h3>
             <ul className="member-list">
-              {invitations.map((inv) => (
+              {invitations.map((/** @type {any} */ inv) => (
                 <li key={inv.id} className="member-item invitation-pending">
                   <div className="member-info">
                     <span className="member-email">{inv.email}</span>
@@ -128,7 +132,7 @@ export default function ShareModal({ projectId, onClose }) {
 
       {confirmRemove && (
         <div className="confirm-overlay" onClick={() => setConfirmRemove(null)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="confirm-dialog" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <h3 className="confirm-title">Remove Member</h3>
             <p className="confirm-message">
               Are you sure you want to remove <strong>{confirmRemove.name}</strong> from this project? They will lose

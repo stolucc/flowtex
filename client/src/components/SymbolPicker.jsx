@@ -1,36 +1,40 @@
+// @ts-check
 import React, { useState, useEffect, useRef } from 'react';
 import SYMBOL_CATEGORIES from '../data/symbols.js';
 
-/** Grid-based picker for browsing and inserting LaTeX special symbols by category. */
+/**
+ * Grid-based picker for browsing and inserting LaTeX special symbols by category.
+ * @param {any} props
+ */
 function SymbolPicker({ onInsert, onClose, declaredPackages }) {
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(/** @type {any} */ (null));
   const [filter, setFilter] = useState('');
-  const filterRef = useRef(null);
+  const filterRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     filterRef.current?.focus();
   }, []);
 
   const filtered = filter.trim()
-    ? SYMBOL_CATEGORIES.map((cat) => ({
+    ? SYMBOL_CATEGORIES.map((/** @type {any} */ cat) => ({
         ...cat,
         symbols: cat.symbols.filter(([cmd]) => cmd.toLowerCase().includes(filter.toLowerCase())),
-      })).filter((cat) => cat.symbols.length > 0)
+      })).filter((/** @type {any} */ cat) => cat.symbols.length > 0)
     : SYMBOL_CATEGORIES;
 
   // Find package for selected symbol
   const selectedPkg = selected
-    ? SYMBOL_CATEGORIES.flatMap((c) => c.symbols).find((s) => s[0] === selected)?.[2] || null
+    ? SYMBOL_CATEGORIES.flatMap((/** @type {any} */ c) => c.symbols).find((/** @type {any} */ s) => s[0] === selected)?.[2] || null
     : null;
 
-  const handleInsert = (cmd) => {
+  const handleInsert = (/** @type {any} */ cmd) => {
     onInsert(cmd);
     onClose();
   };
 
   return (
     <div className="symbol-picker-overlay" onClick={onClose}>
-      <div className="symbol-picker" onClick={(e) => e.stopPropagation()}>
+      <div className="symbol-picker" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
         <div className="symbol-picker-header">
           <span className="symbol-picker-title">Insert Special Symbol</span>
           <button className="symbol-picker-close" onClick={onClose}>
@@ -42,10 +46,10 @@ function SymbolPicker({ onInsert, onClose, declaredPackages }) {
           className="symbol-picker-filter"
           placeholder="Search symbols..."
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(/** @type {any} */ e) => setFilter(e.target.value)}
         />
         <div className="symbol-picker-body">
-          {filtered.map((cat) => (
+          {filtered.map((/** @type {any} */ cat) => (
             <div key={cat.name} className="symbol-picker-category">
               <div className="symbol-picker-cat-name">{cat.name}</div>
               <div className="symbol-picker-grid">

@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useRef, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -9,18 +10,23 @@ const PDF_EXTS = new Set(['.pdf']);
 // backward compat with any caller still importing from this file.
 export { getMimeType } from '../utils/mimeType.js';
 
+/** @param {any} path */
+/** @param {any} path */
 function getFileExt(path) {
   const dot = (path || '').lastIndexOf('.');
   return dot >= 0 ? path.slice(dot).toLowerCase() : '';
 }
 
-/** Previews binary project files: renders images inline and PDFs via pdf.js canvas pages. */
+/**
+ * Previews binary project files: renders images inline and PDFs via pdf.js canvas pages.
+ * @param {any} props
+ */
 export default function BinaryPreview({ file }) {
   const ext = getFileExt(file.path);
   const rawUrl = `/api/projects/files/${file.id}/raw`;
   const isPdf = PDF_EXTS.has(ext);
   const isImage = IMAGE_EXTS.has(ext);
-  const containerRef = useRef(null);
+  const containerRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     if (!isPdf) return;

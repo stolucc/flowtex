@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import { getCursorStyle } from '../utils/visualMode.js';
@@ -35,12 +36,12 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
   const [vmUnderline, setVmUnderline] = useState(false);
   const [vmHeadingLevel, setVmHeadingLevel] = useState('normal');
   const [vmBlockStyle, setVmBlockStyle] = useState('Normal');
-  const [vmTextColor, setVmTextColor] = useState(null);
-  const [vmHighlightColor, setVmHighlightColor] = useState(null);
+  const [vmTextColor, setVmTextColor] = useState(/** @type {any} */ (null));
+  const [vmHighlightColor, setVmHighlightColor] = useState(/** @type {any} */ (null));
   const [vmTextColorOpen, setVmTextColorOpen] = useState(false);
   const [vmHighlightOpen, setVmHighlightOpen] = useState(false);
-  const vmTextColorRef = useRef(null);
-  const vmHighlightRef = useRef(null);
+  const vmTextColorRef = useRef(/** @type {any} */ (null));
+  const vmHighlightRef = useRef(/** @type {any} */ (null));
   useClickOutside(vmTextColorRef, () => setVmTextColorOpen(false), vmTextColorOpen);
   useClickOutside(vmHighlightRef, () => setVmHighlightOpen(false), vmHighlightOpen);
 
@@ -48,8 +49,8 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
   const [vmCiteOpen, setVmCiteOpen] = useState(false);
   const [vmCiteQuery, setVmCiteQuery] = useState('');
   const [vmCiteIdx, setVmCiteIdx] = useState(0);
-  const vmCiteRef = useRef(null);
-  const vmCiteInputRef = useRef(null);
+  const vmCiteRef = useRef(/** @type {any} */ (null));
+  const vmCiteInputRef = useRef(/** @type {any} */ (null));
   useClickOutside(vmCiteRef, () => setVmCiteOpen(false), vmCiteOpen);
   useEffect(() => {
     if (vmCiteOpen) {
@@ -96,7 +97,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
   }), [vmUpdateState]);
 
   // Toggle wrap: if selection has text, wrap/unwrap; if empty, insert at cursor
-  const vmToggleWrap = useCallback((before, after) => {
+  const vmToggleWrap = useCallback((/** @type {any} */ before, /** @type {any} */ after) => {
     const view = viewRef.current;
     if (!view) return;
     const { from, to } = view.state.selection.main;
@@ -257,10 +258,10 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
     const list = citeKeys || [];
     if (!q) return list.slice(0, 50);
     return list
-      .filter((c) => c.label.toLowerCase().includes(q) || (c.detail || '').toLowerCase().includes(q))
+      .filter((/** @type {any} */ c) => c.label.toLowerCase().includes(q) || (c.detail || '').toLowerCase().includes(q))
       .slice(0, 50);
   })();
-  const insertCitation = useCallback((key) => {
+  const insertCitation = useCallback((/** @type {any} */ key) => {
     const view = viewRef.current;
     if (!view || !key) return;
     const { from, to } = view.state.selection.main;
@@ -280,7 +281,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
       <select
         className="vm-toolbar-select"
         value={vmHeadingLevel}
-        onChange={(e) => {
+        onChange={(/** @type {any} */ e) => {
           const view = viewRef.current;
           if (!view) return;
           const level = e.target.value;
@@ -314,19 +315,19 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
       <button
         className={`vm-toolbar-btn ${vmBold ? 'vm-toolbar-btn-active' : ''}`}
         title="Bold (⌘B)"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => vmToggleWrap('\\textbf{', '}')}
       ><strong>B</strong></button>
       <button
         className={`vm-toolbar-btn ${vmItalic ? 'vm-toolbar-btn-active' : ''}`}
         title="Italic (⌘I)"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => vmToggleWrap('\\emph{', '}')}
       ><em>I</em></button>
       <button
         className={`vm-toolbar-btn ${vmUnderline ? 'vm-toolbar-btn-active' : ''}`}
         title="Underline (⌘U)"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => vmToggleWrap('\\underline{', '}')}
       ><span style={{ textDecoration: 'underline' }}>U</span></button>
 
@@ -334,7 +335,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
         <button
           className={`vm-toolbar-btn ${vmTextColor ? 'vm-toolbar-btn-active' : ''}`}
           title="Text color"
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
           onClick={() => { setVmTextColorOpen(v => !v); setVmHighlightOpen(false); }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -347,7 +348,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
             <button
               className="vm-color-swatch vm-color-none"
               title="Remove color"
-              onMouseDown={(e) => e.preventDefault()}
+              onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
               onClick={() => vmApplyColor(null, 'text')}
             />
             {[
@@ -365,7 +366,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
                 className={`vm-color-swatch${vmTextColor === c.name ? ' vm-color-swatch-active' : ''}`}
                 style={{ backgroundColor: c.css }}
                 title={c.name}
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
                 onClick={() => vmApplyColor(c.name, 'text')}
               />
             ))}
@@ -377,7 +378,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
         <button
           className={`vm-toolbar-btn ${vmHighlightColor ? 'vm-toolbar-btn-active' : ''}`}
           title="Highlight color"
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
           onClick={() => { setVmHighlightOpen(v => !v); setVmTextColorOpen(false); }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -390,7 +391,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
             <button
               className="vm-color-swatch vm-color-none"
               title="Remove highlight"
-              onMouseDown={(e) => e.preventDefault()}
+              onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
               onClick={() => vmApplyColor(null, 'highlight')}
             />
             {[
@@ -404,7 +405,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
                 className={`vm-color-swatch${vmHighlightColor === c.name ? ' vm-color-swatch-active' : ''}`}
                 style={{ backgroundColor: c.css }}
                 title={c.name}
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
                 onClick={() => vmApplyColor(c.name, 'highlight')}
               />
             ))}
@@ -417,7 +418,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
       <button
         className={`vm-toolbar-btn ${vmBlockStyle === 'Itemize' ? 'vm-toolbar-btn-active' : ''}`}
         title="Bulleted list"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => onInsertList('itemize')}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2">
@@ -429,7 +430,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
       <button
         className={`vm-toolbar-btn ${vmBlockStyle === 'Enumerate' ? 'vm-toolbar-btn-active' : ''}`}
         title="Numbered list"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => onInsertList('enumerate')}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round">
@@ -441,7 +442,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
       <button
         className={`vm-toolbar-btn ${vmBlockStyle === 'Quote' ? 'vm-toolbar-btn-active' : ''}`}
         title="Block quote"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
         onClick={() => onInsertQuote?.()}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -456,7 +457,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
         <button
           className="vm-toolbar-btn"
           title="Insert citation (\\cite{…})"
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
           onClick={() => setVmCiteOpen((v) => !v)}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -474,8 +475,8 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
               type="text"
               placeholder="Search citations…"
               value={vmCiteQuery}
-              onChange={(e) => { setVmCiteQuery(e.target.value); setVmCiteIdx(0); }}
-              onKeyDown={(e) => {
+              onChange={(/** @type {any} */ e) => { setVmCiteQuery(e.target.value); setVmCiteIdx(0); }}
+              onKeyDown={(/** @type {any} */ e) => {
                 if (e.key === 'Escape') { setVmCiteOpen(false); e.preventDefault(); }
                 else if (e.key === 'ArrowDown') { setVmCiteIdx((i) => Math.min(i + 1, filteredCites.length - 1)); e.preventDefault(); }
                 else if (e.key === 'ArrowUp') { setVmCiteIdx((i) => Math.max(i - 1, 0)); e.preventDefault(); }
@@ -490,11 +491,11 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
                     : 'No citations match.'}
                 </div>
               ) : (
-                filteredCites.map((c, i) => (
+                filteredCites.map((/** @type {any} */ c, /** @type {any} */ i) => (
                   <button
                     key={c.label}
                     className={`vm-cite-item ${i === vmCiteIdx ? 'vm-cite-item-active' : ''}`}
-                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
                     onClick={() => insertCitation(c.label)}
                     onMouseEnter={() => setVmCiteIdx(i)}
                   >

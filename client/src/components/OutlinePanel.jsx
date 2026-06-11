@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useMemo, useRef } from 'react';
 import { parseDocumentOutline } from '../utils/latexOutline.js';
 
@@ -9,6 +10,7 @@ import { parseDocumentOutline } from '../utils/latexOutline.js';
  *
  * Drag the top edge to resize. The user file panel and outline panel
  * share the sidebar height; smaller outline = more file tree.
+ * @param {any} props
  */
 export default function OutlinePanel({
   files,
@@ -22,16 +24,16 @@ export default function OutlinePanel({
     return parseDocumentOutline(files || [], mainFilePath);
   }, [files, mainFilePath]);
 
-  const hasAnyTex = (files || []).some((f) => !f.is_binary && f.path?.endsWith('.tex'));
+  const hasAnyTex = (files || []).some((/** @type {any} */ f) => !f.is_binary && f.path?.endsWith('.tex'));
 
   // Drag the top edge: tracked client-Y delta becomes negative height
   // delta (drag up = grow). Min 80px so the header is still useful;
   // max 70vh so the file tree above always has room.
-  const dragStartRef = useRef(null);
-  const handleResizeStart = (e) => {
+  const dragStartRef = useRef(/** @type {any} */ (null));
+  const handleResizeStart = (/** @type {any} */ e) => {
     e.preventDefault();
     dragStartRef.current = { y: e.clientY, h: height };
-    const onMove = (ev) => {
+    const onMove = (/** @type {any} */ ev) => {
       if (!dragStartRef.current) return;
       const delta = dragStartRef.current.y - ev.clientY;
       const next = Math.max(80, Math.min(window.innerHeight * 0.7, dragStartRef.current.h + delta));
@@ -66,7 +68,7 @@ export default function OutlinePanel({
           </div>
         ) : (
           <ul className="outline-panel-list" role="tree">
-            {entries.map((e, i) => {
+            {entries.map((/** @type {any} */ e, /** @type {any} */ i) => {
               const inActive = activeFile && e.path === activeFile.path;
               return (
                 <li

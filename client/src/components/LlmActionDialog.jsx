@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchLlmStatus, streamLlmComplete } from '../utils/helperBridge.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
@@ -12,6 +13,8 @@ import { LLM_TASKS } from '../utils/llmTasks.js';
  *  without CORS headers, and the browser surfaces the rejection as
  *  TypeError: Failed to fetch. Tell the user to rebuild + restart.
  */
+/** @param {any} raw */
+/** @param {any} raw */
 function translateStatusError(raw) {
   const msg = String(raw || '');
   if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
@@ -152,6 +155,8 @@ export function translateOllamaError(raw) {
  *  helper restarted between menu open and click, etc.), surface the
  *  rebuild step instead of the bare server message.
  */
+/** @param {any} raw */
+/** @param {any} raw */
 function translateGenerateError(raw) {
   const msg = String(raw || '');
   if (/unknown task/i.test(msg)) {
@@ -182,6 +187,7 @@ function translateGenerateError(raw) {
  *  No keystrokes from the user's selection leave the machine — the
  *  helper is loopback-only and the helper validates that on every
  *  request.
+ * @param {any} props
  */
 export default function LlmActionDialog({ task, initialText, onClose, onAccept }) {
   const taskSpec = LLM_TASKS[task] || LLM_TASKS['write-to-length'];
@@ -189,14 +195,14 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
   const initialWordCount = (initialText.match(/\S+/g) || []).length || 1;
   const [targetWords, setTargetWords] = useState(initialWordCount);
   const [instruction, setInstruction] = useState('');
-  const [models, setModels] = useState([]);
+  const [models, setModels] = useState(/** @type {any[]} */ ([]));
   const [model, setModel] = useState('');
   const [statusError, setStatusError] = useState(''); // empty = no error
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [output, setOutput] = useState('');
   const [streamError, setStreamError] = useState('');
-  const abortRef = useRef(null);
+  const abortRef = useRef(/** @type {any} */ (null));
 
   // Fetch helper LLM status on mount. If the helper isn't paired, or
   // Ollama isn't running, the user sees a one-line explanation.
@@ -210,7 +216,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
   //      models=[]          → Ollama reached but no models pulled.
   useEffect(() => {
     let cancelled = false;
-    fetchLlmStatus().then((r) => {
+    fetchLlmStatus().then((/** @type {any} */ r) => {
       if (cancelled) return;
       setLoading(false);
       if (!r.ok) {
@@ -310,7 +316,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     onClose();
   };
 
-  const overlayClick = (e) => {
+  const overlayClick = (/** @type {any} */ e) => {
     if (e.target === e.currentTarget && !generating) onClose();
   };
 
@@ -344,7 +350,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
                   min={1}
                   max={2000}
                   value={targetWords}
-                  onChange={(e) => setTargetWords(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setTargetWords(e.target.value)}
                   disabled={generating}
                 />
                 <span className="llm-dialog-row-suffix">words</span>
@@ -361,7 +367,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
                   maxLength={1000}
                   placeholder='e.g. "translate to French", "make this sound more formal", "rewrite as a single sentence"'
                   value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setInstruction(e.target.value)}
                   disabled={generating}
                 />
                 <p className="llm-dialog-hint">
@@ -378,10 +384,10 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
                 <select
                   id="llm-model"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setModel(e.target.value)}
                   disabled={generating}
                 >
-                  {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {models.map((/** @type {any} */ m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
             )}

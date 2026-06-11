@@ -1,10 +1,14 @@
+// @ts-check
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { get, patch } from '../api.js';
 import { getSetting, setSetting } from '../utils/settings.js';
 import HelperStatusBadge from './HelperStatusBadge.jsx';
 import { useHelperStatusContext } from '../contexts/HelperStatusContext.jsx';
 
-/** Accessible toggle switch button. */
+/**
+ * Accessible toggle switch button.
+ * @param {any} props
+ */
 function Toggle({ on, onChange, disabled }) {
   return (
     <button
@@ -20,7 +24,10 @@ function Toggle({ on, onChange, disabled }) {
   );
 }
 
-/** Settings section for project name, main file, snapshot interval, and file grouping. */
+/**
+ * Settings section for project name, main file, snapshot interval, and file grouping.
+ * @param {any} props
+ */
 function ProjectSection({
   files,
   isOwner,
@@ -34,8 +41,8 @@ function ProjectSection({
   setGroupFilesByType,
 }) {
   const texFiles = files
-    .filter((f) => f.path.endsWith('.tex'))
-    .map((f) => f.path)
+    .filter((/** @type {any} */ f) => f.path.endsWith('.tex'))
+    .map((/** @type {any} */ f) => f.path)
     .sort();
 
   return (
@@ -46,7 +53,7 @@ function ProjectSection({
           type="text"
           className="settings-input"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(/** @type {any} */ e) => setName(e.target.value)}
           disabled={!isOwner}
         />
       </div>
@@ -59,9 +66,9 @@ function ProjectSection({
         <select
           className="settings-input"
           value={mainFile}
-          onChange={(e) => setMainFile(e.target.value)}
+          onChange={(/** @type {any} */ e) => setMainFile(e.target.value)}
         >
-          {texFiles.map((f) => (
+          {texFiles.map((/** @type {any} */ f) => (
             <option key={f} value={f}>
               {f}
             </option>
@@ -75,7 +82,7 @@ function ProjectSection({
         <select
           className="settings-input"
           value={snapshotInterval}
-          onChange={(e) => setSnapshotInterval(parseInt(e.target.value))}
+          onChange={(/** @type {any} */ e) => setSnapshotInterval(parseInt(e.target.value))}
           disabled={!isOwner}
         >
           <option value={10}>10 seconds</option>
@@ -98,7 +105,10 @@ function ProjectSection({
   );
 }
 
-/** Settings section for track changes, color inversion, and LaTeX formatter selection. */
+/**
+ * Settings section for track changes, color inversion, and LaTeX formatter selection.
+ * @param {any} props
+ */
 function EditorSection({
   trackChangesMode,
   onTrackChangesChange,
@@ -127,10 +137,10 @@ function EditorSection({
         <select
           className="settings-input"
           value={latexFormatter || ''}
-          onChange={(e) => setLatexFormatter(e.target.value || '')}
+          onChange={(/** @type {any} */ e) => setLatexFormatter(e.target.value || '')}
         >
           <option value="">None</option>
-          {formatters.map((f) => (
+          {formatters.map((/** @type {any} */ f) => (
             <option key={f.id} value={f.id}>
               {f.name} {f.version ? `(${f.version})` : ''}
             </option>
@@ -142,7 +152,10 @@ function EditorSection({
   );
 }
 
-/** Settings section for compiler engine, TeX distribution, and linting options. */
+/**
+ * Settings section for compiler engine, TeX distribution, and linting options.
+ * @param {any} props
+ */
 function CompilerSection({
   compiler,
   setCompiler,
@@ -174,7 +187,7 @@ function CompilerSection({
   const { status: helperStatus } = useHelperStatusContext();
   const effectiveLocation = compileLocation || userCompileLocation || 'server';
   const localDistros = useMemo(
-    () => (helperStatus?.distributionsAvailable || []).map((d) => ({
+    () => (helperStatus?.distributionsAvailable || []).map((/** @type {any} */ d) => ({
       year: d.year, version: `TeX Live ${d.year}`,
     })),
     [helperStatus?.distributionsAvailable],
@@ -195,7 +208,7 @@ function CompilerSection({
   // list, so the value the user sees matches what gets saved.
   useEffect(() => {
     if (!texDistribution) return;
-    if (sortedVisible.some((d) => d.year === texDistribution)) return;
+    if (sortedVisible.some((/** @type {any} */ d) => d.year === texDistribution)) return;
     setTexDistribution(null);
   }, [sortedVisible, texDistribution, setTexDistribution]);
 
@@ -203,7 +216,7 @@ function CompilerSection({
     <>
       <div className="settings-group">
         <label className="settings-label">Compiler</label>
-        <select className="settings-input" value={compiler} onChange={(e) => setCompiler(e.target.value)}>
+        <select className="settings-input" value={compiler} onChange={(/** @type {any} */ e) => setCompiler(e.target.value)}>
           <option value="pdflatex">pdfLaTeX</option>
           <option value="xelatex">XeLaTeX</option>
           <option value="lualatex">LuaLaTeX</option>
@@ -221,7 +234,7 @@ function CompilerSection({
         <select
           className="settings-input"
           value={texDistribution || ''}
-          onChange={(e) => setTexDistribution(e.target.value || null)}
+          onChange={(/** @type {any} */ e) => setTexDistribution(e.target.value || null)}
         >
           {/* List is filtered to the side the project will compile
               on, so a pick can never silently fail because the year
@@ -231,7 +244,7 @@ function CompilerSection({
               ? `Latest available — ${sortedVisible[0].year}`
               : (effectiveLocation === 'local' ? 'Helper default' : 'Server default')}
           </option>
-          {sortedVisible.map((d) => (
+          {sortedVisible.map((/** @type {any} */ d) => (
             <option key={d.year} value={d.year}>
               {d.year} — {d.version}
             </option>
@@ -297,7 +310,7 @@ function CompilerSection({
       </div>
       <div className="settings-group">
         <label className="settings-label">Server-side Linter</label>
-        <select className="settings-input" value={serverLinter} onChange={(e) => setServerLinter(e.target.value)}>
+        <select className="settings-input" value={serverLinter} onChange={(/** @type {any} */ e) => setServerLinter(e.target.value)}>
           <option value="">None</option>
           <option value="chktex">ChkTeX</option>
           <option value="lacheck">lacheck</option>
@@ -307,7 +320,10 @@ function CompilerSection({
   );
 }
 
-/** Settings section for GitHub auto-save toggle. */
+/**
+ * Settings section for GitHub auto-save toggle.
+ * @param {any} props
+ */
 function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
   if (!githubLinked) {
     return (
@@ -331,7 +347,10 @@ function GitHubSection({ githubLinked, autoSaveOn, onAutoSaveChange }) {
   );
 }
 
-/** Settings section for ACM TAPS compliance checking. */
+/**
+ * Settings section for ACM TAPS compliance checking.
+ * @param {any} props
+ */
 function PublishersSection({ tapsEnabled, setTapsEnabled }) {
   return (
     <>
@@ -349,7 +368,10 @@ function PublishersSection({ tapsEnabled, setTapsEnabled }) {
   );
 }
 
-/** Settings section for PDF viewer color inversion. */
+/**
+ * Settings section for PDF viewer color inversion.
+ * @param {any} props
+ */
 function PdfViewerSection({ pdfInverted, setPdfInverted }) {
   return (
     <>
@@ -441,7 +463,10 @@ const CATEGORIES = [
   },
 ];
 
-/** Multi-category project settings modal (project, editor, compiler, PDF viewer, publishers, GitHub). */
+/**
+ * Multi-category project settings modal (project, editor, compiler, PDF viewer, publishers, GitHub).
+ * @param {any} props
+ */
 export default function ProjectSettingsModal({
   project,
   files,
@@ -472,9 +497,9 @@ export default function ProjectSettingsModal({
   const [pdfInverted, setPdfInverted] = useState(() => getSetting('pdf-inverted') === 'true');
   const [compiler, setCompiler] = useState(project.compiler || 'pdflatex');
   const [texDistribution, setTexDistribution] = useState(project.tex_distribution || null);
-  const [distributions, setDistributions] = useState([]);
+  const [distributions, setDistributions] = useState(/** @type {any[]} */ ([]));
   const [latexFormatter, setLatexFormatter] = useState(() => getSetting('latex-formatter') || '');
-  const [formatters, setFormatters] = useState([]);
+  const [formatters, setFormatters] = useState(/** @type {any[]} */ ([]));
   const [showLintWarnings, setShowLintWarnings] = useState(
     () => getSetting(`show-lint-warnings-${project.id}`) !== 'false',
   );
@@ -489,18 +514,18 @@ export default function ProjectSettingsModal({
   );
   const [activeCategory, setActiveCategory] = useState(initialTab || 'project');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const overlayRef = useRef(null);
+  const [error, setError] = useState(/** @type {any} */ (null));
+  const overlayRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     get('/api/compile/texlive-distributions')
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setDistributions)
-      .catch((e) => console.warn('Failed to load TeX distributions:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load TeX distributions:', e));
     get('/api/compile/formatters')
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setFormatters)
-      .catch((e) => console.warn('Failed to load formatters:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load formatters:', e));
   }, []);
 
   /** Persist all changed settings to the server and localStorage, then close the modal. */
@@ -569,7 +594,7 @@ export default function ProjectSettingsModal({
     <div
       className="modal-overlay"
       ref={overlayRef}
-      onClick={(e) => {
+      onClick={(/** @type {any} */ e) => {
         if (e.target === overlayRef.current) onClose();
       }}
     >
@@ -582,7 +607,7 @@ export default function ProjectSettingsModal({
         </div>
         <div className="settings-layout">
           <nav className="settings-sidebar">
-            {CATEGORIES.map((cat) => (
+            {CATEGORIES.map((/** @type {any} */ cat) => (
               <button
                 key={cat.id}
                 className={`settings-nav-item ${activeCategory === cat.id ? 'active' : ''}`}
@@ -594,7 +619,7 @@ export default function ProjectSettingsModal({
             ))}
           </nav>
           <div className="settings-content">
-            <h3 className="settings-content-title">{CATEGORIES.find((c) => c.id === activeCategory)?.label}</h3>
+            <h3 className="settings-content-title">{CATEGORIES.find((/** @type {any} */ c) => c.id === activeCategory)?.label}</h3>
 
             {activeCategory === 'project' && (
               <ProjectSection

@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { post } from '../api.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
@@ -24,6 +25,8 @@ const ALL_FIELDS = [
  * @param {string} content - Raw .bib file content
  * @returns {Array<{key: string, type: string, fields: Object, entryStart: number, entryEnd: number}>}
  */
+/** @param {any} content */
+/** @param {any} content */
 function parseBibEntries(content) {
   const entries = [];
   const re = /@(\w+)\s*\{([^,\s]+)\s*,/g;
@@ -132,20 +135,23 @@ function applyAcceptedChanges(content, entries, acceptedChanges) {
   return output;
 }
 
-/** Multi-step modal that enriches .bib entries by looking up missing fields via CrossRef. */
+/**
+ * Multi-step modal that enriches .bib entries by looking up missing fields via CrossRef.
+ * @param {any} props
+ */
 export default function BibEnrichModal({ file, onClose, onApply }) {
   const [step, setStep] = useState('select'); // 'select' | 'lookup' | 'review'
   const [selectedFields, setSelectedFields] = useState(['doi', 'pages', 'volume', 'number', 'publisher']);
-  const [selectedEntries, setSelectedEntries] = useState(null); // Set of entry keys
-  const [results, setResults] = useState(null);
+  const [selectedEntries, setSelectedEntries] = useState(/** @type {any} */ (null)); // Set of entry keys
+  const [results, setResults] = useState(/** @type {any} */ (null));
   const [loading, setLoading] = useState(false);
-  const [logLines, setLogLines] = useState([]);
+  const [logLines, setLogLines] = useState(/** @type {any[]} */ ([]));
   // For review: track accepted/rejected per entry+field
   // changeStatus: { 'entryKey::field': 'pending' | 'accepted' | 'rejected' }
-  const [changeStatus, setChangeStatus] = useState({});
-  const [previewKey, setPreviewKey] = useState(null);
-  const overlayRef = useRef(null);
-  const logRef = useRef(null);
+  const [changeStatus, setChangeStatus] = useState(/** @type {any} */ ({}));
+  const [previewKey, setPreviewKey] = useState(/** @type {any} */ (null));
+  const overlayRef = useRef(/** @type {any} */ (null));
+  const logRef = useRef(/** @type {any} */ (null));
 
   const entries = useMemo(() => {
     const parsed = parseBibEntries(file?.content || '');
@@ -155,16 +161,16 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   // Initialize selectedEntries when entries change
   useEffect(() => {
     if (selectedEntries === null) {
-      setSelectedEntries(new Set(entries.map((e) => e.key)));
+      setSelectedEntries(new Set(entries.map((/** @type {any} */ e) => e.key)));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
-  const toggleField = (key) => {
-    setSelectedFields((prev) => (prev.includes(key) ? prev.filter((f) => f !== key) : [...prev, key]));
+  const toggleField = (/** @type {any} */ key) => {
+    setSelectedFields((prev) => (prev.includes(key) ? prev.filter((/** @type {any} */ f) => f !== key) : [...prev, key]));
   };
 
-  const toggleEntry = (key) => {
+  const toggleEntry = (/** @type {any} */ key) => {
     setSelectedEntries((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -173,7 +179,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     });
   };
 
-  const addLog = (line) => {
+  const addLog = (/** @type {any} */ line) => {
     setLogLines((prev) => [...prev, line]);
     setTimeout(() => {
       logRef.current?.scrollTo(0, logRef.current.scrollHeight);
@@ -187,7 +193,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     setResults(null);
     setLogLines([]);
 
-    const entriesToLookup = entries.filter((e) => selectedEntries.has(e.key));
+    const entriesToLookup = entries.filter((/** @type {any} */ e) => selectedEntries.has(e.key));
     const allResults = [];
     addLog(`Starting lookup for ${entriesToLookup.length} entries...`);
 
@@ -238,8 +244,8 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
       }
     }
 
-    const foundCount = allResults.filter((r) => r.found && Object.keys(r.added).length > 0).length;
-    const totalAdded = allResults.reduce((sum, r) => sum + Object.keys(r.added).length, 0);
+    const foundCount = allResults.filter((/** @type {any} */ r) => r.found && Object.keys(r.added).length > 0).length;
+    const totalAdded = allResults.reduce((/** @type {any} */ sum, /** @type {any} */ r) => sum + Object.keys(r.added).length, 0);
     addLog(`\nDone. Found data for ${foundCount} entries (${totalAdded} fields to add).`);
 
     // Initialize change status — all pending
@@ -304,17 +310,17 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   };
 
   // Compute counts for review
-  const pendingCount = Object.values(changeStatus).filter((s) => s === 'pending').length;
-  const acceptedCount = Object.values(changeStatus).filter((s) => s === 'accepted').length;
-  const rejectedCount = Object.values(changeStatus).filter((s) => s === 'rejected').length;
+  const pendingCount = Object.values(changeStatus).filter((/** @type {any} */ s) => s === 'pending').length;
+  const acceptedCount = Object.values(changeStatus).filter((/** @type {any} */ s) => s === 'accepted').length;
+  const rejectedCount = Object.values(changeStatus).filter((/** @type {any} */ s) => s === 'rejected').length;
 
-  const resultsWithChanges = results?.filter((r) => Object.keys(r.added).length > 0) || [];
+  const resultsWithChanges = results?.filter((/** @type {any} */ r) => Object.keys(r.added).length > 0) || [];
 
   return (
     <div
       className="modal-overlay"
       ref={overlayRef}
-      onClick={(e) => {
+      onClick={(/** @type {any} */ e) => {
         if (e.target === overlayRef.current) onClose();
       }}
     >
@@ -333,7 +339,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
 
               <div className="bib-enrich-section-label">Fields to complete</div>
               <div className="bib-enrich-fields">
-                {ALL_FIELDS.map((f) => (
+                {ALL_FIELDS.map((/** @type {any} */ f) => (
                   <label key={f.key} className="bib-enrich-field-checkbox">
                     <input
                       type="checkbox"
@@ -348,16 +354,16 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
               <div className="bib-enrich-section-label">
                 References ({selectedEntries?.size || 0} of {entries.length} selected)
                 <span className="bib-enrich-select-links">
-                  <button onClick={() => setSelectedEntries(new Set(entries.map((e) => e.key)))}>Select all</button>
+                  <button onClick={() => setSelectedEntries(new Set(entries.map((/** @type {any} */ e) => e.key)))}>Select all</button>
                   <button onClick={() => setSelectedEntries(new Set())}>Select none</button>
                 </span>
               </div>
               <div className="bib-enrich-split">
                 <div className="bib-enrich-entry-table">
-                  {entries.map((e) => {
+                  {entries.map((/** @type {any} */ e) => {
                     const title = e.fields.title || '';
                     const shortTitle = title.length > 60 ? title.slice(0, 60) + '...' : title;
-                    const existingFields = Object.keys(e.fields).filter((k) => k !== 'title' && k !== 'author');
+                    const existingFields = Object.keys(e.fields).filter((/** @type {any} */ k) => k !== 'title' && k !== 'author');
                     return (
                       <div
                         key={e.key}
@@ -367,7 +373,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                         <input
                           type="checkbox"
                           checked={selectedEntries?.has(e.key) || false}
-                          onChange={(ev) => {
+                          onChange={(/** @type {any} */ ev) => {
                             ev.stopPropagation();
                             toggleEntry(e.key);
                           }}
@@ -385,7 +391,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                 </div>
                 {previewKey &&
                   (() => {
-                    const entry = entries.find((e) => e.key === previewKey);
+                    const entry = entries.find((/** @type {any} */ e) => e.key === previewKey);
                     if (!entry) return null;
                     const raw = file.content.slice(entry.entryStart, entry.entryEnd);
                     return (
@@ -419,7 +425,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
           {step === 'lookup' && (
             <>
               <div className="bib-enrich-log" ref={logRef}>
-                {logLines.map((line, i) => (
+                {logLines.map((/** @type {any} */ line, /** @type {any} */ i) => (
                   <div
                     key={i}
                     className={`bib-enrich-log-line${line.startsWith('  ✓') ? ' log-ok' : line.startsWith('  ✗') ? ' log-err' : line.startsWith('  ⏭') ? ' log-skip' : ''}`}
@@ -473,8 +479,8 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
               </div>
 
               <div className="bib-enrich-diff-list">
-                {resultsWithChanges.map((r) => {
-                  const entry = entries.find((e) => e.key === r.key);
+                {resultsWithChanges.map((/** @type {any} */ r) => {
+                  const entry = entries.find((/** @type {any} */ e) => e.key === r.key);
                   return (
                     <div key={r.key} className="bib-enrich-diff-entry">
                       <div className="bib-enrich-diff-entry-header">

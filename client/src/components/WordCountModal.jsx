@@ -1,14 +1,18 @@
+// @ts-check
 import React, { useRef } from 'react';
 
-/** Modal displaying word count statistics broken down by text, headers, captions, math, and sections. */
+/**
+ * Modal displaying word count statistics broken down by text, headers, captions, math, and sections.
+ * @param {any} props
+ */
 export default function WordCountModal({ data, loading, error, onClose }) {
-  const overlayRef = useRef(null);
+  const overlayRef = useRef(/** @type {any} */ (null));
 
   return (
     <div
       className="modal-overlay"
       ref={overlayRef}
-      onClick={(e) => {
+      onClick={(/** @type {any} */ e) => {
         if (e.target === overlayRef.current) onClose();
       }}
     >
@@ -72,7 +76,7 @@ export default function WordCountModal({ data, loading, error, onClose }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.sections.map((s, i) => {
+                        {data.sections.map((/** @type {any} */ s, /** @type {any} */ i) => {
                           const indent = s.label.startsWith('Subsection:')
                             ? 1
                             : s.label.startsWith('Subsubsection:')

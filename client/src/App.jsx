@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import ProjectList from './components/ProjectList.jsx';
 // Editor/PdfViewer/HistoryView/ChatPanel/CommentsSidebar/BinaryPreview
@@ -59,9 +60,12 @@ import useEditorActions from './hooks/useEditorActions.js';
 import { formatSyncDate } from './utils/dateFormat.js';
 import { isReadOnlyForUser, getProjectRole } from './utils/projectRole.js';
 
-/** Context menu for generated files, allowing download. */
+/**
+ * Context menu for generated files, allowing download.
+ * @param {any} props
+ */
 function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
-  const ref = React.useRef(null);
+  const ref = React.useRef(/** @type {any} */ (null));
   useClickOutside(ref, onClose);
   return (
     <div ref={ref} className="file-tree-context-menu" style={{ position: 'fixed', top: y, left: x, zIndex: 1000 }}>
@@ -79,6 +83,8 @@ function GenFileContextMenu({ x, y, name, onClose, onDownload }) {
 }
 
 /** Strips the compile-job hash suffix from a generated filename for display. */
+/** @param {any} filename */
+/** @param {any} filename */
 function stripJobSuffix(filename) {
   return filename.replace(/_[0-9a-f]{8}(?=\.)/, '').replace(/^__diff__/, 'diff');
 }
@@ -87,6 +93,7 @@ function stripJobSuffix(filename) {
  *  the user is inside a project. The dashboard's pending-invitation banner
  *  is the canonical surface; this toast is the temporary heads-up for
  *  recipients who happen to be mid-edit. Auto-dismisses; or click "Open
+ * @param {any} props
  *  dashboard" to jump straight to the banner. */
 function InvitationToast({ invitation, onDismiss, onOpen }) {
   return (
@@ -140,9 +147,9 @@ function AppInner() {
   // The dashboard's banner is still the canonical surface — these are
   // ephemeral heads-ups so the recipient sees the invite without having
   // to return to the dashboard themselves.
-  const [invitationToasts, setInvitationToasts] = useState([]);
-  const editorRef = useRef(null);
-  const pdfRef = useRef(null);
+  const [invitationToasts, setInvitationToasts] = useState(/** @type {any[]} */ ([]));
+  const editorRef = useRef(/** @type {any} */ (null));
+  const pdfRef = useRef(/** @type {any} */ (null));
 
   // --- Core hooks ---
   const {
@@ -183,7 +190,7 @@ function AppInner() {
   const projectRef = useRef(project);
   projectRef.current = project;
 
-  const sendWsRef = useRef(null);
+  const sendWsRef = useRef(/** @type {any} */ (null));
 
   const [historyVersion, setHistoryVersion] = useState(0);
   const [mainFileChanged, setMainFileChanged] = useState(false);
@@ -192,7 +199,7 @@ function AppInner() {
   // in the dropdown; cleared once the editor has scrolled to the comment.
   // Held in a ref AND mirror state so we can both kick effects and read
   // the latest value inside async chains.
-  const pendingMentionNavRef = useRef(null);
+  const pendingMentionNavRef = useRef(/** @type {any} */ (null));
   const [pendingMentionNavTick, setPendingMentionNavTick] = useState(0);
 
   const {
@@ -319,7 +326,7 @@ function AppInner() {
   const [showLintWarnings, setShowLintWarnings] = useState(true);
   const [groupFilesByType, setGroupFilesByType] = useState(true);
   const [tapsEnabled, setTapsEnabled] = useState(false);
-  const [projectSettingsTab, setProjectSettingsTab] = useState(null);
+  const [projectSettingsTab, setProjectSettingsTab] = useState(/** @type {any} */ (null));
   const [spellLang, setSpellLangState] = useState(() => getLanguage());
 
   const {
@@ -366,7 +373,7 @@ function AppInner() {
   });
 
   const handleUploadBinary = useCallback(
-    async (file, fileName) => {
+    async (/** @type {any} */ file, /** @type {any} */ fileName) => {
       if (!project) return;
       const formData = new FormData();
       formData.append('file', file);
@@ -377,7 +384,7 @@ function AppInner() {
         const result = await res.json();
         if (result.updated) {
           setFiles((fs) =>
-            fs.map((f) => (f.id === result.id ? { ...f, content: result.content, is_binary: true } : f)),
+            fs.map((/** @type {any} */ f) => (f.id === result.id ? { ...f, content: result.content, is_binary: true } : f)),
           );
         } else {
           setFiles((fs) => [...fs, result]);
@@ -404,7 +411,7 @@ function AppInner() {
   }, [project?.id]);
 
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (/** @type {any} */ e) => {
       if (e.detail.showBoxWarnings !== undefined) setShowBoxWarnings(e.detail.showBoxWarnings);
       if (e.detail.showLintWarnings !== undefined) setShowLintWarnings(e.detail.showLintWarnings);
       if (e.detail.groupFilesByType !== undefined) setGroupFilesByType(e.detail.groupFilesByType);
@@ -417,7 +424,7 @@ function AppInner() {
   // --- Effects that wire hooks together ---
 
   useEffect(() => {
-    const changesHandler = (e) => {
+    const changesHandler = (/** @type {any} */ e) => {
       editorRef.current?.applyRemoteChanges(
         e.detail.fileId,
         e.detail.changes,
@@ -456,8 +463,8 @@ function AppInner() {
       autoCompileTimer = setTimeout(() => {
         if (!stillCurrent()) return;
         post(`/api/compile/${loadingId}`)
-          .then((r) => r.json())
-          .then((data) => {
+          .then((/** @type {any} */ r) => r.json())
+          .then((/** @type {any} */ data) => {
             if (!stillCurrent()) return;
             setCompileLog(data.log || '');
             if (data.success) setPdfUrl(`/api/compile/${loadingId}/pdf?t=${Date.now()}`);
@@ -471,12 +478,12 @@ function AppInner() {
       // project page → chat history empty until next live message.
     }
     get(`/api/compile/${loadingId}/generated-files`)
-      .then((r) => r.json())
-      .then((d) => { if (stillCurrent()) setGeneratedFiles(d.files || []); })
-      .catch((e) => console.warn('Failed to load generated files:', e));
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ d) => { if (stillCurrent()) setGeneratedFiles(d.files || []); })
+      .catch((/** @type {any} */ e) => console.warn('Failed to load generated files:', e));
     get(`/api/chat/${loadingId}`)
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         if (!stillCurrent()) return;
         // New response shape is { messages, readCursors }. Tolerate the
         // old shape (plain array) so a stale client briefly running
@@ -488,7 +495,7 @@ function AppInner() {
         for (const c of cursors) map[c.userId] = c.lastReadAt;
         setChatReadCursors(map);
       })
-      .catch((e) => console.warn('Failed to load chat messages:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load chat messages:', e));
     return () => { if (autoCompileTimer) clearTimeout(autoCompileTimer); };
   }, [project, needsAutoCompile, setChatMessages, setChatReadCursors, setCompileLog, setGeneratedFiles, setPdfUrl]);
 
@@ -526,8 +533,8 @@ function AppInner() {
     // 2. Wait for the project's file list to arrive.
     if (!files || files.length === 0) return;
     // 3. If we are not on the right file yet, switch to it.
-    const targetFile = files.find((f) => f.id === target.fileId)
-      || files.find((f) => f.path === target.filePath);
+    const targetFile = files.find((/** @type {any} */ f) => f.id === target.fileId)
+      || files.find((/** @type {any} */ f) => f.path === target.filePath);
     if (!targetFile) {
       // File listed in the mention is gone (renamed away or deleted) —
       // give up rather than spin forever.
@@ -545,7 +552,7 @@ function AppInner() {
       pendingMentionNavRef.current = null;
       return;
     }
-    const targetComment = comments.find((c) => c.id === target.commentId);
+    const targetComment = comments.find((/** @type {any} */ c) => c.id === target.commentId);
     if (!targetComment) {
       // Comments may still be in-flight; another render will retry. But
       // if the comments list is non-empty and our id isnt in it, the
@@ -569,14 +576,14 @@ function AppInner() {
   // are mutually exclusive.) Each toast auto-dismisses after 10s.
   useEffect(() => {
     if (!user || !project) return;
-    const onInvitation = (e) => {
+    const onInvitation = (/** @type {any} */ e) => {
       const inv = e.detail;
       if (!inv?.id) return;
       setInvitationToasts((toasts) =>
-        toasts.some((t) => t.id === inv.id) ? toasts : [...toasts, inv],
+        toasts.some((/** @type {any} */ t) => t.id === inv.id) ? toasts : [...toasts, inv],
       );
       setTimeout(() => {
-        setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id));
+        setInvitationToasts((toasts) => toasts.filter((/** @type {any} */ t) => t.id !== inv.id));
       }, 10000);
     };
     window.addEventListener('ws:invitation', onInvitation);
@@ -678,7 +685,7 @@ function AppInner() {
           onBack={goBack}
           users={activeUsers}
           currentUser={user}
-          isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
+          isOwner={members.some((/** @type {any} */ m) => m.id === user?.id && m.role === 'owner')}
           onRename={async (newName) => {
             await patch(`/api/projects/${project.id}`, { name: newName });
             setProject((p) => ({ ...p, name: newName }));
@@ -763,7 +770,7 @@ function AppInner() {
                     const r = await get('/api/projects');
                     if (r.ok) {
                       const projects = await r.json();
-                      const target = projects.find((p) => p.id === m.project_id);
+                      const target = projects.find((/** @type {any} */ p) => p.id === m.project_id);
                       if (target) selectProject(target);
                     }
                   } catch (e) {
@@ -835,7 +842,7 @@ function AppInner() {
             if (cursor.fileId === activeFile?.id) {
               editorRef.current?.goToPosition(cursor.head);
             } else {
-              const f = files.find((f) => f.id === cursor.fileId);
+              const f = files.find((/** @type {any} */ f) => f.id === cursor.fileId);
               if (f) {
                 switchFile(f);
                 // Wait for editor to mount with the new file before jumping.
@@ -883,16 +890,16 @@ function AppInner() {
       )}
       {invitationToasts.length > 0 && (
         <div className="invitation-toast-stack">
-          {invitationToasts.map((inv) => (
+          {invitationToasts.map((/** @type {any} */ inv) => (
             <InvitationToast
               key={inv.id}
               invitation={inv}
-              onDismiss={() => setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id))}
+              onDismiss={() => setInvitationToasts((toasts) => toasts.filter((/** @type {any} */ t) => t.id !== inv.id))}
               onOpen={() => {
                 // Stash the invitation id so the dashboard highlights it
                 // on mount (same hook the email-click path uses).
                 window.history.pushState({}, '', `/?invite=${encodeURIComponent(inv.id)}`);
-                setInvitationToasts((toasts) => toasts.filter((t) => t.id !== inv.id));
+                setInvitationToasts((toasts) => toasts.filter((/** @type {any} */ t) => t.id !== inv.id));
                 goBack();
               }}
             />
@@ -901,7 +908,7 @@ function AppInner() {
       )}
       {formatWarning && (
         <div className="modal-overlay confirm-dialog-overlay" onClick={() => setFormatWarning(null)}>
-          <div className="modal-card confirm-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card confirm-dialog" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <p className="confirm-dialog-message">{formatWarning}</p>
             <div className="confirm-dialog-actions">
               <button className="confirm-dialog-cancel" onClick={() => setFormatWarning(null)}>
@@ -1040,7 +1047,7 @@ function AppInner() {
                       // section, then go to line. Same-file shortcut
                       // skips the switch.
                       if (path !== activeFile?.path) {
-                        const target = files.find((f) => f.path === path);
+                        const target = files.find((/** @type {any} */ f) => f.path === path);
                         if (target) {
                           switchFile(target);
                           setTimeout(() => editorRef.current?.goToLine(line), 60);
@@ -1054,10 +1061,10 @@ function AppInner() {
                     <div className="generated-files-panel" style={{ height: ui.genPanelHeight }}>
                       <div
                         className="generated-files-resize-handle"
-                        onMouseDown={(e) => {
+                        onMouseDown={(/** @type {any} */ e) => {
                           e.preventDefault();
                           let startY = e.clientY;
-                          const onMove = (ev) => {
+                          const onMove = (/** @type {any} */ ev) => {
                             const delta = startY - ev.clientY;
                             startY = ev.clientY;
                             ui.setGenPanelHeight((h) => Math.max(60, Math.min(400, h + delta)));
@@ -1076,7 +1083,7 @@ function AppInner() {
                       />
                       <div className="generated-files-header">Generated Files</div>
                       <div className="generated-files-list">
-                        {generatedFiles.map((gf) => (
+                        {generatedFiles.map((/** @type {any} */ gf) => (
                           <div
                             key={gf.name}
                             className={`generated-file-item ${activeGenFile?.name === gf.name ? 'active' : ''}`}
@@ -1091,7 +1098,7 @@ function AppInner() {
                                 console.warn('Failed to load generated file', e);
                               }
                             }}
-                            onContextMenu={(e) => {
+                            onContextMenu={(/** @type {any} */ e) => {
                               e.preventDefault();
                               ui.setGenContextMenu({ x: e.clientX, y: e.clientY, name: gf.name });
                             }}
@@ -1154,7 +1161,7 @@ function AppInner() {
                   onReactReply={handleReactReply}
                   onCancelComment={() => setSelection(null)}
                   onReply={handleReplyComment}
-                  onWheel={(e) => editorRef.current?.scrollBy(e.deltaX, e.deltaY)}
+                  onWheel={(/** @type {any} */ e) => editorRef.current?.scrollBy(e.deltaX, e.deltaY)}
                   onClose={() => ui.setShowComments(false)}
                   style={{ width: ui.commentsWidth }}
                 />
@@ -1182,7 +1189,7 @@ function AppInner() {
                     rendering; the header's opaque background then acts
                     as a visual hard-stop for anything that slips past
                     (e.g. markers landing right at the boundary). */}
-                {commentPositions?.filter((p) => shouldShowRailMarker(p.top)).map((p) => (
+                {commentPositions?.filter((/** @type {any} */ p) => shouldShowRailMarker(p.top)).map((/** @type {any} */ p) => (
                   <svg
                     key={p.id}
                     className="comments-rail-marker"
@@ -1449,7 +1456,7 @@ function AppInner() {
                     }
                     projectFiles={files}
                     onGoToFile={(fileId, line, col) => {
-                      const f = files.find((f) => f.id === fileId);
+                      const f = files.find((/** @type {any} */ f) => f.id === fileId);
                       if (f) {
                         if (f.id !== activeFile?.id) {
                           switchFile(f);
@@ -1585,7 +1592,7 @@ function AppInner() {
               }
               onGoToLine={(line, col) => editorRef.current?.goToLine(line, col)}
               onGoToFileAndLine={(filePath, line, col) => {
-                const f = files.find((f) => f.path === filePath);
+                const f = files.find((/** @type {any} */ f) => f.path === filePath);
                 if (f) {
                   switchFile(f);
                   setTimeout(() => editorRef.current?.goToLine(line, col), 50);
@@ -1598,7 +1605,7 @@ function AppInner() {
                 setShowBoxWarnings(newVal);
                 setSetting(`show-box-warnings-${project?.id}`, newVal);
               }}
-              mainFileExists={!filesLoaded || files.some((f) => f.path === mainFilePath)}
+              mainFileExists={!filesLoaded || files.some((/** @type {any} */ f) => f.path === mainFilePath)}
               mainFileChanged={mainFileChanged}
               onOpenSettings={(tab) => {
                 setProjectSettingsTab(tab || null);

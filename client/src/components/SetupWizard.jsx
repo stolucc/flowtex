@@ -1,7 +1,11 @@
+// @ts-check
 import React, { useState } from 'react';
 import { post } from '../api.js';
 
-/** Two-step initial setup wizard for creating the admin account and configuring SMTP. */
+/**
+ * Two-step initial setup wizard for creating the admin account and configuring SMTP.
+ * @param {any} props
+ */
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
@@ -93,19 +97,19 @@ export default function SetupWizard({ onComplete }) {
             <>
               <label>
                 Name
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+                <input type="text" value={name} onChange={(/** @type {any} */ e) => setName(e.target.value)} autoFocus />
               </label>
               <label>
                 Email
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <input type="email" value={email} onChange={(/** @type {any} */ e) => setEmail(e.target.value)} />
               </label>
               <label>
                 Password
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <input type="password" value={password} onChange={(/** @type {any} */ e) => setPassword(e.target.value)} />
               </label>
               <label>
                 Confirm password
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                <input type="password" value={confirmPassword} onChange={(/** @type {any} */ e) => setConfirmPassword(e.target.value)} />
               </label>
               <button type="submit">Continue</button>
             </>
@@ -118,7 +122,7 @@ export default function SetupWizard({ onComplete }) {
                 <input
                   type="url"
                   value={appUrl}
-                  onChange={(e) => setAppUrl(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setAppUrl(e.target.value)}
                   placeholder="https://flowtex.example.com"
                 />
               </label>
@@ -133,7 +137,7 @@ export default function SetupWizard({ onComplete }) {
                     <input
                       type="text"
                       value={smtpHost}
-                      onChange={(e) => setSmtpHost(e.target.value)}
+                      onChange={(/** @type {any} */ e) => setSmtpHost(e.target.value)}
                       placeholder="smtp.gmail.com"
                     />
                   </label>
@@ -142,7 +146,7 @@ export default function SetupWizard({ onComplete }) {
                     <input
                       type="number"
                       value={smtpPort}
-                      onChange={(e) => setSmtpPort(e.target.value)}
+                      onChange={(/** @type {any} */ e) => setSmtpPort(e.target.value)}
                       placeholder="587"
                     />
                   </label>
@@ -151,20 +155,20 @@ export default function SetupWizard({ onComplete }) {
                     <input
                       type="text"
                       value={smtpUser}
-                      onChange={(e) => setSmtpUser(e.target.value)}
+                      onChange={(/** @type {any} */ e) => setSmtpUser(e.target.value)}
                       placeholder="user@gmail.com"
                     />
                   </label>
                   <label>
                     SMTP password
-                    <input type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+                    <input type="password" value={smtpPass} onChange={(/** @type {any} */ e) => setSmtpPass(e.target.value)} />
                   </label>
                   <label>
                     From address
                     <input
                       type="email"
                       value={smtpFrom}
-                      onChange={(e) => setSmtpFrom(e.target.value)}
+                      onChange={(/** @type {any} */ e) => setSmtpFrom(e.target.value)}
                       placeholder="noreply@example.com"
                     />
                   </label>

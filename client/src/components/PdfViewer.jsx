@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react';
 import useClickOutside from '../hooks/useClickOutside.js';
 import {
@@ -34,6 +35,7 @@ const DESTROY_PAGES_BEYOND = 5; // destroy canvases beyond this many pages from 
  *  per-phase profile wrapper. Sums durations across all invocations of
  *  each tool (pdflatex usually runs 2-3 times). Server returns null when
  *  the helper compiled (no profiling there) or when no profile records
+ * @param {any} props
  *  landed — in either case we render nothing. */
 function CompileProfileBlock({ profile }) {
   if (!profile || !profile.phases?.length) return null;
@@ -44,7 +46,7 @@ function CompileProfileBlock({ profile }) {
         Compile time: <strong>{fmt(profile.totalMs)}</strong>
       </div>
       <ul className="pdf-console-profile-list">
-        {profile.phases.map((p) => (
+        {profile.phases.map((/** @type {any} */ p) => (
           <li key={p.tool}>
             <span className="pdf-console-profile-tool">{p.tool}</span>
             {p.count > 1 && <span className="pdf-console-profile-count">×{p.count}</span>}
@@ -63,6 +65,7 @@ function CompileProfileBlock({ profile }) {
 /** "Rebuilt because X" block. Shown only when the server returns a
  *  rebuildReason. Server falls back to null on helper-side compiles
  *  (no .fls available) and on the very first build for a project, so
+ * @param {any} props
  *  we render a soft "first build tracked" line in that case for context. */
 function RebuildReasonBlock({ reason }) {
   if (!reason) return null;
@@ -78,7 +81,7 @@ function RebuildReasonBlock({ reason }) {
       </div>
       {shown.length > 0 && (
         <ul className="pdf-console-rebuild-list">
-          {shown.map((f) => (
+          {shown.map((/** @type {any} */ f) => (
             <li key={f.path}>
               <span className={`pdf-console-rebuild-mark mark-${f.change}`}>{labelFor(f.change)}</span>
               <span className="pdf-console-rebuild-path">{f.path}</span>
@@ -96,8 +99,9 @@ function RebuildReasonBlock({ reason }) {
   );
 }
 
+/** @param {any} props */
 function ConsolePanel({ output, compiling }) {
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     if (ref.current) {
@@ -123,6 +127,7 @@ function ConsolePanel({ output, compiling }) {
  *  the explain-rebuild reason. Lives in its own slot next to the console
  *  so the two surfaces stay independent: a noisy compile log doesn't
  *  push the profile out of view, and an analysis-only user doesn't need
+ * @param {any} props
  *  to scroll past stdout. Empty state nudges the user to compile. */
 function AnalysisPanel({ profile, rebuildReason }) {
   const hasContent = (profile && profile.phases?.length) || rebuildReason;
@@ -141,10 +146,11 @@ function AnalysisPanel({ profile, rebuildReason }) {
 
 /** Single error or warning row in the log panel, with optional help button
  *  and a copy-to-clipboard button so users can paste the message into a
+ * @param {any} props
  *  search engine without typing it out. */
 function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = (e) => {
+  const handleCopy = (/** @type {any} */ e) => {
     e.stopPropagation();
     const text = String(message ?? '');
     // navigator.clipboard is async + requires a secure context; fall back
@@ -179,7 +185,7 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
         {help && (
           <button
             className="pdf-log-help-btn"
-            onClick={(e) => {
+            onClick={(/** @type {any} */ e) => {
               e.stopPropagation();
               onShowHelp?.({ ...help, message });
             }}
@@ -220,7 +226,7 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
         </button>
         <button
           className="pdf-log-search-btn"
-          onClick={(e) => {
+          onClick={(/** @type {any} */ e) => {
             e.stopPropagation();
             // Prefix with "LaTeX" so generic words like "missing" or
             // "undefined" land on the right kind of result; the AI
@@ -243,7 +249,10 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
   );
 }
 
-/** Detailed help view for a specific LaTeX error, with suggestions and external search links. */
+/**
+ * Detailed help view for a specific LaTeX error, with suggestions and external search links.
+ * @param {any} props
+ */
 function HelpPanel({ help, onBack }) {
   return (
     <div className="pdf-help-panel">
@@ -262,7 +271,7 @@ function HelpPanel({ help, onBack }) {
           <div className="pdf-help-section">
             <div className="pdf-help-section-title">Suggestions</div>
             <ul className="pdf-help-tips">
-              {help.tips.map((tip, i) => (
+              {help.tips.map((/** @type {any} */ tip, /** @type {any} */ i) => (
                 <li key={i}>{tip}</li>
               ))}
             </ul>
@@ -353,47 +362,47 @@ const PdfViewer = forwardRef(function PdfViewer(
   },
   ref,
 ) {
-  const containerRef = useRef(null);
-  const [error, setError] = useState(null);
+  const containerRef = useRef(/** @type {any} */ (null));
+  const [error, setError] = useState(/** @type {any} */ (null));
   const pageInfoRef = useRef([]);
-  const pdfDocRef = useRef(null);
+  const pdfDocRef = useRef(/** @type {any} */ (null));
   const [scale, setScale] = useState(DEFAULT_SCALE);
-  const [fitMode, setFitMode] = useState(null); // 'width' | 'page' | null
+  const [fitMode, setFitMode] = useState(/** @type {any} */ (null)); // 'width' | 'page' | null
   const visualScaleRef = useRef(DEFAULT_SCALE); // tracks live pinch scale for CSS transform
-  const commitTimerRef = useRef(null);
+  const commitTimerRef = useRef(/** @type {any} */ (null));
   const baseScaleOnPinchRef = useRef(DEFAULT_SCALE); // the committed scale when pinch started
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
-  const [showPanel, setShowPanel] = useState(null); // 'errors' | 'warnings' | 'lint' | 'console' | 'insights' | null
+  const [showPanel, setShowPanel] = useState(/** @type {any} */ (null)); // 'errors' | 'warnings' | 'lint' | 'console' | 'insights' | null
   const [inverted, setInverted] = useState(() => getSetting('pdf-inverted') === 'true');
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (/** @type {any} */ e) => {
       if (e.detail.pdfInverted !== undefined) setInverted(e.detail.pdfInverted);
     };
     window.addEventListener('flowtex:settings-changed', handler);
     return () => window.removeEventListener('flowtex:settings-changed', handler);
   }, []);
-  const [helpDetail, setHelpDetail] = useState(null); // when set, shows the help panel
-  const prevUrlRef = useRef(null);
+  const [helpDetail, setHelpDetail] = useState(/** @type {any} */ (null)); // when set, shows the help panel
+  const prevUrlRef = useRef(/** @type {any} */ (null));
   const [showCompileMenu, setShowCompileMenu] = useState(false);
-  const compileMenuRef = useRef(null);
+  const compileMenuRef = useRef(/** @type {any} */ (null));
 
   // Virtualization refs
   const pageProxyRef = useRef([]); // per-page data: { pdfPage, viewport, pageScale, wrapper, canvas, textLayerDiv }
   const renderedPagesRef = useRef(new Set()); // indices of pages with active canvases
   const renderingPagesRef = useRef(new Set()); // indices of pages currently being rendered (to avoid duplicates)
-  const observerRef = useRef(null);
-  const renderPageRef = useRef(null); // stable ref to renderPageCanvas for use in scrollToPosition
+  const observerRef = useRef(/** @type {any} */ (null));
+  const renderPageRef = useRef(/** @type {any} */ (null)); // stable ref to renderPageCanvas for use in scrollToPosition
 
   const { errors, warnings: allWarnings } = useMemo(() => parseLog(compileLog), [compileLog]);
   const warnings = useMemo(() => {
     if (showBoxWarnings) return allWarnings;
-    return allWarnings.filter((w) => !/^(Overfull|Underfull)\s+\\[hv]box/.test(w.text));
+    return allWarnings.filter((/** @type {any} */ w) => !/^(Overfull|Underfull)\s+\\[hv]box/.test(w.text));
   }, [allWarnings, showBoxWarnings]);
   const hiddenBoxCount = allWarnings.length - warnings.length;
-  const lintErrors = useMemo(() => (lintDiagnostics || []).filter((d) => d.severity === 'error'), [lintDiagnostics]);
+  const lintErrors = useMemo(() => (lintDiagnostics || []).filter((/** @type {any} */ d) => d.severity === 'error'), [lintDiagnostics]);
   const lintWarnings = useMemo(
-    () => (lintDiagnostics || []).filter((d) => d.severity === 'warning'),
+    () => (lintDiagnostics || []).filter((/** @type {any} */ d) => d.severity === 'warning'),
     [lintDiagnostics],
   );
 
@@ -448,7 +457,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     let cancelled = false;
     pdfjsLib
       .getDocument(url)
-      .promise.then((pdf) => {
+      .promise.then((/** @type {any} */ pdf) => {
         if (!cancelled) pdfDocRef.current = pdf;
       })
       .catch(() => {
@@ -619,7 +628,7 @@ const PdfViewer = forwardRef(function PdfViewer(
         // Phase 2: Set up IntersectionObserver to render visible pages on demand
         if (cancelled) return;
         observerRef.current = new IntersectionObserver(
-          (entries) => {
+          (/** @type {any} */ entries) => {
             for (const entry of entries) {
               if (entry.isIntersecting) {
                 const idx = Number(entry.target.dataset.pageIndex);
@@ -726,7 +735,7 @@ const PdfViewer = forwardRef(function PdfViewer(
 
     // Pinch-to-zoom on trackpad (fires as wheel + ctrlKey on Mac)
     // Uses CSS transform for instant visual feedback, then commits the final scale after a pause
-    const handleWheel = (e) => {
+    const handleWheel = (/** @type {any} */ e) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
       const delta = -e.deltaY * 0.01;
@@ -796,7 +805,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const fitWidth = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
     setFitMode('width');
-    pdfDocRef.current.getPage(1).then((page) => {
+    pdfDocRef.current.getPage(1).then((/** @type {any} */ page) => {
       const vp = page.getViewport({ scale: 1 });
       const containerWidth = containerRef.current.clientWidth - 32; // subtract padding
       commitScale(containerWidth / vp.width);
@@ -807,7 +816,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const fitPage = () => {
     if (!containerRef.current || !pdfDocRef.current) return;
     setFitMode('page');
-    pdfDocRef.current.getPage(1).then((page) => {
+    pdfDocRef.current.getPage(1).then((/** @type {any} */ page) => {
       const vp = page.getViewport({ scale: 1 });
       const containerWidth = containerRef.current.clientWidth - 32;
       const containerHeight = containerRef.current.clientHeight - 32;
@@ -817,7 +826,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     });
   };
 
-  const togglePanel = (panel) => {
+  const togglePanel = (/** @type {any} */ panel) => {
     setShowPanel((cur) => (cur === panel ? null : panel));
   };
 
@@ -1202,7 +1211,7 @@ const PdfViewer = forwardRef(function PdfViewer(
       )}
       {!helpDetail && showPanel === 'errors' && errors.length + lintErrors.length > 0 && (
         <div className="pdf-log-panel errors">
-          {lintErrors.map((e, i) => (
+          {lintErrors.map((/** @type {any} */ e, /** @type {any} */ i) => (
             <LogItem
               key={`lint-${i}`}
               className="pdf-log-item error clickable"
@@ -1215,8 +1224,8 @@ const PdfViewer = forwardRef(function PdfViewer(
             />
           ))}
           {errors
-            .filter((e) => !e.isSystemFile)
-            .map((e, i) => (
+            .filter((/** @type {any} */ e) => !e.isSystemFile)
+            .map((/** @type {any} */ e, /** @type {any} */ i) => (
               <LogItem
                 key={`compile-${i}`}
                 className={`pdf-log-item error ${e.line ? 'clickable' : ''}`}
@@ -1231,8 +1240,8 @@ const PdfViewer = forwardRef(function PdfViewer(
               />
             ))}
           {errors
-            .filter((e) => e.isSystemFile)
-            .map((e, i) => (
+            .filter((/** @type {any} */ e) => e.isSystemFile)
+            .map((/** @type {any} */ e, /** @type {any} */ i) => (
               <LogItem
                 key={`system-${i}`}
                 className="pdf-log-item system-error"
@@ -1254,7 +1263,7 @@ const PdfViewer = forwardRef(function PdfViewer(
                 settings
               </div>
             )}
-            {(tapsDiagnostics || []).map((w, i) => (
+            {(tapsDiagnostics || []).map((/** @type {any} */ w, /** @type {any} */ i) => (
               <LogItem
                 key={`taps-${i}`}
                 className="pdf-log-item warning taps clickable"
@@ -1272,7 +1281,7 @@ const PdfViewer = forwardRef(function PdfViewer(
                 message={w.message}
               />
             ))}
-            {lintWarnings.map((w, i) => (
+            {lintWarnings.map((/** @type {any} */ w, /** @type {any} */ i) => (
               <LogItem
                 key={`lint-${i}`}
                 className="pdf-log-item warning clickable"
@@ -1285,8 +1294,8 @@ const PdfViewer = forwardRef(function PdfViewer(
               />
             ))}
             {warnings
-              .filter((w) => !w.isSystemFile)
-              .map((w, i) => (
+              .filter((/** @type {any} */ w) => !w.isSystemFile)
+              .map((/** @type {any} */ w, /** @type {any} */ i) => (
                 <LogItem
                   key={`compile-${i}`}
                   className={`pdf-log-item warning ${w.line ? 'clickable' : ''}`}
@@ -1299,8 +1308,8 @@ const PdfViewer = forwardRef(function PdfViewer(
                 />
               ))}
             {warnings
-              .filter((w) => w.isSystemFile)
-              .map((w, i) => (
+              .filter((/** @type {any} */ w) => w.isSystemFile)
+              .map((/** @type {any} */ w, /** @type {any} */ i) => (
                 <LogItem
                   key={`system-${i}`}
                   className="pdf-log-item system-error"

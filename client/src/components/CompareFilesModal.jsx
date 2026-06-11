@@ -1,12 +1,16 @@
+// @ts-check
 import React, { useState, useRef } from 'react';
 
-/** Modal for selecting two .tex files to generate a latexdiff comparison. */
+/**
+ * Modal for selecting two .tex files to generate a latexdiff comparison.
+ * @param {any} props
+ */
 export default function CompareFilesModal({ files, onClose, onStartDiff }) {
   const [oldFileId, setOldFileId] = useState('');
   const [newFileId, setNewFileId] = useState('');
-  const overlayRef = useRef(null);
+  const overlayRef = useRef(/** @type {any} */ (null));
 
-  const texFiles = (files || []).filter((f) => f.path.endsWith('.tex'));
+  const texFiles = (files || []).filter((/** @type {any} */ f) => f.path.endsWith('.tex'));
 
   const handleCompare = () => {
     if (!oldFileId || !newFileId || oldFileId === newFileId) return;
@@ -30,7 +34,7 @@ export default function CompareFilesModal({ files, onClose, onStartDiff }) {
     <div
       className="modal-overlay"
       ref={overlayRef}
-      onClick={(e) => {
+      onClick={(/** @type {any} */ e) => {
         if (e.target === overlayRef.current) onClose();
       }}
     >
@@ -47,9 +51,9 @@ export default function CompareFilesModal({ files, onClose, onStartDiff }) {
 
           <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             Old version (original)
-            <select value={oldFileId} onChange={(e) => setOldFileId(e.target.value)} style={selectStyle}>
+            <select value={oldFileId} onChange={(/** @type {any} */ e) => setOldFileId(e.target.value)} style={selectStyle}>
               <option value="">Select file...</option>
-              {texFiles.map((f) => (
+              {texFiles.map((/** @type {any} */ f) => (
                 <option key={f.id} value={f.id}>
                   {f.path}
                 </option>
@@ -59,9 +63,9 @@ export default function CompareFilesModal({ files, onClose, onStartDiff }) {
 
           <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             New version (modified)
-            <select value={newFileId} onChange={(e) => setNewFileId(e.target.value)} style={selectStyle}>
+            <select value={newFileId} onChange={(/** @type {any} */ e) => setNewFileId(e.target.value)} style={selectStyle}>
               <option value="">Select file...</option>
-              {texFiles.map((f) => (
+              {texFiles.map((/** @type {any} */ f) => (
                 <option key={f.id} value={f.id}>
                   {f.path}
                 </option>

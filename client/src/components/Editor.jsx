@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle, lazy, Suspense } from 'react';
 
 // Lazy — the dialog pulls in helperBridge + SSE wiring and isn't
@@ -177,9 +178,9 @@ const Editor = forwardRef(function Editor(
   },
   ref,
 ) {
-  const containerRef = useRef(null);
-  const viewRef = useRef(null);
-  const saveTimeout = useRef(null);
+  const containerRef = useRef(/** @type {any} */ (null));
+  const viewRef = useRef(/** @type {any} */ (null));
+  const saveTimeout = useRef(/** @type {any} */ (null));
   const commentCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
   const fontSizeCompartment = useRef(new Compartment());
@@ -194,10 +195,10 @@ const Editor = forwardRef(function Editor(
   const extraExtCompartment = useRef(new Compartment());
   const [fontSize, setFontSize] = useState(() => parseInt(getSetting('font-size') || '14', 10));
   const isRemoteUpdate = useRef(false);
-  const errorHighlightTimer = useRef(null);
-  const lintTimeout = useRef(null);
-  const spellTimeout = useRef(null);
-  const dictRef = useRef(null);
+  const errorHighlightTimer = useRef(/** @type {any} */ (null));
+  const lintTimeout = useRef(/** @type {any} */ (null));
+  const spellTimeout = useRef(/** @type {any} */ (null));
+  const dictRef = useRef(/** @type {any} */ (null));
   const currentUserNameRef = useRef(currentUserName);
   currentUserNameRef.current = currentUserName;
   const currentUserIdRef = useRef(currentUserId);
@@ -218,31 +219,31 @@ const Editor = forwardRef(function Editor(
   // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
   fileIdRef.current = file?.id ?? null;
-  const [commentBtn, setCommentBtn] = useState(null); // { x, y, from, to }
+  const [commentBtn, setCommentBtn] = useState(/** @type {any} */ (null)); // { x, y, from, to }
   const [cursorInHl, setCursorInHl] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [lintDiags, setLintDiags] = useState([]);
-  const [spellMenu, setSpellMenu] = useState(null); // { x, y, word, from, to }
-  const [tcMenu, setTcMenu] = useState(null); // { x, y, id, type, author }
-  const tcMenuRef = useRef(null);
-  const spellMenuRef = useRef(null);
-  const [citeMenu, setCiteMenu] = useState(null); // { x, y, from, to, name, opt, key }
-  const citeMenuRef = useRef(null);
+  const [lintDiags, setLintDiags] = useState(/** @type {any[]} */ ([]));
+  const [spellMenu, setSpellMenu] = useState(/** @type {any} */ (null)); // { x, y, word, from, to }
+  const [tcMenu, setTcMenu] = useState(/** @type {any} */ (null)); // { x, y, id, type, author }
+  const tcMenuRef = useRef(/** @type {any} */ (null));
+  const spellMenuRef = useRef(/** @type {any} */ (null));
+  const [citeMenu, setCiteMenu] = useState(/** @type {any} */ (null)); // { x, y, from, to, name, opt, key }
+  const citeMenuRef = useRef(/** @type {any} */ (null));
   // LLM context menu shown when the user right-clicks INSIDE a non-empty
   // selection. Each menu item dispatches one of the LLM_TASKS — Accept
   // in the resulting dialog replaces the selection in place.
-  const [llmMenu, setLlmMenu] = useState(null); // { x, y, from, to, text }
-  const llmMenuRef = useRef(null);
-  const [llmDialog, setLlmDialog] = useState(null); // { from, to, text, task }
+  const [llmMenu, setLlmMenu] = useState(/** @type {any} */ (null)); // { x, y, from, to, text }
+  const llmMenuRef = useRef(/** @type {any} */ (null));
+  const [llmDialog, setLlmDialog] = useState(/** @type {any} */ (null)); // { from, to, text, task }
   // Tasks the running helper actually supports. Probed once via
   // /llm/status. null = not probed yet (show everything — old client
   // contract); array = filter the menu. Older helpers without the
   // supportedTasks field also leave this null so they keep showing
   // all menu items as before.
-  const [llmSupportedTasks, setLlmSupportedTasks] = useState(null);
+  const [llmSupportedTasks, setLlmSupportedTasks] = useState(/** @type {any} */ (null));
   useEffect(() => {
     let cancelled = false;
-    fetchLlmStatus().then((r) => {
+    fetchLlmStatus().then((/** @type {any} */ r) => {
       if (cancelled) return;
       const arr = r?.status?.supportedTasks;
       if (Array.isArray(arr)) setLlmSupportedTasks(arr);
@@ -255,7 +256,7 @@ const Editor = forwardRef(function Editor(
   );
 
   // VisualModeToolbar owns its own state; we hold a ref to refresh it on cursor move.
-  const vmToolbarRef = useRef(null);
+  const vmToolbarRef = useRef(/** @type {any} */ (null));
 
   /**
    * Per-doc cache for list-env tag positions. Recomputed only when the CodeMirror
@@ -263,9 +264,9 @@ const Editor = forwardRef(function Editor(
    * every Enter / Tab / Shift-Tab keystroke under autorepeat.
    *   { doc, tags: [{ pos, env, type, len }, ...] sorted by pos }
    */
-  const listEnvTagsCacheRef = useRef(null);
+  const listEnvTagsCacheRef = useRef(/** @type {any} */ (null));
 
-  const getListEnvTags = useCallback((doc) => {
+  const getListEnvTags = useCallback((/** @type {any} */ doc) => {
     const cached = listEnvTagsCacheRef.current;
     if (cached && cached.doc === doc) return cached.tags;
     const text = doc.toString();
@@ -292,7 +293,7 @@ const Editor = forwardRef(function Editor(
    * Tag positions are memoized per document version (see listEnvTagsCacheRef);
    * only the per-position stack walk runs on each call.
    */
-  const findInnermostListEnv = useCallback((doc, pos) => {
+  const findInnermostListEnv = useCallback((/** @type {any} */ doc, /** @type {any} */ pos) => {
     const tags = getListEnvTags(doc);
 
     // Walk through tags, tracking a stack of open envs
@@ -453,28 +454,28 @@ const Editor = forwardRef(function Editor(
       return;
     }
 
-    const indented = blockText.split('\n').map((l) => (l.trim() ? '  ' + l.trim() : '')).join('\n');
+    const indented = blockText.split('\n').map((/** @type {any} */ l) => (l.trim() ? '  ' + l.trim() : '')).join('\n');
     const newText = `\\begin{quote}\n${indented}\n\\end{quote}`;
     view.dispatch({ changes: { from: blockFrom, to: blockTo, insert: newText } });
     view.focus();
   }, []);
 
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (/** @type {any} */ e) => {
       if (e.detail.editorInverted !== undefined) setInverted(e.detail.editorInverted);
     };
     window.addEventListener('flowtex:settings-changed', handler);
     return () => window.removeEventListener('flowtex:settings-changed', handler);
   }, []);
-  const [tableBuilder, setTableBuilder] = useState(null); // null | { initial?, replaceFrom?, replaceTo? }
-  const [figureBuilder, setFigureBuilder] = useState(null);
+  const [tableBuilder, setTableBuilder] = useState(/** @type {any} */ (null)); // null | { initial?, replaceFrom?, replaceTo? }
+  const [figureBuilder, setFigureBuilder] = useState(/** @type {any} */ (null));
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
-  const tableBuilderRef = useRef(null);
-  const figureBuilderRef = useRef(null);
+  const tableBuilderRef = useRef(/** @type {any} */ (null));
+  const figureBuilderRef = useRef(/** @type {any} */ (null));
   tableBuilderRef.current = tableBuilder;
   figureBuilderRef.current = figureBuilder;
-  const tableBuilderUpdateTimeout = useRef(null);
-  const figureBuilderUpdateTimeout = useRef(null);
+  const tableBuilderUpdateTimeout = useRef(/** @type {any} */ (null));
+  const figureBuilderUpdateTimeout = useRef(/** @type {any} */ (null));
 
   const onGoToFileRef = useRef(onGoToFile);
   const projectFilesRef = useRef(projectFiles);
@@ -522,7 +523,7 @@ const Editor = forwardRef(function Editor(
   const declaredPackages = useMemo(() => {
     const pkgs = new Set();
     if (!projectFiles) return pkgs;
-    const mainFile = projectFiles.find((f) => f.content && f.content.includes('\\documentclass'));
+    const mainFile = projectFiles.find((/** @type {any} */ f) => f.content && f.content.includes('\\documentclass'));
     if (!mainFile) return pkgs;
     // Extract preamble (before \begin{document})
     const preamble = mainFile.content.split('\\begin{document}')[0] || '';
@@ -718,7 +719,7 @@ const Editor = forwardRef(function Editor(
     applyMarkResolution(markerId, decision) {
       const view = viewRef.current;
       if (!view) return false;
-      const m = listMarks(view.state).find((x) => x.id === markerId);
+      const m = listMarks(view.state).find((/** @type {any} */ x) => x.id === markerId);
       if (!m) return false;
       const spec = {
         effects: removeTcMark.of(markerId),
@@ -1017,7 +1018,7 @@ const Editor = forwardRef(function Editor(
             // Accept/Reject menu instead of the spellcheck menu.
             {
               const marks = listMarks(view.state);
-              const hit = marks.find((m) => pos >= m.from && pos < m.to);
+              const hit = marks.find((/** @type {any} */ m) => pos >= m.from && pos < m.to);
               if (hit) {
                 event.preventDefault();
                 setTcMenu({
@@ -1961,7 +1962,7 @@ const Editor = forwardRef(function Editor(
   }, [cursorInHl]);
 
   // Insert a generated table from the table builder (replaces existing range if editing).
-  const handleTableBuilderInsert = useCallback((table) => {
+  const handleTableBuilderInsert = useCallback((/** @type {any} */ table) => {
     const view = viewRef.current;
     if (!view || !tableBuilder) return;
     const from = tableBuilder.replaceFrom != null ? tableBuilder.replaceFrom : view.state.selection.main.from;
@@ -2209,7 +2210,7 @@ const Editor = forwardRef(function Editor(
         <button
           className="editor-comment-btn"
           style={{ left: commentBtn.x, top: commentBtn.y }}
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
           onClick={handleCommentBtnClick}
         >
           + Comment
@@ -2230,7 +2231,7 @@ const Editor = forwardRef(function Editor(
               <button
                 key={taskKey}
                 className="cite-context-item"
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
                 onClick={() => {
                   setLlmDialog({ from: llmMenu.from, to: llmMenu.to, text: llmMenu.text, task: taskKey });
                   setLlmMenu(null);
@@ -2279,11 +2280,11 @@ const Editor = forwardRef(function Editor(
             { name: 'textcite', label: 'Author (Year)', hint: 'biblatex textual' },
             { name: 'citeauthor', label: 'Author', hint: 'name only' },
             { name: 'citeyear', label: 'Year', hint: 'year only' },
-          ].map((variant) => (
+          ].map((/** @type {any} */ variant) => (
             <button
               key={variant.name}
               className={`cite-context-item ${variant.name === citeMenu.name ? 'cite-context-item-current' : ''}`}
-              onMouseDown={(e) => e.preventDefault()}
+              onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
               onClick={() => swapCiteVariant(variant.name)}
             >
               <span className="cite-context-item-label">{variant.label}</span>
@@ -2346,7 +2347,7 @@ const Editor = forwardRef(function Editor(
             onClick={() => {
               const view = viewRef.current;
               if (!view) return;
-              const m = listMarks(view.state).find((x) => x.id === tcMenu.id);
+              const m = listMarks(view.state).find((/** @type {any} */ x) => x.id === tcMenu.id);
               if (!m) {
                 setTcMenu(null);
                 return;
@@ -2369,7 +2370,7 @@ const Editor = forwardRef(function Editor(
             onClick={() => {
               const view = viewRef.current;
               if (!view) return;
-              const m = listMarks(view.state).find((x) => x.id === tcMenu.id);
+              const m = listMarks(view.state).find((/** @type {any} */ x) => x.id === tcMenu.id);
               if (!m) {
                 setTcMenu(null);
                 return;

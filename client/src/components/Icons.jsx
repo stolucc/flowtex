@@ -1,5 +1,7 @@
+// @ts-check
 import React from 'react';
 
+/** @param {any} props */
 export const ChevronLeftIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -16,6 +18,7 @@ export const ChevronLeftIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const ChevronRightIcon = ({ size = 12, ...props }) => (
   <svg
     width={size}
@@ -32,6 +35,7 @@ export const ChevronRightIcon = ({ size = 12, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const CloseIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -49,6 +53,7 @@ export const CloseIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const SearchIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -66,6 +71,7 @@ export const SearchIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const FileDocumentIcon = ({ size = 12, style, ...props }) => (
   <svg
     width={size}
@@ -84,6 +90,7 @@ export const FileDocumentIcon = ({ size = 12, style, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const FolderIcon = ({ size = 18, ...props }) => (
   <svg
     width={size}
@@ -100,6 +107,7 @@ export const FolderIcon = ({ size = 18, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const UndoIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -117,6 +125,7 @@ export const UndoIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const RedoIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -134,6 +143,7 @@ export const RedoIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const ZoomOutIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -152,6 +162,7 @@ export const ZoomOutIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const ZoomInIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -171,6 +182,7 @@ export const ZoomInIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const ContrastIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -188,12 +200,14 @@ export const ContrastIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const DropdownCaretIcon = ({ size = 8, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 10 10" fill="currentColor" {...props}>
     <path d="M2 3l3 4 3-4z" />
   </svg>
 );
 
+/** @param {any} props */
 export const TrashIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -213,6 +227,7 @@ export const TrashIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const DownloadIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -231,6 +246,7 @@ export const DownloadIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const HomeIcon = ({ size = 16, ...props }) => (
   <svg
     width={size}
@@ -248,6 +264,7 @@ export const HomeIcon = ({ size = 16, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const UploadIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -266,6 +283,7 @@ export const UploadIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const LogoutIcon = ({ size = 16, ...props }) => (
   <svg
     width={size}
@@ -284,6 +302,7 @@ export const LogoutIcon = ({ size = 16, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const TableIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -304,6 +323,7 @@ export const TableIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const FigureIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -322,6 +342,7 @@ export const FigureIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const ReviewEyeIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -339,6 +360,7 @@ export const ReviewEyeIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const TagIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -356,6 +378,7 @@ export const TagIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const SyncIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -375,6 +398,7 @@ export const SyncIcon = ({ size = 14, ...props }) => (
   </svg>
 );
 
+/** @param {any} props */
 export const HighlightIcon = ({ size = 14, ...props }) => (
   <svg
     width={size}
@@ -395,6 +419,7 @@ export const HighlightIcon = ({ size = 14, ...props }) => (
 
 // Filled circle with white "×" — VS Code-style error indicator. Uses
 // `currentColor` for the circle so callers control the tint via CSS.
+/** @param {any} props */
 export const ErrorIcon = ({ size = 14, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" {...props}>
     <circle cx="8" cy="8" r="7" fill="currentColor" />
@@ -409,6 +434,7 @@ export const ErrorIcon = ({ size = 14, ...props }) => (
 
 // Filled triangle with white "!" — VS Code-style warning indicator. Uses
 // `currentColor` for the fill so callers control the tint via CSS.
+/** @param {any} props */
 export const WarningIcon = ({ size = 14, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" {...props}>
     <path d="M8 1.5 L15 14 L1 14 Z" fill="currentColor" />

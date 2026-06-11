@@ -1,7 +1,11 @@
+// @ts-check
 import React, { useState, useEffect } from 'react';
 import { post, get } from '../api.js';
 
-/** Authentication page handling login, registration, email verification, password reset, and 2FA. */
+/**
+ * Authentication page handling login, registration, email verification, password reset, and 2FA.
+ * @param {any} props
+ */
 export default function AuthPage({ onAuth }) {
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('token');
@@ -49,19 +53,19 @@ export default function AuthPage({ onAuth }) {
   // Context for the unregistered-invitee flow (loaded async on mount
   // when ?invite=<id> is present). null = not loaded yet; an object
   // with { projectName, inviterName, hasAccount } once fetched.
-  const [inviteInfo, setInviteInfo] = useState(null);
+  const [inviteInfo, setInviteInfo] = useState(/** @type {any} */ (null));
   // Outcome of POSTing ?invite-decline=<token>: null = in-flight,
   // 'ok' = declined successfully, an error string on failure.
-  const [declineResult, setDeclineResult] = useState(null);
+  const [declineResult, setDeclineResult] = useState(/** @type {any} */ (null));
   // SAML: list of enabled IdPs for the "Continue with <IdP>" buttons.
   // Empty array when no IdPs configured (no SSO section is rendered).
   // Loaded once on mount; the login page is a cold-render scenario,
   // there's no need to react to subsequent config changes.
-  const [samlIdPs, setSamlIdPs] = useState([]);
+  const [samlIdPs, setSamlIdPs] = useState(/** @type {any[]} */ ([]));
   // SAML confirm-link state. When the URL is /login/confirm-saml-link,
   // we fetch /api/auth/saml/pending-link and stash the result here.
   // null = not loaded yet; an object once fetched; 'expired' on 404.
-  const [samlPendingLink, setSamlPendingLink] = useState(null);
+  const [samlPendingLink, setSamlPendingLink] = useState(/** @type {any} */ (null));
   // Set to true while POSTing to /confirm-link or /cancel-link so the
   // buttons disable and don't double-submit.
   const [samlConfirmBusy, setSamlConfirmBusy] = useState(false);
@@ -222,7 +226,7 @@ export default function AuthPage({ onAuth }) {
     window.location.assign('/login');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (/** @type {any} */ e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -257,7 +261,7 @@ export default function AuthPage({ onAuth }) {
         }
       }
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
@@ -276,7 +280,7 @@ export default function AuthPage({ onAuth }) {
     setResending(false);
   };
 
-  const handleForgotPassword = async (e) => {
+  const handleForgotPassword = async (/** @type {any} */ e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -290,12 +294,12 @@ export default function AuthPage({ onAuth }) {
         setError(data.error || 'Something went wrong');
       }
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
 
-  const handleResetPassword = async (e) => {
+  const handleResetPassword = async (/** @type {any} */ e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -321,7 +325,7 @@ export default function AuthPage({ onAuth }) {
         setError(data.error || 'Something went wrong');
       }
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
@@ -504,7 +508,7 @@ export default function AuthPage({ onAuth }) {
                 type="password"
                 placeholder="New password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setPassword(e.target.value)}
                 required
                 minLength={8}
                 className="auth-input"
@@ -514,7 +518,7 @@ export default function AuthPage({ onAuth }) {
                 type="password"
                 placeholder="Confirm new password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setConfirmPassword(e.target.value)}
                 required
                 minLength={8}
                 className="auth-input"
@@ -537,7 +541,7 @@ export default function AuthPage({ onAuth }) {
                 type="email"
                 placeholder="Email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(/** @type {any} */ e) => setEmail(e.target.value)}
                 required
                 className="auth-input"
                 autoFocus
@@ -560,7 +564,7 @@ export default function AuthPage({ onAuth }) {
                 type="text"
                 placeholder="000000"
                 value={totpCode}
-                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(/** @type {any} */ e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 required
                 autoFocus
                 className="auth-input auth-input-totp"
@@ -568,7 +572,7 @@ export default function AuthPage({ onAuth }) {
                 autoComplete="one-time-code"
               />
               <label className="auth-trust-label">
-                <input type="checkbox" checked={trustDevice} onChange={(e) => setTrustDevice(e.target.checked)} />
+                <input type="checkbox" checked={trustDevice} onChange={(/** @type {any} */ e) => setTrustDevice(e.target.checked)} />
                 Trust this device for 30 days
               </label>
               {error && <div className="auth-error">{error}</div>}
@@ -606,7 +610,7 @@ export default function AuthPage({ onAuth }) {
                   type="text"
                   placeholder="Name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setName(e.target.value)}
                   required
                   className="auth-input"
                 />
@@ -615,7 +619,7 @@ export default function AuthPage({ onAuth }) {
                 type="email"
                 placeholder="Email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(/** @type {any} */ e) => setEmail(e.target.value)}
                 required
                 className="auth-input"
               />
@@ -633,7 +637,7 @@ export default function AuthPage({ onAuth }) {
                 type="password"
                 placeholder="Password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(/** @type {any} */ e) => setPassword(e.target.value)}
                 required
                 minLength={6}
                 className="auth-input"
@@ -682,7 +686,7 @@ export default function AuthPage({ onAuth }) {
                   or
                   <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
                 </div>
-                {samlIdPs.map((idp) => (
+                {samlIdPs.map((/** @type {any} */ idp) => (
                   <a
                     key={idp.id}
                     href={idp.loginUrl}

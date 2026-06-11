@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useRef } from 'react';
 import { get, post, put, del, getCsrfToken } from '../api.js';
 import { ChevronLeftIcon, UploadIcon, TagIcon, CloseIcon } from './Icons.jsx';
@@ -51,36 +52,39 @@ const CATEGORY_ICONS = {
   ),
 };
 
-/** Browsable gallery of project templates with tag filtering, upload, and tag management. */
+/**
+ * Browsable gallery of project templates with tag filtering, upload, and tag management.
+ * @param {any} props
+ */
 export default function TemplateGallery({ onSelect, onBack }) {
-  const [templates, setTemplates] = useState([]);
-  const [tags, setTags] = useState([]);
+  const [templates, setTemplates] = useState(/** @type {any[]} */ ([]));
+  const [tags, setTags] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(null);
+  const [creating, setCreating] = useState(/** @type {any} */ (null));
   const [filterTagId, setFilterTagId] = useState('All');
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadFile, setUploadFile] = useState(/** @type {any} */ (null));
   const [uploadName, setUploadName] = useState('');
   const [uploadDesc, setUploadDesc] = useState('');
-  const [uploadTagIds, setUploadTagIds] = useState([]);
+  const [uploadTagIds, setUploadTagIds] = useState(/** @type {any[]} */ ([]));
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef(/** @type {any} */ (null));
 
   // Tag management state
   const [showTagManager, setShowTagManager] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#89b4fa');
-  const [editingTag, setEditingTag] = useState(null);
+  const [editingTag, setEditingTag] = useState(/** @type {any} */ (null));
   const [editTagName, setEditTagName] = useState('');
   const [editTagColor, setEditTagColor] = useState('');
 
   // Context menu state
-  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, template }
-  const ctxMenuRef = useRef(null);
+  const [ctxMenu, setCtxMenu] = useState(/** @type {any} */ (null)); // { x, y, template }
+  const ctxMenuRef = useRef(/** @type {any} */ (null));
 
-  const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
+  const [toast, setToast] = useState(/** @type {any} */ (null));
+  const toastTimer = useRef(/** @type {any} */ (null));
 
   const TAG_COLORS = ['#89b4fa', '#a6e3a1', '#cba6f7', '#f38ba8', '#fab387', '#f9e2af', '#94e2d5', '#74c7ec'];
 
@@ -92,19 +96,19 @@ export default function TemplateGallery({ onSelect, onBack }) {
 
   const fetchTemplates = () => {
     get('/api/projects/templates')
-      .then((r) => r.json())
-      .then((data) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ data) => {
         setTemplates(data);
         setLoading(false);
       })
-      .catch((e) => { console.warn('Failed to load templates:', e); setLoading(false); });
+      .catch((/** @type {any} */ e) => { console.warn('Failed to load templates:', e); setLoading(false); });
   };
 
   const fetchTags = () => {
     get('/api/projects/template-tags')
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setTags)
-      .catch((e) => console.warn('Failed to load template tags:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load template tags:', e));
   };
 
   useEffect(() => {
@@ -113,9 +117,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
   }, []);
 
   const filtered =
-    filterTagId === 'All' ? templates : templates.filter((t) => t.tags?.some((tag) => tag.id === filterTagId));
+    filterTagId === 'All' ? templates : templates.filter((/** @type {any} */ t) => t.tags?.some((/** @type {any} */ tag) => tag.id === filterTagId));
 
-  const handleSelect = async (template) => {
+  const handleSelect = async (/** @type {any} */ template) => {
     setCreating(template.id);
     try {
       const res = await post('/api/projects/from-template', { templateId: template.id });
@@ -126,12 +130,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
     }
   };
 
-  const handleDelete = async (e, tmpl) => {
+  const handleDelete = async (/** @type {any} */ e, /** @type {any} */ tmpl) => {
     e.stopPropagation();
     if (!confirm(`Delete template "${tmpl.name}"?`)) return;
     try {
       await del(`/api/projects/templates/${tmpl.id}`);
-      setTemplates((prev) => prev.filter((t) => t.id !== tmpl.id));
+      setTemplates((prev) => prev.filter((/** @type {any} */ t) => t.id !== tmpl.id));
     } catch {
       /* ignore */
     }
@@ -164,14 +168,14 @@ export default function TemplateGallery({ onSelect, onBack }) {
       setUploadTagIds([]);
       fetchTemplates();
     } catch (err) {
-      setUploadError(err.message);
+      setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
     }
   };
 
-  const toggleUploadTag = (tagId) => {
-    setUploadTagIds((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+  const toggleUploadTag = (/** @type {any} */ tagId) => {
+    setUploadTagIds((prev) => (prev.includes(tagId) ? prev.filter((/** @type {any} */ id) => id !== tagId) : [...prev, tagId]));
   };
 
   // Tag management handlers
@@ -206,12 +210,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
         return;
       }
       const updated = await res.json();
-      setTags((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      setTags((prev) => prev.map((/** @type {any} */ t) => (t.id === updated.id ? updated : t)));
       // Also update tags in templates list
       setTemplates((prev) =>
-        prev.map((tmpl) => ({
+        prev.map((/** @type {any} */ tmpl) => ({
           ...tmpl,
-          tags: tmpl.tags?.map((t) => (t.id === updated.id ? updated : t)),
+          tags: tmpl.tags?.map((/** @type {any} */ t) => (t.id === updated.id ? updated : t)),
         })),
       );
       setEditingTag(null);
@@ -220,15 +224,15 @@ export default function TemplateGallery({ onSelect, onBack }) {
     }
   };
 
-  const handleDeleteTag = async (tagId) => {
+  const handleDeleteTag = async (/** @type {any} */ tagId) => {
     if (!confirm('Delete this tag? It will be removed from all templates.')) return;
     try {
       await del(`/api/projects/template-tags/${tagId}`);
-      setTags((prev) => prev.filter((t) => t.id !== tagId));
+      setTags((prev) => prev.filter((/** @type {any} */ t) => t.id !== tagId));
       setTemplates((prev) =>
-        prev.map((tmpl) => ({
+        prev.map((/** @type {any} */ tmpl) => ({
           ...tmpl,
-          tags: tmpl.tags?.filter((t) => t.id !== tagId),
+          tags: tmpl.tags?.filter((/** @type {any} */ t) => t.id !== tagId),
         })),
       );
       if (filterTagId === tagId) setFilterTagId('All');
@@ -238,30 +242,30 @@ export default function TemplateGallery({ onSelect, onBack }) {
     }
   };
 
-  const startEditTag = (tag) => {
+  const startEditTag = (/** @type {any} */ tag) => {
     setEditingTag(tag);
     setEditTagName(tag.name);
     setEditTagColor(tag.color);
   };
 
   // Context menu: right-click on a template card to assign tags
-  const handleContextMenu = (e, tmpl) => {
+  const handleContextMenu = (/** @type {any} */ e, /** @type {any} */ tmpl) => {
     e.preventDefault();
     setCtxMenu({ x: e.clientX, y: e.clientY, template: tmpl });
   };
 
-  const handleCtxToggleTag = async (tagId) => {
+  const handleCtxToggleTag = async (/** @type {any} */ tagId) => {
     const tmpl = ctxMenu?.template;
     if (!tmpl) return;
-    const currentTagIds = (tmpl.tags || []).map((t) => t.id);
+    const currentTagIds = (tmpl.tags || []).map((/** @type {any} */ t) => t.id);
     const newTagIds = currentTagIds.includes(tagId)
-      ? currentTagIds.filter((id) => id !== tagId)
+      ? currentTagIds.filter((/** @type {any} */ id) => id !== tagId)
       : [...currentTagIds, tagId];
     try {
       const res = await put(`/api/projects/templates/${tmpl.id}/tags`, { tagIds: newTagIds });
       if (!res.ok) return;
       const updatedTags = await res.json();
-      setTemplates((prev) => prev.map((t) => (t.id === tmpl.id ? { ...t, tags: updatedTags } : t)));
+      setTemplates((prev) => prev.map((/** @type {any} */ t) => (t.id === tmpl.id ? { ...t, tags: updatedTags } : t)));
       // Keep context menu open but update its template reference
       setCtxMenu((prev) => (prev ? { ...prev, template: { ...tmpl, tags: updatedTags } } : null));
     } catch {
@@ -272,12 +276,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
   // Close context menu on click outside
   useEffect(() => {
     if (!ctxMenu) return;
-    const handleClick = (e) => {
+    const handleClick = (/** @type {any} */ e) => {
       if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target)) {
         setCtxMenu(null);
       }
     };
-    const handleEsc = (e) => {
+    const handleEsc = (/** @type {any} */ e) => {
       if (e.key === 'Escape') setCtxMenu(null);
     };
     document.addEventListener('mousedown', handleClick);
@@ -321,7 +325,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
         >
           All
         </button>
-        {tags.map((tag) => (
+        {tags.map((/** @type {any} */ tag) => (
           <button
             key={tag.id}
             className={`template-category-btn ${filterTagId === tag.id ? 'active' : ''}`}
@@ -338,13 +342,13 @@ export default function TemplateGallery({ onSelect, onBack }) {
         <div className="template-loading">Loading templates...</div>
       ) : (
         <div className="template-grid">
-          {filtered.map((t) => (
+          {filtered.map((/** @type {any} */ t) => (
             <button
               key={t.id}
               className="template-card"
               disabled={creating !== null}
               onClick={() => handleSelect(t)}
-              onContextMenu={(e) => handleContextMenu(e, t)}
+              onContextMenu={(/** @type {any} */ e) => handleContextMenu(e, t)}
             >
               <div className="template-card-preview">
                 {t.preloaded ? (
@@ -360,7 +364,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                 <div className="template-card-desc">{t.description}</div>
                 {t.tags?.length > 0 && (
                   <div className="template-card-tags">
-                    {t.tags.map((tag) => (
+                    {t.tags.map((/** @type {any} */ tag) => (
                       <span key={tag.id} className="template-card-tag" style={{ '--tag-color': tag.color }}>
                         {tag.name}
                       </span>
@@ -373,7 +377,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                 </div>
               </div>
               {!t.preloaded && (
-                <button className="template-card-delete" onClick={(e) => handleDelete(e, t)} title="Delete template">
+                <button className="template-card-delete" onClick={(/** @type {any} */ e) => handleDelete(e, t)} title="Delete template">
                   <svg
                     width="14"
                     height="14"
@@ -398,7 +402,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
       {/* Upload dialog */}
       {showUpload && (
         <div className="template-upload-overlay" onClick={() => setShowUpload(false)}>
-          <div className="template-upload-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="template-upload-dialog" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <h3>Upload Template</h3>
             <p className="template-upload-hint">Upload a ZIP file containing your template files.</p>
 
@@ -407,7 +411,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
               type="text"
               className="template-upload-input"
               value={uploadName}
-              onChange={(e) => setUploadName(e.target.value)}
+              onChange={(/** @type {any} */ e) => setUploadName(e.target.value)}
               placeholder="Template name"
             />
 
@@ -416,13 +420,13 @@ export default function TemplateGallery({ onSelect, onBack }) {
               type="text"
               className="template-upload-input"
               value={uploadDesc}
-              onChange={(e) => setUploadDesc(e.target.value)}
+              onChange={(/** @type {any} */ e) => setUploadDesc(e.target.value)}
               placeholder="Brief description"
             />
 
             <label className="template-upload-label">Tags</label>
             <div className="template-upload-tags">
-              {tags.map((tag) => (
+              {tags.map((/** @type {any} */ tag) => (
                 <button
                   key={tag.id}
                   type="button"
@@ -450,7 +454,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                 type="file"
                 accept=".zip"
                 style={{ display: 'none' }}
-                onChange={(e) => {
+                onChange={(/** @type {any} */ e) => {
                   const f = e.target.files?.[0];
                   if (f) {
                     setUploadFile(f);
@@ -478,11 +482,11 @@ export default function TemplateGallery({ onSelect, onBack }) {
       {/* Tag manager dialog */}
       {showTagManager && (
         <div className="template-upload-overlay" onClick={() => setShowTagManager(false)}>
-          <div className="template-upload-dialog template-tag-manager" onClick={(e) => e.stopPropagation()}>
+          <div className="template-upload-dialog template-tag-manager" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <h3>Manage Tags</h3>
 
             <div className="template-tag-list">
-              {tags.map((tag) => (
+              {tags.map((/** @type {any} */ tag) => (
                 <div key={tag.id} className="template-tag-row">
                   {editingTag?.id === tag.id ? (
                     <>
@@ -490,11 +494,11 @@ export default function TemplateGallery({ onSelect, onBack }) {
                         type="text"
                         className="template-tag-edit-input"
                         value={editTagName}
-                        onChange={(e) => setEditTagName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleUpdateTag()}
+                        onChange={(/** @type {any} */ e) => setEditTagName(e.target.value)}
+                        onKeyDown={(/** @type {any} */ e) => e.key === 'Enter' && handleUpdateTag()}
                       />
                       <div className="template-tag-color-picker">
-                        {TAG_COLORS.map((c) => (
+                        {TAG_COLORS.map((/** @type {any} */ c) => (
                           <button
                             key={c}
                             className={`template-tag-color-swatch ${editTagColor === c ? 'active' : ''}`}
@@ -564,12 +568,12 @@ export default function TemplateGallery({ onSelect, onBack }) {
                 type="text"
                 className="template-tag-edit-input"
                 value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
+                onChange={(/** @type {any} */ e) => setNewTagName(e.target.value)}
                 placeholder="New tag name"
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateTag()}
+                onKeyDown={(/** @type {any} */ e) => e.key === 'Enter' && handleCreateTag()}
               />
               <div className="template-tag-color-picker">
-                {TAG_COLORS.map((c) => (
+                {TAG_COLORS.map((/** @type {any} */ c) => (
                   <button
                     key={c}
                     className={`template-tag-color-swatch ${newTagColor === c ? 'active' : ''}`}
@@ -597,8 +601,8 @@ export default function TemplateGallery({ onSelect, onBack }) {
         <div ref={ctxMenuRef} className="template-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
           <div className="template-ctx-menu-header">Tags</div>
           {tags.length === 0 && <div className="template-ctx-menu-empty">No tags yet</div>}
-          {tags.map((tag) => {
-            const active = (ctxMenu.template.tags || []).some((t) => t.id === tag.id);
+          {tags.map((/** @type {any} */ tag) => {
+            const active = (ctxMenu.template.tags || []).some((/** @type {any} */ t) => t.id === tag.id);
             return (
               <button
                 key={tag.id}

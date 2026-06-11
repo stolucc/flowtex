@@ -1,9 +1,13 @@
+// @ts-check
 import React, { useState } from 'react';
 import generateLatexFigure from '../utils/latexFigureGenerator.js';
 
 const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|pdf|eps|svg|tif|tiff|bmp)$/i;
 
-/** Visual builder for LaTeX figure environments with placement, caption, and sizing options. */
+/**
+ * Visual builder for LaTeX figure environments with placement, caption, and sizing options.
+ * @param {any} props
+ */
 export default function FigureBuilder({ onInsert, onClose, onDelete, initial, projectFiles, declaredPackages }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imagePath, setImagePath] = useState(initial?.imagePath || '');
@@ -50,10 +54,10 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
           <select
             className="table-opt-select figure-file-select"
             value={imagePath}
-            onChange={(e) => setImagePath(e.target.value)}
+            onChange={(/** @type {any} */ e) => setImagePath(e.target.value)}
           >
             <option value="">— select file —</option>
-            {imageFiles.map((f) => (
+            {imageFiles.map((/** @type {any} */ f) => (
               <option key={f.path} value={f.path}>
                 {f.path}
               </option>
@@ -63,7 +67,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
             className="table-opt-input figure-path-input"
             type="text"
             value={imagePath}
-            onChange={(e) => setImagePath(e.target.value)}
+            onChange={(/** @type {any} */ e) => setImagePath(e.target.value)}
             placeholder="or type path…"
             style={{ marginLeft: 6, minWidth: 120 }}
           />
@@ -75,13 +79,13 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
             className="table-opt-input"
             type="text"
             value={width}
-            onChange={(e) => setWidth(e.target.value)}
+            onChange={(/** @type {any} */ e) => setWidth(e.target.value)}
             style={{ width: 50 }}
           />
           <select
             className="table-opt-select"
             value={widthUnit}
-            onChange={(e) => setWidthUnit(e.target.value)}
+            onChange={(/** @type {any} */ e) => setWidthUnit(e.target.value)}
             style={{ marginLeft: 4 }}
           >
             <option value="textwidth">\textwidth</option>
@@ -99,7 +103,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
           <select
             className="table-opt-select"
             value={placement}
-            onChange={(e) => setPlacement(e.target.value)}
+            onChange={(/** @type {any} */ e) => setPlacement(e.target.value)}
           >
             <option value="htbp">htbp (auto)</option>
             <option value="H">H (exact)</option>
@@ -175,7 +179,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
                   className="table-opt-input"
                   type="text"
                   value={captionText}
-                  onChange={(e) => setCaptionText(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setCaptionText(e.target.value)}
                   placeholder="Caption text"
                 />
               </div>
@@ -185,7 +189,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
                   className="table-opt-input"
                   type="text"
                   value={label}
-                  onChange={(e) => setLabel(e.target.value)}
+                  onChange={(/** @type {any} */ e) => setLabel(e.target.value)}
                   placeholder="fig:label"
                 />
               </div>

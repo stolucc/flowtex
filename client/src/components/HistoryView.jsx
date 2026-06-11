@@ -1,9 +1,13 @@
+// @ts-check
 import React, { lazy, Suspense } from 'react';
 import { get, getCsrfToken } from '../api.js';
 
 const HistoryPanel = lazy(() => import('./HistoryPanel.jsx'));
 
-/** Layout wrapper for the history mode, showing a file list alongside the HistoryPanel. */
+/**
+ * Layout wrapper for the history mode, showing a file list alongside the HistoryPanel.
+ * @param {any} props
+ */
 export default function HistoryView({
   project,
   files,
@@ -37,7 +41,7 @@ export default function HistoryView({
           Files
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
-          {(ui.historyFiles || files).map((f) => (
+          {(ui.historyFiles || files).map((/** @type {any} */ f) => (
             <div
               key={f.id}
               className={`history-file-item ${ui.historySelectedFile?.id === f.id ? 'active' : ''}`}
@@ -89,12 +93,12 @@ export default function HistoryView({
             ui.setHistoryEditedFileIds([]);
             ui.setHistoryFiles(null);
             ui.setHistorySelectedFile(null);
-            const stillExists = restoredFiles.find((f) => f.id === activeFile?.id);
+            const stillExists = restoredFiles.find((/** @type {any} */ f) => f.id === activeFile?.id);
             if (stillExists) {
               setActiveFile(stillExists);
               setTimeout(() => editorRef.current?.replaceContent(stillExists.content), 50);
             } else if (restoredFiles.length > 0) {
-              const mainFile = restoredFiles.find((f) => f.path === (project?.main_file || 'main.tex'));
+              const mainFile = restoredFiles.find((/** @type {any} */ f) => f.path === (project?.main_file || 'main.tex'));
               setActiveFile(mainFile || restoredFiles[0]);
               setTimeout(() => editorRef.current?.replaceContent((mainFile || restoredFiles[0]).content), 50);
             } else setActiveFile(null);
@@ -107,7 +111,7 @@ export default function HistoryView({
               ui.setHistoryEditedFileIds(data.editedFileIds || []);
               ui.setHistoryFiles(data.files || null);
               if (data.editedFileIds?.length > 0) {
-                const firstEdited = data.files?.find((f) => f.id === data.editedFileIds[0]);
+                const firstEdited = data.files?.find((/** @type {any} */ f) => f.id === data.editedFileIds[0]);
                 if (firstEdited) ui.setHistorySelectedFile({ id: firstEdited.id, path: firstEdited.path });
               }
             } catch {

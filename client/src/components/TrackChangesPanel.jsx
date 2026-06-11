@@ -1,3 +1,4 @@
+// @ts-check
 // V2 side panel — Word-style review cards for pending tracked changes.
 //
 // Toggled on/off via View → "Show changes panel". When on, renders a
@@ -15,11 +16,14 @@ import { formatFullDate as formatDate } from '../utils/dateFormat.js';
 
 const SNIPPET_MAX = 120;
 
+/** @param {any} text */
+/** @param {any} text */
 function snippet(text) {
   if (!text) return '';
   return text.length > SNIPPET_MAX ? text.slice(0, SNIPPET_MAX) + '…' : text;
 }
 
+/** @param {any} props */
 export default function TrackChangesPanel({
   docText,
   pendingChanges,
@@ -33,7 +37,7 @@ export default function TrackChangesPanel({
   onGoToPosition,
   onClose,
 }) {
-  const listRef = useRef(null);
+  const listRef = useRef(/** @type {any} */ (null));
   const cardRefs = useRef({});
 
   // Map id → viewport-relative top, identical pattern to commentPositions.
@@ -53,7 +57,7 @@ export default function TrackChangesPanel({
   // M2 model: both ins and del cover real chars; the slice IS the change.
   const cards = useMemo(() => {
     if (!Array.isArray(pendingChanges) || !docText) return [];
-    return pendingChanges.map((c) => ({
+    return pendingChanges.map((/** @type {any} */ c) => ({
       ...c,
       text: docText.slice(c.from, c.to),
     }));
@@ -114,7 +118,7 @@ export default function TrackChangesPanel({
           </div>
           <div className="tc-panel-list-scroll">
           <ul ref={listRef} className={`tc-panel-list ${isPositioned ? 'positioned' : ''}`}>
-            {cards.map((c) => (
+            {cards.map((/** @type {any} */ c) => (
               <li
                 key={c.id}
                 ref={(el) => {
@@ -125,7 +129,7 @@ export default function TrackChangesPanel({
                 onClick={() => onGoToPosition?.(c.from)}
                 tabIndex={0}
                 role="button"
-                onKeyDown={(e) => {
+                onKeyDown={(/** @type {any} */ e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     onGoToPosition?.(c.from);
@@ -152,7 +156,7 @@ export default function TrackChangesPanel({
                 <div className="tc-panel-card-actions">
                   <button
                     className="tc-panel-icon-btn tc-panel-icon-accept"
-                    onClick={(e) => {
+                    onClick={(/** @type {any} */ e) => {
                       e.stopPropagation();
                       onAccept?.(c.id);
                     }}
@@ -163,7 +167,7 @@ export default function TrackChangesPanel({
                   </button>
                   <button
                     className="tc-panel-icon-btn tc-panel-icon-reject"
-                    onClick={(e) => {
+                    onClick={(/** @type {any} */ e) => {
                       e.stopPropagation();
                       onReject?.(c.id);
                     }}

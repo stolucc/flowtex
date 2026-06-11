@@ -1,3 +1,4 @@
+// @ts-check
 // V1 review bar for tracked changes (M2 model).
 //
 // Shows when there are pending TC entries on the active file. Lets the
@@ -9,6 +10,7 @@
 // pending list and the resolution handlers from useTrackedChanges.
 import React from 'react';
 
+/** @param {any} props */
 export default function TrackChangesBar({
   pendingChanges,
   reviewing,

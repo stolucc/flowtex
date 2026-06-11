@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { get, post, del, getCsrfToken } from '../api.js';
 import Avatar from './Avatar.jsx';
@@ -22,28 +23,31 @@ import {
 
 const TAG_COLORS = ['#89b4fa', '#b4befe', '#f9e2af', '#fab387', '#f38ba8', '#cba6f7', '#74c7ec', '#f2cdcd'];
 
-/** Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations. */
+/**
+ * Dashboard view listing all projects with filtering, sorting, tagging, bulk actions, and invitations.
+ * @param {any} props
+ */
 export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, onAdmin, pendingInviteId }) {
   const { alert: showAlert } = useAlert();
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState(/** @type {any[]} */ ([]));
   // null = not yet attempted, '' = loaded successfully, otherwise an error
   // message. Drives the visible error banner that replaces the silent
   // empty-list state — historically a failed /api/projects request just
   // left projects at [] and the user saw "no projects" with no clue why.
-  const [projectsError, setProjectsError] = useState(null);
-  const [invitations, setInvitations] = useState([]);
+  const [projectsError, setProjectsError] = useState(/** @type {any} */ (null));
+  const [invitations, setInvitations] = useState(/** @type {any[]} */ ([]));
   // True after /invitations/mine has resolved AND the pendingInviteId is
   // not among the returned ids — i.e. the link in the email was for a
   // different account or the invitation is no longer pending.
   const [pendingInviteUnknown, setPendingInviteUnknown] = useState(false);
-  const [highlightInviteId, setHighlightInviteId] = useState(null);
+  const [highlightInviteId, setHighlightInviteId] = useState(/** @type {any} */ (null));
   const invitationRefs = useRef({});
-  const [tags, setTags] = useState([]);
+  const [tags, setTags] = useState(/** @type {any[]} */ ([]));
   const [name, setName] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(/** @type {any} */ (null));
   // copyDialog is non-null while the "Copy project" confirm modal is open.
   // { project, name, includeMembers, members?, submitting }
-  const [copyDialog, setCopyDialog] = useState(null);
+  const [copyDialog, setCopyDialog] = useState(/** @type {any} */ (null));
   const [showMfa, setShowMfa] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('github') === 'connected';
@@ -53,27 +57,27 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     return params.get('github') === 'connected' ? 'github' : null;
   });
   const [filter, setFilter] = useState('all');
-  const [selectedTag, setSelectedTag] = useState(null);
+  const [selectedTag, setSelectedTag] = useState(/** @type {any} */ (null));
   const [newTagName, setNewTagName] = useState('');
   const [creatingTag, setCreatingTag] = useState(false);
   const [search, setSearch] = useState('');
   useEffect(() => {
     setSelected(new Set());
   }, [filter, selectedTag]);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, project }
-  const contextMenuRef = useRef(null);
+  const [contextMenu, setContextMenu] = useState(/** @type {any} */ (null)); // { x, y, project }
+  const contextMenuRef = useRef(/** @type {any} */ (null));
   const [sortCol, setSortCol] = useState('updated_at');
   const [sortDir, setSortDir] = useState('desc');
   const [selected, setSelected] = useState(new Set());
   const [showBulkTagMenu, setShowBulkTagMenu] = useState(false);
-  const bulkTagRef = useRef(null);
+  const bulkTagRef = useRef(/** @type {any} */ (null));
   const [showNewMenu, setShowNewMenu] = useState(false);
-  const newMenuRef = useRef(null);
-  const zipInputRef = useRef(null);
-  const docxInputRef = useRef(null);
+  const newMenuRef = useRef(/** @type {any} */ (null));
+  const zipInputRef = useRef(/** @type {any} */ (null));
+  const docxInputRef = useRef(/** @type {any} */ (null));
   const [showTemplates, setShowTemplates] = useState(false);
   const [showDocxDialog, setShowDocxDialog] = useState(false);
-  const [docxFile, setDocxFile] = useState(null);
+  const [docxFile, setDocxFile] = useState(/** @type {any} */ (null));
   const [docxDocType, setDocxDocType] = useState('book');
   const [docxImporting, setDocxImporting] = useState(false);
   const [docxProgress, setDocxProgress] = useState({ message: '', percent: 0 });
@@ -81,15 +85,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   // a "this is happening" modal until the request resolves (or errors). On
   // success the parent navigates to the new project and this component
   // unmounts, taking the modal with it.
-  const [zipImporting, setZipImporting] = useState(null); // null | { fileName }
+  const [zipImporting, setZipImporting] = useState(/** @type {any} */ (null)); // null | { fileName }
   const [zipError, setZipError] = useState('');
-  const docxAbortRef = useRef(null);
+  const docxAbortRef = useRef(/** @type {any} */ (null));
   const [showGitHubImport, setShowGitHubImport] = useState(false);
   const [ghImportRepo, setGhImportRepo] = useState('');
   const [ghImportBranch, setGhImportBranch] = useState('');
   const [ghImportLoading, setGhImportLoading] = useState(false);
   const [ghImportError, setGhImportError] = useState('');
-  const [ghRepos, setGhRepos] = useState(null);
+  const [ghRepos, setGhRepos] = useState(/** @type {any} */ (null));
   const [ghReposLoading, setGhReposLoading] = useState(false);
   const [ghRepoSearch, setGhRepoSearch] = useState('');
 
@@ -110,16 +114,16 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         setProjects(body);
         setProjectsError('');
       })
-      .catch((e) => {
+      .catch((/** @type {any} */ e) => {
         console.warn('Failed to load projects:', e);
         setProjectsError(e.message || 'Unknown error');
       });
     get('/api/projects/invitations/mine')
-      .then((r) => r.json())
-      .then((rows) => {
+      .then((/** @type {any} */ r) => r.json())
+      .then((/** @type {any} */ rows) => {
         setInvitations(rows);
         if (initialInviteId) {
-          const match = rows.find((r) => r.id === initialInviteId);
+          const match = rows.find((/** @type {any} */ r) => r.id === initialInviteId);
           if (match) {
             setHighlightInviteId(initialInviteId);
             // Strip the param now so a refresh doesn't re-trigger / leak via referrer.
@@ -136,18 +140,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           }
         }
       })
-      .catch((e) => console.warn('Failed to load invitations:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load invitations:', e));
     get('/api/tags')
-      .then((r) => r.json())
+      .then((/** @type {any} */ r) => r.json())
       .then(setTags)
-      .catch((e) => console.warn('Failed to load tags:', e));
+      .catch((/** @type {any} */ e) => console.warn('Failed to load tags:', e));
   }, []);
 
   // Listen for real-time invitation pushes via WebSocket
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (/** @type {any} */ e) => {
       setInvitations((inv) => {
-        if (inv.some((i) => i.id === e.detail.id)) return inv;
+        if (inv.some((/** @type {any} */ i) => i.id === e.detail.id)) return inv;
         return [e.detail, ...inv];
       });
     };
@@ -155,7 +159,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     return () => window.removeEventListener('ws:invitation', handler);
   }, []);
 
-  const handleCreate = async (e) => {
+  const handleCreate = async (/** @type {any} */ e) => {
     e.preventDefault();
     const res = await post('/api/projects', { name: name || 'Untitled' });
     const project = await res.json();
@@ -183,7 +187,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       setGhImportBranch('');
       onSelect(project);
     } catch (err) {
-      setGhImportError(err.message);
+      setGhImportError(err instanceof Error ? err.message : String(err));
     } finally {
       setGhImportLoading(false);
     }
@@ -212,7 +216,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   /** Upload a ZIP file to create a new project from its contents. */
-  const handleUploadZip = async (file) => {
+  const handleUploadZip = async (/** @type {any} */ file) => {
     setZipError('');
     setZipImporting({ fileName: file.name });
     try {
@@ -300,46 +304,46 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   const isOwner = (project) => project.owner_id === user?.id;
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (/** @type {any} */ id) => {
     await del(`/api/projects/${id}`);
-    setProjects((ps) => ps.filter((p) => p.id !== id));
+    setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== id));
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
   };
 
-  const handleTrash = async (e, project) => {
+  const handleTrash = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/trash`);
     if (isOwner(project)) {
-      setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
+      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
     } else {
-      setProjects((ps) => ps.filter((p) => p.id !== project.id));
+      setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
     }
     setSelected((s) => { const n = new Set(s); n.delete(project.id); return n; });
   };
 
-  const handleRestore = async (e, project) => {
+  const handleRestore = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/restore`);
-    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, trashed: 0 } : p)));
+    setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 0 } : p)));
   };
 
-  const handleArchive = async (e, project) => {
+  const handleArchive = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/archive`);
     if (isOwner(project)) {
-      setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
+      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
     } else {
-      setProjects((ps) => ps.filter((p) => p.id !== project.id));
+      setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
     }
   };
 
-  const handleUnarchive = async (e, project) => {
+  const handleUnarchive = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/unarchive`);
-    setProjects((ps) => ps.map((p) => (p.id === project.id ? { ...p, archived: 0 } : p)));
+    setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 0 } : p)));
   };
 
-  const handleCopy = async (e, project) => {
+  const handleCopy = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     // Solo projects: copy directly with no prompt. Shared projects: open
     // the dialog so the user can pick a name and decide whether to bring
@@ -393,7 +397,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
-  const confirmDeleteProject = (e, project) => {
+  const confirmDeleteProject = (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     const owned = isOwner(project);
     setConfirmDelete({
@@ -408,11 +412,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   /** Accept a project invitation and refresh the project list. */
-  const handleAcceptInvite = async (inviteId) => {
+  const handleAcceptInvite = async (/** @type {any} */ inviteId) => {
     try {
       const res = await post(`/api/projects/invitations/${inviteId}/accept`);
       if (res.ok) {
-        setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+        setInvitations((inv) => inv.filter((/** @type {any} */ i) => i.id !== inviteId));
         const projRes = await get('/api/projects');
         setProjects(await projRes.json());
       } else {
@@ -424,11 +428,11 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
-  const handleDeclineInvite = async (inviteId) => {
+  const handleDeclineInvite = async (/** @type {any} */ inviteId) => {
     try {
       const res = await post(`/api/projects/invitations/${inviteId}/decline`);
       if (res.ok) {
-        setInvitations((inv) => inv.filter((i) => i.id !== inviteId));
+        setInvitations((inv) => inv.filter((/** @type {any} */ i) => i.id !== inviteId));
       } else {
         const data = await res.json().catch(() => ({}));
         showAlert(data.error || 'Failed to decline invitation', { title: 'Decline invitation' });
@@ -439,7 +443,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   /** Create a new tag with an auto-assigned color. */
-  const handleCreateTag = async (e) => {
+  const handleCreateTag = async (/** @type {any} */ e) => {
     e.preventDefault();
     if (!newTagName.trim()) return;
     const color = TAG_COLORS[tags.length % TAG_COLORS.length];
@@ -453,14 +457,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   /** Delete a tag after confirmation, removing it from all projects. */
-  const handleDeleteTag = (tagId) => {
-    const tag = tags.find((t) => t.id === tagId);
+  const handleDeleteTag = (/** @type {any} */ tagId) => {
+    const tag = tags.find((/** @type {any} */ t) => t.id === tagId);
     setConfirmDelete({
       message: `Delete tag "${tag?.name || ''}"? It will be removed from all projects.`,
       onConfirm: async () => {
         await del(`/api/tags/${tagId}`);
-        setTags((t) => t.filter((tg) => tg.id !== tagId));
-        setProjects((ps) => ps.map((p) => ({ ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) })));
+        setTags((t) => t.filter((/** @type {any} */ tg) => tg.id !== tagId));
+        setProjects((ps) => ps.map((/** @type {any} */ p) => ({ ...p, tags: (p.tags || []).filter((/** @type {any} */ t) => t.id !== tagId) })));
         if (selectedTag === tagId) {
           setSelectedTag(null);
           setFilter('all');
@@ -473,17 +477,17 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   /** Toggle a tag on/off for a specific project. */
   const handleToggleProjectTag = async (e, projectId, tagId) => {
     e.stopPropagation();
-    const project = projects.find((p) => p.id === projectId);
-    const hasTag = project?.tags?.some((t) => t.id === tagId);
+    const project = projects.find((/** @type {any} */ p) => p.id === projectId);
+    const hasTag = project?.tags?.some((/** @type {any} */ t) => t.id === tagId);
     if (hasTag) {
       await del(`/api/projects/${projectId}/tags/${tagId}`);
       setProjects((ps) =>
-        ps.map((p) => (p.id === projectId ? { ...p, tags: (p.tags || []).filter((t) => t.id !== tagId) } : p)),
+        ps.map((/** @type {any} */ p) => (p.id === projectId ? { ...p, tags: (p.tags || []).filter((/** @type {any} */ t) => t.id !== tagId) } : p)),
       );
     } else {
       await post(`/api/projects/${projectId}/tags/${tagId}`);
-      const tag = tags.find((t) => t.id === tagId);
-      setProjects((ps) => ps.map((p) => (p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p)));
+      const tag = tags.find((/** @type {any} */ t) => t.id === tagId);
+      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p)));
     }
   };
 
@@ -504,18 +508,18 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   );
 
   /** Apply a tag to all currently selected projects. */
-  const handleBulkTag = async (tagId) => {
-    const tag = tags.find((t) => t.id === tagId);
+  const handleBulkTag = async (/** @type {any} */ tagId) => {
+    const tag = tags.find((/** @type {any} */ t) => t.id === tagId);
     for (const id of selected) {
-      const project = projects.find((p) => p.id === id);
-      if (project && !(project.tags || []).some((t) => t.id === tagId)) {
+      const project = projects.find((/** @type {any} */ p) => p.id === id);
+      if (project && !(project.tags || []).some((/** @type {any} */ t) => t.id === tagId)) {
         await post(`/api/projects/${id}/tags/${tagId}`);
       }
     }
     setProjects((ps) =>
-      ps.map((p) => {
+      ps.map((/** @type {any} */ p) => {
         if (!selected.has(p.id)) return p;
-        if ((p.tags || []).some((t) => t.id === tagId)) return p;
+        if ((p.tags || []).some((/** @type {any} */ t) => t.id === tagId)) return p;
         return { ...p, tags: [...(p.tags || []), tag] };
       }),
     );
@@ -523,7 +527,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   // Filter projects
-  const filteredProjects = projects.filter((p) => {
+  const filteredProjects = projects.filter((/** @type {any} */ p) => {
     if (filter === 'all' && !p.trashed && !p.archived) {
       /* ok */
     } else if (filter === 'yours' && !p.trashed && !p.archived && p.owner_id === user?.id) {
@@ -534,7 +538,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       /* ok */
     } else if (filter === 'deleted' && p.trashed) {
       /* ok */
-    } else if (filter === 'tag' && !p.trashed && (p.tags || []).some((t) => t.id === selectedTag)) {
+    } else if (filter === 'tag' && !p.trashed && (p.tags || []).some((/** @type {any} */ t) => t.id === selectedTag)) {
       /* ok */
     } else return false;
     // Apply search filter
@@ -572,7 +576,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     return 0;
   });
 
-  const handleSort = (col) => {
+  const handleSort = (/** @type {any} */ col) => {
     if (sortCol === col) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
@@ -581,6 +585,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     }
   };
 
+  /** @param {any} props */
   const SortIcon = ({ col }) => {
     if (sortCol !== col) return <span className="sort-icon inactive">&lsaquo;</span>;
     return <span className="sort-icon">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>;
@@ -756,7 +761,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             type="file"
             accept=".zip"
             style={{ display: 'none' }}
-            onChange={(e) => {
+            onChange={(/** @type {any} */ e) => {
               const file = e.target.files?.[0];
               if (file) handleUploadZip(file);
               e.target.value = '';
@@ -767,7 +772,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             type="file"
             accept=".docx,.doc"
             style={{ display: 'none' }}
-            onChange={(e) => {
+            onChange={(/** @type {any} */ e) => {
               const file = e.target.files?.[0];
               if (file) {
                 setDocxFile(file);
@@ -780,7 +785,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         </div>
 
         <div className="sidebar-categories">
-          {categories.map((cat) => (
+          {categories.map((/** @type {any} */ cat) => (
             <button
               key={cat.id}
               className={`sidebar-category ${filter === cat.id && !selectedTag ? 'active' : ''}`}
@@ -820,7 +825,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 type="text"
                 placeholder="Tag name..."
                 value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
+                onChange={(/** @type {any} */ e) => setNewTagName(e.target.value)}
                 autoFocus
                 onBlur={() => {
                   if (!newTagName.trim()) setCreatingTag(false);
@@ -829,7 +834,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             </form>
           )}
           <div className="sidebar-tags-list">
-            {tags.map((tag) => (
+            {tags.map((/** @type {any} */ tag) => (
               <button
                 key={tag.id}
                 className={`sidebar-tag ${filter === 'tag' && selectedTag === tag.id ? 'active' : ''}`}
@@ -840,12 +845,12 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               >
                 <span className="sidebar-tag-dot" style={{ background: tag.color }} />
                 <span className="sidebar-tag-name">
-                  {tag.name} ({projects.filter((p) => !p.trashed && (p.tags || []).some((t) => t.id === tag.id)).length}
+                  {tag.name} ({projects.filter((/** @type {any} */ p) => !p.trashed && (p.tags || []).some((/** @type {any} */ t) => t.id === tag.id)).length}
                   )
                 </span>
                 <span
                   className="sidebar-tag-delete"
-                  onClick={(e) => {
+                  onClick={(/** @type {any} */ e) => {
                     e.stopPropagation();
                     handleDeleteTag(tag.id);
                   }}
@@ -928,8 +933,8 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         <div className="dashboard-topbar">
           <h2 className="dashboard-view-title">
             {filter === 'tag' && selectedTag
-              ? tags.find((t) => t.id === selectedTag)?.name || 'Tag'
-              : categories.find((c) => c.id === filter)?.label || 'All Projects'}
+              ? tags.find((/** @type {any} */ t) => t.id === selectedTag)?.name || 'Tag'
+              : categories.find((/** @type {any} */ c) => c.id === filter)?.label || 'All Projects'}
           </h2>
         </div>
         <div className="project-search-bar">
@@ -946,7 +951,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             inputMode="search"
             placeholder="Search projects..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(/** @type {any} */ e) => setSearch(e.target.value)}
           />
         </div>
         {selected.size > 0 && (
@@ -955,7 +960,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             <button
               className="bulk-action-btn"
               onClick={() => {
-                selected.forEach((id) => window.open(`/api/projects/${id}/zip`, '_blank'));
+                selected.forEach((/** @type {any} */ id) => window.open(`/api/projects/${id}/zip`, '_blank'));
               }}
               title="Download"
             >
@@ -972,7 +977,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   {tags.length === 0 ? (
                     <div className="bulk-tag-empty">No tags yet</div>
                   ) : (
-                    tags.map((tag) => (
+                    tags.map((/** @type {any} */ tag) => (
                       <button key={tag.id} className="bulk-tag-option" onClick={() => handleBulkTag(tag.id)}>
                         <span className="sidebar-tag-dot" style={{ background: tag.color }} />
                         {tag.name}
@@ -987,7 +992,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="bulk-action-btn"
                 onClick={async () => {
                   for (const id of selected) await post(`/api/projects/${id}/archive`);
-                  setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, archived: 1 } : p)));
+                  setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 1 } : p)));
                   setSelected(new Set());
                 }}
                 title="Archive"
@@ -1014,7 +1019,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="bulk-action-btn"
                 onClick={async () => {
                   for (const id of selected) await post(`/api/projects/${id}/unarchive`);
-                  setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, archived: 0 } : p)));
+                  setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 0 } : p)));
                   setSelected(new Set());
                 }}
                 title="Unarchive"
@@ -1042,7 +1047,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   className="bulk-action-btn"
                   onClick={async () => {
                     for (const id of selected) await post(`/api/projects/${id}/restore`);
-                    setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, trashed: 0 } : p)));
+                    setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 0 } : p)));
                     setSelected(new Set());
                   }}
                   title="Restore"
@@ -1057,7 +1062,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       message: `Permanently delete ${selected.size} project(s)? This cannot be undone.`,
                       onConfirm: async () => {
                         for (const id of selected) await del(`/api/projects/${id}`);
-                        setProjects((ps) => ps.filter((p) => !selected.has(p.id)));
+                        setProjects((ps) => ps.filter((/** @type {any} */ p) => !selected.has(p.id)));
                         setSelected(new Set());
                         setConfirmDelete(null);
                       },
@@ -1077,7 +1082,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     message: `Are you sure you want to delete ${selected.size} project(s)?`,
                     onConfirm: async () => {
                       for (const id of selected) await post(`/api/projects/${id}/trash`);
-                      setProjects((ps) => ps.map((p) => (selected.has(p.id) ? { ...p, trashed: 1 } : p)));
+                      setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 1 } : p)));
                       setSelected(new Set());
                       setConfirmDelete(null);
                     },
@@ -1108,7 +1113,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
           <div className="invitations-section">
             <h3 className="invitations-title">Pending Invitations</h3>
             <div className="invitations-list">
-              {invitations.map((inv) => (
+              {invitations.map((/** @type {any} */ inv) => (
                 <div
                   key={inv.id}
                   ref={(el) => {
@@ -1158,9 +1163,9 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 <th className="project-table-check-col">
                   <input
                     type="checkbox"
-                    checked={sortedProjects.length > 0 && sortedProjects.every((p) => selected.has(p.id))}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelected(new Set(sortedProjects.map((p) => p.id)));
+                    checked={sortedProjects.length > 0 && sortedProjects.every((/** @type {any} */ p) => selected.has(p.id))}
+                    onChange={(/** @type {any} */ e) => {
+                      if (e.target.checked) setSelected(new Set(sortedProjects.map((/** @type {any} */ p) => p.id)));
                       else setSelected(new Set());
                     }}
                   />
@@ -1187,17 +1192,17 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               </tr>
             </thead>
             <tbody>
-              {sortedProjects.map((p) => (
+              {sortedProjects.map((/** @type {any} */ p) => (
                 <tr
                   key={p.id}
                   className={`project-table-row ${selected.has(p.id) ? 'selected' : ''}`}
                   onClick={() => !p.trashed && onSelect(p)}
-                  onContextMenu={(e) => {
+                  onContextMenu={(/** @type {any} */ e) => {
                     e.preventDefault();
                     setContextMenu({ x: e.clientX, y: e.clientY, project: p });
                   }}
                 >
-                  <td className="project-table-check" onClick={(e) => e.stopPropagation()}>
+                  <td className="project-table-check" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selected.has(p.id)}
@@ -1229,7 +1234,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     </span>
                     {(p.tags || []).length > 0 && (
                       <span className="project-table-tags">
-                        {p.tags.map((t) => (
+                        {p.tags.map((/** @type {any} */ t) => (
                           <span
                             key={t.id}
                             className="project-tag-chip"
@@ -1246,15 +1251,15 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   <td className="project-table-cell">{formatRelativeTime(p.created_at)}</td>
                   <td className="project-table-cell">{formatRelativeTime(p.updated_at)}</td>
                   <td className="project-table-cell">{p.last_editor === user?.name ? 'You' : p.last_editor || ''}</td>
-                  <td className="project-table-cell project-table-actions" onClick={(e) => e.stopPropagation()}>
+                  <td className="project-table-cell project-table-actions" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
                     {filter === 'deleted' ? (
                       <>
-                        <button className="project-action-btn" onClick={(e) => handleRestore(e, p)} title="Restore">
+                        <button className="project-action-btn" onClick={(/** @type {any} */ e) => handleRestore(e, p)} title="Restore">
                           <UndoIcon size={15} />
                         </button>
                         <button
                           className="project-action-btn project-action-danger"
-                          onClick={(e) => confirmDeleteProject(e, p)}
+                          onClick={(/** @type {any} */ e) => confirmDeleteProject(e, p)}
                           title="Delete permanently"
                         >
                           <TrashIcon size={15} />
@@ -1262,7 +1267,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       </>
                     ) : (
                       <>
-                        <button className="project-action-btn" onClick={(e) => handleCopy(e, p)} title="Copy">
+                        <button className="project-action-btn" onClick={(/** @type {any} */ e) => handleCopy(e, p)} title="Copy">
                           <svg
                             width="15"
                             height="15"
@@ -1279,7 +1284,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                         </button>
                         <button
                           className="project-action-btn"
-                          onClick={(e) => {
+                          onClick={(/** @type {any} */ e) => {
                             e.stopPropagation();
                             window.location.href = `/api/projects/${p.id}/zip`;
                           }}
@@ -1290,7 +1295,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                         {p.archived ? (
                           <button
                             className="project-action-btn"
-                            onClick={(e) => handleUnarchive(e, p)}
+                            onClick={(/** @type {any} */ e) => handleUnarchive(e, p)}
                             title="Unarchive"
                           >
                             <svg
@@ -1309,7 +1314,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                             </svg>
                           </button>
                         ) : (
-                          <button className="project-action-btn" onClick={(e) => handleArchive(e, p)} title="Archive">
+                          <button className="project-action-btn" onClick={(/** @type {any} */ e) => handleArchive(e, p)} title="Archive">
                             <svg
                               width="15"
                               height="15"
@@ -1328,7 +1333,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                         )}
                         <button
                           className="project-action-btn project-action-danger"
-                          onClick={(e) => {
+                          onClick={(/** @type {any} */ e) => {
                             e.stopPropagation();
                             setConfirmDelete({
                               message: `Are you sure you want to delete "${p.name}"?`,
@@ -1356,13 +1361,13 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         <div ref={contextMenuRef} className="project-context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
           <div className="context-menu-header">Tags</div>
           {tags.length === 0 && <div className="context-menu-empty">No tags yet</div>}
-          {tags.map((tag) => {
-            const hasTag = (contextMenu.project.tags || []).some((t) => t.id === tag.id);
+          {tags.map((/** @type {any} */ tag) => {
+            const hasTag = (contextMenu.project.tags || []).some((/** @type {any} */ t) => t.id === tag.id);
             return (
               <button
                 key={tag.id}
                 className="context-menu-item"
-                onClick={(e) => {
+                onClick={(/** @type {any} */ e) => {
                   handleToggleProjectTag(e, contextMenu.project.id, tag.id);
                   setContextMenu(null);
                 }}
@@ -1386,7 +1391,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       {copyDialog && (
         <div
           className="modal-overlay"
-          onClick={(e) => { if (e.target === e.currentTarget && !copyDialog.submitting) setCopyDialog(null); }}
+          onClick={(/** @type {any} */ e) => { if (e.target === e.currentTarget && !copyDialog.submitting) setCopyDialog(null); }}
         >
           <div className="modal copy-project-modal">
             <div className="modal-header">
@@ -1394,7 +1399,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
             </div>
             <form
               className="copy-project-body"
-              onSubmit={(e) => { e.preventDefault(); submitCopy(); }}
+              onSubmit={(/** @type {any} */ e) => { e.preventDefault(); submitCopy(); }}
             >
               <label className="copy-project-field">
                 <span>Name of the copy</span>
@@ -1402,7 +1407,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   type="text"
                   autoFocus
                   value={copyDialog.name}
-                  onChange={(e) => setCopyDialog((d) => ({ ...d, name: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setCopyDialog((d) => ({ ...d, name: e.target.value }))}
                   maxLength={200}
                 />
               </label>
@@ -1410,7 +1415,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 // Always exclude the caller from "other collaborators" —
                 // member_count and the /members response both include them.
                 const others = copyDialog.members
-                  ? copyDialog.members.filter((m) => m.id !== user?.id)
+                  ? copyDialog.members.filter((/** @type {any} */ m) => m.id !== user?.id)
                   : null;
                 const otherCount = others
                   ? others.length
@@ -1421,7 +1426,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       <input
                         type="checkbox"
                         checked={copyDialog.includeMembers}
-                        onChange={(e) =>
+                        onChange={(/** @type {any} */ e) =>
                           setCopyDialog((d) => ({ ...d, includeMembers: e.target.checked }))
                         }
                       />
@@ -1431,7 +1436,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     </label>
                     {others && others.length > 0 && (
                       <ul className="copy-project-members">
-                        {others.map((m) => (
+                        {others.map((/** @type {any} */ m) => (
                           <li key={m.id}>
                             {m.name}
                             {m.role && m.role !== 'editor' ? ` (${m.role})` : ''}
@@ -1478,7 +1483,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       )}
       {zipImporting && (
         <div className="modal-overlay">
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380, textAlign: 'center' }}>
+          <div className="modal-card" onClick={(/** @type {any} */ e) => e.stopPropagation()} style={{ maxWidth: 380, textAlign: 'center' }}>
             <div className="zip-import-spinner" aria-hidden="true" />
             <h2 style={{ margin: '4px 0 6px', fontSize: 16 }}>Importing project</h2>
             <p style={{ margin: '0 0 4px', fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
@@ -1492,7 +1497,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       )}
       {zipError && !zipImporting && (
         <div className="modal-overlay" onClick={() => setZipError('')}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+          <div className="modal-card" onClick={(/** @type {any} */ e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Couldn&rsquo;t import the ZIP</h2>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{zipError}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -1503,7 +1508,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       )}
       {showDocxDialog && (
         <div className="modal-overlay" onClick={docxImporting ? undefined : () => { setShowDocxDialog(false); setDocxFile(null); }}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+          <div className="modal-card" onClick={(/** @type {any} */ e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Import .docx</h2>
             <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
               {docxFile?.name}
@@ -1546,7 +1551,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     { value: 'report', label: 'Report' },
                     { value: 'journal', label: 'Journal paper' },
                     { value: 'conference', label: 'Conference paper' },
-                  ].map((opt) => (
+                  ].map((/** @type {any} */ opt) => (
                     <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                       <input
                         type="radio"
@@ -1573,7 +1578,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       )}
       {showGitHubImport && (
         <div className="modal-overlay" onClick={() => setShowGitHubImport(false)}>
-          <div className="modal-card github-import-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card github-import-modal" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Import from GitHub</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {ghImportError && (
@@ -1595,7 +1600,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="auth-input"
                 placeholder="owner/repo"
                 value={ghImportRepo}
-                onChange={(e) => setGhImportRepo(e.target.value)}
+                onChange={(/** @type {any} */ e) => setGhImportRepo(e.target.value)}
               />
               {ghReposLoading && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading your repos...</div>}
               {ghRepos && ghRepos.length > 0 && (
@@ -1605,13 +1610,13 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     className="auth-input"
                     placeholder="Search your repos..."
                     value={ghRepoSearch}
-                    onChange={(e) => setGhRepoSearch(e.target.value)}
+                    onChange={(/** @type {any} */ e) => setGhRepoSearch(e.target.value)}
                   />
                   <div className="github-import-repo-list">
                     {ghRepos
-                      .filter((r) => !ghRepoSearch || r.fullName.toLowerCase().includes(ghRepoSearch.toLowerCase()))
+                      .filter((/** @type {any} */ r) => !ghRepoSearch || r.fullName.toLowerCase().includes(ghRepoSearch.toLowerCase()))
                       .slice(0, 50)
-                      .map((r) => (
+                      .map((/** @type {any} */ r) => (
                         <button
                           key={r.fullName}
                           className={`github-import-repo-item ${ghImportRepo === r.fullName ? 'active' : ''}`}
@@ -1637,7 +1642,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="auth-input"
                 placeholder="main"
                 value={ghImportBranch}
-                onChange={(e) => setGhImportBranch(e.target.value)}
+                onChange={(/** @type {any} */ e) => setGhImportBranch(e.target.value)}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
                 <button

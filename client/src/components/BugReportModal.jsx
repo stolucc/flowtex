@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState } from 'react';
 import { post } from '../api.js';
 
@@ -25,6 +26,7 @@ const FEATURE_OPTIONS = [
 ];
 
 /** Bug-report modal launched from Help → Report a bug. Sends a free-text
+ * @param {any} props
  *  description plus one or more feature-area tags to the admin inbox. */
 export default function BugReportModal({ onClose }) {
   const [description, setDescription] = useState('');
@@ -33,7 +35,7 @@ export default function BugReportModal({ onClose }) {
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
-  const toggleFeature = (name) => {
+  const toggleFeature = (/** @type {any} */ name) => {
     setFeatures((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
@@ -44,7 +46,7 @@ export default function BugReportModal({ onClose }) {
 
   const canSubmit = description.trim().length > 0 && !submitting;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (/** @type {any} */ e) => {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
@@ -72,7 +74,7 @@ export default function BugReportModal({ onClose }) {
   return (
     <div
       className="modal-overlay"
-      onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}
+      onClick={(/** @type {any} */ e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}
     >
       <div className="modal bug-report-modal">
         <div className="modal-header">
@@ -89,7 +91,7 @@ export default function BugReportModal({ onClose }) {
               <textarea
                 autoFocus
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(/** @type {any} */ e) => setDescription(e.target.value)}
                 rows={6}
                 maxLength={10000}
                 placeholder="Describe what you were doing, what you expected, and what happened instead. Include steps to reproduce if you can."
@@ -98,7 +100,7 @@ export default function BugReportModal({ onClose }) {
             <fieldset className="bug-report-features">
               <legend>Which area(s) does this affect?</legend>
               <div className="bug-report-features-grid">
-                {FEATURE_OPTIONS.map((name) => (
+                {FEATURE_OPTIONS.map((/** @type {any} */ name) => (
                   <label key={name} className="bug-report-feature-option">
                     <input
                       type="checkbox"

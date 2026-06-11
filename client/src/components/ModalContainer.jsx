@@ -1,3 +1,4 @@
+// @ts-check
 import React, { lazy, Suspense } from 'react';
 import { get, post, put, patch } from '../api.js';
 import { resolveUsedFiles } from '@shared/texDeps.js';
@@ -18,7 +19,10 @@ const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
 const BugReportModal = lazy(() => import('./BugReportModal.jsx'));
 
-/** Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.). */
+/**
+ * Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.).
+ * @param {any} props
+ */
 export default function ModalContainer({
   user,
   ui,
@@ -56,9 +60,9 @@ export default function ModalContainer({
             onClose={() => {
               ui.setShowShareModal(false);
               get(`/api/projects/${project.id}/members`)
-                .then((r) => r.json())
+                .then((/** @type {any} */ r) => r.json())
                 .then(setMembers)
-                .catch((e) => console.warn('Failed to reload members:', e));
+                .catch((/** @type {any} */ e) => console.warn('Failed to reload members:', e));
             }}
           />
         </Suspense>
@@ -68,7 +72,7 @@ export default function ModalContainer({
           <ProjectSettingsModal
             project={project}
             files={files}
-            isOwner={members.some((m) => m.id === user?.id && m.role === 'owner')}
+            isOwner={members.some((/** @type {any} */ m) => m.id === user?.id && m.role === 'owner')}
             user={user}
             onClose={() => {
               ui.setShowProjectSettings(false);
@@ -100,7 +104,7 @@ export default function ModalContainer({
       {ui.showShortcuts && (
         <div
           className="modal-overlay"
-          onClick={(e) => {
+          onClick={(/** @type {any} */ e) => {
             if (e.target === e.currentTarget) ui.setShowShortcuts(false);
           }}
         >
@@ -187,7 +191,7 @@ export default function ModalContainer({
       {ui.showAbout && (
         <div
           className="modal-overlay"
-          onClick={(e) => {
+          onClick={(/** @type {any} */ e) => {
             if (e.target === e.currentTarget) ui.setShowAbout(false);
           }}
         >
@@ -253,7 +257,7 @@ export default function ModalContainer({
             onClose={() => ui.setShowBibEnrich(false)}
             onApply={(newContent) => {
               handleSave(newContent, activeFile.id);
-              setFiles((prev) => prev.map((f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
+              setFiles((prev) => prev.map((/** @type {any} */ f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
               setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
             }}
           />
@@ -263,7 +267,7 @@ export default function ModalContainer({
         <Suspense fallback={null}>
           <ZoteroModal
             onClose={() => ui.setShowZotero(false)}
-            bibFileExists={files.some((f) => f.path.endsWith('.bib'))}
+            bibFileExists={files.some((/** @type {any} */ f) => f.path.endsWith('.bib'))}
             existingBibKeys={(() => {
               const re = /@\w+\s*\{\s*([\w:.@/+-]+)/g;
               const keys = [];
@@ -280,8 +284,8 @@ export default function ModalContainer({
               const mainFile = project?.main_file || 'main.tex';
               const usedPaths = resolveUsedFiles(files, mainFile);
               let bibFile =
-                files.find((f) => f.path.endsWith('.bib') && usedPaths.has(f.path)) ||
-                files.find((f) => f.path.endsWith('.bib'));
+                files.find((/** @type {any} */ f) => f.path.endsWith('.bib') && usedPaths.has(f.path)) ||
+                files.find((/** @type {any} */ f) => f.path.endsWith('.bib'));
               if (!bibFile) {
                 try {
                   const res = await post(`/api/projects/${project.id}/files`, {
@@ -298,7 +302,7 @@ export default function ModalContainer({
               }
               const newContent = bibFile.content.trimEnd() + '\n\n' + bibtex;
               const targetId = bibFile.id;
-              setFiles((prev) => prev.map((f) => (f.id === targetId ? { ...f, content: newContent } : f)));
+              setFiles((prev) => prev.map((/** @type {any} */ f) => (f.id === targetId ? { ...f, content: newContent } : f)));
               // Only update the editor view if it's still showing this file —
               // a setTimeout here previously raced a file switch and could
               // overwrite the wrong file's editor content.

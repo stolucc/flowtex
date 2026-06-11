@@ -1,3 +1,4 @@
+// @ts-check
 import React from 'react';
 
 const COLORS = [
@@ -22,6 +23,8 @@ const COLORS = [
  * @param {string} name
  * @returns {string} CSS colour value
  */
+/** @param {any} name */
+/** @param {any} name */
 function getColor(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -35,6 +38,8 @@ function getColor(name) {
  * @param {string} name
  * @returns {string} Uppercase initials
  */
+/** @param {any} name */
+/** @param {any} name */
 function getInitials(name) {
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) {
@@ -45,7 +50,10 @@ function getInitials(name) {
 
 export { getColor };
 
-/** Circular avatar showing colour-coded initials derived from a user's name. */
+/**
+ * Circular avatar showing colour-coded initials derived from a user's name.
+ * @param {any} props
+ */
 export default function Avatar({ name, size = 32 }) {
   const safeName = name || '?';
   const color = getColor(safeName);

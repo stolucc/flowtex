@@ -1,3 +1,4 @@
+// @ts-check
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
@@ -11,6 +12,8 @@ import { useAlert } from '../contexts/AlertContext.jsx';
  * @param {string[]} emptyFolders - Folder paths that should appear even without files
  * @returns {Object} Root tree node with children and files properties
  */
+/** @param {any} files */
+/** @param {any} emptyFolders */
 function buildTree(files, emptyFolders) {
   const root = { name: '', children: {}, files: [] };
 
@@ -39,6 +42,8 @@ function buildTree(files, emptyFolders) {
   return root;
 }
 
+/** @param {any} path */
+/** @param {any} path */
 function getFileIcon(path) {
   if (path.endsWith('.tex')) return 'T';
   if (path.endsWith('.bib')) return 'B';
@@ -75,25 +80,30 @@ const FILE_CATEGORIES = [
  * @param {Array} files - Flat array of file objects
  * @returns {Object} Map from category key to file array
  */
+/** @param {any} files */
+/** @param {any} files */
 function categorizeFiles(files) {
   const groups = {};
   for (const cat of FILE_CATEGORIES) groups[cat.key] = [];
   groups.other = [];
   for (const f of files) {
-    const cat = FILE_CATEGORIES.find((c) => c.test(f.path));
+    const cat = FILE_CATEGORIES.find((/** @type {any} */ c) => c.test(f.path));
     groups[cat ? cat.key : 'other'].push(f);
   }
   return groups;
 }
 
-/** Positioned right-click context menu for file and folder actions. */
+/**
+ * Positioned right-click context menu for file and folder actions.
+ * @param {any} props
+ */
 function ContextMenu({ x, y, items, onClose }) {
-  const ref = useRef(null);
+  const ref = useRef(/** @type {any} */ (null));
   useClickOutside(ref, onClose);
 
   return (
     <div ref={ref} className="file-tree-context-menu" style={{ top: y, left: x }}>
-      {items.map((item, i) => (
+      {items.map((/** @type {any} */ item, /** @type {any} */ i) => (
         <button
           key={i}
           className={`file-tree-context-item ${item.danger ? 'danger' : ''}`}
@@ -109,7 +119,10 @@ function ContextMenu({ x, y, items, onClose }) {
   );
 }
 
-/** Project file browser with drag-and-drop upload, folder nesting, rename, and type-based grouping. */
+/**
+ * Project file browser with drag-and-drop upload, folder nesting, rename, and type-based grouping.
+ * @param {any} props
+ */
 export default function FileTree({
   files,
   activeFile,
@@ -142,32 +155,32 @@ export default function FileTree({
   const [newFileName, setNewFileName] = useState('');
   const [adding, setAdding] = useState(false);
   const [addType, setAddType] = useState('file');
-  const [collapsedFolders, setCollapsedFolders] = useState({});
-  const [collapsedCategories, setCollapsedCategories] = useState({});
+  const [collapsedFolders, setCollapsedFolders] = useState(/** @type {any} */ ({}));
+  const [collapsedCategories, setCollapsedCategories] = useState(/** @type {any} */ ({}));
   // Server-backed list of explicit empty folders. Source of truth lives in
   // useProject; this component just reads it and calls onCreateFolder /
   // onDeleteFolder / onRenameFolder to mutate. Folders that *do* contain
   // files are added to the tree by buildTree from each file's path; this
   // list is only for the empty ones.
   const emptyFolders = emptyFoldersProp || [];
-  const [addingIn, setAddingIn] = useState(null);
+  const [addingIn, setAddingIn] = useState(/** @type {any} */ (null));
   const [dragging, setDragging] = useState(false);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
-  const [renaming, setRenaming] = useState(null); // { type: 'file'|'folder', id, path, currentName }
-  const [confirmDelete, setConfirmDelete] = useState(null); // { message, onConfirm }
-  const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { fileName, existing, content }
-  const [duplicateWarning, setDuplicateWarning] = useState(null); // string message
+  const [contextMenu, setContextMenu] = useState(/** @type {any} */ (null)); // { x, y, items }
+  const [renaming, setRenaming] = useState(/** @type {any} */ (null)); // { type: 'file'|'folder', id, path, currentName }
+  const [confirmDelete, setConfirmDelete] = useState(/** @type {any} */ (null)); // { message, onConfirm }
+  const [overwriteConfirm, setOverwriteConfirm] = useState(/** @type {any} */ (null)); // { fileName, existing, content }
+  const [duplicateWarning, setDuplicateWarning] = useState(/** @type {any} */ (null)); // string message
   const dragCounter = useRef(0);
 
   // ── Internal drag-and-drop (move file / move folder) ─────────────────
   // Distinguished from OS-file drops by a custom MIME type; the existing
   // upload-on-drop handler only fires when `dataTransfer.types` includes
   // 'Files'. dropTargetPath: null = no hover, '' = root, 'parts' = folder.
-  const [dropTargetPath, setDropTargetPath] = useState(null);
-  const dragSourceRef = useRef(null);
+  const [dropTargetPath, setDropTargetPath] = useState(/** @type {any} */ (null));
+  const dragSourceRef = useRef(/** @type {any} */ (null));
   const INTERNAL_DRAG_TYPE = 'application/x-flowtex-move';
   const isInternalDrag = (e) => e.dataTransfer?.types?.includes(INTERNAL_DRAG_TYPE);
-  const internalSourcePayload = (e) => {
+  const internalSourcePayload = (/** @type {any} */ e) => {
     if (dragSourceRef.current) return dragSourceRef.current;
     try {
       return JSON.parse(e.dataTransfer.getData(INTERNAL_DRAG_TYPE));
@@ -190,12 +203,12 @@ export default function FileTree({
     }
     return false;
   };
-  const performInternalDrop = (src, targetPath) => {
+  const performInternalDrop = (/** @type {any} */ src, /** @type {any} */ targetPath) => {
     if (src.kind === 'file') {
       const fileName = src.path.split('/').pop();
       const newPath = targetPath ? `${targetPath}/${fileName}` : fileName;
       if (newPath === src.path) return;
-      if (files.some((f) => f.path === newPath && f.id !== src.id)) {
+      if (files.some((/** @type {any} */ f) => f.path === newPath && f.id !== src.id)) {
         showAlert(`A file already exists at ${newPath}.`, { title: 'Move blocked' });
         return;
       }
@@ -240,7 +253,7 @@ export default function FileTree({
     e.dataTransfer.dropEffect = 'move';
     setDropTargetPath(folderPath);
   };
-  const onFolderDragLeave = (e) => {
+  const onFolderDragLeave = (/** @type {any} */ e) => {
     if (!isInternalDrag(e)) return;
     e.stopPropagation();
     // Don't unconditionally null — children of the folder fire leave too. We
@@ -272,7 +285,7 @@ export default function FileTree({
     }
   }, [startAddingFolder]);
 
-  const handleAdd = (e) => {
+  const handleAdd = (/** @type {any} */ e) => {
     e.preventDefault();
     if (!newFileName.trim()) return;
     if (addType === 'folder') {
@@ -287,7 +300,7 @@ export default function FileTree({
       setAdding(false);
     } else {
       const name = newFileName.trim();
-      if (files.some((f) => f.path === name)) {
+      if (files.some((/** @type {any} */ f) => f.path === name)) {
         setDuplicateWarning(`"${name}" already exists.`);
         return;
       }
@@ -297,9 +310,9 @@ export default function FileTree({
     }
   };
 
-  const handleCreateInFolder = (folderPath, fileName) => {
+  const handleCreateInFolder = (/** @type {any} */ folderPath, /** @type {any} */ fileName) => {
     const filePath = folderPath ? folderPath + '/' + fileName : fileName;
-    if (files.some((f) => f.path === filePath)) {
+    if (files.some((/** @type {any} */ f) => f.path === filePath)) {
       setDuplicateWarning(`"${filePath}" already exists.`);
       return;
     }
@@ -307,18 +320,18 @@ export default function FileTree({
     setAddingIn(null);
   };
 
-  const toggleFolder = useCallback((path) => {
+  const toggleFolder = useCallback((/** @type {any} */ path) => {
     setCollapsedFolders((s) => ({ ...s, [path]: !s[path] }));
   }, []);
 
-  const handleContextMenu = useCallback((e, items) => {
+  const handleContextMenu = useCallback((/** @type {any} */ e, /** @type {any} */ items) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, items });
   }, []);
 
   const handleFileContextMenu = useCallback(
-    (e, file) => {
+    (/** @type {any} */ e, /** @type {any} */ file) => {
       const parentFolder = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
       const fileName = file.path.split('/').pop();
       const items = [];
@@ -395,7 +408,7 @@ export default function FileTree({
   );
 
   const handleRenameSubmit = useCallback(
-    (newName) => {
+    (/** @type {any} */ newName) => {
       if (!renaming || !newName.trim() || newName.trim() === renaming.currentName) {
         setRenaming(null);
         return;
@@ -413,21 +426,21 @@ export default function FileTree({
     [renaming, onRename, onRenameFolder],
   );
 
-  const handleDragEnter = useCallback((e) => {
+  const handleDragEnter = useCallback((/** @type {any} */ e) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current++;
     if (e.dataTransfer.types.includes('Files')) setDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback((e) => {
+  const handleDragLeave = useCallback((/** @type {any} */ e) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
     if (dragCounter.current === 0) setDragging(false);
   }, []);
 
-  const handleDragOver = useCallback((e) => {
+  const handleDragOver = useCallback((/** @type {any} */ e) => {
     e.preventDefault();
     e.stopPropagation();
     // Internal move: if no folder under the cursor claimed it, the root
@@ -442,7 +455,7 @@ export default function FileTree({
   }, []);
 
   const processDroppedFile = useCallback(
-    (file, existing) => {
+    (/** @type {any} */ file, /** @type {any} */ existing) => {
       const binaryExts = [
         '.pdf',
         '.png',
@@ -492,7 +505,7 @@ export default function FileTree({
   }, [processDroppedFile]);
 
   const handleDrop = useCallback(
-    (e) => {
+    (/** @type {any} */ e) => {
       e.preventDefault();
       e.stopPropagation();
       setDragging(false);
@@ -510,9 +523,9 @@ export default function FileTree({
       }
 
       const droppedFiles = Array.from(e.dataTransfer.files);
-      pendingDrops.current = droppedFiles.map((file) => ({
+      pendingDrops.current = droppedFiles.map((/** @type {any} */ file) => ({
         file,
-        existing: files.find((f) => f.path === file.name) || null,
+        existing: files.find((/** @type {any} */ f) => f.path === file.name) || null,
       }));
       processNextDrop();
     },
@@ -547,7 +560,7 @@ export default function FileTree({
               </span>
               <form
                 className="file-tree-rename-form"
-                onSubmit={(e) => {
+                onSubmit={(/** @type {any} */ e) => {
                   e.preventDefault();
                   handleRenameSubmit(e.target.querySelector('input').value);
                 }}
@@ -556,11 +569,11 @@ export default function FileTree({
                   className="file-tree-rename-input"
                   defaultValue={renaming.currentName}
                   autoFocus
-                  onBlur={(e) => handleRenameSubmit(e.target.value)}
-                  onKeyDown={(e) => {
+                  onBlur={(/** @type {any} */ e) => handleRenameSubmit(e.target.value)}
+                  onKeyDown={(/** @type {any} */ e) => {
                     if (e.key === 'Escape') setRenaming(null);
                   }}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(/** @type {any} */ e) => e.stopPropagation()}
                 />
               </form>
             </div>
@@ -577,7 +590,7 @@ export default function FileTree({
               onDragLeave={onFolderDragLeave}
               onDrop={onFolderDrop(fullPath)}
               onClick={() => toggleFolder(fullPath)}
-              onContextMenu={(e) => handleFolderContextMenu(e, fullPath, node.name)}
+              onContextMenu={(/** @type {any} */ e) => handleFolderContextMenu(e, fullPath, node.name)}
             >
               <span className="file-tree-folder-arrow">{collapsed ? '▸' : '▾'}</span>
               <span className="file-tree-folder-icon">
@@ -586,7 +599,7 @@ export default function FileTree({
               <span className="file-tree-name">{node.name}</span>
               <button
                 className="file-tree-folder-add"
-                onClick={(e) => {
+                onClick={(/** @type {any} */ e) => {
                   e.stopPropagation();
                   setCollapsedFolders((s) => ({ ...s, [fullPath]: false }));
                   setAddingIn(fullPath);
@@ -603,7 +616,7 @@ export default function FileTree({
               <form
                 className="file-tree-new"
                 style={{ paddingLeft: 8 + childDepth * 14 }}
-                onSubmit={(e) => {
+                onSubmit={(/** @type {any} */ e) => {
                   e.preventDefault();
                   const val = e.target.querySelector('input').value.trim();
                   if (val) handleCreateInFolder(fullPath, val);
@@ -613,10 +626,10 @@ export default function FileTree({
                   type="text"
                   placeholder="filename.tex"
                   autoFocus
-                  onBlur={(e) => {
+                  onBlur={(/** @type {any} */ e) => {
                     if (!e.target.value.trim()) setAddingIn(null);
                   }}
-                  onKeyDown={(e) => {
+                  onKeyDown={(/** @type {any} */ e) => {
                     if (e.key === 'Escape') setAddingIn(null);
                   }}
                 />
@@ -626,7 +639,7 @@ export default function FileTree({
               const childPath = fullPath ? fullPath + '/' + folderName : folderName;
               return renderNode(node.children[folderName], childPath, childDepth);
             })}
-            {sortedFiles.map((f) => {
+            {sortedFiles.map((/** @type {any} */ f) => {
               const fileName = f.path.split('/').pop();
               const isRenamingThis = renaming && renaming.type === 'file' && renaming.id === f.id;
 
@@ -639,13 +652,13 @@ export default function FileTree({
                   onDragStart={onItemDragStart({ kind: 'file', id: f.id, path: f.path })}
                   onDragEnd={onItemDragEnd}
                   onClick={() => !isRenamingThis && onSelect(f)}
-                  onContextMenu={(e) => handleFileContextMenu(e, f)}
+                  onContextMenu={(/** @type {any} */ e) => handleFileContextMenu(e, f)}
                 >
                   <span className="file-tree-icon">{getFileIcon(f.path)}</span>
                   {isRenamingThis ? (
                     <form
                       className="file-tree-rename-form"
-                      onSubmit={(e) => {
+                      onSubmit={(/** @type {any} */ e) => {
                         e.preventDefault();
                         handleRenameSubmit(e.target.querySelector('input').value);
                       }}
@@ -654,11 +667,11 @@ export default function FileTree({
                         className="file-tree-rename-input"
                         defaultValue={renaming.currentName}
                         autoFocus
-                        onBlur={(e) => handleRenameSubmit(e.target.value)}
-                        onKeyDown={(e) => {
+                        onBlur={(/** @type {any} */ e) => handleRenameSubmit(e.target.value)}
+                        onKeyDown={(/** @type {any} */ e) => {
                           if (e.key === 'Escape') setRenaming(null);
                         }}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(/** @type {any} */ e) => e.stopPropagation()}
                       />
                     </form>
                   ) : (
@@ -667,7 +680,7 @@ export default function FileTree({
                       {files.length > 1 && (
                         <button
                           className="file-tree-delete"
-                          onClick={(e) => {
+                          onClick={(/** @type {any} */ e) => {
                             e.stopPropagation();
                             setConfirmDelete({
                               message: `Are you sure you want to delete "${fileName}"?`,
@@ -766,8 +779,8 @@ export default function FileTree({
             type="text"
             placeholder={addType === 'folder' ? 'folder name' : 'filename.tex'}
             value={newFileName}
-            onChange={(e) => setNewFileName(e.target.value)}
-            onKeyDown={(e) => {
+            onChange={(/** @type {any} */ e) => setNewFileName(e.target.value)}
+            onKeyDown={(/** @type {any} */ e) => {
               if (e.key === 'Escape') {
                 setAdding(false);
               }
@@ -781,7 +794,7 @@ export default function FileTree({
       )}
       <div className="file-tree-list">
         {groupByType && fileGroups
-          ? [...FILE_CATEGORIES, { key: 'other', label: 'Other' }].map((cat) => {
+          ? [...FILE_CATEGORIES, { key: 'other', label: 'Other' }].map((/** @type {any} */ cat) => {
               const groupFiles = fileGroups[cat.key];
               if (!groupFiles || groupFiles.length === 0) return null;
               const collapsed = !!collapsedCategories[cat.key];
@@ -836,7 +849,7 @@ export default function FileTree({
       )}
       {duplicateWarning && (
         <div className="modal-overlay confirm-dialog-overlay" onClick={() => setDuplicateWarning(null)}>
-          <div className="modal-card confirm-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card confirm-dialog" onClick={(/** @type {any} */ e) => e.stopPropagation()}>
             <p className="confirm-dialog-message">{duplicateWarning}</p>
             <div className="confirm-dialog-actions">
               <button className="confirm-dialog-cancel" onClick={() => setDuplicateWarning(null)}>

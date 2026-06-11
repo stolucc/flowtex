@@ -1,6 +1,10 @@
+// @ts-check
 import React, { useEffect, useRef } from 'react';
 
-/** Generic confirmation dialog overlay with customisable confirm button label and style. */
+/**
+ * Generic confirmation dialog overlay with customisable confirm button label and style.
+ * @param {any} props
+ */
 export default function ConfirmDialog({
   message,
   onConfirm,
@@ -8,17 +12,17 @@ export default function ConfirmDialog({
   confirmLabel = 'Delete',
   confirmClass = 'confirm-dialog-delete',
 }) {
-  const overlayRef = useRef(null);
+  const overlayRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
-    const handleKey = (e) => {
+    const handleKey = (/** @type {any} */ e) => {
       if (e.key === 'Escape') onCancel();
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onCancel]);
 
-  const handleOverlayClick = (e) => {
+  const handleOverlayClick = (/** @type {any} */ e) => {
     if (e.target === overlayRef.current) onCancel();
   };
 

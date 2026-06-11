@@ -1,7 +1,11 @@
+// @ts-check
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Decoration } from '@codemirror/view';
 
-/** Find-and-replace panel with current-file, .tex-only, and all-files search scopes. */
+/**
+ * Find-and-replace panel with current-file, .tex-only, and all-files search scopes.
+ * @param {any} props
+ */
 function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlightEffect }) {
   const [query, setQuery] = useState('');
   const [replace, setReplace] = useState('');
@@ -10,8 +14,8 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
   const [matchIndex, setMatchIndex] = useState(-1);
   const [matchCount, setMatchCount] = useState(0);
   const [scope, setScope] = useState('file'); // 'file' | 'tex' | 'all'
-  const [globalResults, setGlobalResults] = useState([]);
-  const inputRef = useRef(null);
+  const [globalResults, setGlobalResults] = useState(/** @type {any[]} */ ([]));
+  const inputRef = useRef(/** @type {any} */ (null));
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -24,7 +28,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
    * @returns {Array<{from: number, to: number}>} Matched ranges.
    */
   const findMatches = useCallback(
-    (q, cs) => {
+    (/** @type {any} */ q, /** @type {any} */ cs) => {
       if (!view || !q) return [];
       const doc = view.state.doc.toString();
       const matches = [];
@@ -57,7 +61,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
         setMatchIndex(-1);
         return;
       }
-      const decos = matches.map((m, i) =>
+      const decos = matches.map((/** @type {any} */ m, /** @type {any} */ i) =>
         Decoration.mark({
           class: i === currentIdx ? 'cm-search-match-current' : 'cm-search-match',
         }).range(m.from, m.to),
@@ -116,13 +120,13 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
 
   /** Navigate to the next or previous search match and scroll it into view. */
   const goToMatch = useCallback(
-    (dir) => {
+    (/** @type {any} */ dir) => {
       const matches = findMatches(query, caseSensitive);
       if (matches.length === 0) return;
       let idx;
       if (dir === 'next') {
         const cursor = view.state.selection.main.from;
-        idx = matches.findIndex((m) => m.from > cursor);
+        idx = matches.findIndex((/** @type {any} */ m) => m.from > cursor);
         if (idx === -1) idx = 0;
       } else {
         const cursor = view.state.selection.main.from;
@@ -156,7 +160,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
   const handleReplaceAll = useCallback(() => {
     const matches = findMatches(query, caseSensitive);
     if (matches.length === 0) return;
-    const changes = [...matches].reverse().map((m) => ({
+    const changes = [...matches].reverse().map((/** @type {any} */ m) => ({
       from: m.from,
       to: m.to,
       insert: replace,
@@ -167,7 +171,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
     view.dispatch({ effects: setSearchHighlightEffect.of(Decoration.none) });
   }, [view, query, replace, caseSensitive, findMatches, setSearchHighlightEffect]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (/** @type {any} */ e) => {
     if (e.key === 'Escape') {
       onClose();
       return;
@@ -241,7 +245,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
           className="editor-search-input"
           placeholder={isGlobal ? 'Search in project...' : 'Find...'}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(/** @type {any} */ e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
         />
         {!isGlobal && (
@@ -287,8 +291,8 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
             className="editor-search-input"
             placeholder="Replace..."
             value={replace}
-            onChange={(e) => setReplace(e.target.value)}
-            onKeyDown={(e) => {
+            onChange={(/** @type {any} */ e) => setReplace(e.target.value)}
+            onKeyDown={(/** @type {any} */ e) => {
               if (e.key === 'Escape') onClose();
             }}
           />
@@ -307,7 +311,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
       )}
       {isGlobal && globalResults.length > 0 && (
         <div className="editor-search-results">
-          {globalResults.map((r, i) => (
+          {globalResults.map((/** @type {any} */ r, /** @type {any} */ i) => (
             <div
               key={`${r.fileId}-${r.line}-${r.col}-${i}`}
               className="editor-search-result"

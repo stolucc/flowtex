@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
 
 /**
  * Consumes the AuthContext; must be used within an AuthProvider.
- * @returns {{ user: object|null, setUser: Function, authChecked: boolean, handleLogout: Function, needsSetup: boolean, setNeedsSetup: Function }}
+ * @returns {AuthContextValue}
  */
 export function useAuth() {
   const ctx = useContext(AuthContext);
