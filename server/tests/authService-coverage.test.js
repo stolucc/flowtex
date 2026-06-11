@@ -12,8 +12,10 @@ import crypto from 'crypto';
 // same whether the production code calls `db.get` directly or `tx.get` inside
 // `db.transaction(...)`.
 vi.mock('../db.js', () => {
-  const mock = { get: vi.fn(), run: vi.fn() };
-  mock.transaction = vi.fn(async (fn) => fn({ get: mock.get, run: mock.run }));
+  const mock = { get: vi.fn(), run: vi.fn(), all: vi.fn() };
+  // tx.all is needed by purgeUserInTx; route it to the top-level mock the
+  // same way tx.get/tx.run are.
+  mock.transaction = vi.fn(async (fn) => fn({ get: mock.get, run: mock.run, all: mock.all }));
   return { default: mock };
 });
 
@@ -44,6 +46,9 @@ import {
   resetPassword,
   deleteAccount,
   adminDeleteUser,
+  adminRestoreUser,
+  listSoftDeletedUsers,
+  purgeExpiredSoftDeletes,
   checkPasswordNotBreached,
 } from '../services/authService.js';
 
@@ -54,6 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.get.mockResolvedValue(undefined);
   db.run.mockResolvedValue(undefined);
+  db.all.mockResolvedValue([]);
 });
 
 // isAccountLocked tests removed in audit round 19 (HH3): the function
@@ -734,6 +740,268 @@ describe('adminDeleteUser', () => {
       .mockResolvedValueOnce({ n: 2 });
     await adminDeleteUser('a', TEST_PW, 't');
     expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── adminRestoreUser ─────────────────────────────────────────────────
+// The restore flow was entirely no-coverage prior to this block (56 NoCov
+// mutants in the mutation report). Mirror the adminDeleteUser test shape:
+// permissions first, then password verification, then target-state checks,
+// then the race window between the deleted-at SELECT and the conditional
+// UPDATE (the user could be hard-purged in between).
+
+describe('adminRestoreUser', () => {
+  beforeEach(() => {
+    db.get.mockReset();
+    db.run.mockReset();
+    db.get.mockResolvedValue(undefined);
+    db.run.mockResolvedValue(undefined);
+  });
+
+  it('rejects when adminId is missing (400)', async () => {
+    await expect(adminRestoreUser('', TEST_PW, 't')).rejects.toMatchObject({ status: 400 });
+    expect(db.get).not.toHaveBeenCalled();
+  });
+
+  it('rejects when targetUserId is missing (400)', async () => {
+    await expect(adminRestoreUser('a', TEST_PW, '')).rejects.toMatchObject({ status: 400 });
+    expect(db.get).not.toHaveBeenCalled();
+  });
+
+  it('rejects when admin row is missing entirely (403)', async () => {
+    db.get.mockResolvedValueOnce(null);
+    await expect(adminRestoreUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('rejects when caller is not an admin (403)', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: false });
+    await expect(adminRestoreUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('rejects when password is missing or not a string (400)', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true });
+    await expect(adminRestoreUser('a', '', 't')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects when admin password is wrong (401)', async () => {
+    db.get.mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true });
+    await expect(adminRestoreUser('a', 'WrongPassword1', 't'))
+      .rejects.toMatchObject({ status: 401, message: /Invalid admin password/ });
+  });
+
+  it('returns 404 when the target user does not exist', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce(null);
+    await expect(adminRestoreUser('a', TEST_PW, 't')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('returns 409 when the target is not in the recovery bin (deleted_at IS NULL)', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'T', deleted_at: null });
+    await expect(adminRestoreUser('a', TEST_PW, 't'))
+      .rejects.toMatchObject({ status: 409, message: /not deleted/ });
+    expect(db.run).not.toHaveBeenCalled();
+  });
+
+  it('returns 410 when the row was purged between SELECT and UPDATE (rowCount=0)', async () => {
+    // SELECT sees deleted_at IS NOT NULL, but UPDATE's WHERE clause matches
+    // 0 rows -- the row was hard-deleted by the cron between the two
+    // queries. The function must surface this as 'Already permanently
+    // purged', not return ok.
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'T', deleted_at: '2026-01-01' });
+    db.run.mockResolvedValueOnce({ rowCount: 0 });
+    await expect(adminRestoreUser('a', TEST_PW, 't'))
+      .rejects.toMatchObject({ status: 410, message: /permanently purged/ });
+  });
+
+  it('returns { email, name } on success and runs the conditional UPDATE', async () => {
+    db.get
+      .mockResolvedValueOnce({ id: 'a', password_hash: TEST_HASH, is_admin: true })
+      .mockResolvedValueOnce({ id: 't', email: 't@x', name: 'Target', deleted_at: '2026-01-01' });
+    db.run.mockResolvedValueOnce({ rowCount: 1 });
+
+    const out = await adminRestoreUser('a', TEST_PW, 't');
+
+    expect(out).toEqual({ email: 't@x', name: 'Target' });
+    // Pin the conditional UPDATE so a regression that drops the
+    // `AND deleted_at IS NOT NULL` clause (and would re-restore a live
+    // user) fails this test.
+    const [sql, params] = db.run.mock.calls[0];
+    expect(sql).toBe('UPDATE users SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL');
+    expect(params).toEqual(['t']);
+  });
+});
+
+// ─── listSoftDeletedUsers ─────────────────────────────────────────────
+
+describe('listSoftDeletedUsers', () => {
+  it('runs the SOFT_DELETE_WINDOW_DAYS-parameterised SELECT and returns rows', async () => {
+    const rows = [
+      { id: 'u1', email: 'a@x', name: 'A', deleted_at: '2026-01-01', purge_at: '2026-01-31' },
+      { id: 'u2', email: 'b@x', name: 'B', deleted_at: '2026-02-01', purge_at: '2026-03-03' },
+    ];
+    db.all.mockResolvedValueOnce(rows);
+    const out = await listSoftDeletedUsers();
+    expect(out).toEqual(rows);
+    const [sql, params] = db.all.mock.calls[0];
+    expect(sql).toContain('deleted_at IS NOT NULL');
+    expect(sql).toContain('ORDER BY deleted_at DESC');
+    // The interval is built from a string ('30 days') concatenated -- pin
+    // the string so a mutation that drops the cast would fail.
+    expect(params).toEqual(['30']);
+  });
+
+  it('returns an empty list when the recovery bin is empty', async () => {
+    db.all.mockResolvedValueOnce([]);
+    const out = await listSoftDeletedUsers();
+    expect(out).toEqual([]);
+  });
+});
+
+// ─── purgeExpiredSoftDeletes (the daily cron) ─────────────────────────
+// Previously fully no-coverage: 20 NoCov mutants in the outer driver and
+// ~38 in the purgeUserInTx helper it delegates to. The harness only
+// exercises the database surface -- on-disk rm of orphan project dirs is
+// mocked out via fs/promises so the test doesn't touch the real
+// filesystem.
+//
+// IMPORTANT: We don't mock fs here because purgeExpiredSoftDeletes ->
+// rmProjectDirs is gated on orphanProjectIds being non-empty. The "no
+// orphan projects" branch is the more common path and exercises the bulk
+// of purgeUserInTx without touching disk; we test that path.
+
+describe('purgeExpiredSoftDeletes', () => {
+  beforeEach(() => {
+    db.get.mockReset();
+    db.run.mockReset();
+    db.all.mockReset();
+    db.get.mockResolvedValue(undefined);
+    db.run.mockResolvedValue(undefined);
+    db.all.mockResolvedValue([]);
+  });
+
+  it('returns [] and skips the transaction when no users are expired', async () => {
+    db.all.mockResolvedValueOnce([]); // SELECT expired users -> none
+    const out = await purgeExpiredSoftDeletes();
+    expect(out).toEqual([]);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('queries SELECT id, email, name with the deleted_at + window cutoff', async () => {
+    db.all.mockResolvedValueOnce([]);
+    await purgeExpiredSoftDeletes();
+    const [sql, params] = db.all.mock.calls[0];
+    expect(sql).toContain('SELECT id, email, name FROM users');
+    expect(sql).toContain('deleted_at IS NOT NULL');
+    expect(sql).toContain('deleted_at < NOW() - ($1 || ' + "' days')::interval");
+    expect(params).toEqual(['30']);
+  });
+
+  it('skips a user silently when the inside-tx fresh-check sees the row restored (no DELETEs)', async () => {
+    // The cron's outer SELECT sees the user as expired; purgeUserInTx
+    // re-checks FOR UPDATE and finds the row has been restored. The
+    // function must NOT issue any DELETE/UPDATE in this tx -- the row
+    // is intact and the next sweep will re-evaluate. (The outer driver
+    // still records the user id as "processed" since the tx committed
+    // cleanly; we assert the absence of DELETE/UPDATE here, not the
+    // contents of purgedIds.)
+    db.all.mockResolvedValueOnce([{ id: 'u', email: 'u@x', name: 'U' }]);
+    // tx.get for the fresh-check returns null (restored).
+    db.get.mockResolvedValueOnce(null);
+
+    await purgeExpiredSoftDeletes();
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    // No DELETE FROM users / UPDATE comments / etc should have run --
+    // the function returned early from { skipped: true }.
+    const writes = db.run.mock.calls.map(([sql]) => sql);
+    expect(writes).not.toContain('DELETE FROM users WHERE id = $1');
+    expect(writes).not.toContain('UPDATE comments SET author_id = NULL WHERE author_id = $1');
+  });
+
+  it('processes an expired user: nulls authorship, deletes invitations, deletes the user', async () => {
+    db.all
+      .mockResolvedValueOnce([{ id: 'u', email: 'u@x', name: 'U' }]) // SELECT expired
+      .mockResolvedValueOnce([]); // orphan projects query returns []
+    db.get.mockResolvedValueOnce({ exists: 1 }); // fresh-check passes
+
+    const out = await purgeExpiredSoftDeletes();
+
+    expect(out).toEqual(['u']);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    // Verify the cascade SQLs were issued in the expected order.
+    const sqls = db.run.mock.calls.map((c) => c[0]);
+    expect(sqls).toContain('UPDATE comments SET author_id = NULL WHERE author_id = $1');
+    expect(sqls).toContain('UPDATE comment_replies SET author_id = NULL WHERE author_id = $1');
+    expect(sqls).toContain('UPDATE file_versions SET author_id = NULL WHERE author_id = $1');
+    expect(sqls).toContain('UPDATE project_snapshots SET author_id = NULL WHERE author_id = $1');
+    expect(sqls).toContain('DELETE FROM project_invitations WHERE inviter_id = $1');
+    expect(sqls).toContain('DELETE FROM project_github_links WHERE linked_by = $1');
+    expect(sqls).toContain('UPDATE audit_log SET user_id = NULL WHERE user_id = $1');
+    expect(sqls).toContain('DELETE FROM login_attempts WHERE email = $1');
+    expect(sqls).toContain('DELETE FROM users WHERE id = $1');
+  });
+
+  it('runs the DELETE FROM projects branch when the user owns orphan projects (no co-members)', async () => {
+    db.all
+      .mockResolvedValueOnce([{ id: 'u', email: 'u@x', name: 'U' }]) // SELECT expired
+      // Use non-UUID-shaped IDs so the post-tx rmProjectDirs regex
+      // skips them and we don't have to mock fs/promises here.
+      .mockResolvedValueOnce([{ id: 'not-a-uuid-1' }, { id: 'not-a-uuid-2' }]);
+    db.get.mockResolvedValueOnce({ exists: 1 }); // fresh-check passes
+
+    await purgeExpiredSoftDeletes();
+
+    const projectsDelete = db.run.mock.calls.find(([sql]) => sql === 'DELETE FROM projects WHERE id = ANY($1)');
+    expect(projectsDelete).toBeDefined();
+    expect(projectsDelete[1]).toEqual([['not-a-uuid-1', 'not-a-uuid-2']]);
+  });
+
+  it('runs the longest-tenured-member ownership promotion UPDATE for retained projects', async () => {
+    db.all
+      .mockResolvedValueOnce([{ id: 'u', email: 'u@x', name: 'U' }])
+      .mockResolvedValueOnce([]); // no orphan projects (all have co-members)
+    db.get.mockResolvedValueOnce({ exists: 1 });
+
+    await purgeExpiredSoftDeletes();
+
+    // The promotion UPDATE always runs unconditionally (even when there
+    // are no orphan projects, it's the path that promotes the next-oldest
+    // member in still-owned projects). Pin the recognisable SQL shape.
+    const promoUpdate = db.run.mock.calls.find(([sql]) =>
+      /UPDATE project_members AS new_owner SET role = 'owner'/.test(sql),
+    );
+    expect(promoUpdate).toBeDefined();
+    expect(promoUpdate[1]).toEqual(['u']);
+  });
+
+  it('logs and continues when one user errors instead of aborting the whole sweep', async () => {
+    // Two expired users: the first throws inside the tx, the second
+    // succeeds. The sweep must finish and the successful one must be in
+    // the purgedIds result. (This pins the try/catch around the inner
+    // loop body, whose mutation otherwise survives because no test
+    // induces a partial failure.)
+    db.all
+      .mockResolvedValueOnce([
+        { id: 'bad', email: 'bad@x', name: 'Bad' },
+        { id: 'good', email: 'good@x', name: 'Good' },
+      ])
+      .mockResolvedValueOnce([]); // orphan projects for 'good'
+
+    // Sequence of db.get calls inside the loop:
+    //   1. fresh-check for 'bad' -> throw
+    //   2. fresh-check for 'good' -> ok
+    db.get
+      .mockRejectedValueOnce(new Error('synthetic tx failure'))
+      .mockResolvedValueOnce({ exists: 1 });
+
+    const out = await purgeExpiredSoftDeletes();
+
+    expect(out).toEqual(['good']);
   });
 });
 

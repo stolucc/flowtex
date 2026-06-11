@@ -65,6 +65,10 @@ describe('evaluateReadiness', () => {
     });
     expect(r.ready).toBe(false);
     expect(r.error).toBe('database unreachable');
+    // Pin the status label so a StringLiteral mutation that empties
+    // 'not ready' would fail this test (mutation testing surfaced this
+    // gap on L30/L38).
+    expect(r.status).toBe('not ready');
   });
 
   it('returns redis unreachable in cluster mode when client is null', async () => {
@@ -77,6 +81,7 @@ describe('evaluateReadiness', () => {
     expect(r.ready).toBe(false);
     expect(r.error).toBe('redis unreachable');
     expect(r.redisStatus).toBe('absent');
+    expect(r.status).toBe('not ready');
   });
 
   it('returns redis unreachable in cluster mode when client is reconnecting', async () => {
