@@ -531,6 +531,21 @@ describe('changeEmail', () => {
     expect(err.status).toBe(400);
   });
 
+  // Regex anchor regression test. The validation pattern
+  // `^[^\s@]+@[^\s@]+\.[^\s@]+$` is fully anchored; mutation testing
+  // surfaced that dropping the trailing `$` survives because the
+  // existing tests use payloads without whitespace, so the difference
+  // between "match anywhere" and "match to end of string" never showed.
+  // The space here makes the difference observable: with `$`, the
+  // regex can't consume the trailing word; without `$`, it accepts
+  // the prefix.
+  it('rejects an email with whitespace after a valid prefix (regex $-anchor)', async () => {
+    // .trim() only strips edges, so an inner space survives normalisation.
+    const err = await changeEmail('u1', TEST_PASSWORD, 'good@example.com bonus@evil.com').catch((e) => e);
+    expect(err.message).toBe('Invalid email address');
+    expect(err.status).toBe(400);
+  });
+
   it('rejects if user not found', async () => {
     db.get.mockResolvedValue(undefined);
 

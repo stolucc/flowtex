@@ -255,6 +255,27 @@ describe('recordMentions', () => {
     expect(db.run).toHaveBeenCalledTimes(1);
   });
 
+  // Defensive against the case where the `members` join returns multiple
+  // rows for the same user id under different lowercased names -- e.g. an
+  // alias surfaced by a future schema where a user has multiple display
+  // names. The inner-loop `seenUserIds.has(member.id)` check on
+  // mentions.js L68 stops the same user from getting a duplicate row.
+  // Mutation testing surfaced that this check was not exercised by any
+  // existing test, so a regression would silently double-insert.
+  it('inner-loop dedupes when two distinct name_lower entries point to the same user id', async () => {
+    db.all.mockResolvedValueOnce([
+      { id: 'alice-id', name_lower: 'alice' },
+      { id: 'alice-id', name_lower: 'al' },
+    ]);
+    const result = await recordMentions({
+      text: '@Alice and @al',
+      commentId: 'c1', mentionerUserId: 'me', projectId: 'p1',
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].mentionedUserId).toBe('alice-id');
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
   it('dedupes: an assignee who is also @-mentioned only produces one row', async () => {
     db.all.mockResolvedValueOnce([{ id: 'a-id', name_lower: 'alice' }]);
     const result = await recordMentions({

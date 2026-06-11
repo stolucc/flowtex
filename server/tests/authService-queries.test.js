@@ -45,7 +45,16 @@ const TEST_PW = 'Password1234';
 const TEST_HASH = bcrypt.hashSync(TEST_PW, 4);
 
 beforeEach(() => {
+  // vi.clearAllMocks() clears call history but does NOT clear the
+  // `mockResolvedValueOnce`/`mockReturnValueOnce` queue. Without
+  // mockReset, an unconsumed once-entry from one test leaks into
+  // the next test's first db call. Reset db.get and db.run (NOT
+  // db.transaction, whose implementation is set in vi.mock() at
+  // file scope and must not be wiped) to make this file robust to
+  // incidental queue mismatches.
   vi.clearAllMocks();
+  db.get.mockReset();
+  db.run.mockReset();
   db.get.mockResolvedValue(undefined);
   db.run.mockResolvedValue(undefined);
 });
@@ -140,6 +149,124 @@ describe('attemptLogin queries — DD1 per-email advisory lock', () => {
     const insertCall = db.run.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO login_attempts'));
     expect(insertCall).toBeDefined();
     expect(insertCall[1]).toEqual(['e@x', '1.2.3.4', false]);
+  });
+
+  // Threshold-direction boundary tests. Mutation testing surfaced that
+  // changing `failed >= MAX_FAILED_ATTEMPTS` to `failed < ...` or
+  // `failed > ...` survived: the only existing lockout test asserts the
+  // count==10 case, so neither direction nor strict-vs-loose comparison
+  // was actually pinned. These tests bracket the threshold at N-1 (no
+  // lock), N (lock), and N+1 (still lock).
+  it('does NOT lock at MAX_FAILED_ATTEMPTS - 1 (per-(email,ip) count = 9)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '9' }) // 9 prior failures < 10 = not locked
+      .mockResolvedValueOnce({ cnt: '0' }) // per-ip count
+      .mockResolvedValueOnce(null); // user not found -> normal auth flow
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).not.toBe(429);
+  });
+
+  it('locks at exactly MAX_FAILED_ATTEMPTS (per-(email,ip) count = 10)', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '10' });
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  it('locks above MAX_FAILED_ATTEMPTS (per-(email,ip) count = 11)', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '11' });
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  // The per-IP threshold is intentionally 3x the per-(email,ip) threshold
+  // (so a single attacker spraying across email addresses still gets
+  // throttled, but legitimate shared-IP users don't get locked out as
+  // easily as the per-email path). Mutation testing surfaced that the
+  // `* 3` multiplier could become `/ 3` or any other arithmetic mutation
+  // and survive: no test pins the multiplier value.
+  it('does NOT lock on per-IP when ipFailed < MAX_FAILED_ATTEMPTS * 3 (29 prior failures)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })   // per-(email,ip)
+      .mockResolvedValueOnce({ cnt: '29' })  // per-ip just below 30 = not locked
+      .mockResolvedValueOnce(null);
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).not.toBe(429);
+  });
+
+  it('locks on per-IP at exactly MAX_FAILED_ATTEMPTS * 3 (per-ip count = 30)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })   // per-(email,ip) under threshold
+      .mockResolvedValueOnce({ cnt: '30' }); // per-ip exactly at 30
+
+    const result = await attemptLogin('e@x', 'pass', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  // The no-ip path (caller didn't pass an IP) uses email-only counts and
+  // applies the same MAX_FAILED_ATTEMPTS threshold. Mirror the bracket
+  // tests so the L182 comparison is pinned in this branch too.
+  it('locks on email-only path at exactly MAX_FAILED_ATTEMPTS when ip is null', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '10' });
+
+    const result = await attemptLogin('e@x', 'pass', null);
+    expect(result.status).toBe(429);
+  });
+
+  it('does NOT lock on email-only path below MAX_FAILED_ATTEMPTS when ip is null', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '9' })
+      .mockResolvedValueOnce(null);
+
+    const result = await attemptLogin('e@x', 'pass', null);
+    expect(result.status).not.toBe(429);
+  });
+});
+
+// The TOTP lockout path (verifyTotpWithLockout) reuses the same lockout
+// rule as attemptLogin -- per-email, per-(email,ip), and per-ip with the
+// 3x multiplier. Mutation testing showed the same gap on L591 (`failed
+// >= MAX_FAILED_ATTEMPTS`) and L598 (`MAX_FAILED_ATTEMPTS * 3`), so
+// pin the bracket here too.
+describe('verifyTotpWithLockout lockout thresholds', () => {
+  it('locks at exactly MAX_FAILED_ATTEMPTS per-(email,ip)', async () => {
+    db.get.mockResolvedValueOnce({ cnt: '10' });
+
+    const result = await verifyTotpWithLockout('u1', '123456', 'SECRET', 'e@x', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  it('does NOT lock at MAX_FAILED_ATTEMPTS - 1 per-(email,ip)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '9' })  // under per-(email,ip) threshold
+      .mockResolvedValueOnce({ cnt: '0' }); // under per-ip threshold
+    // verifyTotp fails at the crypto layer (no real secret) and does NOT
+    // make a db.get call, so don't queue one -- a leaked entry would
+    // pollute the next test.
+    const result = await verifyTotpWithLockout('u1', '123456', 'SECRET', 'e@x', '1.2.3.4');
+    expect(result.status).not.toBe(429);
+  });
+
+  it('locks on per-IP at exactly MAX_FAILED_ATTEMPTS * 3 (30 prior failures)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })   // per-(email,ip) below
+      .mockResolvedValueOnce({ cnt: '30' }); // per-ip at multiplier boundary
+
+    const result = await verifyTotpWithLockout('u1', '123456', 'SECRET', 'e@x', '1.2.3.4');
+    expect(result.status).toBe(429);
+  });
+
+  it('does NOT lock on per-IP at MAX_FAILED_ATTEMPTS * 3 - 1 (29 prior failures)', async () => {
+    db.get
+      .mockResolvedValueOnce({ cnt: '0' })
+      .mockResolvedValueOnce({ cnt: '29' });
+    // No third queue entry -- verifyTotp's crypto-only path makes no db.get
+    // call, so a third entry would leak to the next test in the file.
+    const result = await verifyTotpWithLockout('u1', '123456', 'SECRET', 'e@x', '1.2.3.4');
+    expect(result.status).not.toBe(429);
   });
 });
 
