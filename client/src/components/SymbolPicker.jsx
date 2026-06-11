@@ -18,7 +18,7 @@ function SymbolPicker({ onInsert, onClose, declaredPackages }) {
   const filtered = filter.trim()
     ? SYMBOL_CATEGORIES.map((/** @type {any} */ cat) => ({
         ...cat,
-        symbols: cat.symbols.filter(([cmd]) => cmd.toLowerCase().includes(filter.toLowerCase())),
+        symbols: cat.symbols.filter((/** @type {any[]} */ s) => s[0].toLowerCase().includes(filter.toLowerCase())),
       })).filter((/** @type {any} */ cat) => cat.symbols.length > 0)
     : SYMBOL_CATEGORIES;
 
@@ -53,7 +53,9 @@ function SymbolPicker({ onInsert, onClose, declaredPackages }) {
             <div key={cat.name} className="symbol-picker-category">
               <div className="symbol-picker-cat-name">{cat.name}</div>
               <div className="symbol-picker-grid">
-                {cat.symbols.map(([cmd, glyph, pkg]) => (
+                {cat.symbols.map((/** @type {any[]} */ s) => {
+                  const [cmd, glyph, pkg] = s;
+                  return (
                   <button
                     key={cmd}
                     className={`symbol-picker-cell${selected === cmd ? ' selected' : ''}${pkg ? ' has-pkg' : ''}`}
@@ -63,7 +65,8 @@ function SymbolPicker({ onInsert, onClose, declaredPackages }) {
                   >
                     {glyph}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

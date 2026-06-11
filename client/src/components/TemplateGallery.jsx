@@ -88,7 +88,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
 
   const TAG_COLORS = ['#89b4fa', '#a6e3a1', '#cba6f7', '#f38ba8', '#fab387', '#f9e2af', '#94e2d5', '#74c7ec'];
 
-  const showToast = (message, type = 'error') => {
+  const showToast = (/** @type {string} */ message, /** @type {string} */ type = 'error') => {
     clearTimeout(toastTimer.current);
     setToast({ message, type });
     toastTimer.current = setTimeout(() => setToast(null), 3500);
@@ -135,7 +135,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
     if (!confirm(`Delete template "${tmpl.name}"?`)) return;
     try {
       await del(`/api/projects/templates/${tmpl.id}`);
-      setTemplates((prev) => prev.filter((/** @type {any} */ t) => t.id !== tmpl.id));
+      setTemplates((/** @type {any} */ prev) => prev.filter((/** @type {any} */ t) => t.id !== tmpl.id));
     } catch {
       /* ignore */
     }
@@ -168,14 +168,14 @@ export default function TemplateGallery({ onSelect, onBack }) {
       setUploadTagIds([]);
       fetchTemplates();
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : String(err));
+      setUploadError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     } finally {
       setUploading(false);
     }
   };
 
   const toggleUploadTag = (/** @type {any} */ tagId) => {
-    setUploadTagIds((prev) => (prev.includes(tagId) ? prev.filter((/** @type {any} */ id) => id !== tagId) : [...prev, tagId]));
+    setUploadTagIds((/** @type {any} */ prev) => (prev.includes(tagId) ? prev.filter((/** @type {any} */ id) => id !== tagId) : [...prev, tagId]));
   };
 
   // Tag management handlers
@@ -190,7 +190,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
         return;
       }
       const tag = await res.json();
-      setTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
+      setTags((/** @type {any} */ prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
       setNewTagName('');
       setNewTagColor('#89b4fa');
     } catch {
@@ -210,9 +210,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
         return;
       }
       const updated = await res.json();
-      setTags((prev) => prev.map((/** @type {any} */ t) => (t.id === updated.id ? updated : t)));
+      setTags((/** @type {any} */ prev) => prev.map((/** @type {any} */ t) => (t.id === updated.id ? updated : t)));
       // Also update tags in templates list
-      setTemplates((prev) =>
+      setTemplates((/** @type {any} */ prev) =>
         prev.map((/** @type {any} */ tmpl) => ({
           ...tmpl,
           tags: tmpl.tags?.map((/** @type {any} */ t) => (t.id === updated.id ? updated : t)),
@@ -228,8 +228,8 @@ export default function TemplateGallery({ onSelect, onBack }) {
     if (!confirm('Delete this tag? It will be removed from all templates.')) return;
     try {
       await del(`/api/projects/template-tags/${tagId}`);
-      setTags((prev) => prev.filter((/** @type {any} */ t) => t.id !== tagId));
-      setTemplates((prev) =>
+      setTags((/** @type {any} */ prev) => prev.filter((/** @type {any} */ t) => t.id !== tagId));
+      setTemplates((/** @type {any} */ prev) =>
         prev.map((/** @type {any} */ tmpl) => ({
           ...tmpl,
           tags: tmpl.tags?.filter((/** @type {any} */ t) => t.id !== tagId),
@@ -265,9 +265,9 @@ export default function TemplateGallery({ onSelect, onBack }) {
       const res = await put(`/api/projects/templates/${tmpl.id}/tags`, { tagIds: newTagIds });
       if (!res.ok) return;
       const updatedTags = await res.json();
-      setTemplates((prev) => prev.map((/** @type {any} */ t) => (t.id === tmpl.id ? { ...t, tags: updatedTags } : t)));
+      setTemplates((/** @type {any} */ prev) => prev.map((/** @type {any} */ t) => (t.id === tmpl.id ? { ...t, tags: updatedTags } : t)));
       // Keep context menu open but update its template reference
-      setCtxMenu((prev) => (prev ? { ...prev, template: { ...tmpl, tags: updatedTags } } : null));
+      setCtxMenu((/** @type {any} */ prev) => (prev ? { ...prev, template: { ...tmpl, tags: updatedTags } } : null));
     } catch {
       /* ignore */
     }
@@ -330,7 +330,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
             key={tag.id}
             className={`template-category-btn ${filterTagId === tag.id ? 'active' : ''}`}
             onClick={() => setFilterTagId(tag.id)}
-            style={{ '--tag-color': tag.color }}
+            style={/** @type {any} */ ({ '--tag-color': tag.color })}
           >
             <span className="template-tag-dot" style={{ background: tag.color }} />
             {tag.name}
@@ -355,7 +355,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                   <img src={`/thumbnails/${t.id}.png`} alt={`${t.name} preview`} />
                 ) : (
                   <div className="template-card-preview-placeholder">
-                    {CATEGORY_ICONS[t.category] || CATEGORY_ICONS.General}
+                    {/** @type {Record<string, any>} */ (CATEGORY_ICONS)[t.category] || CATEGORY_ICONS.General}
                   </div>
                 )}
               </div>
@@ -365,7 +365,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                 {t.tags?.length > 0 && (
                   <div className="template-card-tags">
                     {t.tags.map((/** @type {any} */ tag) => (
-                      <span key={tag.id} className="template-card-tag" style={{ '--tag-color': tag.color }}>
+                      <span key={tag.id} className="template-card-tag" style={/** @type {any} */ ({ '--tag-color': tag.color })}>
                         {tag.name}
                       </span>
                     ))}
@@ -431,7 +431,7 @@ export default function TemplateGallery({ onSelect, onBack }) {
                   key={tag.id}
                   type="button"
                   className={`template-upload-tag ${uploadTagIds.includes(tag.id) ? 'selected' : ''}`}
-                  style={{ '--tag-color': tag.color }}
+                  style={/** @type {any} */ ({ '--tag-color': tag.color })}
                   onClick={() => toggleUploadTag(tag.id)}
                 >
                   <span className="template-tag-dot" style={{ background: tag.color }} />

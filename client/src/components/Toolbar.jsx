@@ -16,7 +16,7 @@ function UserMenu({ user, onOpenSettings, onSignOut }) {
   useClickOutside(ref, () => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
@@ -25,7 +25,7 @@ function UserMenu({ user, onOpenSettings, onSignOut }) {
       <button
         type="button"
         className="toolbar-user-menu-trigger"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((/** @type {any} */ v) => !v)}
         title={user?.name ? `${user.name} — account menu` : 'Account menu'}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -65,7 +65,7 @@ function LayoutMenu({ layoutMode, onSetLayoutMode, onOpenPdfInNewTab }) {
   useClickOutside(ref, () => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
@@ -79,7 +79,7 @@ function LayoutMenu({ layoutMode, onSetLayoutMode, onOpenPdfInNewTab }) {
       <button
         type="button"
         className={`toolbar-btn toolbar-layout-trigger${open ? ' active' : ''}`}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((/** @type {any} */ v) => !v)}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -504,7 +504,7 @@ export default function Toolbar({
                   e.preventDefault();
                   onUserClick && onUserClick(u);
                 }}
-                onDoubleClick={(e) => {
+                onDoubleClick={(/** @type {any} */ e) => {
                   e.preventDefault();
                   e.stopPropagation();
                 }}

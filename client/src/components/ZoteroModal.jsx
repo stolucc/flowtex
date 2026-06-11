@@ -25,10 +25,9 @@ const EXCLUDABLE_FIELDS = [
 ];
 
 /** Map a Zotero item type key to a human-readable label. */
-/** @param {any} type */
-/** @param {any} type */
+/** @param {string} type */
 function itemTypeLabel(type) {
-  return ITEM_TYPE_LABELS[type] || type;
+  return /** @type {Record<string, string>} */ (ITEM_TYPE_LABELS)[type] || type;
 }
 
 /**
@@ -37,8 +36,7 @@ function itemTypeLabel(type) {
  * @param {Set<string>} excludedFields - Field names to remove.
  * @returns {string} Cleaned BibTeX.
  */
-/** @param {any} bibtex */
-/** @param {any} excludedFields */
+/** @param {string} bibtex @param {Set<string>} excludedFields */
 function filterBibtex(bibtex, excludedFields) {
   if (!excludedFields.size) return bibtex;
   // Handle multi-line field values (braces can span lines)
@@ -194,7 +192,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
   };
 
   const toggleItem = (/** @type {any} */ key) => {
-    setSelectedKeys((prev) => {
+    setSelectedKeys((/** @type {any} */ prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -211,7 +209,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
   };
 
   const toggleField = (/** @type {any} */ field) => {
-    setExcludedFields((prev) => {
+    setExcludedFields((/** @type {any} */ prev) => {
       const next = new Set(prev);
       if (next.has(field)) next.delete(field);
       else next.add(field);
@@ -251,6 +249,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
 
   // Build collection tree
   const rootCollections = collections.filter((/** @type {any} */ c) => !c.parentKey);
+  /** @type {Record<string, any[]>} */
   const childMap = {};
   for (const c of collections) {
     if (c.parentKey) {
@@ -259,7 +258,9 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
     }
   }
 
-  /** Recursively render a Zotero collection and its children as sidebar entries. */
+  /** Recursively render a Zotero collection and its children as sidebar entries.
+   *  @param {any} col @param {number} [depth]
+   */
   function renderCollection(col, depth = 0) {
     const children = childMap[col.key] || [];
     return (
@@ -427,13 +428,13 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
                     </div>
                     {totalPages > 1 && (
                       <div className="zotero-pagination">
-                        <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                        <button disabled={page === 0} onClick={() => setPage((/** @type {any} */ p) => p - 1)}>
                           Previous
                         </button>
                         <span>
                           Page {page + 1} of {totalPages}
                         </span>
-                        <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+                        <button disabled={page >= totalPages - 1} onClick={() => setPage((/** @type {any} */ p) => p + 1)}>
                           Next
                         </button>
                       </div>
@@ -445,7 +446,7 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
 
             {/* Field exclusion options */}
             <div className="zotero-fields-section">
-              <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions((v) => !v)}>
+              <button className="zotero-fields-toggle" onClick={() => setShowFieldOptions((/** @type {any} */ v) => !v)}>
                 <ChevronRightIcon
                   style={{ transform: showFieldOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
                 />

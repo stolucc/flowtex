@@ -41,6 +41,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   // different account or the invitation is no longer pending.
   const [pendingInviteUnknown, setPendingInviteUnknown] = useState(false);
   const [highlightInviteId, setHighlightInviteId] = useState(/** @type {any} */ (null));
+  /** @type {React.MutableRefObject<Record<string, HTMLElement | null>>} */
   const invitationRefs = useRef({});
   const [tags, setTags] = useState(/** @type {any[]} */ ([]));
   const [name, setName] = useState('');
@@ -107,7 +108,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   useEffect(() => {
     const initialInviteId = initialInviteIdRef.current;
     get('/api/projects')
-      .then(async (r) => {
+      .then(async (/** @type {any} */ r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = await r.json();
         if (!Array.isArray(body)) throw new Error('Response was not an array');
@@ -187,7 +188,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       setGhImportBranch('');
       onSelect(project);
     } catch (err) {
-      setGhImportError(err instanceof Error ? err.message : String(err));
+      setGhImportError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     } finally {
       setGhImportLoading(false);
     }
@@ -239,12 +240,14 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       setZipError(body.error || `Import failed (HTTP ${res.status})`);
       setZipImporting(null);
     } catch (err) {
-      setZipError(err?.message || 'Network error while importing');
+      setZipError((err instanceof Error ? (err instanceof Error ? err.message : String(err)) : null) || 'Network error while importing');
       setZipImporting(null);
     }
   };
 
-  /** Import a .docx file to create a new project. Reads SSE progress events. */
+  /** Import a .docx file to create a new project. Reads SSE progress events.
+   *  @param {File} file @param {{ docType?: string }} [options]
+   */
   const handleImportDocx = async (file, options = {}) => {
     setDocxImporting(true);
     setDocxProgress({ message: 'Uploading…', percent: 5 });
@@ -261,7 +264,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         headers: { 'X-CSRF-Token': getCsrfToken() },
         signal: abortController.signal,
       });
-      const reader = res.body.getReader();
+      const reader = /** @type {ReadableStream<Uint8Array>} */ (res.body).getReader();
       const decoder = new TextDecoder();
       let buf = '';
       while (true) {
@@ -270,7 +273,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         buf += decoder.decode(value, { stream: true });
         // Parse SSE lines
         const lines = buf.split('\n');
-        buf = lines.pop(); // keep incomplete line
+        buf = lines.pop() || ''; // keep incomplete line
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           try {
@@ -297,50 +300,52 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
     } catch (err) {
       setDocxImporting(false);
       docxAbortRef.current = null;
-      if (err.name === 'AbortError') return; // user cancelled
-      showAlert(err.message || 'Failed to import .docx file', { title: 'DOCX import failed' });
+      const e = /** @type {any} */ (err);
+      if (e?.name === 'AbortError') return; // user cancelled
+      showAlert(e?.message || 'Failed to import .docx file', { title: 'DOCX import failed' });
     }
   };
 
+  /** @param {any} project */
   const isOwner = (project) => project.owner_id === user?.id;
 
   const handleDelete = async (/** @type {any} */ id) => {
     await del(`/api/projects/${id}`);
-    setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== id));
-    setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
+    setProjects((/** @type {any[]} */ ps) => ps.filter((/** @type {any} */ p) => p.id !== id));
+    setSelected((/** @type {Set<any>} */ s) => { const n = new Set(s); n.delete(id); return n; });
   };
 
   const handleTrash = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/trash`);
     if (isOwner(project)) {
-      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
+      setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 1 } : p)));
     } else {
-      setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
+      setProjects((/** @type {any[]} */ ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
     }
-    setSelected((s) => { const n = new Set(s); n.delete(project.id); return n; });
+    setSelected((/** @type {Set<any>} */ s) => { const n = new Set(s); n.delete(project.id); return n; });
   };
 
   const handleRestore = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/restore`);
-    setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 0 } : p)));
+    setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, trashed: 0 } : p)));
   };
 
   const handleArchive = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/archive`);
     if (isOwner(project)) {
-      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
+      setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 1 } : p)));
     } else {
-      setProjects((ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
+      setProjects((/** @type {any[]} */ ps) => ps.filter((/** @type {any} */ p) => p.id !== project.id));
     }
   };
 
   const handleUnarchive = async (/** @type {any} */ e, /** @type {any} */ project) => {
     e.stopPropagation();
     await post(`/api/projects/${project.id}/unarchive`);
-    setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 0 } : p)));
+    setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (p.id === project.id ? { ...p, archived: 0 } : p)));
   };
 
   const handleCopy = async (/** @type {any} */ e, /** @type {any} */ project) => {
@@ -353,7 +358,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       const res = await post(`/api/projects/${project.id}/copy`);
       if (res.ok) {
         const copied = await res.json();
-        setProjects((ps) => [copied, ...ps]);
+        setProjects((/** @type {any[]} */ ps) => [copied, ...ps]);
       }
       return;
     }
@@ -370,7 +375,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       const r = await get(`/api/projects/${project.id}/members`);
       if (r.ok) {
         const members = await r.json();
-        setCopyDialog((d) => (d && d.project.id === project.id ? { ...d, members } : d));
+        setCopyDialog((/** @type {any} */ d) => (d && d.project.id === project.id ? { ...d, members } : d));
       }
     } catch {
       // Non-fatal — dialog still works without the names.
@@ -379,7 +384,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
 
   const submitCopy = async () => {
     if (!copyDialog || copyDialog.submitting) return;
-    setCopyDialog((d) => ({ ...d, submitting: true }));
+    setCopyDialog((/** @type {any} */ d) => ({ ...d, submitting: true }));
     try {
       const res = await post(`/api/projects/${copyDialog.project.id}/copy`, {
         name: copyDialog.name.trim() || undefined,
@@ -387,13 +392,13 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       });
       if (res.ok) {
         const copied = await res.json();
-        setProjects((ps) => [copied, ...ps]);
+        setProjects((/** @type {any[]} */ ps) => [copied, ...ps]);
         setCopyDialog(null);
       } else {
-        setCopyDialog((d) => ({ ...d, submitting: false }));
+        setCopyDialog((/** @type {any} */ d) => ({ ...d, submitting: false }));
       }
     } catch {
-      setCopyDialog((d) => ({ ...d, submitting: false }));
+      setCopyDialog((/** @type {any} */ d) => ({ ...d, submitting: false }));
     }
   };
 
@@ -464,7 +469,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
       onConfirm: async () => {
         await del(`/api/tags/${tagId}`);
         setTags((t) => t.filter((/** @type {any} */ tg) => tg.id !== tagId));
-        setProjects((ps) => ps.map((/** @type {any} */ p) => ({ ...p, tags: (p.tags || []).filter((/** @type {any} */ t) => t.id !== tagId) })));
+        setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => ({ ...p, tags: (p.tags || []).filter((/** @type {any} */ t) => t.id !== tagId) })));
         if (selectedTag === tagId) {
           setSelectedTag(null);
           setFilter('all');
@@ -475,19 +480,19 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
   };
 
   /** Toggle a tag on/off for a specific project. */
-  const handleToggleProjectTag = async (e, projectId, tagId) => {
+  const handleToggleProjectTag = async (/** @type {any} */ e, /** @type {string} */ projectId, /** @type {string} */ tagId) => {
     e.stopPropagation();
     const project = projects.find((/** @type {any} */ p) => p.id === projectId);
     const hasTag = project?.tags?.some((/** @type {any} */ t) => t.id === tagId);
     if (hasTag) {
       await del(`/api/projects/${projectId}/tags/${tagId}`);
-      setProjects((ps) =>
+      setProjects((/** @type {any[]} */ ps) =>
         ps.map((/** @type {any} */ p) => (p.id === projectId ? { ...p, tags: (p.tags || []).filter((/** @type {any} */ t) => t.id !== tagId) } : p)),
       );
     } else {
       await post(`/api/projects/${projectId}/tags/${tagId}`);
       const tag = tags.find((/** @type {any} */ t) => t.id === tagId);
-      setProjects((ps) => ps.map((/** @type {any} */ p) => (p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p)));
+      setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (p.id === projectId ? { ...p, tags: [...(p.tags || []), tag] } : p)));
     }
   };
 
@@ -516,7 +521,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
         await post(`/api/projects/${id}/tags/${tagId}`);
       }
     }
-    setProjects((ps) =>
+    setProjects((/** @type {any[]} */ ps) =>
       ps.map((/** @type {any} */ p) => {
         if (!selected.has(p.id)) return p;
         if ((p.tags || []).some((/** @type {any} */ t) => t.id === tagId)) return p;
@@ -968,7 +973,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               Download
             </button>
             <div className="bulk-tag-wrapper" ref={bulkTagRef}>
-              <button className="bulk-action-btn" onClick={() => setShowBulkTagMenu((v) => !v)} title="Assign tag">
+              <button className="bulk-action-btn" onClick={() => setShowBulkTagMenu((/** @type {any} */ v) => !v)} title="Assign tag">
                 <TagIcon />
                 Tag
               </button>
@@ -992,7 +997,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="bulk-action-btn"
                 onClick={async () => {
                   for (const id of selected) await post(`/api/projects/${id}/archive`);
-                  setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 1 } : p)));
+                  setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 1 } : p)));
                   setSelected(new Set());
                 }}
                 title="Archive"
@@ -1019,7 +1024,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                 className="bulk-action-btn"
                 onClick={async () => {
                   for (const id of selected) await post(`/api/projects/${id}/unarchive`);
-                  setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 0 } : p)));
+                  setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, archived: 0 } : p)));
                   setSelected(new Set());
                 }}
                 title="Unarchive"
@@ -1047,7 +1052,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   className="bulk-action-btn"
                   onClick={async () => {
                     for (const id of selected) await post(`/api/projects/${id}/restore`);
-                    setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 0 } : p)));
+                    setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 0 } : p)));
                     setSelected(new Set());
                   }}
                   title="Restore"
@@ -1062,7 +1067,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       message: `Permanently delete ${selected.size} project(s)? This cannot be undone.`,
                       onConfirm: async () => {
                         for (const id of selected) await del(`/api/projects/${id}`);
-                        setProjects((ps) => ps.filter((/** @type {any} */ p) => !selected.has(p.id)));
+                        setProjects((/** @type {any[]} */ ps) => ps.filter((/** @type {any} */ p) => !selected.has(p.id)));
                         setSelected(new Set());
                         setConfirmDelete(null);
                       },
@@ -1082,7 +1087,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                     message: `Are you sure you want to delete ${selected.size} project(s)?`,
                     onConfirm: async () => {
                       for (const id of selected) await post(`/api/projects/${id}/trash`);
-                      setProjects((ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 1 } : p)));
+                      setProjects((/** @type {any[]} */ ps) => ps.map((/** @type {any} */ p) => (selected.has(p.id) ? { ...p, trashed: 1 } : p)));
                       setSelected(new Set());
                       setConfirmDelete(null);
                     },
@@ -1116,7 +1121,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               {invitations.map((/** @type {any} */ inv) => (
                 <div
                   key={inv.id}
-                  ref={(el) => {
+                  ref={(/** @type {any} */ el) => {
                     if (el) invitationRefs.current[inv.id] = el;
                     else delete invitationRefs.current[inv.id];
                   }}
@@ -1207,7 +1212,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                       type="checkbox"
                       checked={selected.has(p.id)}
                       onChange={() =>
-                        setSelected((s) => {
+                        setSelected((/** @type {any} */ s) => {
                           const next = new Set(s);
                           if (next.has(p.id)) next.delete(p.id);
                           else next.add(p.id);
@@ -1226,8 +1231,8 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                           height="14"
                           viewBox="0 0 24 24"
                           fill="currentColor"
-                          title={p.github_repo}
                         >
+                          <title>{p.github_repo}</title>
                           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
                         </svg>
                       )}
@@ -1407,7 +1412,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                   type="text"
                   autoFocus
                   value={copyDialog.name}
-                  onChange={(/** @type {any} */ e) => setCopyDialog((d) => ({ ...d, name: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setCopyDialog((/** @type {any} */ d) => ({ ...d, name: e.target.value }))}
                   maxLength={200}
                 />
               </label>
@@ -1427,7 +1432,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
                         type="checkbox"
                         checked={copyDialog.includeMembers}
                         onChange={(/** @type {any} */ e) =>
-                          setCopyDialog((d) => ({ ...d, includeMembers: e.target.checked }))
+                          setCopyDialog((/** @type {any} */ d) => ({ ...d, includeMembers: e.target.checked }))
                         }
                       />
                       <span>
@@ -1475,7 +1480,7 @@ export default function ProjectList({ onSelect, user, onLogout, onUserUpdate, on
               setShowMfa(false);
               setSettingsInitialTab(null);
             }}
-            onUpdate={(updatedUser) => onUserUpdate?.(updatedUser)}
+            onUpdate={(/** @type {any} */ updatedUser) => onUserUpdate?.(updatedUser)}
             onAccountDeleted={onLogout}
             initialTab={settingsInitialTab}
           />

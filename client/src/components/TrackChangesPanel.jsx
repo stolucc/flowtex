@@ -38,10 +38,12 @@ export default function TrackChangesPanel({
   onClose,
 }) {
   const listRef = useRef(/** @type {any} */ (null));
+  /** @type {React.MutableRefObject<Record<string, HTMLElement>>} */
   const cardRefs = useRef({});
 
   // Map id → viewport-relative top, identical pattern to commentPositions.
   const posMap = useMemo(() => {
+    /** @type {Record<string, number>} */
     const m = {};
     for (const p of tcPositions || []) m[p.id] = p.top;
     return m;
@@ -50,7 +52,7 @@ export default function TrackChangesPanel({
   // Display "You" for entries authored by the current user — matches the
   // comments panel UX. Compare authorId first (stable across name changes),
   // fall back to authorName.
-  const isOwn = (c) =>
+  const isOwn = (/** @type {any} */ c) =>
     (currentUserId && c.authorId && c.authorId === currentUserId) ||
     (currentUserName && c.author && c.author === currentUserName);
   // For each pending change, slice the relevant text out of the doc.
@@ -68,6 +70,7 @@ export default function TrackChangesPanel({
   // pushed down to avoid overlapping the previous card.
   const computeElasticPositions = useCallback(() => {
     if (!isPositioned) return;
+    /** @type {Array<{ id: string, targetTop: number, el: HTMLElement }>} */
     const items = [];
     for (const c of cards) {
       const el = cardRefs.current[c.id];
@@ -121,7 +124,7 @@ export default function TrackChangesPanel({
             {cards.map((/** @type {any} */ c) => (
               <li
                 key={c.id}
-                ref={(el) => {
+                ref={(/** @type {any} */ el) => {
                   if (el) cardRefs.current[c.id] = el;
                   else delete cardRefs.current[c.id];
                 }}

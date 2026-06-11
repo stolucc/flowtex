@@ -2,16 +2,20 @@
 import React from 'react';
 
 /** Top-level error boundary that catches render errors and shows a reload prompt. */
+/** @extends {React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }>} */
 export default class ErrorBoundary extends React.Component {
+  /** @param {any} props */
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null };
   }
 
+  /** @param {any} error */
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
   }
 
+  /** @param {any} error @param {any} info */
   componentDidCatch(error, info) {
     console.error('ErrorBoundary caught:', error, info.componentStack);
   }
@@ -44,7 +48,7 @@ export default class ErrorBoundary extends React.Component {
               color: '#f38ba8',
             }}
           >
-            {this.state.error?.message || 'Unknown error'}
+            {/** @type {any} */ (this.state.error)?.message || 'Unknown error'}
           </pre>
           <button
             onClick={() => window.location.reload()}

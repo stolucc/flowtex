@@ -367,18 +367,21 @@ export const spellGutterExtension = gutter({
 /**
  * Apply lint diagnostics as editor decorations and gutter markers.
  * @param {EditorView} view
- * @param {Array<{line: number, col: number, len: number, severity: string, message: string}>} diagnostics
+ * @param {Array<{line: number, col: number, len?: number, severity: string, message: string}>} diagnostics
  */
 export function applyLintDiagnostics(view, diagnostics) {
+  /** @type {any[]} */
   const decos = [];
+  /** @type {any[]} */
   const gutterMarkers = [];
   const seenLines = new Set();
 
   for (const d of diagnostics) {
     try {
       const lineInfo = view.state.doc.line(Math.min(d.line, view.state.doc.lines));
-      const from = d.len > 0 ? Math.min(lineInfo.from + Math.max(0, d.col - 1), lineInfo.to) : lineInfo.from;
-      const to = d.len > 0 ? Math.min(from + d.len, lineInfo.to) : lineInfo.to;
+      const len = d.len || 0;
+      const from = len > 0 ? Math.min(lineInfo.from + Math.max(0, d.col - 1), lineInfo.to) : lineInfo.from;
+      const to = len > 0 ? Math.min(from + len, lineInfo.to) : lineInfo.to;
       if (from < to) {
         decos.push(
           Decoration.mark({
@@ -618,12 +621,13 @@ export const tableGutterExtension = floatGutterExtension;
  * @param {any} view
  */
 export function updateTableGutterMarkers(view) { updateFloatGutterMarkers(view); }
-export function updateFigureGutterMarkers() { /* no-op, handled by updateFloatGutterMarkers */ }
+/** @param {any} [_view] */
+export function updateFigureGutterMarkers(_view) { /* no-op, handled by updateFloatGutterMarkers */ }
 
 /**
  * Find and parse the figure environment at the cursor position.
  * @param {EditorView} view
- * @returns {Object|null} Parsed figure data or null
+ * @returns {any} Parsed figure data or null
  */
 export function findFigureAtCursor(view) {
   const pos = view.state.selection.main.head;
@@ -796,7 +800,7 @@ function findTableByRegex(source, pos) {
  * Find and parse the table environment at the cursor position (AST with regex fallback).
  * @param {EditorView} view
  * @param {Array<{path: string, content: string}>} [projectFiles] - Project files for cross-file custom column type lookup
- * @returns {Object|null} Parsed table data or null
+ * @returns {any} Parsed table data or null
  */
 export function findTableAtCursor(view, projectFiles) {
   const pos = view.state.selection.main.head;

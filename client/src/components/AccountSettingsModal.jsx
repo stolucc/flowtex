@@ -156,7 +156,7 @@ function HelperInstallGuide({ copiedCommand, onCopy, showDiagnostics, toggleDiag
       {/* ── Build-from-source fallback ───────────────────────────── */}
       <button
         type="button"
-        onClick={() => setShowBuildFromSource((s) => !s)}
+        onClick={() => setShowBuildFromSource((/** @type {any} */ s) => !s)}
         style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}
       >
         {showBuildFromSource ? 'Hide' : 'Show'} build-from-source instructions
@@ -337,7 +337,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
     try {
       navigator.clipboard.writeText(text);
       setCopiedCommand(key);
-      setTimeout(() => setCopiedCommand((c) => (c === key ? null : c)), 1500);
+      setTimeout(() => setCopiedCommand((/** @type {any} */ c) => (c === key ? null : c)), 1500);
     } catch {
       // No clipboard permission — fall back silently. The text is
       // already in the visible block so the user can select-and-copy.
@@ -362,7 +362,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         await probeHelper();
       }
     } catch (err) {
-      setPairError(err?.message || 'Pairing failed');
+      setPairError((err instanceof Error ? err.message : null) || 'Pairing failed');
     } finally {
       setPairLoading(false);
     }
@@ -410,7 +410,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setStep('scan');
       }
     } catch (err) {
-      setMfaError(err instanceof Error ? err.message : String(err));
+      setMfaError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setMfaLoading(false);
   };
@@ -430,7 +430,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onUpdate({ ...user, totpEnabled: true });
       }
     } catch (err) {
-      setMfaError(err instanceof Error ? err.message : String(err));
+      setMfaError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setMfaLoading(false);
   };
@@ -450,7 +450,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onClose();
       }
     } catch (err) {
-      setMfaError(err instanceof Error ? err.message : String(err));
+      setMfaError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setMfaLoading(false);
   };
@@ -599,7 +599,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setEmailPassword('');
       }
     } catch (err) {
-      setEmailError(err instanceof Error ? err.message : String(err));
+      setEmailError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setEmailLoading(false);
   };
@@ -627,7 +627,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         setConfirmPw('');
       }
     } catch (err) {
-      setPwError(err instanceof Error ? err.message : String(err));
+      setPwError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setPwLoading(false);
   };
@@ -651,7 +651,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
         onAccountDeleted();
       }
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : String(err));
+      setDeleteError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setDeleteLoading(false);
   };
@@ -1004,7 +1004,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                   copiedCommand={copiedCommand}
                   onCopy={copyToClipboard}
                   showDiagnostics={showDiagnostics}
-                  toggleDiagnostics={() => setShowDiagnostics((s) => !s)}
+                  toggleDiagnostics={() => setShowDiagnostics((/** @type {any} */ s) => !s)}
                 />
               )}
               {showPairInput && (

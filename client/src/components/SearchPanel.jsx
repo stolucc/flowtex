@@ -48,7 +48,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
 
   /** Apply CodeMirror decorations to highlight search matches in the editor. */
   const updateHighlights = useCallback(
-    (q, cs, currentIdx) => {
+    (/** @type {string} */ q, /** @type {boolean} */ cs, /** @type {number} */ currentIdx) => {
       if (!view) return;
       if (scope !== 'file') {
         view.dispatch({ effects: setSearchHighlightEffect.of(Decoration.none) });
@@ -195,7 +195,7 @@ function SearchPanel({ view, onClose, projectFiles, onGoToFile, setSearchHighlig
    * @param {boolean} cs - Whether the search is case-sensitive.
    * @returns {React.ReactNode} Text with the match wrapped in a highlight element.
    */
-  const highlightMatch = (text, q, cs) => {
+  const highlightMatch = (/** @type {any} */ text, /** @type {any} */ q, /** @type {any} */ cs) => {
     if (!q) return text;
     const searchStr = cs ? q : q.toLowerCase();
     const haystack = cs ? text : text.toLowerCase();

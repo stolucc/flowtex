@@ -21,6 +21,7 @@ export default function SetupWizard({ onComplete }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  /** @param {any} e */
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');

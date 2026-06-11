@@ -261,7 +261,7 @@ export default function AuthPage({ onAuth }) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading(false);
   };
@@ -294,7 +294,7 @@ export default function AuthPage({ onAuth }) {
         setError(data.error || 'Something went wrong');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading(false);
   };
@@ -325,7 +325,7 @@ export default function AuthPage({ onAuth }) {
         setError(data.error || 'Something went wrong');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading(false);
   };
@@ -774,7 +774,7 @@ function AuthMarketingPane() {
           src="/marketing/editor-screenshot.png"
           alt="FlowTex editor with source on the left and PDF preview on the right"
           loading="lazy"
-          onError={(e) => {
+          onError={(/** @type {any} */ e) => {
             // No screenshot deployed yet — hide the figure entirely so the
             // feature list flows up. Avoids the broken-image icon.
             const fig = e.currentTarget.closest('figure');

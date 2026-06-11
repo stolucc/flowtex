@@ -25,7 +25,7 @@ export default function useWebSocket(
   { setComments, setHistoryVersion },
 ) {
   const [activeUsers, setActiveUsers] = useState(/** @type {any[]} */ ([]));
-  const [remoteCursors, setRemoteCursors] = useState({});
+  const [remoteCursors, setRemoteCursors] = useState(/** @type {Record<string, any>} */ ({}));
   const [chatMessages, setChatMessages] = useState(/** @type {any[]} */ ([]));
   // Per-member "last read at" timestamp for the active project's chat.
   // Map of userId -> ISO timestamp (or null if they've never opened it).

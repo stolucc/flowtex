@@ -25,7 +25,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
   const isEditing = !!initial?.imagePath;
 
   const imageFiles = (projectFiles || []).filter(
-    (f) => IMAGE_EXTENSIONS.test(f.path) && f.path !== 'thumbnail.png',
+    (/** @type {any} */ f) => IMAGE_EXTENSIONS.test(f.path) && f.path !== 'thumbnail.png',
   );
 
   const handleInsert = () => {
@@ -115,7 +115,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
             <span className="table-opt-toggle-label">figure*</span>
             <button
               className={`table-toggle${star ? ' on' : ''}`}
-              onClick={() => setStar((v) => !v)}
+              onClick={() => setStar((/** @type {any} */ v) => !v)}
               role="switch"
               aria-checked={star}
             >
@@ -126,7 +126,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
             <span className="table-opt-toggle-label">Centering</span>
             <button
               className={`table-toggle${centering ? ' on' : ''}`}
-              onClick={() => setCentering((v) => !v)}
+              onClick={() => setCentering((/** @type {any} */ v) => !v)}
               role="switch"
               aria-checked={centering}
             >
@@ -140,7 +140,7 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
             <span className="table-opt-toggle-label">Caption</span>
             <button
               className={`table-toggle${caption ? ' on' : ''}`}
-              onClick={() => setCaption((v) => !v)}
+              onClick={() => setCaption((/** @type {any} */ v) => !v)}
               role="switch"
               aria-checked={caption}
             >
@@ -163,10 +163,10 @@ export default function FigureBuilder({ onInsert, onClose, onDelete, initial, pr
                     ['right', 'bottom', 'Bottom right', <svg key="rb" width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="16" y1="9" x2="16" y2="12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
                   ].map(([pos, valign, title, icon]) => (
                     <button
-                      key={title}
+                      key={String(title)}
                       className={`table-opt-btn ${captionPos === pos && captionVAlign === valign ? 'active' : ''}`}
-                      onClick={() => { setCaptionPos(pos); setCaptionVAlign(valign); }}
-                      title={title}
+                      onClick={() => { setCaptionPos(/** @type {string} */ (pos)); setCaptionVAlign(/** @type {string} */ (valign)); }}
+                      title={String(title)}
                     >
                       {icon}
                     </button>

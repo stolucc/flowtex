@@ -119,7 +119,7 @@ export default function ChatPanel({
       if (e.target.closest?.('.chat-react-picker, .chat-react-trigger')) return;
       setPickerForId(null);
     };
-    const onKey = (e) => { if (e.key === 'Escape') setPickerForId(null); };
+    const onKey = (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Escape') setPickerForId(null); };
     window.addEventListener('click', close);
     window.addEventListener('keydown', onKey);
     return () => {

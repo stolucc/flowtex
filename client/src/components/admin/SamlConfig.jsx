@@ -364,6 +364,7 @@ function IdPEditorModal({ idpId, onClose, onSaved }) {
       setBusy(false);
       return;
     }
+    /** @type {any} */
     const body = {
       displayName: form.displayName,
       attributeMapping: form.attributeMapping,

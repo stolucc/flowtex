@@ -230,7 +230,12 @@ export default function useProject(user) {
 
   // File operations
   const handleSave = useCallback(
-    async (/** @type {string} */ content, /** @type {string=} */ fileId, /** @type {any[]=} */ tcMarks) => {
+    /**
+     * @param {string} content
+     * @param {string} [fileId]
+     * @param {any[]} [tcMarks]
+     */
+    async (content, fileId, tcMarks) => {
       // Caller may pass an explicit fileId. The editor *must* do this for
       // debounced saves and file-switch flushes — otherwise this falls back
       // to whichever file is *currently* active, which can race the user's

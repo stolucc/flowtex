@@ -58,7 +58,7 @@ export default function BinaryPreview({ file }) {
           canvas.style.display = 'block';
           canvas.style.width = '100%';
           const ctx = canvas.getContext('2d');
-          ctx.scale(dpr, dpr);
+          if (ctx) ctx.scale(dpr, dpr);
           wrapper.appendChild(canvas);
           containerRef.current.appendChild(wrapper);
           await page.render({ canvas, viewport }).promise;

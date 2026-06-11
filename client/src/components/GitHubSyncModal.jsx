@@ -47,7 +47,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
   }, [projectId]);
 
   /** Fetch the user's GitHub repositories, optionally forcing a refresh. */
-  const fetchRepos = (/** @type {any} */ force) => {
+  const fetchRepos = (/** @type {any} */ force = false) => {
     if (repos !== null && !force) return;
     setRepos([]);
     get('/api/github/repos')
@@ -95,7 +95,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       onLinkChanged?.(freshData);
       setSuccess(`Created and linked ${repoData.fullName}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading('');
   };
@@ -119,7 +119,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       onLinkChanged?.(freshData);
       setSuccess('Repository linked');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading('');
   };
@@ -146,7 +146,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       const linkRes = await get(`/api/github/link/${projectId}`);
       setLink(await linkRes.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading('');
   };
@@ -165,7 +165,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
       const linkRes = await get(`/api/github/link/${projectId}`);
       setLink(await linkRes.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : String(err));
     }
     setLoading('');
   };
@@ -305,7 +305,7 @@ export default function GitHubSyncModal({ projectId, projectName, onClose, onFil
                 <input
                   type="checkbox"
                   checked={!!link.autoPush}
-                  onChange={async (e) => {
+                  onChange={async (/** @type {any} */ e) => {
                     const enabled = e.target.checked;
                     await patch(`/api/github/link/${projectId}/auto-push`, { enabled });
                     const freshLink = await get(`/api/github/link/${projectId}`);

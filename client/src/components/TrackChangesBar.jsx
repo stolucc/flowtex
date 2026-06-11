@@ -29,7 +29,7 @@ export default function TrackChangesBar({
 }) {
   // Display "You" when the change is authored by the current user
   // (matches the TrackChangesPanel + CommentsSidebar conventions).
-  const isOwn = (c) =>
+  const isOwn = (/** @type {any} */ c) =>
     (currentUserId && c?.authorId && c.authorId === currentUserId) ||
     (currentUserName && c?.author && c.author === currentUserName);
   const count = pendingChanges?.length || 0;

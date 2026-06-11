@@ -78,13 +78,13 @@ export default function ModalContainer({
               ui.setShowProjectSettings(false);
               setProjectSettingsTab(null);
             }}
-            onUpdate={(updated) => setProject((p) => ({ ...p, ...updated }))}
+            onUpdate={(/** @type {any} */ updated) => setProject((/** @type {any} */ p) => ({ ...p, ...updated }))}
             trackChangesMode={trackChangesMode}
             onTrackChangesChange={setTrackChangesMode}
             autoSaveOn={!!githubLink?.autoPush}
-            onAutoSaveChange={async (val) => {
+            onAutoSaveChange={async (/** @type {any} */ val) => {
               await patch(`/api/github/link/${project.id}/auto-push`, { enabled: val });
-              setGithubLink((prev) => (prev ? { ...prev, autoPush: val } : prev));
+              setGithubLink((/** @type {any} */ prev) => (prev ? { ...prev, autoPush: val } : prev));
             }}
             githubLinked={!!hasGithubToken && !!githubLink?.linked}
             initialTab={projectSettingsTab}
@@ -97,7 +97,7 @@ export default function ModalContainer({
             data={wordCountState.data}
             loading={wordCountState.loading}
             error={wordCountState.error}
-            onClose={() => setWordCountState((s) => ({ ...s, open: false }))}
+            onClose={() => setWordCountState((/** @type {any} */ s) => ({ ...s, open: false }))}
           />
         </Suspense>
       )}
@@ -245,8 +245,8 @@ export default function ModalContainer({
             projectId={project.id}
             projectName={project.name}
             onClose={() => ui.setShowGitHubSync(false)}
-            onFilesUpdated={(newFiles) => setFiles(newFiles)}
-            onLinkChanged={(linkData) => setGithubLink(linkData)}
+            onFilesUpdated={(/** @type {any} */ newFiles) => setFiles(newFiles)}
+            onLinkChanged={(/** @type {any} */ linkData) => setGithubLink(linkData)}
           />
         </Suspense>
       )}
@@ -255,10 +255,10 @@ export default function ModalContainer({
           <BibEnrichModal
             file={activeFile}
             onClose={() => ui.setShowBibEnrich(false)}
-            onApply={(newContent) => {
+            onApply={(/** @type {any} */ newContent) => {
               handleSave(newContent, activeFile.id);
-              setFiles((prev) => prev.map((/** @type {any} */ f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
-              setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
+              setFiles((/** @type {any} */ prev) => prev.map((/** @type {any} */ f) => (f.id === activeFile.id ? { ...f, content: newContent } : f)));
+              setActiveFile((/** @type {any} */ prev) => (prev ? { ...prev, content: newContent } : prev));
             }}
           />
         </Suspense>
@@ -279,7 +279,7 @@ export default function ModalContainer({
               }
               return keys;
             })()}
-            onInsert={async (bibtex) => {
+            onInsert={async (/** @type {any} */ bibtex) => {
               // Find the first .bib file actually referenced from the main file
               const mainFile = project?.main_file || 'main.tex';
               const usedPaths = resolveUsedFiles(files, mainFile);
@@ -293,7 +293,7 @@ export default function ModalContainer({
                     content: bibtex,
                   });
                   const newFile = await res.json();
-                  setFiles((prev) => [...prev, newFile]);
+                  setFiles((/** @type {any} */ prev) => [...prev, newFile]);
                   switchFile(newFile);
                 } catch (e) {
                   console.error('Failed to create .bib file', e);
@@ -302,12 +302,12 @@ export default function ModalContainer({
               }
               const newContent = bibFile.content.trimEnd() + '\n\n' + bibtex;
               const targetId = bibFile.id;
-              setFiles((prev) => prev.map((/** @type {any} */ f) => (f.id === targetId ? { ...f, content: newContent } : f)));
+              setFiles((/** @type {any} */ prev) => prev.map((/** @type {any} */ f) => (f.id === targetId ? { ...f, content: newContent } : f)));
               // Only update the editor view if it's still showing this file —
               // a setTimeout here previously raced a file switch and could
               // overwrite the wrong file's editor content.
               if (activeFile?.id === targetId) {
-                setActiveFile((prev) => (prev ? { ...prev, content: newContent } : prev));
+                setActiveFile((/** @type {any} */ prev) => (prev ? { ...prev, content: newContent } : prev));
                 editorRef.current?.replaceContent?.(newContent);
               }
               await put(`/api/projects/files/${targetId}`, { content: newContent });

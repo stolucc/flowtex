@@ -8,13 +8,12 @@ import { useAlert } from '../contexts/AlertContext.jsx';
 
 /**
  * Builds a nested directory tree structure from a flat file list and empty folder paths.
- * @param {Array} files - Flat array of file objects with path properties
+ * @param {any[]} files - Flat array of file objects with path properties
  * @param {string[]} emptyFolders - Folder paths that should appear even without files
- * @returns {Object} Root tree node with children and files properties
+ * @returns {any} Root tree node with children and files properties
  */
-/** @param {any} files */
-/** @param {any} emptyFolders */
 function buildTree(files, emptyFolders) {
+  /** @type {any} */
   const root = { name: '', children: {}, files: [] };
 
   for (const folderPath of emptyFolders) {
@@ -42,8 +41,7 @@ function buildTree(files, emptyFolders) {
   return root;
 }
 
-/** @param {any} path */
-/** @param {any} path */
+/** @param {string} path */
 function getFileIcon(path) {
   if (path.endsWith('.tex')) return 'T';
   if (path.endsWith('.bib')) return 'B';
@@ -55,12 +53,12 @@ const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.eps', '.svg', '.t
 const STYLE_EXTS = ['.sty', '.cls', '.clo', '.bst', '.def', '.fd', '.cfg', '.bbx', '.cbx', '.lbx'];
 
 const FILE_CATEGORIES = [
-  { key: 'tex', label: 'TeX Files', test: (p) => p.endsWith('.tex') },
-  { key: 'bib', label: 'Bibliography', test: (p) => p.endsWith('.bib') },
+  { key: 'tex', label: 'TeX Files', test: (/** @type {string} */ p) => p.endsWith('.tex') },
+  { key: 'bib', label: 'Bibliography', test: (/** @type {string} */ p) => p.endsWith('.bib') },
   {
     key: 'images',
     label: 'Images',
-    test: (p) => {
+    test: (/** @type {string} */ p) => {
       const ext = p.substring(p.lastIndexOf('.')).toLowerCase();
       return IMAGE_EXTS.includes(ext) || ext === '.pdf';
     },
@@ -68,7 +66,7 @@ const FILE_CATEGORIES = [
   {
     key: 'style',
     label: 'Style Files',
-    test: (p) => {
+    test: (/** @type {string} */ p) => {
       const ext = p.substring(p.lastIndexOf('.')).toLowerCase();
       return STYLE_EXTS.includes(ext);
     },
@@ -77,12 +75,11 @@ const FILE_CATEGORIES = [
 
 /**
  * Groups files into predefined categories (TeX, Bibliography, Images, Style, Other).
- * @param {Array} files - Flat array of file objects
- * @returns {Object} Map from category key to file array
+ * @param {any[]} files - Flat array of file objects
+ * @returns {Record<string, any[]>} Map from category key to file array
  */
-/** @param {any} files */
-/** @param {any} files */
 function categorizeFiles(files) {
+  /** @type {Record<string, any[]>} */
   const groups = {};
   for (const cat of FILE_CATEGORIES) groups[cat.key] = [];
   groups.other = [];
@@ -179,7 +176,7 @@ export default function FileTree({
   const [dropTargetPath, setDropTargetPath] = useState(/** @type {any} */ (null));
   const dragSourceRef = useRef(/** @type {any} */ (null));
   const INTERNAL_DRAG_TYPE = 'application/x-flowtex-move';
-  const isInternalDrag = (e) => e.dataTransfer?.types?.includes(INTERNAL_DRAG_TYPE);
+  const isInternalDrag = (/** @type {any} */ e) => e.dataTransfer?.types?.includes(INTERNAL_DRAG_TYPE);
   const internalSourcePayload = (/** @type {any} */ e) => {
     if (dragSourceRef.current) return dragSourceRef.current;
     try {
@@ -188,7 +185,7 @@ export default function FileTree({
       return null;
     }
   };
-  const canDropOn = (src, targetPath /* '' = root */) => {
+  const canDropOn = (/** @type {any} */ src, /** @type {string} */ targetPath /* '' = root */) => {
     if (!src) return false;
     if (src.kind === 'folder') {
       if (targetPath === src.path) return false; // onto itself
@@ -223,7 +220,7 @@ export default function FileTree({
       // that isn't itself part of the moving folder.
       const movingPrefix = src.path + '/';
       const conflict = files.some(
-        (f) =>
+        (/** @type {any} */ f) =>
           (f.path === newPrefix || f.path.startsWith(newPrefix + '/')) &&
           !(f.path === src.path || f.path.startsWith(movingPrefix)),
       );
@@ -234,7 +231,7 @@ export default function FileTree({
       onRenameFolder?.(src.path, newPrefix);
     }
   };
-  const onItemDragStart = (payload) => (e) => {
+  const onItemDragStart = (/** @type {any} */ payload) => (/** @type {any} */ e) => {
     e.stopPropagation();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData(INTERNAL_DRAG_TYPE, JSON.stringify(payload));
@@ -244,7 +241,7 @@ export default function FileTree({
     dragSourceRef.current = null;
     setDropTargetPath(null);
   };
-  const onFolderDragOver = (folderPath) => (e) => {
+  const onFolderDragOver = (/** @type {string} */ folderPath) => (/** @type {any} */ e) => {
     if (!isInternalDrag(e)) return; // let OS-file overlay logic handle it
     const src = dragSourceRef.current;
     if (!canDropOn(src, folderPath)) return;
@@ -259,7 +256,7 @@ export default function FileTree({
     // Don't unconditionally null — children of the folder fire leave too. We
     // clear on dragend / drop / root-dragover.
   };
-  const onFolderDrop = (folderPath) => (e) => {
+  const onFolderDrop = (/** @type {string} */ folderPath) => (/** @type {any} */ e) => {
     if (!isInternalDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -294,7 +291,7 @@ export default function FileTree({
       // emptyFolders prop, which triggers the re-render with the new
       // folder visible.
       onCreateFolder?.(folderPath);
-      setCollapsedFolders((s) => ({ ...s, [folderPath]: false }));
+      setCollapsedFolders((/** @type {any} */ s) => ({ ...s, [folderPath]: false }));
       setAddingIn(folderPath);
       setNewFileName('');
       setAdding(false);
@@ -321,7 +318,7 @@ export default function FileTree({
   };
 
   const toggleFolder = useCallback((/** @type {any} */ path) => {
-    setCollapsedFolders((s) => ({ ...s, [path]: !s[path] }));
+    setCollapsedFolders((/** @type {any} */ s) => ({ ...s, [path]: !s[path] }));
   }, []);
 
   const handleContextMenu = useCallback((/** @type {any} */ e, /** @type {any} */ items) => {
@@ -376,13 +373,13 @@ export default function FileTree({
   );
 
   const handleFolderContextMenu = useCallback(
-    (e, folderPath, folderName) => {
+    (/** @type {any} */ e, /** @type {string} */ folderPath, /** @type {string} */ folderName) => {
       const parentFolder = folderPath.includes('/') ? folderPath.slice(0, folderPath.lastIndexOf('/')) : '';
       handleContextMenu(e, [
         {
           label: 'New file',
           action: () => {
-            setCollapsedFolders((s) => ({ ...s, [folderPath]: false }));
+            setCollapsedFolders((/** @type {any} */ s) => ({ ...s, [folderPath]: false }));
             setAddingIn(folderPath);
           },
         },
@@ -449,7 +446,7 @@ export default function FileTree({
       const src = dragSourceRef.current;
       if (canDropOn(src, '')) {
         e.dataTransfer.dropEffect = 'move';
-        setDropTargetPath((cur) => (cur == null ? '' : cur));
+        setDropTargetPath((/** @type {any} */ cur) => (cur == null ? '' : cur));
       }
     }
   }, []);
@@ -491,11 +488,12 @@ export default function FileTree({
     [onCreate, onOverwrite, onUploadBinary],
   );
 
+  /** @type {React.MutableRefObject<Array<{ file: any, existing: any }>>} */
   const pendingDrops = useRef([]);
 
   const processNextDrop = useCallback(() => {
     while (pendingDrops.current.length > 0) {
-      const { file, existing } = pendingDrops.current.shift();
+      const { file, existing } = /** @type {{ file: any, existing: any }} */ (pendingDrops.current.shift());
       if (existing) {
         setOverwriteConfirm({ fileName: file.name, existing, file });
         return; // wait for user response
@@ -535,7 +533,7 @@ export default function FileTree({
 
   const fileGroups = groupByType ? categorizeFiles(files) : null;
 
-  const renderNode = (node, fullPath, depth) => {
+  const renderNode = (/** @type {any} */ node, /** @type {any} */ fullPath, /** @type {any} */ depth) => {
     const isRoot = fullPath === '';
     const collapsed = !isRoot && !!collapsedFolders[fullPath];
 
@@ -601,7 +599,7 @@ export default function FileTree({
                 className="file-tree-folder-add"
                 onClick={(/** @type {any} */ e) => {
                   e.stopPropagation();
-                  setCollapsedFolders((s) => ({ ...s, [fullPath]: false }));
+                  setCollapsedFolders((/** @type {any} */ s) => ({ ...s, [fullPath]: false }));
                   setAddingIn(fullPath);
                 }}
                 title="New file in folder"
@@ -727,7 +725,7 @@ export default function FileTree({
           <button
             className={`file-tree-add ${groupByType ? 'active' : ''}`}
             onClick={() => {
-              setGroupByType((v) => {
+              setGroupByType((/** @type {any} */ v) => {
                 const next = !v;
                 setSetting('group-files', next);
                 return next;
@@ -803,7 +801,7 @@ export default function FileTree({
                 <React.Fragment key={cat.key}>
                   <div
                     className="file-tree-category"
-                    onClick={() => setCollapsedCategories((s) => ({ ...s, [cat.key]: !s[cat.key] }))}
+                    onClick={() => setCollapsedCategories((/** @type {any} */ s) => ({ ...s, [cat.key]: !s[cat.key] }))}
                   >
                     <span className="file-tree-category-arrow">{collapsed ? '▸' : '▾'}</span>
                     <span className="file-tree-category-label">{cat.label}</span>

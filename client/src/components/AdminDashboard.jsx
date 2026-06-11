@@ -200,7 +200,7 @@ function UserActivityDetail({ activity, currentAdminId, onToggleAdmin }) {
       setTogglePrompt(null);
       setTogglePassword('');
     } catch (err) {
-      setToggleError(err.message || 'Failed');
+      setToggleError((err instanceof Error ? err.message : String(err)) || 'Failed');
     } finally {
       setToggling(false);
     }
@@ -478,11 +478,11 @@ export default function AdminDashboard({ onBack }) {
         if (!data?.cpu) return;
         setSystem(data);
         const now = new Date().toLocaleTimeString();
-        setCpuHistory((prev) => {
+        setCpuHistory((/** @type {any} */ prev) => {
           const next = [...prev, { time: now, value: data.cpu.processPercent, load: data.cpu.loadAvg[0] }];
           return next.length > MAX_SYSTEM_POINTS ? next.slice(-MAX_SYSTEM_POINTS) : next;
         });
-        setCompileHistory((prev) => {
+        setCompileHistory((/** @type {any} */ prev) => {
           const next = [
             ...prev,
             {
@@ -515,7 +515,7 @@ export default function AdminDashboard({ onBack }) {
       metrics.forEach((/** @type {any} */ m) => {
         get(`/api/admin/stats/timeseries?metric=${m}&days=${days}`)
           .then((/** @type {any} */ r) => r.json())
-          .then((/** @type {any} */ data) => setTimeseries((prev) => ({ ...prev, [m]: data })));
+          .then((/** @type {any} */ data) => setTimeseries((/** @type {any} */ prev) => ({ ...prev, [m]: data })));
       });
       get(`/api/admin/stats/active-users?days=${days}`)
         .then((/** @type {any} */ r) => r.json())
@@ -625,13 +625,13 @@ export default function AdminDashboard({ onBack }) {
     {
       key: 'ownerName',
       label: 'Owner',
-      render: (r) => r.ownerName || r.ownerEmail || '—',
+      render: (/** @type {any} */ r) => r.ownerName || r.ownerEmail || '—',
     },
     { key: 'memberCount', label: 'Members' },
     { key: 'fileCount', label: 'Files' },
     { key: 'versionCount', label: 'Edits' },
     { key: 'commentCount', label: 'Comments' },
-    { key: 'lastEdit', label: 'Last Edit', render: (r) => formatDate(r.lastEdit) },
+    { key: 'lastEdit', label: 'Last Edit', render: (/** @type {any} */ r) => formatDate(r.lastEdit) },
   ];
 
   const userCols = [
@@ -640,14 +640,14 @@ export default function AdminDashboard({ onBack }) {
     { key: 'projectCount', label: 'Projects' },
     { key: 'editCount', label: 'Edits' },
     { key: 'commentCount', label: 'Comments' },
-    { key: 'createdAt', label: 'Joined', render: (r) => formatDate(r.createdAt) },
-    { key: 'lastActive', label: 'Last Active', render: (r) => r.lastActive ? formatDateTime(r.lastActive) : '—' },
+    { key: 'createdAt', label: 'Joined', render: (/** @type {any} */ r) => formatDate(r.createdAt) },
+    { key: 'lastActive', label: 'Last Active', render: (/** @type {any} */ r) => r.lastActive ? formatDateTime(r.lastActive) : '—' },
     {
       key: '__delete',
       label: '',
       // `stopPropagation` so the row-expand handler doesn't also fire when
       // clicking the delete button.
-      render: (r) =>
+      render: (/** @type {any} */ r) =>
         r.id === currentAdmin?.id ? (
           <span className="admin-user-self-badge" title="That is you">you</span>
         ) : (
@@ -667,8 +667,8 @@ export default function AdminDashboard({ onBack }) {
   ];
 
   const auditCols = [
-    { key: 'createdAt', label: 'Time', render: (r) => formatDateTime(r.createdAt) },
-    { key: 'userName', label: 'User', render: (r) => r.userName || r.userEmail || r.userId || '-' },
+    { key: 'createdAt', label: 'Time', render: (/** @type {any} */ r) => formatDateTime(r.createdAt) },
+    { key: 'userName', label: 'User', render: (/** @type {any} */ r) => r.userName || r.userEmail || r.userId || '-' },
     { key: 'action', label: 'Action' },
     { key: 'ip', label: 'IP' },
   ];
@@ -918,11 +918,11 @@ export default function AdminDashboard({ onBack }) {
                   <UserActivityDetail
                     activity={userActivity}
                     currentAdminId={currentAdmin?.id}
-                    onToggleAdmin={(_id, isAdmin) => {
+                    onToggleAdmin={(/** @type {any} */ _id, /** @type {boolean} */ isAdmin) => {
                       // Optimistically flip the badge in the open
                       // panel. The outer top-users table doesn't show
                       // admin status, so no list refresh is needed.
-                      setUserActivity((prev) =>
+                      setUserActivity((/** @type {any} */ prev) =>
                         prev ? { ...prev, user: { ...prev.user, isAdmin } } : prev,
                       );
                     }}
@@ -936,7 +936,7 @@ export default function AdminDashboard({ onBack }) {
           <DeletedUsersPanel
             rows={deletedUsers}
             busyId={restoreBusy}
-            onRestore={async (row, password) => {
+            onRestore={async (/** @type {any} */ row, /** @type {any} */ password) => {
               setRestoreBusy(row.id);
               try {
                 const res = await post(`/api/admin/users/${row.id}/restore`, { password });
@@ -944,7 +944,7 @@ export default function AdminDashboard({ onBack }) {
                   const data = await res.json().catch(() => ({}));
                   throw new Error(data.error || 'Restore failed');
                 }
-                setDeletedUsers((prev) => prev.filter((/** @type {any} */ r) => r.id !== row.id));
+                setDeletedUsers((/** @type {any} */ prev) => prev.filter((/** @type {any} */ r) => r.id !== row.id));
               } finally {
                 setRestoreBusy(null);
               }
@@ -985,13 +985,13 @@ export default function AdminDashboard({ onBack }) {
           <DataTable columns={auditCols} rows={auditLog.entries} />
           {auditLog.pages > 1 && (
             <div className="admin-pagination">
-              <button disabled={auditPage <= 1} onClick={() => setAuditPage((p) => p - 1)}>
+              <button disabled={auditPage <= 1} onClick={() => setAuditPage((/** @type {any} */ p) => p - 1)}>
                 Prev
               </button>
               <span>
                 Page {auditLog.page} of {auditLog.pages} ({auditLog.total} entries)
               </span>
-              <button disabled={auditPage >= auditLog.pages} onClick={() => setAuditPage((p) => p + 1)}>
+              <button disabled={auditPage >= auditLog.pages} onClick={() => setAuditPage((/** @type {any} */ p) => p + 1)}>
                 Next
               </button>
             </div>
@@ -1026,7 +1026,7 @@ export default function AdminDashboard({ onBack }) {
                 min="10"
                 max="600"
                 value={adminSettings.compile_timeout || '120'}
-                onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, compile_timeout: e.target.value }))}
+                onChange={(/** @type {any} */ e) => setAdminSettings((/** @type {any} */ s) => ({ ...s, compile_timeout: e.target.value }))}
                 className="auth-input"
                 style={{ width: 100 }}
               />
@@ -1098,7 +1098,7 @@ export default function AdminDashboard({ onBack }) {
                   min={min}
                   max={max}
                   value={adminSettings[key] || fallback}
-                  onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setAdminSettings((/** @type {any} */ s) => ({ ...s, [key]: e.target.value }))}
                   className="auth-input"
                   style={{ width }}
                 />
@@ -1142,7 +1142,7 @@ export default function AdminDashboard({ onBack }) {
                 <input
                   type={type}
                   value={adminSettings[key] || ''}
-                  onChange={(/** @type {any} */ e) => setAdminSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  onChange={(/** @type {any} */ e) => setAdminSettings((/** @type {any} */ s) => ({ ...s, [key]: e.target.value }))}
                   placeholder={placeholder}
                   className="auth-input"
                   style={{ width: width || 260 }}
@@ -1158,7 +1158,7 @@ export default function AdminDashboard({ onBack }) {
                 type="button"
                 className={`settings-toggle ${adminSettings.smtp_secure === 'true' ? 'on' : ''}`}
                 onClick={() =>
-                  setAdminSettings((s) => ({ ...s, smtp_secure: s.smtp_secure === 'true' ? 'false' : 'true' }))
+                  setAdminSettings((/** @type {any} */ s) => ({ ...s, smtp_secure: s.smtp_secure === 'true' ? 'false' : 'true' }))
                 }
                 role="switch"
                 aria-checked={adminSettings.smtp_secure === 'true'}
@@ -1188,7 +1188,7 @@ export default function AdminDashboard({ onBack }) {
                   setSettingsMsg('SMTP settings saved');
                   setTimeout(() => setSettingsMsg(''), 3000);
                 } catch (err) {
-                  setSettingsMsg('Error: ' + (err.message || 'Failed'));
+                  setSettingsMsg('Error: ' + ((err instanceof Error ? err.message : String(err)) || 'Failed'));
                 }
               }}
             >
@@ -1211,7 +1211,7 @@ export default function AdminDashboard({ onBack }) {
                     setSettingsMsg('Error: ' + (d.error || 'Failed to send'));
                   }
                 } catch (err) {
-                  setSettingsMsg('Error: ' + (err.message || 'Failed'));
+                  setSettingsMsg('Error: ' + ((err instanceof Error ? err.message : String(err)) || 'Failed'));
                 }
               }}
             >
@@ -1287,7 +1287,7 @@ function AdminDeleteUserModal({ target, onClose, onDeleted }) {
       }
       onDeleted();
     } catch (err) {
-      setError(err.message || 'Delete failed');
+      setError((err instanceof Error ? err.message : String(err)) || 'Delete failed');
       setSubmitting(false);
     }
   };
@@ -1457,12 +1457,12 @@ function DeletedUsersPanel({ rows, busyId, onRestore }) {
           target={confirmRow}
           busy={busyId === confirmRow.id}
           onClose={() => setConfirmRow(null)}
-          onConfirm={async (password) => {
+          onConfirm={async (/** @type {any} */ password) => {
             try {
               await onRestore(confirmRow, password);
               setConfirmRow(null);
             } catch (e) {
-              setError(e.message || 'Restore failed');
+              setError((e instanceof Error ? e.message : null) || 'Restore failed');
               setConfirmRow(null);
             }
           }}
@@ -1489,7 +1489,7 @@ function AdminRestoreUserModal({ target, busy, onClose, onConfirm }) {
           Restore <strong>{target.email}</strong>? They&rsquo;ll be able to sign in again with their existing password. All projects and memberships stay intact.
         </p>
         <form
-          onSubmit={async (e) => {
+          onSubmit={async (/** @type {any} */ e) => {
             e.preventDefault();
             if (!password || submitting) return;
             setError('');
@@ -1497,7 +1497,7 @@ function AdminRestoreUserModal({ target, busy, onClose, onConfirm }) {
             try {
               await onConfirm(password);
             } catch (err) {
-              setError(err?.message || 'Restore failed');
+              setError((err instanceof Error ? err.message : null) || 'Restore failed');
             } finally {
               setSubmitting(false);
             }

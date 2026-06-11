@@ -45,6 +45,7 @@ function translateStatusError(raw) {
  *  through untouched. Better to leave a preamble than to chew a
  *  legitimate first sentence the user wanted to keep.
  */
+/** @param {string} raw */
 export function stripLlmPreamble(raw) {
   if (!raw) return raw;
   let text = raw.trim();
@@ -115,6 +116,7 @@ export function stripLlmPreamble(raw) {
  *  Conservative: anything we don't recognise is passed through with a
  *  generic preface so the original Go error still helps power users.
  */
+/** @param {string} raw */
 export function translateOllamaError(raw) {
   const msg = String(raw || '');
   if (!msg) {
@@ -190,7 +192,7 @@ function translateGenerateError(raw) {
  * @param {any} props
  */
 export default function LlmActionDialog({ task, initialText, onClose, onAccept }) {
-  const taskSpec = LLM_TASKS[task] || LLM_TASKS['write-to-length'];
+  const taskSpec = /** @type {Record<string, any>} */ (LLM_TASKS)[task] || LLM_TASKS['write-to-length'];
   const { alert: showAlert } = useAlert();
   const initialWordCount = (initialText.match(/\S+/g) || []).length || 1;
   const [targetWords, setTargetWords] = useState(initialWordCount);
@@ -257,6 +259,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
       showAlert('Pick a model first.', { title: 'No model selected' });
       return;
     }
+    /** @type {any} */
     const payload = { task, input: initialText, model };
     if (taskSpec.needsTargetWords) {
       const n = parseInt(targetWords, 10);
@@ -288,7 +291,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     abortRef.current = ctl;
     const r = await streamLlmComplete(
       payload,
-      (delta) => setOutput((prev) => prev + delta),
+      (delta) => setOutput((/** @type {any} */ prev) => prev + delta),
       ctl.signal,
     );
     setGenerating(false);
@@ -303,7 +306,7 @@ export default function LlmActionDialog({ task, initialText, onClose, onAccept }
     // button operate on the cleaned text (what you see is what gets
     // inserted). Stripper is intentionally conservative — it leaves
     // anything it doesn't recognise alone.
-    setOutput((cur) => stripLlmPreamble(cur));
+    setOutput((/** @type {any} */ cur) => stripLlmPreamble(cur));
   }, [initialText, targetWords, instruction, model, task, taskSpec.needsTargetWords, taskSpec.needsInstruction, showAlert]);
 
   const handleStop = () => {

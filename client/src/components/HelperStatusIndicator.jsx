@@ -113,7 +113,7 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
       <button
         type="button"
         className="helper-status-indicator-trigger"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((/** @type {any} */ v) => !v)}
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -310,8 +310,7 @@ function PopoverActions({ primary, secondary }) {
  * @param {string | null | undefined} latest
  * @returns {VersionVerdict}
  */
-/** @param {any} installed */
-/** @param {any} latest */
+/** @param {string} installed @param {string} latest */
 function compareHelperVersion(installed, latest) {
   if (!installed || !latest) return 'unknown';
   /** @param {string} s */
@@ -340,7 +339,7 @@ function compareHelperVersion(installed, latest) {
  * }} props
  */
 function HelperVersionLine({ installed, latest }) {
-  const verdict = compareHelperVersion(installed, latest);
+  const verdict = compareHelperVersion(installed || '', latest || '');
   if (verdict === 'older') {
     return (
       <div className="helper-status-popover-hint helper-status-popover-update">

@@ -72,14 +72,14 @@ export default function HistoryView({
           historyFilePath={ui.historySelectedFile?.path}
           refreshKey={historyVersion}
           snapshotInterval={project.snapshot_interval_sec || 30}
-          onSnapshotIntervalChange={async (val) => {
+          onSnapshotIntervalChange={async (/** @type {any} */ val) => {
             await fetch(`/api/projects/${project.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
               credentials: 'include',
               body: JSON.stringify({ snapshot_interval_sec: val }),
             });
-            setProject((p) => ({ ...p, snapshot_interval_sec: val }));
+            setProject((/** @type {any} */ p) => ({ ...p, snapshot_interval_sec: val }));
           }}
           onClose={() => {
             ui.setShowHistory(false);
@@ -87,7 +87,7 @@ export default function HistoryView({
             ui.setHistoryFiles(null);
             ui.setHistorySelectedFile(null);
           }}
-          onRestore={(restoredFiles) => {
+          onRestore={(/** @type {any} */ restoredFiles) => {
             setFiles(restoredFiles);
             ui.setShowHistory(false);
             ui.setHistoryEditedFileIds([]);
@@ -103,7 +103,7 @@ export default function HistoryView({
               setTimeout(() => editorRef.current?.replaceContent((mainFile || restoredFiles[0]).content), 50);
             } else setActiveFile(null);
           }}
-          onSelectVersion={async (snapshot) => {
+          onSelectVersion={async (/** @type {any} */ snapshot) => {
             ui.setHistorySelectedFile(null);
             try {
               const res = await get(`/api/history/snapshot/${snapshot.id}`);

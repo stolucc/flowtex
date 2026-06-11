@@ -2,9 +2,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getColor } from './Avatar.jsx';
 
-/** Render text with @mentions highlighted. Shared by comments and chat. */
+/** Render text with `@`mentions highlighted. Shared by comments and chat.
+ *  @param {string} text
+ */
 export function renderMentionText(text) {
   if (!text) return text;
+  /** @type {any[]} */
   const parts = [];
   const re = /@"([^"]+)"|@(\S+)/g;
   let last = 0;
@@ -19,10 +22,13 @@ export function renderMentionText(text) {
   return parts.length > 1 ? parts : text;
 }
 
-/** Extract @mention names that resolve to a known member. Returns lowercase names. */
+/** Extract `@`mention names that resolve to a known member. Returns lowercase names.
+ *  @param {string} text @param {any[]} members
+ */
 export function extractMentions(text, members) {
   if (!text || !members?.length) return [];
   const re = /@"([^"]+)"|@(\S+)/g;
+  /** @type {string[]} */
   const found = [];
   let m;
   while ((m = re.exec(text))) {
@@ -38,7 +44,7 @@ export function extractMentions(text, members) {
  *  Keyboard inside the picker:
  *    ↓ / ↑           — move selection
  *    Tab / Enter     — accept highlighted candidate
- *  Hitting space (or any char that breaks the @\S* run) hides the
+ *  Hitting space (or any char that breaks the `@\S*` run) hides the
  *  picker naturally. When closed, all keystrokes pass through to the
  *  caller's onKeyDown (so chat's Enter-to-send keeps working).
  * @param {any} props

@@ -491,6 +491,7 @@ function AppInner() {
         const msgs = Array.isArray(data) ? data : data?.messages || [];
         const cursors = Array.isArray(data) ? [] : data?.readCursors || [];
         setChatMessages(msgs);
+        /** @type {Record<string, any>} */
         const map = {};
         for (const c of cursors) map[c.userId] = c.lastReadAt;
         setChatReadCursors(map);
@@ -596,7 +597,7 @@ function AppInner() {
   if (needsSetup)
     return (
       <SetupWizard
-        onComplete={(u) => {
+        onComplete={(/** @type {any} */ u) => {
           setNeedsSetup(false);
           setUser(u);
         }}
@@ -686,9 +687,9 @@ function AppInner() {
           users={activeUsers}
           currentUser={user}
           isOwner={members.some((/** @type {any} */ m) => m.id === user?.id && m.role === 'owner')}
-          onRename={async (newName) => {
+          onRename={async (/** @type {any} */ newName) => {
             await patch(`/api/projects/${project.id}`, { name: newName });
-            setProject((p) => ({ ...p, name: newName }));
+            setProject((/** @type {any} */ p) => ({ ...p, name: newName }));
           }}
           onShare={() => ui.setShowShareModal(true)}
           onLogout={handleLogoutFull}
@@ -708,7 +709,7 @@ function AppInner() {
           onHistory={() => ui.setShowHistory(true)}
           onNewFile={() => setNewFileCounter((c) => c + 1)}
           onNewFolder={() => setNewFolderCounter((c) => c + 1)}
-          onInsert={(before, after) => editorRef.current?.insertSnippet(before, after)}
+          onInsert={(/** @type {any} */ before, /** @type {any} */ after) => editorRef.current?.insertSnippet(before, after)}
           onSymbolPicker={() => editorRef.current?.openSymbolPicker()}
           onToggleComments={() => ui.setShowComments((v) => !v)}
           showTrackedChangesInline={ui.showTrackedChangesInline}
@@ -746,7 +747,7 @@ function AppInner() {
               onOpen={refreshNotifications}
               onMarkSeen={notifMarkSeen}
               onMarkAllSeen={notifMarkAllSeen}
-              onNavigate={async (m) => {
+              onNavigate={async (/** @type {any} */ m) => {
                 // Chat mentions open the chat panel; comment mentions open
                 // the comments sidebar and deep-link to the comment. Branch
                 // on chat_message_id since both share the same inbox.
@@ -780,7 +781,7 @@ function AppInner() {
               }}
             />
           }
-          onHelp={(topic) => {
+          onHelp={(/** @type {any} */ topic) => {
             if (topic === 'shortcuts') ui.setShowShortcuts(true);
             else if (topic === 'about') ui.setShowAbout(true);
             else if (topic === 'bug-report') ui.setShowBugReport(true);
@@ -822,11 +823,11 @@ function AppInner() {
           onToggleAutoSync={handleToggleAutoSync}
           spellLanguages={LANGUAGES}
           spellLang={spellLang}
-          onSpellLangChange={(code) => {
+          onSpellLangChange={(/** @type {any} */ code) => {
             setLanguage(code);
             setSpellLangState(code);
           }}
-          onUploadZip={async (file) => {
+          onUploadZip={async (/** @type {any} */ file) => {
             if (!project) return;
             const formData = new FormData();
             formData.append('file', file);
@@ -836,7 +837,7 @@ function AppInner() {
               setFiles(data.files);
             }
           }}
-          onUserClick={(u) => {
+          onUserClick={(/** @type {any} */ u) => {
             const cursor = remoteCursors[u.id];
             if (!cursor) return;
             if (cursor.fileId === activeFile?.id) {
@@ -974,14 +975,14 @@ function AppInner() {
                     onDeleteFolder={handleDeleteFolder}
                     emptyFolders={emptyFolders}
                     onCreateFolder={handleCreateFolder}
-                    onSetMainFile={async (path) => {
+                    onSetMainFile={async (/** @type {any} */ path) => {
                       // handleSetMainFile throws if the PATCH fails — keep the
                       // local-state cleanup gated on success so a 403 / 4xx
                       // doesnt leave the UI claiming a stale main file.
                       try {
                         await handleSetMainFile(path);
                       } catch (err) {
-                        showAlert(err.message || 'Could not set main file', { title: 'Set main file failed' });
+                        showAlert((err instanceof Error ? err.message : null) || 'Could not set main file', { title: 'Set main file failed' });
                         return;
                       }
                       setPdfUrl(null);
@@ -994,7 +995,7 @@ function AppInner() {
                     startAdding={newFileCounter}
                     startAddingFolder={newFolderCounter}
                     style={{ flex: 1, width: '100%' }}
-                    onDownload={(file) => {
+                    onDownload={(/** @type {any} */ file) => {
                       const fileName = file.path.split('/').pop();
                       if (file.is_binary) {
                         // Binary content is no longer shipped with the
@@ -1015,7 +1016,7 @@ function AppInner() {
                         URL.revokeObjectURL(url);
                       }
                     }}
-                    onPrettyPrint={(file) => {
+                    onPrettyPrint={(/** @type {any} */ file) => {
                       if (!file.path.endsWith('.bib')) return;
                       // Pretty-print using the file's own content. Reading from the editor after
                       // switchFile + setTimeout races against further file switches and could
@@ -1042,7 +1043,7 @@ function AppInner() {
                     activeFile={activeFile}
                     height={ui.outlinePanelHeight}
                     onResize={ui.setOutlinePanelHeight}
-                    onJump={(path, line) => {
+                    onJump={(/** @type {any} */ path, /** @type {any} */ line) => {
                       // Cross-file: switch to the file holding the
                       // section, then go to line. Same-file shortcut
                       // skips the switch.
@@ -1116,7 +1117,7 @@ function AppInner() {
                       y={ui.genContextMenu.y}
                       name={ui.genContextMenu.name}
                       onClose={() => ui.setGenContextMenu(null)}
-                      onDownload={async (name) => {
+                      onDownload={async (/** @type {any} */ name) => {
                         try {
                           const res = await get(
                             `/api/compile/${project.id}/generated-file?name=${encodeURIComponent(name)}`,
@@ -1136,7 +1137,7 @@ function AppInner() {
                     />
                   )}
                 </div>
-                <ResizeHandle onResize={(d) => ui.setFileTreeWidth((w) => Math.max(120, Math.min(400, w + d)))} />
+                <ResizeHandle onResize={(/** @type {any} */ d) => ui.setFileTreeWidth((w) => Math.max(120, Math.min(400, w + d)))} />
               </>
             ) : (
               <button className="files-toggle-btn" onClick={() => ui.setShowFiles(true)} title="Show files">
@@ -1165,7 +1166,7 @@ function AppInner() {
                   onClose={() => ui.setShowComments(false)}
                   style={{ width: ui.commentsWidth }}
                 />
-                <ResizeHandle onResize={(d) => ui.setCommentsWidth((w) => Math.max(180, Math.min(450, w + d)))} />
+                <ResizeHandle onResize={(/** @type {any} */ d) => ui.setCommentsWidth((w) => Math.max(180, Math.min(450, w + d)))} />
               </>
             ) : (
               // Collapsed comments rail: a thin vertical strip that
@@ -1263,16 +1264,16 @@ function AppInner() {
                     tcPositions={tcPositions}
                     currentUserId={user?.id}
                     currentUserName={user?.name}
-                    onAccept={(id) => acceptAndNext(id)}
-                    onReject={(id) => rejectAndNext(id)}
+                    onAccept={(/** @type {any} */ id) => acceptAndNext(id)}
+                    onReject={(/** @type {any} */ id) => rejectAndNext(id)}
                     onAcceptAll={handleAcceptAllChanges}
                     onRejectAll={handleRejectAllChanges}
-                    onGoToPosition={(pos) => editorRef.current?.goToPosition(pos)}
+                    onGoToPosition={(/** @type {any} */ pos) => editorRef.current?.goToPosition(pos)}
                     onClose={() => ui.setShowChangesPanel(false)}
                   />
                 </div>
                 <ResizeHandle
-                  onResize={(d) => ui.setChangesPanelWidth((w) => Math.max(180, Math.min(450, w + d)))}
+                  onResize={(/** @type {any} */ d) => ui.setChangesPanelWidth((w) => Math.max(180, Math.min(450, w + d)))}
                 />
               </>
             ) : (
@@ -1396,7 +1397,7 @@ function AppInner() {
                     yjsIsApplyingRemote={yjs.isApplyingRemote}
                     onSave={handleSave}
                     onLineChange={setEditorLine}
-                    onChanges={(changes, tracked, deletions, tcMarks) => {
+                    onChanges={(/** @type {any} */ changes, /** @type {any} */ tracked, /** @type {any} */ deletions, /** @type {any} */ tcMarks) => {
                       // YJS-MIGRATION phase 1.5: when Y.js sync is on,
                       // doc text already flows over the `yjs-update`
                       // channel — broadcasting `changes` too would
@@ -1418,12 +1419,12 @@ function AppInner() {
                         ...(tcMarks ? { tcMarks } : {}),
                       });
                     }}
-                    onCursorChange={(head, anchor) =>
+                    onCursorChange={(/** @type {any} */ head, /** @type {any} */ anchor) =>
                       sendWsMessage({ type: 'cursor', fileId: activeFile?.id, head, anchor })
                     }
                     onDocChange={refreshFromDoc}
                     onCompile={handleCompile}
-                    onRequestComment={(sel) => {
+                    onRequestComment={(/** @type {any} */ sel) => {
                       setSelection(sel);
                       ui.setShowComments(true);
                     }}
@@ -1455,7 +1456,7 @@ function AppInner() {
                         : null
                     }
                     projectFiles={files}
-                    onGoToFile={(fileId, line, col) => {
+                    onGoToFile={(/** @type {any} */ fileId, /** @type {any} */ line, /** @type {any} */ col) => {
                       const f = files.find((/** @type {any} */ f) => f.id === fileId);
                       if (f) {
                         if (f.id !== activeFile?.id) {
@@ -1477,7 +1478,7 @@ function AppInner() {
                         return;
                       }
                       const newVal = !githubLink.autoPush;
-                      setGithubLink((prev) => (prev ? { ...prev, autoPush: newVal } : prev));
+                      setGithubLink((/** @type {any} */ prev) => (prev ? { ...prev, autoPush: newVal } : prev));
                       await patch(`/api/github/link/${project.id}/auto-push`, { enabled: newVal });
                     }}
                   />
@@ -1511,9 +1512,10 @@ function AppInner() {
                   />
                 </div>
                 <ResizeHandle
-                  onResize={(d) =>
-                    ui.setPdfWidth((w) => {
-                      const current = w || document.querySelector('.pdf-viewer')?.offsetWidth || 500;
+                  onResize={(/** @type {number} */ d) =>
+                    ui.setPdfWidth((/** @type {number} */ w) => {
+                      const el = /** @type {HTMLElement | null} */ (document.querySelector('.pdf-viewer'));
+                      const current = w || el?.offsetWidth || 500;
                       return Math.max(250, current - d);
                     })
                   }
@@ -1529,7 +1531,7 @@ function AppInner() {
               compileChoice={compileChoice}
               localCompileFeatureOn={!!user?.serverFeatures?.localCompile}
               projectCompileLocation={project?.compile_location ?? null}
-              onSetProjectCompileLocation={async (loc) => {
+              onSetProjectCompileLocation={async (/** @type {any} */ loc) => {
                 if (!project) return;
                 // Send '' for null so the server-side coerces it to NULL
                 // (inherit user default). Matches the contract enforced
@@ -1547,9 +1549,9 @@ function AppInner() {
                   // local state so the dropdowns checkmark + the compile
                   // button label refresh without a reload.
                   const updated = await res.json();
-                  setProject((p) => (p ? { ...p, ...updated } : p));
+                  setProject((/** @type {any} */ p) => (p ? { ...p, ...updated } : p));
                 } catch (err) {
-                  showAlert(err?.message || 'Could not change compile location', { title: 'Compile location' });
+                  showAlert((err instanceof Error ? err.message : null) || 'Could not change compile location', { title: 'Compile location' });
                 }
               }}
               onCompile={() => {
@@ -1590,8 +1592,8 @@ function AppInner() {
                     ? { flex: 'none', width: ui.pdfWidth }
                     : undefined
               }
-              onGoToLine={(line, col) => editorRef.current?.goToLine(line, col)}
-              onGoToFileAndLine={(filePath, line, col) => {
+              onGoToLine={(/** @type {any} */ line, /** @type {any} */ col) => editorRef.current?.goToLine(line, col)}
+              onGoToFileAndLine={(/** @type {any} */ filePath, /** @type {any} */ line, /** @type {any} */ col) => {
                 const f = files.find((/** @type {any} */ f) => f.path === filePath);
                 if (f) {
                   switchFile(f);
@@ -1607,7 +1609,7 @@ function AppInner() {
               }}
               mainFileExists={!filesLoaded || files.some((/** @type {any} */ f) => f.path === mainFilePath)}
               mainFileChanged={mainFileChanged}
-              onOpenSettings={(tab) => {
+              onOpenSettings={(/** @type {any} */ tab) => {
                 setProjectSettingsTab(tab || null);
                 ui.setShowProjectSettings(true);
               }}
@@ -1621,8 +1623,8 @@ function AppInner() {
                 currentUser={user}
                 members={members}
                 readCursors={chatReadCursors}
-                onSend={(text) => sendWsMessage({ type: 'chat', text })}
-                onReact={(messageId, emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
+                onSend={(/** @type {any} */ text) => sendWsMessage({ type: 'chat', text })}
+                onReact={(/** @type {any} */ messageId, /** @type {any} */ emoji) => sendWsMessage({ type: 'chat-react', messageId, emoji })}
                 onRead={() => sendWsMessage({ type: 'chat-read' })}
                 onClose={() => setShowChat(false)}
                 onTyping={() => sendWsMessage({ type: 'typing' })}

@@ -49,6 +49,7 @@ function parseBibEntries(content) {
     const entryEnd = closeIdx === -1 ? content.length : closeIdx + 1;
     const body = content.slice(start, closeIdx === -1 ? content.length : closeIdx);
 
+    /** @type {Record<string, string>} */
     const fields = {};
     const fieldRe = /(\w+)\s*=\s*/g;
     let fm;
@@ -94,13 +95,14 @@ function parseBibEntries(content) {
 /**
  * Splices accepted field additions into .bib source, working back-to-front to preserve offsets.
  * @param {string} content - Original .bib file content
- * @param {Array} entries - Parsed BibTeX entries from parseBibEntries
+ * @param {any[]} entries - Parsed BibTeX entries from parseBibEntries
  * @param {Array<{entryKey: string, field: string, value: string}>} acceptedChanges
  * @returns {string} Updated .bib content
  */
 function applyAcceptedChanges(content, entries, acceptedChanges) {
   // acceptedChanges: [{ entryKey, field, value }]
   // Group by entry key
+  /** @type {Record<string, any[]>} */
   const byEntry = {};
   for (const ch of acceptedChanges) {
     if (!byEntry[ch.entryKey]) byEntry[ch.entryKey] = [];
@@ -167,11 +169,11 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   }, [entries]);
 
   const toggleField = (/** @type {any} */ key) => {
-    setSelectedFields((prev) => (prev.includes(key) ? prev.filter((/** @type {any} */ f) => f !== key) : [...prev, key]));
+    setSelectedFields((/** @type {any} */ prev) => (prev.includes(key) ? prev.filter((/** @type {any} */ f) => f !== key) : [...prev, key]));
   };
 
   const toggleEntry = (/** @type {any} */ key) => {
-    setSelectedEntries((prev) => {
+    setSelectedEntries((/** @type {any} */ prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -180,7 +182,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   };
 
   const addLog = (/** @type {any} */ line) => {
-    setLogLines((prev) => [...prev, line]);
+    setLogLines((/** @type {any} */ prev) => [...prev, line]);
     setTimeout(() => {
       logRef.current?.scrollTo(0, logRef.current.scrollHeight);
     }, 0);
@@ -194,6 +196,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     setLogLines([]);
 
     const entriesToLookup = entries.filter((/** @type {any} */ e) => selectedEntries.has(e.key));
+    /** @type {any[]} */
     const allResults = [];
     addLog(`Starting lookup for ${entriesToLookup.length} entries...`);
 
@@ -239,7 +242,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
           addLog(`  ✗ not found on CrossRef`);
         }
       } catch (err) {
-        addLog(`  ✗ error: ${err.message}`);
+        addLog(`  ✗ error: ${err instanceof Error ? (err instanceof Error ? err.message : String(err)) : err}`);
         allResults.push({ key: e.key, found: false, added: {} });
       }
     }
@@ -249,6 +252,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     addLog(`\nDone. Found data for ${foundCount} entries (${totalAdded} fields to add).`);
 
     // Initialize change status — all pending
+    /** @type {Record<string, string>} */
     const status = {};
     for (const r of allResults) {
       for (const field of Object.keys(r.added)) {
@@ -286,7 +290,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   };
 
   const handleAcceptAll = () => {
-    setChangeStatus((prev) => {
+    setChangeStatus((/** @type {any} */ prev) => {
       const next = { ...prev };
       for (const k of Object.keys(next)) {
         if (next[k] === 'pending') next[k] = 'accepted';
@@ -296,7 +300,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
   };
 
   const handleRejectAll = () => {
-    setChangeStatus((prev) => {
+    setChangeStatus((/** @type {any} */ prev) => {
       const next = { ...prev };
       for (const k of Object.keys(next)) {
         if (next[k] === 'pending') next[k] = 'rejected';
@@ -305,8 +309,8 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
     });
   };
 
-  const setFieldStatus = (entryKey, field, status) => {
-    setChangeStatus((prev) => ({ ...prev, [`${entryKey}::${field}`]: status }));
+  const setFieldStatus = (/** @type {any} */ entryKey, /** @type {any} */ field, /** @type {any} */ status) => {
+    setChangeStatus((/** @type {any} */ prev) => ({ ...prev, [`${entryKey}::${field}`]: status }));
   };
 
   // Compute counts for review
@@ -368,7 +372,7 @@ export default function BibEnrichModal({ file, onClose, onApply }) {
                       <div
                         key={e.key}
                         className={`bib-enrich-entry-row ${selectedEntries?.has(e.key) ? 'selected' : ''} ${previewKey === e.key ? 'previewing' : ''}`}
-                        onClick={() => setPreviewKey((prev) => (prev === e.key ? null : e.key))}
+                        onClick={() => setPreviewKey((/** @type {any} */ prev) => (prev === e.key ? null : e.key))}
                       >
                         <input
                           type="checkbox"

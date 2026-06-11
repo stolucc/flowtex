@@ -97,14 +97,14 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
     setCols(newCols);
     setSizeConfirmed(true);
     // Resize vlines array to match new column count
-    setVlines((prev) => {
+    setVlines((/** @type {any} */ prev) => {
       const needed = newCols + 1;
       if (prev.length === needed) return prev;
       if (prev.length < needed) return [...prev, ...Array(needed - prev.length).fill(false)];
       return prev.slice(0, needed);
     });
     // Resize colSettings to match new column count
-    setColSettings((prev) => {
+    setColSettings((/** @type {any} */ prev) => {
       const defaultAlign = prev.length > 0 ? prev[prev.length - 1].align : 'c';
       if (prev.length < newCols) return [...prev, ...Array(newCols - prev.length).fill({ align: defaultAlign })];
       return prev.slice(0, newCols);
@@ -121,7 +121,9 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
       c2: Math.max(sel.startCol, sel.endCol),
     };
   }
-  /** Check whether cell (r, c) falls within the given selection rectangle. */
+  /** Check whether cell (r, c) falls within the given selection rectangle.
+   *  @param {any} sel @param {number} r @param {number} c
+   */
   function isInSelection(sel, r, c) {
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
     return r >= r1 && r <= r2 && c >= c1 && c <= c2;
@@ -132,9 +134,9 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
     return { rows: r2 - r1 + 1, cols: c2 - c1 + 1, cells: (r2 - r1 + 1) * (c2 - c1 + 1) };
   }
-  /** Return true if the selection partially overlaps any existing merge (full containment is allowed). */
-/** @param {any} merges */
-/** @param {any} sel */
+  /** Return true if the selection partially overlaps any existing merge (full containment is allowed).
+   *  @param {any[]} merges @param {any} sel
+   */
   function selectionOverlapsMerge(merges, sel) {
     if (!sel || !merges.length) return false;
     const { r1, c1, r2, c2 } = normalizeSelection(sel);
@@ -431,7 +433,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
               <span className="table-opt-toggle-label">Header row</span>
               <button
                 className={`table-toggle${headerRow ? ' on' : ''}`}
-                onClick={() => setHeaderRow((v) => !v)}
+                onClick={() => setHeaderRow((/** @type {boolean} */ v) => !v)}
                 role="switch"
                 aria-checked={headerRow}
               >
@@ -442,7 +444,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
               <span className="table-opt-toggle-label">Bold header</span>
               <button
                 className={`table-toggle${boldHeader ? ' on' : ''}`}
-                onClick={() => setBoldHeader((v) => !v)}
+                onClick={() => setBoldHeader((/** @type {boolean} */ v) => !v)}
                 role="switch"
                 aria-checked={boldHeader}
               >
@@ -453,7 +455,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
               <span className="table-opt-toggle-label">Centered</span>
               <button
                 className={`table-toggle${centering && captionPos !== 'left' && captionPos !== 'right' ? ' on' : ''}`}
-                onClick={() => { if (captionPos !== 'left' && captionPos !== 'right') setCentering((v) => !v); }}
+                onClick={() => { if (captionPos !== 'left' && captionPos !== 'right') setCentering((/** @type {boolean} */ v) => !v); }}
                 role="switch"
                 aria-checked={centering && captionPos !== 'left' && captionPos !== 'right'}
                 disabled={captionPos === 'left' || captionPos === 'right'}
@@ -465,7 +467,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
               <span className="table-opt-toggle-label">Zebra stripes</span>
               <button
                 className={`table-toggle${zebra ? ' on' : ''}`}
-                onClick={() => setZebra((v) => !v)}
+                onClick={() => setZebra((/** @type {boolean} */ v) => !v)}
                 role="switch"
                 aria-checked={zebra}
               >
@@ -479,7 +481,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
             <span className="table-opt-toggle-label">Caption</span>
             <button
               className={`table-toggle${caption ? ' on' : ''}`}
-              onClick={() => setCaption((v) => !v)}
+              onClick={() => setCaption((/** @type {boolean} */ v) => !v)}
               role="switch"
               aria-checked={caption}
             >
@@ -502,13 +504,13 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                     ['right', 'bottom', 'Bottom right', <svg key="rb" width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="11" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/><line x1="16" y1="9" x2="16" y2="12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/></svg>],
                   ].map(([pos, valign, title, icon]) => (
                     <button
-                      key={title}
+                      key={String(title)}
                       className={`table-opt-btn ${captionPos === pos && captionVAlign === valign ? 'active' : ''}`}
                       onClick={() => {
-                        setCaptionPos(pos);
-                        setCaptionVAlign(valign);
+                        setCaptionPos(/** @type {string} */ (pos));
+                        setCaptionVAlign(/** @type {string} */ (valign));
                       }}
-                      title={title}
+                      title={String(title)}
                       disabled={(env === 'longtable' || multiColumn) && (pos === 'left' || pos === 'right')}
                     >
                       {icon}
@@ -577,7 +579,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                 className="table-merge-btn"
                 onClick={() => {
                   const { r1, c1, r2, c2 } = normalizeSelection(selection);
-                  setMerges((prev) => [
+                  setMerges((/** @type {any[]} */ prev) => [
                     ...prev,
                     { row: r1, col: c1, rowSpan: r2 - r1 + 1, colSpan: c2 - c1 + 1, align: colSettings[c1]?.align || 'c' },
                   ]);
@@ -602,7 +604,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                         value={existing.trim || ''}
                         onChange={(/** @type {any} */ e) => {
                           const trim = e.target.value;
-                          setClines((prev) => prev.map((/** @type {any} */ cl) =>
+                          setClines((/** @type {any[]} */ prev) => prev.map((/** @type {any} */ cl) =>
                             cl === existing ? { ...cl, trim } : cl
                           ));
                         }}
@@ -616,7 +618,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                     <button
                       className="table-merge-btn"
                       onClick={() => {
-                        setClines((prev) => prev.filter((/** @type {any} */ cl) => cl !== existing));
+                        setClines((/** @type {any[]} */ prev) => prev.filter((/** @type {any} */ cl) => cl !== existing));
                         setSelection(null);
                       }}
                     >
@@ -642,8 +644,9 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                   <button
                     className="table-merge-btn"
                     onClick={() => {
-                      const trimVal = isBt ? (document.getElementById('cline-new-trim')?.value || 'lr') : '';
-                      setClines((prev) => [...prev, { row: r1, fromCol: c1, toCol: c2, trim: trimVal }]);
+                      const sel = /** @type {HTMLSelectElement | null} */ (document.getElementById('cline-new-trim'));
+                      const trimVal = isBt ? (sel?.value || 'lr') : '';
+                      setClines((/** @type {any[]} */ prev) => [...prev, { row: r1, fromCol: c1, toCol: c2, trim: trimVal }]);
                       setSelection(null);
                     }}
                   >
@@ -664,7 +667,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                         key={a}
                         className={`table-col-align-btn${cs.align === a ? ' active' : ''}`}
                         onClick={() => {
-                          setColSettings((prev) => {
+                          setColSettings((/** @type {any} */ prev) => {
                             const next = [...prev];
                             while (next.length <= c) next.push({ align: 'c' });
                             if (a === 'p' && !next[c].width) {
@@ -690,7 +693,7 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                       type="text"
                       value={cs.width || ''}
                       onChange={(/** @type {any} */ e) => {
-                        setColSettings((prev) => {
+                        setColSettings((/** @type {any} */ prev) => {
                           const next = [...prev];
                           next[c] = { ...next[c], width: e.target.value };
                           return next;
@@ -740,12 +743,12 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                       setSelecting(true);
                     }}
                     onMouseEnter={() => {
-                      if (selecting) setSelection((prev) => (prev ? { ...prev, endRow: r, endCol: c } : prev));
+                      if (selecting) setSelection((/** @type {any} */ prev) => (prev ? { ...prev, endRow: r, endCol: c } : prev));
                     }}
                     onClick={() => {
                       // Click on merged cell: offer unmerge
                       if (merge) {
-                        setMerges((prev) => prev.filter((/** @type {any} */ m) => m !== merge));
+                        setMerges((/** @type {any[]} */ prev) => prev.filter((/** @type {any} */ m) => m !== merge));
                         setSelection(null);
                       }
                     }}

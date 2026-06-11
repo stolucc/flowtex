@@ -29,7 +29,7 @@ export default function NotificationBell({ mentions, unreadCount, currentProject
 
   const toggle = () => {
     if (!open) onOpen?.();
-    setOpen((v) => !v);
+    setOpen((/** @type {any} */ v) => !v);
   };
 
   const handleClickMention = (/** @type {any} */ m) => {

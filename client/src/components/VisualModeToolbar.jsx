@@ -5,6 +5,7 @@ import { getCursorStyle } from '../utils/visualMode.js';
 import { findMatchingBrace } from '../utils/latexParser.js';
 
 /** LaTeX color name → CSS color map for toolbar indicators */
+/** @type {Record<string, string>} */
 const VM_COLOR_MAP = {
   black: '#000000', red: '#e53935', blue: '#1e88e5', green: '#43a047',
   orange: '#fb8c00', purple: '#8e24aa', cyan: '#00acc1', magenta: '#d81b60',
@@ -26,7 +27,11 @@ const VM_COLOR_MAP = {
  *                      Editor.jsx because it shares logic with the visual-mode
  *                      keymap (Enter/Tab/Shift-Tab) which also operates on lists.
  */
-const VisualModeToolbar = forwardRef(function VisualModeToolbar(
+const VisualModeToolbar = forwardRef(/**
+ * @param {any} props
+ * @param {any} ref
+ */
+function VisualModeToolbar(
   { viewRef, visualMode, onInsertList, onInsertQuote, citeKeys },
   ref,
 ) {
@@ -71,6 +76,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
     const style = getCursorStyle(view.state.doc, from);
 
     // Map block style to heading select value
+    /** @type {Record<string, string>} */
     const blockToLevel = {
       Part: 'part', Chapter: 'chapter', Section: 'section',
       Subsection: 'subsection', Subsubsection: 'subsubsection',
@@ -133,14 +139,14 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
   // Build the LaTeX wrapper for a highlight color.
   // Uses \hl{} (soul package) which supports line breaks, unlike \colorbox.
   // Yellow: \hl{text}   Other: {\sethlcolor{color}\hl{text}}
-  const hlWrapper = useCallback((colorName) => {
+  const hlWrapper = useCallback((/** @type {string} */ colorName) => {
     if (colorName === 'yellow') return { before: '\\hl{', after: '}' };
     return { before: `{\\sethlcolor{${colorName}}\\hl{`, after: '}}' };
   }, []);
 
   // Find the enclosing color/highlight command around `pos`.
   // Returns { cmdStart, contentStart, closePos, oldColor } or null.
-  const vmFindEnclosingColor = useCallback((doc, pos, mode) => {
+  const vmFindEnclosingColor = useCallback((/** @type {string} */ doc, /** @type {number} */ pos, /** @type {string} */ mode) => {
     const searchStart = Math.max(0, pos - 500);
     const before = doc.slice(searchStart, pos);
     const patterns = mode === 'highlight'
@@ -174,7 +180,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
 
   // Apply, change, or remove \textcolor / highlight.
   // colorName = null means "remove formatting".
-  const vmApplyColor = useCallback((colorName, mode) => {
+  const vmApplyColor = useCallback((/** @type {string | null} */ colorName, /** @type {string} */ mode) => {
     const view = viewRef.current;
     if (!view) return;
     const { from, to } = view.state.selection.main;
@@ -458,7 +464,7 @@ const VisualModeToolbar = forwardRef(function VisualModeToolbar(
           className="vm-toolbar-btn"
           title="Insert citation (\\cite{…})"
           onMouseDown={(/** @type {any} */ e) => e.preventDefault()}
-          onClick={() => setVmCiteOpen((v) => !v)}
+          onClick={() => setVmCiteOpen((/** @type {any} */ v) => !v)}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4z" />

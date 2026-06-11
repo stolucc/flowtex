@@ -187,10 +187,10 @@ function CompilerSection({
   const { status: helperStatus } = useHelperStatusContext();
   const effectiveLocation = compileLocation || userCompileLocation || 'server';
   const localDistros = useMemo(
-    () => (helperStatus?.distributionsAvailable || []).map((/** @type {any} */ d) => ({
+    () => (/** @type {any} */ (helperStatus)?.distributionsAvailable || []).map((/** @type {any} */ d) => ({
       year: d.year, version: `TeX Live ${d.year}`,
     })),
-    [helperStatus?.distributionsAvailable],
+    [/** @type {any} */ (helperStatus)?.distributionsAvailable],
   );
   const sortedVisible = useMemo(() => {
     const visible = (localCompileFeatureOn && effectiveLocation === 'local')
@@ -386,7 +386,7 @@ function PdfViewerSection({ pdfInverted, setPdfInverted }) {
 }
 
 /** Create a 14x14 SVG icon element from the given child paths. */
-const svgIcon = (d) => (
+const svgIcon = (/** @type {React.ReactNode} */ d) => (
   <svg
     width="14"
     height="14"
@@ -533,6 +533,7 @@ export default function ProjectSettingsModal({
     setSaving(true);
     setError(null);
     try {
+      /** @type {any} */
       const updates = {};
       if (name.trim() && name.trim() !== project.name) updates.name = name.trim();
       if (mainFile !== (project.main_file || 'main.tex')) updates.main_file = mainFile;
@@ -585,7 +586,7 @@ export default function ProjectSettingsModal({
 
       onClose();
     } catch (e) {
-      setError(e.message);
+      setError(e instanceof Error ? e.message : String(e));
     }
     setSaving(false);
   };

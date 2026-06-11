@@ -39,7 +39,7 @@ const DESTROY_PAGES_BEYOND = 5; // destroy canvases beyond this many pages from 
  *  landed — in either case we render nothing. */
 function CompileProfileBlock({ profile }) {
   if (!profile || !profile.phases?.length) return null;
-  const fmt = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
+  const fmt = (/** @type {number} */ ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
   return (
     <div className="pdf-console-profile">
       <div className="pdf-console-profile-header">
@@ -72,7 +72,7 @@ function RebuildReasonBlock({ reason }) {
   const MAX_LIST = 12;
   const shown = (reason.changedFiles || []).slice(0, MAX_LIST);
   const overflow = (reason.changedFiles || []).length - shown.length;
-  const labelFor = (change) => (change === 'added' ? '+' : change === 'removed' ? '−' : '~');
+  const labelFor = (/** @type {string} */ change) => (change === 'added' ? '+' : change === 'removed' ? '−' : '~');
   return (
     <div className={`pdf-console-rebuild${reason.kind === 'cached' ? ' is-cached' : ''}`}>
       <div className="pdf-console-rebuild-header">
@@ -323,7 +323,10 @@ function HelpPanel({ help, onBack }) {
   );
 }
 
-/** PDF viewer with zoom, page navigation, pinch-to-zoom, SyncTeX click, and virtualized page rendering. */
+/** PDF viewer with zoom, page navigation, pinch-to-zoom, SyncTeX click, and virtualized page rendering.
+ *  @type {React.ForwardRefExoticComponent<any>}
+ */
+// @ts-ignore -- props are too dynamic to enumerate
 const PdfViewer = forwardRef(function PdfViewer(
   {
     url,
@@ -364,6 +367,7 @@ const PdfViewer = forwardRef(function PdfViewer(
 ) {
   const containerRef = useRef(/** @type {any} */ (null));
   const [error, setError] = useState(/** @type {any} */ (null));
+  /** @type {React.MutableRefObject<any[]>} */
   const pageInfoRef = useRef([]);
   const pdfDocRef = useRef(/** @type {any} */ (null));
   const [scale, setScale] = useState(DEFAULT_SCALE);
@@ -388,6 +392,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   const compileMenuRef = useRef(/** @type {any} */ (null));
 
   // Virtualization refs
+  /** @type {React.MutableRefObject<any[]>} */
   const pageProxyRef = useRef([]); // per-page data: { pdfPage, viewport, pageScale, wrapper, canvas, textLayerDiv }
   const renderedPagesRef = useRef(new Set()); // indices of pages with active canvases
   const renderingPagesRef = useRef(new Set()); // indices of pages currently being rendered (to avoid duplicates)
@@ -407,6 +412,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   );
 
   useImperativeHandle(ref, () => ({
+    /** @param {number} page @param {number} yPt */
     scrollToPosition(page, yPt) {
       const info = pageInfoRef.current[page - 1];
       if (!info || !containerRef.current) return;
@@ -425,7 +431,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   }));
 
   const handlePageClick = useCallback(
-    (pageNum, viewport, e) => {
+    (/** @type {number} */ pageNum, /** @type {any} */ viewport, /** @type {any} */ e) => {
       const wrapper = e.currentTarget;
       const rect = wrapper.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
@@ -514,6 +520,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     const dpr = window.devicePixelRatio || 1;
 
     // Render a single page's canvas and text layer on demand
+    /** @param {number} idx */
     async function renderPageCanvas(idx) {
       if (cancelled) return;
       if (renderedPagesRef.current.has(idx)) return;
@@ -653,9 +660,10 @@ const PdfViewer = forwardRef(function PdfViewer(
           // track-changes view has its own sibling jobname on disk
           // and 404s until the user recompiles. Surface a helpful
           // message rather than the alarming "Failed to load PDF".
-          const status = err?.status ?? err?.response?.status;
-          const msg = err?.message || '';
-          const name = err?.name || '';
+          const e = /** @type {any} */ (err);
+          const status = e?.status ?? e?.response?.status;
+          const msg = e?.message || '';
+          const name = e?.name || '';
           const isMissing =
             name === 'MissingPDFException' ||
             name === 'UnexpectedResponseException' ||
@@ -760,7 +768,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     container.addEventListener('wheel', handleWheel, { passive: false });
 
     // Prevent Safari's native gesture zoom
-    const preventGesture = (e) => e.preventDefault();
+    const preventGesture = (/** @type {Event} */ e) => e.preventDefault();
     container.addEventListener('gesturestart', preventGesture, { passive: false });
     container.addEventListener('gesturechange', preventGesture, { passive: false });
     container.addEventListener('gestureend', preventGesture, { passive: false });
@@ -792,14 +800,14 @@ const PdfViewer = forwardRef(function PdfViewer(
   };
 
   /** Commit a new zoom scale, updating both the visual ref and triggering a re-render. */
-  const commitScale = useCallback((newScale) => {
+  const commitScale = useCallback((/** @type {number | ((s: number) => number)} */ newScale) => {
     const s = typeof newScale === 'function' ? newScale(visualScaleRef.current) : newScale;
     visualScaleRef.current = s;
     baseScaleOnPinchRef.current = s;
     setScale(s);
   }, []);
-  const zoomIn = () => { setFitMode(null); commitScale((s) => Math.min(s + ZOOM_STEP, MAX_SCALE)); };
-  const zoomOut = () => { setFitMode(null); commitScale((s) => Math.max(s - ZOOM_STEP, MIN_SCALE)); };
+  const zoomIn = () => { setFitMode(null); commitScale((/** @type {number} */ s) => Math.min(s + ZOOM_STEP, MAX_SCALE)); };
+  const zoomOut = () => { setFitMode(null); commitScale((/** @type {number} */ s) => Math.max(s - ZOOM_STEP, MIN_SCALE)); };
 
   /** Adjust zoom so the PDF page width fills the container. */
   const fitWidth = () => {
@@ -827,7 +835,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   };
 
   const togglePanel = (/** @type {any} */ panel) => {
-    setShowPanel((cur) => (cur === panel ? null : panel));
+    setShowPanel((/** @type {any} */ cur) => (cur === panel ? null : panel));
   };
 
   useClickOutside(
@@ -1194,7 +1202,7 @@ const PdfViewer = forwardRef(function PdfViewer(
           <button
             className={`pdf-zoom-btn ${inverted ? 'active' : ''}`}
             onClick={() =>
-              setInverted((v) => {
+              setInverted((/** @type {any} */ v) => {
                 const n = !v;
                 setSetting('pdf-inverted', n);
                 return n;

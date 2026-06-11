@@ -14,9 +14,9 @@ function formatTime(dateStr) {
 }
 
 /** Group an array of snapshot versions by their calendar date. */
-/** @param {any} versions */
-/** @param {any} versions */
+/** @param {any[]} versions */
 function groupByDate(versions) {
+  /** @type {Record<string, any[]>} */
   const groups = {};
   for (const v of versions) {
     const d = new Date(v.created_at);
@@ -98,6 +98,7 @@ function buildHunks(diff) {
   }
   ranges.push([start, end]);
 
+  /** @type {any[]} */
   const hunks = [];
   for (const [rangeStart, rangeEnd] of ranges) {
     const ctxStart = Math.max(0, rangeStart - CONTEXT_LINES);
@@ -126,6 +127,7 @@ function buildHunks(diff) {
 /** Character-level diff between two strings. Returns array of [highlighted, text] pairs. */
 /** @param {any} oldStr */
 /** @param {any} newStr */
+/** @param {string} oldStr @param {string} newStr */
 function charDiff(oldStr, newStr) {
   // Find common prefix
   let pre = 0;
@@ -190,7 +192,9 @@ function annotateHunkLines(lines) {
   return annotated;
 }
 
-/** Render inline diff segments, highlighting the changed middle portion. */
+/** Render inline diff segments, highlighting the changed middle portion.
+ *  @param {string} prefix @param {string} mid @param {string} suffix
+ */
 function renderSegments(prefix, mid, suffix) {
   // Only highlight if there's a meaningful common prefix or suffix
   // (otherwise the whole line is different and highlighting everything looks the same)
@@ -239,7 +243,7 @@ function DiffView({ diff }) {
   const isBinaryNote = diff.length === 1 && diff[0].type === 'binary';
   const hunks = isBinaryNote ? [] : buildHunks(diff);
   const toggleHunk = (/** @type {any} */ hi) => {
-    setExpanded((prev) => {
+    setExpanded((/** @type {any} */ prev) => {
       const next = new Set(prev);
       if (next.has(hi)) next.delete(hi); else next.add(hi);
       return next;
@@ -445,7 +449,7 @@ export default function HistoryPanel({
         }
       }
       if (e.metaKey || e.ctrlKey) {
-        setSelectedIds((prev) => {
+        setSelectedIds((/** @type {any} */ prev) => {
           const next = new Set(prev);
           if (next.has(snap.id)) next.delete(snap.id);
           else next.add(snap.id);
@@ -465,7 +469,7 @@ export default function HistoryPanel({
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
-    const onKey = (e) => { if (e.key === 'Escape') setContextMenu(null); };
+    const onKey = (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Escape') setContextMenu(null); };
     window.addEventListener('click', close);
     window.addEventListener('keydown', onKey);
     return () => {
@@ -493,7 +497,7 @@ export default function HistoryPanel({
         return;
       }
       const targetSet = new Set(targets);
-      setSnapshots((prev) => prev.filter((/** @type {any} */ s) => !targetSet.has(s.id)));
+      setSnapshots((/** @type {any} */ prev) => prev.filter((/** @type {any} */ s) => !targetSet.has(s.id)));
       setSelectedIds(new Set());
       setAnchorId(null);
       if (selected && targetSet.has(selected.id)) {

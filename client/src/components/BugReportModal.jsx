@@ -36,7 +36,7 @@ export default function BugReportModal({ onClose }) {
   const [sent, setSent] = useState(false);
 
   const toggleFeature = (/** @type {any} */ name) => {
-    setFeatures((prev) => {
+    setFeatures((/** @type {any} */ prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -66,7 +66,7 @@ export default function BugReportModal({ onClose }) {
       // Auto-close after a brief confirmation so the user can see "Sent".
       setTimeout(onClose, 1500);
     } catch (err) {
-      setError(err.message || 'Failed to send bug report');
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to send bug report');
       setSubmitting(false);
     }
   };

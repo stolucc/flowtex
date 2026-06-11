@@ -16,7 +16,7 @@ export function EditorRefProvider({ value, children }) {
 
 /**
  * Consumes the EditorRefContext; must be used within an EditorRefProvider.
- * @returns {{ current: object|null }} the editor ref
+ * @returns {React.MutableRefObject<any>} the editor ref
  */
 export function useEditorRef() {
   const ref = useContext(EditorRefContext);

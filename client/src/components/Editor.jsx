@@ -114,7 +114,10 @@ import {
   HighlightIcon,
 } from './Icons.jsx';
 
-/** CodeMirror-based LaTeX/BibTeX editor with spellcheck, linting, track changes, and collaborative cursors. */
+/** CodeMirror-based LaTeX/BibTeX editor with spellcheck, linting, track changes, and collaborative cursors.
+ *  @type {React.ForwardRefExoticComponent<any>}
+ */
+// @ts-ignore -- props are too dynamic to enumerate
 const Editor = forwardRef(function Editor(
   {
     file,
@@ -343,7 +346,7 @@ const Editor = forwardRef(function Editor(
   }, [getListEnvTags]);
 
   // Insert a list environment around the current selection/lines
-  const vmInsertList = useCallback((envName) => {
+  const vmInsertList = useCallback((/** @type {string} */ envName) => {
     const view = viewRef.current;
     if (!view) return;
     const { from, to } = view.state.selection.main;
@@ -394,8 +397,8 @@ const Editor = forwardRef(function Editor(
     }
 
     // Selection exists — wrap each selected line as \item
-    const lines = blockText.split('\n').filter(l => l.trim());
-    const items = lines.map(l => {
+    const lines = blockText.split('\n').filter((/** @type {string} */ l) => l.trim());
+    const items = lines.map((/** @type {string} */ l) => {
       const trimmed = l.trim();
       return trimmed.startsWith('\\item') ? '  ' + trimmed : '  \\item ' + trimmed;
     }).join('\n');
@@ -548,6 +551,7 @@ const Editor = forwardRef(function Editor(
       const view = viewRef.current;
       if (view) cmRedo(view);
     },
+    /** @param {number} line @param {number} [col] */
     goToLine(line, col) {
       const view = viewRef.current;
       if (!view) return;
@@ -568,6 +572,7 @@ const Editor = forwardRef(function Editor(
       }
 
       // Snapshot scrollTop of all ancestors before focus
+      /** @type {Array<{ el: HTMLElement, top: number, left: number }>} */
       const ancestors = [];
       let el = view.dom.parentElement;
       while (el) {
@@ -606,11 +611,13 @@ const Editor = forwardRef(function Editor(
         }, 3000);
       }
     },
+    /** @param {number} pos */
     goToPosition(pos) {
       const view = viewRef.current;
       if (!view) return;
       const clamped = Math.min(pos, view.state.doc.length);
       // Snapshot scrollTop of all ancestors before focus
+      /** @type {Array<{ el: HTMLElement, top: number, left: number }>} */
       const ancestors = [];
       let el = view.dom.parentElement;
       while (el) {
@@ -646,11 +653,13 @@ const Editor = forwardRef(function Editor(
     openSearch() {
       setShowSearch(true);
     },
+    /** @param {number} deltaX @param {number} deltaY */
     scrollBy(deltaX, deltaY) {
       const view = viewRef.current;
       if (!view) return;
       view.scrollDOM.scrollBy(deltaX, deltaY);
     },
+    /** @param {string} newContent */
     replaceContent(newContent) {
       const view = viewRef.current;
       if (!view) return;
@@ -658,6 +667,7 @@ const Editor = forwardRef(function Editor(
         changes: { from: 0, to: view.state.doc.length, insert: newContent },
       });
     },
+    /** @param {string} before @param {string} after */
     insertSnippet(before, after) {
       const view = viewRef.current;
       if (!view) return;
@@ -670,6 +680,7 @@ const Editor = forwardRef(function Editor(
       });
       view.focus();
     },
+    /** @param {number} from @param {number} to @param {string} text */
     replaceRange(from, to, text) {
       const view = viewRef.current;
       if (!view) return;
@@ -716,11 +727,13 @@ const Editor = forwardRef(function Editor(
      * Skip annotation prevents the input filter from re-tracking the
      * accept/reject doc surgery as a new edit.
      */
+    /** @param {string} markerId @param {string} decision */
     applyMarkResolution(markerId, decision) {
       const view = viewRef.current;
       if (!view) return false;
       const m = listMarks(view.state).find((/** @type {any} */ x) => x.id === markerId);
       if (!m) return false;
+      /** @type {any} */
       const spec = {
         effects: removeTcMark.of(markerId),
         annotations: tcMarkSkipAnnotation.of(true),
@@ -736,6 +749,7 @@ const Editor = forwardRef(function Editor(
     },
 
     /** Resolve every pending TC entry with the same decision. */
+    /** @param {string} decision */
     applyMarkResolutionAll(decision) {
       const view = viewRef.current;
       if (!view) return 0;
@@ -763,6 +777,7 @@ const Editor = forwardRef(function Editor(
       return marks.length;
     },
 
+    /** @param {number} pos */
     getTopForPos(pos) {
       const view = viewRef.current;
       if (!view) return 0;
@@ -774,6 +789,13 @@ const Editor = forwardRef(function Editor(
       if (!view) return { scrollTop: 0, clientHeight: 0 };
       return { scrollTop: view.scrollDOM.scrollTop, clientHeight: view.scrollDOM.clientHeight };
     },
+    /**
+     * @param {string} fileId
+     * @param {any} changes
+     * @param {boolean} [_tracked]
+     * @param {any} [_deletions]
+     * @param {any} [tcMarks]
+     */
     applyRemoteChanges(fileId, changes, _tracked, _deletions, tcMarks) {
       const view = viewRef.current;
       // Drop OT changes that target a file the user has since switched away
@@ -785,6 +807,7 @@ const Editor = forwardRef(function Editor(
         // Build effects for any TC mark mutations the sender broadcast.
         // These get applied with the skip annotation so the input filter
         // doesn't re-track them.
+        /** @type {any[]} */
         const effects = [];
         if (tcMarks && Array.isArray(tcMarks.added) && tcMarks.added.length > 0) {
           effects.push(addTcMarks.of(tcMarks.added));
@@ -792,6 +815,7 @@ const Editor = forwardRef(function Editor(
         if (tcMarks && Array.isArray(tcMarks.removed)) {
           for (const id of tcMarks.removed) effects.push(removeTcMark.of(id));
         }
+        /** @type {any} */
         const spec = {
           annotations: tcMarkSkipAnnotation.of(true),
         };
@@ -804,10 +828,12 @@ const Editor = forwardRef(function Editor(
         isRemoteUpdate.current = false;
       }
     },
+    /** @param {any[]} cursors */
     setRemoteCursors(cursors) {
       const view = viewRef.current;
       if (!view) return;
       const docLen = view.state.doc.length;
+      /** @type {any[]} */
       const decos = [];
       for (const c of cursors) {
         const head = Math.min(Math.max(c.head, 0), docLen);
@@ -841,10 +867,10 @@ const Editor = forwardRef(function Editor(
       setShowSymbolPicker(true);
     },
     zoomIn() {
-      setFontSize((s) => Math.min(32, s + 1));
+      setFontSize((/** @type {any} */ s) => Math.min(32, s + 1));
     },
     zoomOut() {
-      setFontSize((s) => Math.max(8, s - 1));
+      setFontSize((/** @type {any} */ s) => Math.max(8, s - 1));
     },
   }));
 
@@ -1111,15 +1137,18 @@ const Editor = forwardRef(function Editor(
           // step. Skip if this update was itself a remote OT (echo
           // suppression).
           if (!isRemoteUpdate.current && (update.docChanged || userMarkChange)) {
+            /** @type {any[]} */
             const changes = [];
             if (update.docChanged) {
-              update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+              update.changes.iterChanges((/** @type {any} */ fromA, /** @type {any} */ toA, /** @type {any} */ fromB, /** @type {any} */ toB, /** @type {any} */ inserted) => {
                 changes.push({ from: fromA, to: toA, insert: inserted.toString() });
               });
             }
             // Collect TC mark effects (excluding setTcMarks — that's
             // hydration-only and shouldn't broadcast).
+            /** @type {any[]} */
             const added = [];
+            /** @type {any[]} */
             const removed = [];
             for (const tr of update.transactions) {
               for (const e of tr.effects) {
@@ -1811,7 +1840,7 @@ const Editor = forwardRef(function Editor(
     !!llmMenu,
   );
 
-  const swapCiteVariant = useCallback((newName) => {
+  const swapCiteVariant = useCallback((/** @type {any} */ newName) => {
     const v = viewRef.current;
     if (!v || !citeMenu) return;
     const replacement = `\\${newName}${citeMenu.opt}{${citeMenu.key}}`;
@@ -2000,13 +2029,13 @@ const Editor = forwardRef(function Editor(
           <RedoIcon />
         </button>
         <span className="editor-zoom-controls">
-          <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.max(8, s - 1))} title="Zoom out">
+          <button className="editor-header-btn" onClick={() => setFontSize((/** @type {any} */ s) => Math.max(8, s - 1))} title="Zoom out">
             <ZoomOutIcon />
           </button>
           <span className="editor-zoom-label" title="Font size">
             {fontSize}px
           </span>
-          <button className="editor-header-btn" onClick={() => setFontSize((s) => Math.min(32, s + 1))} title="Zoom in">
+          <button className="editor-header-btn" onClick={() => setFontSize((/** @type {any} */ s) => Math.min(32, s + 1))} title="Zoom in">
             <ZoomInIcon />
           </button>
         </span>
@@ -2091,7 +2120,7 @@ const Editor = forwardRef(function Editor(
         )}
         <button
           className={`editor-header-btn ${spellcheckEnabled ? 'editor-header-btn-active' : ''}`}
-          onClick={() => setSpellcheckEnabled((v) => !v)}
+          onClick={() => setSpellcheckEnabled((/** @type {any} */ v) => !v)}
           title={spellcheckEnabled ? 'Spellcheck ON — click to disable' : 'Spellcheck OFF — click to enable'}
           aria-pressed={spellcheckEnabled}
         >
@@ -2115,7 +2144,7 @@ const Editor = forwardRef(function Editor(
         <button
           className={`editor-header-btn ${inverted ? 'editor-header-btn-active' : ''}`}
           onClick={() =>
-            setInverted((v) => {
+            setInverted((/** @type {any} */ v) => {
               const n = !v;
               setSetting('editor-inverted', n);
               return n;
@@ -2129,7 +2158,7 @@ const Editor = forwardRef(function Editor(
       {showSymbolPicker && (
         <SymbolPicker
           declaredPackages={declaredPackages}
-          onInsert={(cmd) => {
+          onInsert={(/** @type {any} */ cmd) => {
             const view = viewRef.current;
             if (!view) return;
             const { from, to } = view.state.selection.main;
@@ -2163,7 +2192,7 @@ const Editor = forwardRef(function Editor(
           initial={figureBuilder.initial}
           projectFiles={projectFilesRef.current}
           declaredPackages={declaredPackages}
-          onInsert={(latex) => {
+          onInsert={(/** @type {any} */ latex) => {
             const view = viewRef.current;
             if (view) {
               const from = figureBuilder.replaceFrom != null ? figureBuilder.replaceFrom : view.state.selection.main.from;
@@ -2249,7 +2278,7 @@ const Editor = forwardRef(function Editor(
             task={llmDialog.task}
             initialText={llmDialog.text}
             onClose={() => setLlmDialog(null)}
-            onAccept={(replacement) => {
+            onAccept={(/** @type {any} */ replacement) => {
               const v = viewRef.current;
               if (v) {
                 v.dispatch({
@@ -2355,6 +2384,7 @@ const Editor = forwardRef(function Editor(
               // Accept-ins: keep the text, drop the mark (no doc change).
               // Accept-del: remove the marked range AND drop the mark.
               const removeRange = m.type === 'del';
+              /** @type {any} */
               const spec = {
                 effects: removeTcMark.of(tcMenu.id),
                 annotations: tcMarkSkipAnnotation.of(true),
@@ -2377,6 +2407,7 @@ const Editor = forwardRef(function Editor(
               }
               const removeRange =
                 (m.type === 'ins' && true) || (m.type === 'del' && false);
+              /** @type {any} */
               const spec = {
                 effects: removeTcMark.of(tcMenu.id),
                 annotations: tcMarkSkipAnnotation.of(true),

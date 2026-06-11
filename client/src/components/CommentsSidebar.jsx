@@ -48,7 +48,7 @@ function ReactionRow({ reactions, currentUserId, targetId, onReact, onChange }) 
         className="comment-react-trigger"
         aria-label="Add reaction"
         title="Add reaction"
-        onClick={() => setPickerOpen((v) => !v)}
+        onClick={() => setPickerOpen((/** @type {any} */ v) => !v)}
       >
         ☺
       </button>
@@ -282,6 +282,7 @@ export default function CommentsSidebar({
   const textareaRef = useRef(/** @type {any} */ (null));
   const prevSelectionRef = useRef(/** @type {any} */ (null));
   const formRef = useRef(/** @type {any} */ (null));
+  /** @type {React.MutableRefObject<Record<string, HTMLElement>>} */
   const commentRefs = useRef({});
   const listRef = useRef(/** @type {any} */ (null));
 
@@ -311,7 +312,7 @@ export default function CommentsSidebar({
     }
   }, [mentionedMembers, assignTo]);
 
-  const handleSubmit = async (/** @type {any} */ e) => {
+  const handleSubmit = async (/** @type {any} */ e = undefined) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selection) return;
     await onAdd(text.trim(), { assignedTo: assignTo });
@@ -330,6 +331,7 @@ export default function CommentsSidebar({
 
   // Build target position map from commentPositions
   const posMap = useMemo(() => {
+    /** @type {Record<string, number>} */
     const map = {};
     for (const p of commentPositions || []) {
       map[p.id] = p.top;
@@ -345,6 +347,7 @@ export default function CommentsSidebar({
     if (!isPositioned) return;
 
     // Collect all items with their target top and DOM element
+    /** @type {Array<{ id: string, targetTop: number, el: HTMLElement }>} */
     const items = [];
 
     // Add the comment form if active
@@ -465,7 +468,7 @@ export default function CommentsSidebar({
               onReply={onReply}
               onReact={onReact}
               onReactReply={onReactReply}
-              innerRef={(el) => {
+              innerRef={(/** @type {any} */ el) => {
                 if (el) commentRefs.current[c.id] = el;
               }}
               onLayoutChange={handleLayoutChange}
@@ -477,7 +480,7 @@ export default function CommentsSidebar({
           <>
             <div
               className="comments-resolved-header"
-              onClick={() => setResolvedCollapsed((v) => !v)}
+              onClick={() => setResolvedCollapsed((/** @type {any} */ v) => !v)}
               style={{ cursor: 'pointer', userSelect: 'none' }}
             >
               <span className="comments-resolved-arrow">{resolvedCollapsed ? '▸' : '▾'}</span>
