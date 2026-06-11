@@ -1,10 +1,18 @@
+// @ts-check
 /**
  * Line-based diff using a hunt-and-match approach.
  * Returns array of { type: 'same'|'add'|'remove', text: string }
  */
+/**
+ * @typedef {{ type: 'same' | 'add' | 'remove', text: string }} DiffLine
+ *
+ * @param {string} oldText
+ * @param {string} newText
+ * @returns {DiffLine[]}
+ */
 export default function lineDiff(oldText, newText) {
   if (oldText === newText) {
-    return oldText.split('\n').map((text) => ({ type: 'same', text }));
+    return oldText.split('\n').map((/** @type {string} */ text) => ({ type: 'same', text }));
   }
 
   const oldLines = oldText.split('\n');
@@ -22,6 +30,13 @@ export default function lineDiff(oldText, newText) {
   return hashLineDiff(oldLines, newLines);
 }
 
+/**
+ * @param {string[]} oldLines
+ * @param {string[]} newLines
+ * @param {number} m
+ * @param {number} n
+ * @returns {DiffLine[]}
+ */
 function lcsLineDiff(oldLines, newLines, m, n) {
   const w = n + 1;
   const dp = new Uint32Array((m + 1) * (n + 1));
@@ -35,6 +50,7 @@ function lcsLineDiff(oldLines, newLines, m, n) {
     }
   }
 
+  /** @type {DiffLine[]} */
   const result = [];
   let i = 0,
     j = 0;
@@ -58,21 +74,29 @@ function lcsLineDiff(oldLines, newLines, m, n) {
  * Hash-based diff for large files. Finds unique matching lines as anchors,
  * then recursively diffs the gaps between anchors.
  */
+/**
+ * @param {string[]} oldLines
+ * @param {string[]} newLines
+ * @returns {DiffLine[]}
+ */
 function hashLineDiff(oldLines, newLines) {
   // Build map of line content → positions in each file
+  /** @type {Map<string, number[]>} */
   const oldMap = new Map();
   for (let i = 0; i < oldLines.length; i++) {
     const line = oldLines[i];
     if (!oldMap.has(line)) oldMap.set(line, []);
-    oldMap.get(line).push(i);
+    /** @type {number[]} */ (oldMap.get(line)).push(i);
   }
 
   // First pass: find unique-in-both-sides anchors (patience diff idea)
+  /** @type {Map<string, number>} */
   const newCount = new Map();
   for (const line of newLines) {
     newCount.set(line, (newCount.get(line) || 0) + 1);
   }
 
+  /** @type {Array<[number, number]>} */
   const anchors = [];
   for (let j = 0; j < newLines.length; j++) {
     const line = newLines[j];
@@ -88,6 +112,7 @@ function hashLineDiff(oldLines, newLines) {
   const anchorMatches = lis.map((idx) => anchors[idx]);
 
   // Now recursively diff between anchors
+  /** @type {DiffLine[]} */
   const result = [];
   let oi = 0,
     ni = 0;
@@ -100,8 +125,8 @@ function hashLineDiff(oldLines, newLines) {
       if (oldSlice.length * newSlice.length <= 10000000) {
         result.push(...lcsLineDiff(oldSlice, newSlice, oldSlice.length, newSlice.length));
       } else {
-        result.push(...oldSlice.map((text) => ({ type: 'remove', text })));
-        result.push(...newSlice.map((text) => ({ type: 'add', text })));
+        result.push(...oldSlice.map((/** @type {string} */ text) => /** @type {DiffLine} */ ({ type: 'remove', text })));
+        result.push(...newSlice.map((/** @type {string} */ text) => /** @type {DiffLine} */ ({ type: 'add', text })));
       }
     }
     // The anchor itself
@@ -117,8 +142,8 @@ function hashLineDiff(oldLines, newLines) {
     if (oldTail.length * newTail.length <= 10000000) {
       result.push(...lcsLineDiff(oldTail, newTail, oldTail.length, newTail.length));
     } else {
-      result.push(...oldTail.map((text) => ({ type: 'remove', text })));
-      result.push(...newTail.map((text) => ({ type: 'add', text })));
+      result.push(...oldTail.map((/** @type {string} */ text) => /** @type {DiffLine} */ ({ type: 'remove', text })));
+      result.push(...newTail.map((/** @type {string} */ text) => /** @type {DiffLine} */ ({ type: 'add', text })));
     }
   }
 
@@ -126,9 +151,15 @@ function hashLineDiff(oldLines, newLines) {
 }
 
 /** Find longest increasing subsequence indices */
+/**
+ * @param {number[]} arr
+ * @returns {number[]}
+ */
 function longestIncreasingSubseq(arr) {
   if (arr.length === 0) return [];
+  /** @type {number[]} */
   const tails = []; // tails[i] = smallest tail of IS of length i+1
+  /** @type {number[]} */
   const indices = []; // indices[i] = index in arr of tails[i]
   const prev = new Array(arr.length).fill(-1);
 
@@ -146,6 +177,7 @@ function longestIncreasingSubseq(arr) {
   }
 
   // Reconstruct
+  /** @type {number[]} */
   const result = [];
   let k = indices[tails.length - 1];
   for (let i = tails.length - 1; i >= 0; i--) {

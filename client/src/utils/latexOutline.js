@@ -1,3 +1,4 @@
+// @ts-check
 // Tiny outline parser: scans a .tex file for sectioning commands and
 // returns a flat list of { level, title, line } entries the UI can
 // render with indentation. Cheap to recompute on every keystroke even
@@ -16,6 +17,7 @@
 // indents by level, which is what readers expect and avoids
 // re-balancing edge cases (e.g. \subsection without an enclosing
 // \section, common in fragments or imported docs).
+/** @type {Record<string, number>} */
 const SECTION_LEVELS = {
   part: 0,
   chapter: 1,
@@ -83,6 +85,11 @@ const INPUT_RE = /\\(?:input|include)\{((?:[^{}]|\{[^{}]*\})*)\}/g;
 // the .tex extension and treats the path as relative to the directory
 // of the file doing the \input. Returns null when no matching file
 // exists in the project.
+/**
+ * @param {string} rel
+ * @param {string} fromPath
+ * @param {Map<string, any>} byPath
+ */
 function resolveInput(rel, fromPath, byPath) {
   if (!rel) return null;
   // Strip a leading "./" — LaTeX accepts it, normalizing keeps the
@@ -143,7 +150,9 @@ export function parseDocumentOutline(files, mainFilePath) {
   }
   if (!entry) return [];
 
+  /** @type {Array<{ level: number, label: string, title: string, line: number, path: string }>} */
   const out = [];
+  /** @type {Set<string>} */
   const visited = new Set();
   /**
    * Walk a file: emit its sectioning entries in source order, then
@@ -151,7 +160,7 @@ export function parseDocumentOutline(files, mainFilePath) {
    * matches what a reader scrolling through the rendered PDF would
    * see, which is what the user expects from an outline.
    */
-  const walk = (path) => {
+  const walk = (/** @type {string} */ path) => {
     if (visited.has(path)) return;
     visited.add(path);
     const file = byPath.get(path);
@@ -164,6 +173,7 @@ export function parseDocumentOutline(files, mainFilePath) {
     //
     // Find all input/include positions with their line numbers, merge
     // with section entries, sort by line, emit in order.
+    /** @type {Array<{ rel: string, line: number }>} */
     const inputs = [];
     INPUT_RE.lastIndex = 0;
     let m;
@@ -173,6 +183,7 @@ export function parseDocumentOutline(files, mainFilePath) {
       const line = before.split('\n').length;
       inputs.push({ rel: m[1], line });
     }
+    /** @type {Array<any>} */
     const events = [
       ...sections.map((s) => ({ kind: 'sec', ...s })),
       ...inputs.map((i) => ({ kind: 'input', ...i })),

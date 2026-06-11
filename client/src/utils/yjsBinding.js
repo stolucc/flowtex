@@ -1,3 +1,4 @@
+// @ts-check
 // Y.js binding utility (phase 1 of the YJS-MIGRATION).
 //
 // Wires Y.Doc / Y.Text to a CodeMirror 6 editor via y-codemirror.next's
@@ -84,13 +85,17 @@ export function isYjsSyncEnabled() {
  *                                   update, originId }` payload.
  * @param {string} args.originId     Per-tab identifier for self-echo
  *                                   filtering on reconnect.
+ * @param {string} [args.sync]       Sync mode: 'phase1' (local seed) or 'phase2' (server seed).
  *
  * @returns {{
  *   ydoc: Y.Doc,
  *   ytext: Y.Text,
  *   extension: import('@codemirror/state').Extension,
  *   applyRemoteUpdate: (updateB64: string, fromOriginId?: string) => void,
+ *   applyRemoteState: (stateB64: string) => void,
+ *   isApplyingRemote: () => boolean,
  *   destroy: () => void,
+ *   LOCAL_ORIGIN: symbol,
  * }}
  */
 export function createYjsBinding({ fileId, initialText, sendWs, originId, sync = 'phase2' }) {
@@ -126,7 +131,7 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   // straight back out to the network).
   const REMOTE_ORIGIN = Symbol('flowtex.yjs.remote');
 
-  const updateHandler = (update, origin) => {
+  const updateHandler = (/** @type {Uint8Array} */ update, /** @type {unknown} */ origin) => {
     if (origin === SEED_ORIGIN) return;
     if (origin === REMOTE_ORIGIN) return;
     // Encode update bytes as base64 for safe JSON transport. The
@@ -153,7 +158,7 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   let isApplyingRemoteCount = 0;
   const isApplyingRemote = () => isApplyingRemoteCount > 0;
 
-  const applyRemoteUpdate = (updateB64, fromOriginId) => {
+  const applyRemoteUpdate = (/** @type {string} */ updateB64, /** @type {string} */ fromOriginId = '') => {
     if (typeof updateB64 !== 'string') return;
     if (fromOriginId && fromOriginId === originId) return; // self-echo
     let bytes;
@@ -170,7 +175,7 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   // yjs-request-state. Same mechanism as applyRemoteUpdate (Y.js
   // states ARE updates) but conceptually the "bring me up to date"
   // hook rather than the per-keystroke one.
-  const applyRemoteState = (stateB64) => applyRemoteUpdate(stateB64);
+  const applyRemoteState = (/** @type {string} */ stateB64) => applyRemoteUpdate(stateB64, '');
 
   // yCollab wires the Y.Text to a CodeMirror EditorView. Awareness is
   // optional (cursors of other users); phase 1 leaves it null because
@@ -210,12 +215,14 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
 // Browser-only conversion helpers. atob/btoa only handle Latin-1
 // strings, so we feed them byte-at-a-time to keep the binary payload
 // exact. Node/vitest tests run with btoa/atob polyfilled (Node 16+).
+/** @param {Uint8Array} bytes */
 function bytesToBase64(bytes) {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
   return btoa(s);
 }
 
+/** @param {string} b64 */
 function base64ToBytes(b64) {
   const s = atob(b64);
   const bytes = new Uint8Array(s.length);

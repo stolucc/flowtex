@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Centralised access to FlowTex's localStorage settings.
  *

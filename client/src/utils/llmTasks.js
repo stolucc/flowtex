@@ -1,3 +1,4 @@
+// @ts-check
 /** Catalog of LLM tasks the right-click menu can dispatch.
  *
  *  Each `task` MUST match a server-side allowlist entry in

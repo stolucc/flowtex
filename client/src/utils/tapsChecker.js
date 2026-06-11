@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ACM TAPS compliance checker.
  * Checks project files against TAPS requirements.
@@ -188,7 +189,9 @@ const ACMART_INTERNAL = new Set([
 
 const USEPACKAGE_RE = /\\usepackage\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
 
+/** @param {Array<{ path: string, content?: string }>} files */
 function checkPackages(files) {
+  /** @type {Array<{ file: string, line: number, severity: string, message: string }>} */
   const diagnostics = [];
 
   for (const file of files) {
@@ -228,8 +231,12 @@ function checkPackages(files) {
   return diagnostics;
 }
 
+/**
+ * @param {Array<{ path: string, content: string, is_binary: boolean }>} files
+ * @param {string} [mainFile]
+ */
 export default function tapsCheck(files, mainFile = 'main.tex') {
   const usedPaths = resolveUsedFiles(files, mainFile);
-  const usedFiles = files.filter((f) => usedPaths.has(f.path));
+  const usedFiles = files.filter((/** @type {{ path: string }} */ f) => usedPaths.has(f.path));
   return [...checkPackages(usedFiles)];
 }

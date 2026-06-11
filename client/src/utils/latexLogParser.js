@@ -1,4 +1,7 @@
-/** Strip the compile-job hash suffix from filenames (e.g. "main_3b551ace.aux" → "main.aux"). */
+// @ts-check
+/** Strip the compile-job hash suffix from filenames (e.g. "main_3b551ace.aux" → "main.aux").
+ *  @param {string} filename
+ */
 function stripJobSuffix(filename) {
   return filename.replace(/_[0-9a-f]{8}(?=\.)/, '');
 }
@@ -16,16 +19,20 @@ function extractLineNumber(text) {
 /**
  * Parse a LaTeX compilation log into structured errors and warnings.
  * @param {string} log - Raw LaTeX log output
- * @returns {{errors: Array<{text: string, line: number|null, col: number|null, file: string|null, isSystemFile: boolean}>, warnings: Array}} Deduplicated errors and warnings
+ * @returns {{errors: Array<{text: string, line: number|null, col: number|null, file: string|null, isSystemFile: boolean}>, warnings: any[]}} Deduplicated errors and warnings
  */
 export default function parseLog(log) {
   if (!log) return { errors: [], warnings: [] };
   const lines = log.split('\n');
+  /** @type {Array<{ text: string, line: number | null, col: number | null, file: string | null, isSystemFile: boolean }>} */
   const errors = [];
+  /** @type {any[]} */
   const warnings = [];
 
   // Track current file context from LaTeX log "(./file.tex" entries
+  /** @type {string | null} */
   let currentFile = null;
+  /** @type {string[]} */
   const fileStack = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -37,7 +44,9 @@ export default function parseLog(log) {
       line.match(/\(([^\s)]+\.(?:tex|sty|cls|clo|def|fd|bbl|aux|cfg|ldf))/g);
     if (opens) {
       for (const m of opens) {
-        const f = stripJobSuffix(m.match(/\((.+)/)[1]);
+        const fileMatch = m.match(/\((.+)/);
+        if (!fileMatch) continue;
+        const f = stripJobSuffix(fileMatch[1]);
         fileStack.push(f);
         currentFile = f;
       }
@@ -65,7 +74,7 @@ export default function parseLog(log) {
             break;
           }
         }
-        errors.push({ text: msg, line: lineNum, col, file: currentFile });
+        errors.push({ text: msg, line: lineNum, col, file: currentFile, isSystemFile: false });
         // Skip context lines until we hit the "l.NNN" line or a blank line
         while (i + 1 < lines.length && !lines[i + 1].startsWith('!') && !/^\s*$/.test(lines[i + 1])) {
           i++;

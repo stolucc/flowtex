@@ -17,10 +17,10 @@
   // bulk migration. Today's list: the files involved in the platform=
   // 'macos' bug + the cross-tier surfaces.
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
+    "lib": ["ES2023", "DOM"],
 
     // Lint-mode flags: never emit, only check.
     "noEmit": true,
@@ -43,6 +43,11 @@
     // explicit `res.json(...); return;` produces zero safety win.
     "noImplicitReturns": false,
     "noUncheckedIndexedAccess": false, // too noisy across existing access patterns
+
+    // Vite path alias used by client code (vite.config.js).
+    "paths": {
+      "@shared/*": ["./shared/*"]
+    },
 
     // Resolve modules without an actual emit step.
     "esModuleInterop": true,
@@ -140,7 +145,34 @@
     "server/loadtest.js",
     "server/index.js",
     "server/websocket.js",
-    "server/utils/docxToLatex.js"
+    "server/utils/docxToLatex.js",
+    "client/src/utils/commentsRail.js",
+    "client/src/utils/mimeType.js",
+    "client/src/utils/urlSafety.js",
+    "client/src/utils/projectRole.js",
+    "client/src/utils/llmTasks.js",
+    "client/src/utils/compileLocation.js",
+    "client/src/utils/settings.js",
+    "client/src/utils/dateFormat.js",
+    "client/src/utils/latexLogParser.js",
+    "client/src/utils/bibtexLint.js",
+    "client/src/utils/lineDiff.js",
+    "client/src/utils/latexFigureGenerator.js",
+    "client/src/api.js",
+    "client/src/main.jsx",
+    "client/src/contexts/AuthContext.jsx",
+    "client/src/contexts/ProjectContext.jsx",
+    "client/src/contexts/AlertContext.jsx",
+    "client/src/contexts/EditorRefContext.jsx",
+    "client/src/utils/prettyBib.js",
+    "client/src/utils/latexOutline.js",
+    "client/src/utils/yjsBinding.js",
+    "client/src/utils/tapsChecker.js",
+    "client/src/utils/spellcheck.js",
+    "client/src/utils/bibtexMode.js",
+    "client/src/utils/latexCompletions.js",
+    "client/src/utils/latexLint.js",
+    "client/src/utils/latexErrorHelp.js"
   ],
   "exclude": [
     "node_modules",

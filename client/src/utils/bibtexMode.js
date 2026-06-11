@@ -1,3 +1,4 @@
+// @ts-check
 // BibTeX syntax highlighting for CodeMirror 6 (StreamLanguage)
 // Field validation per entry type based on biblatex 3.21 spec
 
@@ -18,6 +19,7 @@ const UNIVERSAL_FIELDS = new Set([
 ]);
 
 // Per-type field sets (required + optional merged)
+/** @type {Record<string, Set<string>>} */
 const TYPE_FIELDS = {
   article: new Set([
     'author', 'title', 'journaltitle', 'journal', 'year', 'date',
@@ -232,7 +234,7 @@ export const bibtex = {
   startState() {
     return { inEntry: false, inKey: false, braceDepth: 0, entryType: '' };
   },
-  token(stream, state) {
+  token(/** @type {any} */ stream, /** @type {any} */ state) {
     if (stream.eatSpace()) return null;
 
     // Comments

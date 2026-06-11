@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Simple LaTeX linter that checks for special characters in invalid contexts.
  * Tracks math mode, tabular environments, verbatim, and macro definitions.
@@ -112,9 +113,10 @@ const VERBATIM_ENVS = new Set([
 /**
  * Lint LaTeX source for misplaced special characters, unclosed math/environments, and brace mismatches.
  * @param {string} text - LaTeX source text
- * @returns {Array<{line: number, col: number, len: number, severity: string, message: string}>}
+ * @returns {Array<{line: number, col: number, len?: number, severity: string, message: string}>}
  */
 export default function latexLint(text) {
+  /** @type {Array<{line: number, col: number, len?: number, severity: string, message: string}>} */
   const diagnostics = [];
   const lines = text.split('\n');
 
@@ -123,6 +125,7 @@ export default function latexLint(text) {
   let inMathDisplay = false; // $$ ... $$
   let mathParenDepth = 0; // \( ... \) nesting
   let mathBracketDepth = 0; // \[ ... \] nesting
+  /** @type {Array<{ name: string, line: number }>} */
   const envStack = []; // stack of { name, line }
   let inVerbatim = false;
   let verbatimEnv = null;

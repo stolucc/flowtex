@@ -1,3 +1,4 @@
+// @ts-check
 // Resolves where a compile should actually run, given the per-user default,
 // the per-project override, and the live helper status. See
 // LOCAL_COMPILE_DESIGN.md §5 for the original truth table.
@@ -47,7 +48,12 @@ export function resolveCompileLocation(project, user, helperStatus) {
   return { source: 'local' };
 }
 
-/** Human-friendly text for the compile-button tooltip / settings hint. */
+/** Human-friendly text for the compile-button tooltip / settings hint.
+ *  @param {any} choice
+ *  @param {any} project
+ *  @param {any} user
+ *  @param {any} helperStatus
+ */
 export function describeChoice(choice, project, user, helperStatus) {
   if (choice.source === 'local') {
     if (choice.noticeReason === 'version_mismatch') {

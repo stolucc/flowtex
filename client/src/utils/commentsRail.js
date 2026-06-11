@@ -1,3 +1,4 @@
+// @ts-check
 // Pixel height of the collapsed comments rail "header" — the speech-
 // bubble icon + count badge at the top. Per-comment markers below this
 // y in rail coordinates would visually overlap the icon/badge cluster,
@@ -16,6 +17,10 @@ export const RAIL_HEADER_HEIGHT = 44;
  * which match editor-viewport y) should be rendered. Markers whose top
  * is within the rail header zone get hidden so they don't paint over
  * the speech-bubble icon and the count badge.
+ */
+/**
+ * @param {unknown} top
+ * @param {number} [headerHeight]
  */
 export function shouldShowRailMarker(top, headerHeight = RAIL_HEADER_HEIGHT) {
   return typeof top === 'number' && top >= headerHeight;

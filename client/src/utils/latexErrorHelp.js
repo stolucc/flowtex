@@ -1,3 +1,4 @@
+// @ts-check
 // Maps common LaTeX error patterns to actionable fix suggestions.
 // Each rule: { pattern, title, suggestion, searchQuery }
 
@@ -6,8 +7,9 @@ const ERROR_RULES = [
   {
     pattern: /Undefined control sequence.*\\(\w+)/i,
     title: 'Undefined command',
-    suggestion: (m) => {
+    suggestion: (/** @type {RegExpMatchArray} */ m) => {
       const cmd = m[1];
+      /** @type {Record<string, string | null>} */
       const packages = {
         textbf: null,
         textit: null,
@@ -38,7 +40,7 @@ const ERROR_RULES = [
       if (pkg) return `The command \\${cmd} requires \\usepackage{${pkg}} in your preamble.`;
       return `\\${cmd} is not defined. Check for typos, or add the required \\usepackage{} in your preamble.`;
     },
-    searchQuery: (m) => `undefined control sequence ${m[1]}`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `undefined control sequence ${m[1]}`,
     tips: [
       'Check for typos in the command name',
       'Add the missing \\usepackage{} in your preamble before \\begin{document}',
@@ -79,9 +81,9 @@ const ERROR_RULES = [
   {
     pattern: /\\begin\{(\w+)\}.*\\end\{(\w+)\}/i,
     title: 'Mismatched environments',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `\\begin{${m[1]}} is closed by \\end{${m[2]}}. Make sure each \\begin has a matching \\end with the same name.`,
-    searchQuery: (m) => `mismatched begin end ${m[1]} ${m[2]} latex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `mismatched begin end ${m[1]} ${m[2]} latex`,
     tips: [
       'Every \\begin{name} must have a matching \\end{name}',
       'Check for typos in the environment name',
@@ -91,8 +93,8 @@ const ERROR_RULES = [
   {
     pattern: /Environment (\w+) undefined/i,
     title: 'Unknown environment',
-    suggestion: (m) => `The environment "${m[1]}" is not defined. Check spelling or add the package that provides it.`,
-    searchQuery: (m) => `environment ${m[1]} undefined latex`,
+    suggestion: (/** @type {RegExpMatchArray} */ m) => `The environment "${m[1]}" is not defined. Check spelling or add the package that provides it.`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `environment ${m[1]} undefined latex`,
     tips: ['Check the environment name for typos', 'Add the package that provides this environment'],
   },
 
@@ -143,9 +145,9 @@ const ERROR_RULES = [
   {
     pattern: /File `(.+?)' not found/i,
     title: 'File not found',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The file "${m[1]}" could not be found. Check that the filename and path are correct, and that the file exists in your project.`,
-    searchQuery: (m) => `file not found "${m[1]}" latex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `file not found "${m[1]}" latex`,
     tips: [
       'Check that the file name and extension are correct',
       'File paths are relative to the main .tex file',
@@ -156,9 +158,9 @@ const ERROR_RULES = [
   {
     pattern: /LaTeX Error: File `(.+?)\.sty' not found/i,
     title: 'Missing package',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The package "${m[1]}" is not installed. Check the package name for typos. If correct, this package may not be available in the current TeX installation.`,
-    searchQuery: (m) => `package ${m[1]} not found latex install`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `package ${m[1]} not found latex install`,
     tips: [
       'Check the package name for typos',
       'The package may need to be installed in the TeX distribution',
@@ -170,9 +172,9 @@ const ERROR_RULES = [
   {
     pattern: /Citation `(.+?)' .* undefined/i,
     title: 'Undefined citation',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The citation key "${m[1]}" was not found in your .bib file. Check spelling, ensure the .bib file is included with \\bibliography{} or \\addbibresource{}, and recompile twice.`,
-    searchQuery: (m) => `citation ${m[1]} undefined latex bibtex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `citation ${m[1]} undefined latex bibtex`,
     tips: [
       'Check the citation key in your .bib file for exact spelling',
       'Make sure \\bibliography{file} or \\addbibresource{file.bib} is present',
@@ -183,9 +185,9 @@ const ERROR_RULES = [
   {
     pattern: /Reference `(.+?)' .* undefined/i,
     title: 'Undefined reference',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The label "${m[1]}" is not defined. Make sure you have a \\label{${m[1]}} somewhere, and recompile twice so cross-references resolve.`,
-    searchQuery: (m) => `reference ${m[1]} undefined latex label`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `reference ${m[1]} undefined latex label`,
     tips: [
       'Make sure \\label{name} exists for the referenced item',
       'Place \\label after \\caption in figures/tables',
@@ -238,7 +240,7 @@ const ERROR_RULES = [
   {
     pattern: /Overfull \\hbox.*?(\d+\.?\d*)pt/i,
     title: 'Content too wide',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `Text or an element extends ${m[1]}pt past the margin. Try rewording, breaking long words with \\hyphenation{}, using a smaller font, or wrapping in a \\resizebox{}.`,
     searchQuery: () => 'overfull hbox latex fix',
     tips: [
@@ -252,7 +254,7 @@ const ERROR_RULES = [
   {
     pattern: /Underfull \\hbox.*?badness (\d+)/i,
     title: 'Loose line spacing',
-    suggestion: (m) => {
+    suggestion: (/** @type {RegExpMatchArray} */ m) => {
       const badness = parseInt(m[1]);
       if (badness >= 10000)
         return 'A line is nearly empty. Check for forced line breaks (\\\\) or \\newline in running text. Let LaTeX handle line breaking.';
@@ -354,9 +356,9 @@ const ERROR_RULES = [
   {
     pattern: /Option clash for package (\w+)/i,
     title: 'Conflicting package options',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The package "${m[1]}" is loaded twice with different options. Load it once with all options, or use \\PassOptionsToPackage{options}{${m[1]}} before \\documentclass.`,
-    searchQuery: (m) => `option clash package ${m[1]} latex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `option clash package ${m[1]} latex`,
     tips: [
       'Load the package only once with all needed options',
       'Use \\PassOptionsToPackage{opts}{pkg} before \\documentclass',
@@ -427,9 +429,9 @@ const ERROR_RULES = [
   {
     pattern: /Unclosed environment.*\\begin\{(.*?)\}/i,
     title: 'Unclosed environment',
-    suggestion: (m) =>
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The environment ${m[1]} was opened with \\begin{${m[1]}} but never closed. Add \\end{${m[1]}} at the appropriate position.`,
-    searchQuery: (m) => `unclosed environment ${m[1]} latex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `unclosed environment ${m[1]} latex`,
     tips: ['Add the missing \\end{} at the correct position'],
   },
   {
@@ -470,8 +472,9 @@ const ERROR_RULES = [
   {
     pattern: /Unknown command "\\(\w+)"/i,
     title: 'Unknown command',
-    suggestion: (m) => {
+    suggestion: (/** @type {RegExpMatchArray} */ m) => {
       const cmd = m[1];
+      /** @type {Record<string, string>} */
       const packages = {
         includegraphics: 'graphicx',
         url: 'url or hyperref',
@@ -511,7 +514,7 @@ const ERROR_RULES = [
       if (pkg) return `\\${cmd} requires \\usepackage{${pkg}} in your preamble.`;
       return `\\${cmd} is not recognized. Check for typos, or add the required \\usepackage{} in your preamble. If this is a custom command, define it with \\newcommand.`;
     },
-    searchQuery: (m) => `undefined command ${m[1]} latex`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `undefined command ${m[1]} latex`,
     tips: [
       'Check the command name for typos',
       'Add the required \\usepackage{} in your preamble',

@@ -1,7 +1,9 @@
+// @ts-check
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+// @ts-ignore -- vite-handled CSS import
 import './styles/app.css';
 
 // Prevent browser-level pinch-to-zoom (Ctrl+wheel on macOS trackpad)
@@ -30,7 +32,9 @@ window.addEventListener('vite:preloadError', () => {
   }
 });
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+const rootEl = document.getElementById('root');
+if (!rootEl) throw new Error('#root element missing from index.html');
+ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
       <App />

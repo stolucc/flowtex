@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * BibTeX linter — checks for fields that are invalid for the entry type.
  * Returns an array of { line, col, len, severity, message }.
@@ -5,6 +6,7 @@
 import { ALL_KNOWN_FIELDS, isFieldValidForType } from './bibtexMode.js';
 
 // Entry type aliases (same as bibtexMode.js)
+/** @type {Record<string, string>} */
 const TYPE_ALIASES = {
   conference: 'inproceedings',
   bookinbook: 'inbook',

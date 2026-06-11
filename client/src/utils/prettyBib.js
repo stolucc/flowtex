@@ -1,10 +1,13 @@
+// @ts-check
 import { findMatchingBrace } from './latexParser.js';
 
 /**
  * Pretty-print a .bib file string.
  * Normalizes whitespace, aligns field names, and adds consistent formatting.
+ * @param {string} input
  */
 export default function prettyBib(input) {
+  /** @type {string[]} */
   const result = [];
   let i = 0;
   const src = input;

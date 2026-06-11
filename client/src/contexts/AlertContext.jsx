@@ -1,3 +1,4 @@
+// @ts-check
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 /** Themed replacement for window.alert / window.confirm.
@@ -19,23 +20,45 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
  *  default action button so muscle memory carries over from native.
  */
 
-const AlertContext = createContext(null);
+/**
+ * @typedef {{
+ *   id: number,
+ *   kind: 'alert' | 'confirm',
+ *   title?: string,
+ *   message: string,
+ *   okLabel?: string,
+ *   confirmLabel?: string,
+ *   cancelLabel?: string,
+ *   tone?: 'default' | 'danger',
+ *   resolve: (value: any) => void,
+ * }} DialogSpec
+ *
+ * @typedef {{
+ *   alert: (message: string, opts?: { title?: string, okLabel?: string }) => Promise<void>,
+ *   confirm: (message: string, opts?: { title?: string, confirmLabel?: string, cancelLabel?: string, tone?: 'default' | 'danger' }) => Promise<boolean>,
+ * }} AlertContextValue
+ */
+
+/** @type {React.Context<AlertContextValue | null>} */
+const AlertContext = createContext(/** @type {AlertContextValue | null} */ (null));
 
 const DEFAULT_LABELS = { ok: 'OK', confirm: 'Confirm', cancel: 'Cancel' };
 
+/** @param {{ children: React.ReactNode }} props */
 export function AlertProvider({ children }) {
   // Queue of pending dialogs. Render the head; pop on resolve.
-  const [queue, setQueue] = useState([]);
+  /** @type {[DialogSpec[], React.Dispatch<React.SetStateAction<DialogSpec[]>>]} */
+  const [queue, setQueue] = useState(/** @type {DialogSpec[]} */ ([]));
   const idRef = useRef(0);
 
-  const pushDialog = useCallback((spec) => {
+  const pushDialog = useCallback((/** @type {Omit<DialogSpec, 'id' | 'resolve'>} */ spec) => {
     return new Promise((resolve) => {
       const id = ++idRef.current;
       setQueue((q) => [...q, { ...spec, id, resolve }]);
     });
   }, []);
 
-  const alert = useCallback((message, opts = {}) => {
+  const alert = useCallback((/** @type {string} */ message, /** @type {{ title?: string, okLabel?: string }} */ opts = {}) => {
     return pushDialog({
       kind: 'alert',
       title: opts.title || 'Notice',
@@ -44,7 +67,7 @@ export function AlertProvider({ children }) {
     });
   }, [pushDialog]);
 
-  const confirm = useCallback((message, opts = {}) => {
+  const confirm = useCallback((/** @type {string} */ message, /** @type {{ title?: string, confirmLabel?: string, cancelLabel?: string, tone?: 'default' | 'danger' }} */ opts = {}) => {
     return pushDialog({
       kind: 'confirm',
       title: opts.title || 'Confirm',
@@ -55,7 +78,7 @@ export function AlertProvider({ children }) {
     });
   }, [pushDialog]);
 
-  const resolveCurrent = useCallback((value) => {
+  const resolveCurrent = useCallback((/** @type {unknown} */ value) => {
     setQueue((q) => {
       if (!q.length) return q;
       q[0].resolve(value);
@@ -85,12 +108,16 @@ export function useAlert() {
   return ctx;
 }
 
+/**
+ * @param {{ spec: DialogSpec, onResolve: (value: unknown) => void }} props
+ */
 function DialogShell({ spec, onResolve }) {
+  /** @type {React.MutableRefObject<HTMLButtonElement | null>} */
   const primaryRef = useRef(null);
 
   useEffect(() => {
     primaryRef.current?.focus();
-    const onKey = (e) => {
+    const onKey = (/** @type {KeyboardEvent} */ e) => {
       if (e.key === 'Escape') {
         // Alert: dismissing equals acknowledgement.
         // Confirm: dismissing equals cancel.
@@ -105,7 +132,7 @@ function DialogShell({ spec, onResolve }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec.id]);
 
-  const handleOverlayClick = (e) => {
+  const handleOverlayClick = (/** @type {React.MouseEvent<HTMLDivElement>} */ e) => {
     if (e.target === e.currentTarget) {
       onResolve(spec.kind === 'alert' ? undefined : false);
     }

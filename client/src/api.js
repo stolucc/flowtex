@@ -1,3 +1,4 @@
+// @ts-check
 const BASE = '';
 
 /** @returns {string} CSRF token from the cookie, or empty string. */
@@ -13,9 +14,10 @@ export function getCsrfToken() {
  * @returns {Promise<Response>}
  */
 async function request(path, options = {}) {
+  /** @type {Record<string, string>} */
   const headers = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    .../** @type {Record<string, string>} */ (options.headers || {}),
   };
 
   // Attach CSRF token to state-changing requests

@@ -1,3 +1,4 @@
+// @ts-check
 // Allowlist gate for URLs that originate from untrusted project content
 // (e.g. the URL argument of \href{URL}{text} in a collaborator-authored
 // .tex file). Used before window.open / element.href assignments to
@@ -20,6 +21,7 @@ const SAFE_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
  *     bypass scheme inspection if we accepted them blind
  *   - empty / whitespace / non-string / unparseable input
  */
+/** @param {unknown} raw */
 export function isSafeWebUrl(raw) {
   if (typeof raw !== 'string') return false;
   const trimmed = raw.trim();

@@ -1,6 +1,19 @@
+// @ts-check
 /**
  * Generate LaTeX source for a figure environment from structured options.
- * @param {Object} options - Figure configuration (env, placement, imagePath, width, caption, label, etc.)
+ * @param {{
+ *   env?: string,
+ *   placement?: string,
+ *   imagePath?: string,
+ *   width?: string,
+ *   widthUnit?: string,
+ *   caption?: boolean | string,
+ *   captionText?: string,
+ *   label?: string,
+ *   centering?: boolean,
+ *   captionPos?: string,
+ *   captionVAlign?: string,
+ * }} options
  * @returns {string} LaTeX source string
  */
 export default function generateLatexFigure({

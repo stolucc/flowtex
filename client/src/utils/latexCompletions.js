@@ -1,7 +1,9 @@
+// @ts-check
 import { autocompletion } from '@codemirror/autocomplete';
 import { snippet } from '@codemirror/autocomplete';
 
 // Helper: create a snippet apply function that places cursor inside the first {}
+/** @param {string} template */
 function snip(template) {
   return snippet(template);
 }
@@ -241,8 +243,8 @@ const environments = [
 
 /**
  * CodeMirror completion source for LaTeX backslash commands.
- * @param {CompletionContext} context
- * @returns {CompletionResult|null}
+ * @param {import('@codemirror/autocomplete').CompletionContext} context
+ * @returns {import('@codemirror/autocomplete').CompletionResult|null}
  */
 function latexCompletionSource(context) {
   // Match \word at cursor — include the backslash in the replacement range
@@ -270,12 +272,13 @@ function latexCompletionSource(context) {
  */
 function snippetApply(template) {
   const snip = snippet(template);
-  return (view, completion, from, to) => {
+  return (/** @type {any} */ view, /** @type {any} */ completion, /** @type {number} */ from, /** @type {number} */ to) => {
     if (view.state.sliceDoc(to, to + 1) === '}') to++;
     snip(view, completion, from, to);
   };
 }
 
+/** @type {Record<string, { label: string, type: string, detail: string, apply: any }>} */
 const envSnippets = {
   figure: {
     label: 'figure',
@@ -327,6 +330,7 @@ const LIST_ENVS = new Set(['itemize', 'enumerate', 'description']);
  * - For description: `\item[term] description` is more typical.
  * - For anything else: just an empty line with the caret on it.
  */
+/** @param {string} name */
 function defaultEnvSnippet(name) {
   if (name === 'description') {
     return `${name}}\n\t\\item[\${1:term}] \${0}\n\\end{${name}}`;
@@ -339,8 +343,8 @@ function defaultEnvSnippet(name) {
 
 /**
  * CodeMirror completion source for LaTeX environment names inside \begin{} and \end{}.
- * @param {CompletionContext} context
- * @returns {CompletionResult|null}
+ * @param {import('@codemirror/autocomplete').CompletionContext} context
+ * @returns {import('@codemirror/autocomplete').CompletionResult|null}
  */
 function envCompletionSource(context) {
   // Match \begin{ or \end{ with partial env name
@@ -351,6 +355,7 @@ function envCompletionSource(context) {
   const from = match.from + braceIdx + 1;
   const isBegin = match.text.startsWith('\\begin');
 
+  /** @type {import('@codemirror/autocomplete').Completion[]} */
   const options = [];
   if (isBegin) {
     // \begin{...}: every environment expands to the full block —
@@ -359,16 +364,16 @@ function envCompletionSource(context) {
     // hand-written scaffolds (centering, caption, label) and take
     // precedence via the higher `boost`.
     for (const env of Object.keys(envSnippets)) {
-      options.push({ ...envSnippets[env], boost: 2 });
+      options.push(/** @type {import('@codemirror/autocomplete').Completion} */ ({ ...envSnippets[env], boost: 2 }));
     }
     for (const e of environments) {
       if (envSnippets[e]) continue; // already added with custom scaffold
-      options.push({
+      options.push(/** @type {import('@codemirror/autocomplete').Completion} */ ({
         label: e,
         type: 'type',
         detail: 'environment',
         apply: snippetApply(defaultEnvSnippet(e)),
-      });
+      }));
     }
   } else {
     // \end{...}: pick a plain name; no point auto-inserting another
@@ -394,11 +399,11 @@ const citeCommandPattern = /\\(?:\w*[Cc]ite\w*|nocite)\*?(?:\[.*?\])*\{[^}]*$/;
 
 /**
  * Create a completion source for citation keys inside \cite{} commands.
- * @param {React.RefObject} citeKeysRef - Ref holding an array of citation key completions
+ * @param {React.RefObject<any>} citeKeysRef - Ref holding an array of citation key completions
  * @returns {Function} CodeMirror completion source
  */
 function makeCiteKeySource(citeKeysRef) {
-  return function citeKeyCompletionSource(context) {
+  return function citeKeyCompletionSource(/** @type {import('@codemirror/autocomplete').CompletionContext} */ context) {
     // Check if we're inside a cite command's braces
     const lineText = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
     if (!citeCommandPattern.test(lineText)) return null;
@@ -426,11 +431,11 @@ const refCommandPattern = /\\(?:(?:eq|page|auto|name|c|C|v|V)?ref|hyperref)\*?(?
 
 /**
  * Create a completion source for label keys inside \ref{} commands.
- * @param {React.RefObject} labelKeysRef - Ref holding an array of label key completions
+ * @param {React.RefObject<any>} labelKeysRef - Ref holding an array of label key completions
  * @returns {Function} CodeMirror completion source
  */
 function makeRefKeySource(labelKeysRef) {
-  return function refKeyCompletionSource(context) {
+  return function refKeyCompletionSource(/** @type {import('@codemirror/autocomplete').CompletionContext} */ context) {
     const lineText = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
     if (!refCommandPattern.test(lineText)) return null;
 
@@ -452,17 +457,18 @@ function makeRefKeySource(labelKeysRef) {
 
 /**
  * Create a CodeMirror autocompletion extension for LaTeX commands, environments, cite keys, and label refs.
- * @param {React.RefObject} [citeKeysRef] - Ref holding an array of citation key completions
- * @param {React.RefObject} [labelKeysRef] - Ref holding an array of label key completions
- * @returns {Extension} CodeMirror autocompletion extension
+ * @param {React.RefObject<any>} [citeKeysRef] - Ref holding an array of citation key completions
+ * @param {React.RefObject<any>} [labelKeysRef] - Ref holding an array of label key completions
+ * @returns {import('@codemirror/state').Extension} CodeMirror autocompletion extension
  */
 export default function latexAutocomplete(citeKeysRef, labelKeysRef) {
+  /** @type {Array<(context: import('@codemirror/autocomplete').CompletionContext) => import('@codemirror/autocomplete').CompletionResult | null>} */
   const sources = [envCompletionSource, latexCompletionSource];
   if (citeKeysRef) {
-    sources.unshift(makeCiteKeySource(citeKeysRef));
+    sources.unshift(/** @type {any} */ (makeCiteKeySource(citeKeysRef)));
   }
   if (labelKeysRef) {
-    sources.unshift(makeRefKeySource(labelKeysRef));
+    sources.unshift(/** @type {any} */ (makeRefKeySource(labelKeysRef)));
   }
   return autocompletion({
     override: sources,

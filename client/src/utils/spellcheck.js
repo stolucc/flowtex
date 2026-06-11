@@ -1,3 +1,5 @@
+// @ts-check
+// @ts-ignore -- typo-js has no bundled types
 import Typo from 'typo-js';
 import { findMatchingBrace } from './latexParser.js';
 import { getSetting, setSetting, getJsonSetting, setJsonSetting } from './settings.js';
@@ -17,9 +19,12 @@ export const LANGUAGES = [
 
 const LANG_KEY = 'spell-language';
 let currentLang = getSetting(LANG_KEY) || 'en_US';
+/** @type {any} */
 let dictionary = null;
+/** @type {string | null} */
 let loadedLang = null;
 let loading = false;
+/** @type {Array<(dict: any) => void>} */
 const callbacks = [];
 
 // Custom dictionary — words the user has added
@@ -213,8 +218,13 @@ function skipBracketGroup(text, i, open, close) {
  * commands, math environments, and brace groups.
  * Returns array of { from, to, word } for misspelled words.
  */
+/**
+ * @param {string} text
+ * @param {any} dict
+ */
 export function spellcheckText(text, dict) {
   if (!dict) return [];
+  /** @type {Array<{ from: number, to: number, word: string }>} */
   const results = [];
   const len = text.length;
   let i = 0;

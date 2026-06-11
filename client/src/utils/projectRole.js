@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Look up the current user's project role from a members list. Returns
  * null when membership hasn't loaded yet, when there's no logged-in

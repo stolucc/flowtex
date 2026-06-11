@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Format a date string as relative time (e.g. "just now", "5m ago", "3d ago").
  * @param {string} dateStr - ISO date string
@@ -7,7 +8,7 @@ export function formatRelativeTime(dateStr) {
   if (!dateStr) return '';
   const now = new Date();
   const date = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
-  const diffMs = now - date;
+  const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return 'just now';
   const diffMin = Math.floor(diffSec / 60);

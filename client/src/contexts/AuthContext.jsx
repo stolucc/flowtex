@@ -1,9 +1,24 @@
+// @ts-check
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { get, post } from '../api.js';
 
-const AuthContext = createContext(null);
+/**
+ * @typedef {{
+ *   user: any,
+ *   setUser: (u: any) => void,
+ *   authChecked: boolean,
+ *   handleLogout: () => Promise<void>,
+ *   needsSetup: boolean,
+ *   setNeedsSetup: (n: boolean) => void,
+ * }} AuthContextValue
+ */
 
-/** Provides authentication state (user, logout, setup status) to the component tree. */
+/** @type {React.Context<AuthContextValue | null>} */
+const AuthContext = createContext(/** @type {AuthContextValue | null} */ (null));
+
+/** Provides authentication state (user, logout, setup status) to the component tree.
+ *  @param {{ children: React.ReactNode }} props
+ */
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
