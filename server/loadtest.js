@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * FlowTex Load Test — 500 users editing 100 documents with realistic keystrokes.
  *
@@ -27,10 +28,12 @@ import { v4 as uuid } from 'uuid';
 
 // ── CLI args ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
+/** @param {string} name @param {number} fallback */
 function getArg(name, fallback) {
   const idx = args.indexOf(`--${name}`);
   return idx !== -1 && args[idx + 1] ? Number(args[idx + 1]) : fallback;
 }
+/** @param {string} name @param {string} fallback */
 function getStrArg(name, fallback) {
   const idx = args.indexOf(`--${name}`);
   return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
@@ -78,11 +81,13 @@ const pool = new pg.Pool({
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+/** @param {string} sessionId */
 function signCookie(sessionId) {
-  const mac = crypto.createHmac('sha256', SESSION_SECRET).update(sessionId).digest('base64').replace(/=+$/, '');
+  const mac = crypto.createHmac('sha256', /** @type {string} */ (SESSION_SECRET)).update(sessionId).digest('base64').replace(/=+$/, '');
   return `s:${sessionId}.${mac}`;
 }
 
+/** @param {number} ms */
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -115,6 +120,7 @@ const CORPUS = [
 ];
 
 // ── Realistic document generator (EMSE-style paper) ─────────────────────
+/** @param {number} docIndex */
 function generateDocument(docIndex) {
   const titles = [
     'An Empirical Study of Code Review Practices in Open Source Projects',
@@ -563,13 +569,22 @@ async function cleanupTestData() {
     console.log('Cleanup done.');
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Cleanup error:', err.message);
+    console.error('Cleanup error:', err instanceof Error ? err.message : err);
   } finally {
     client.release();
   }
 }
 
 // ── Metrics ─────────────────────────────────────────────────────────────
+/** @type {{
+ *   wsConnected: number, wsConnectFailed: number,
+ *   messagesSent: number, messagesReceived: number,
+ *   errors: number, keystrokesSent: number,
+ *   latencies: number[], connectLatencies: number[],
+ *   compilesStarted: number, compilesSucceeded: number,
+ *   compilesFailed: number, compilesRateLimited: number,
+ *   compileLatencies: number[], startTime: number,
+ * }} */
 const metrics = {
   wsConnected: 0,
   wsConnectFailed: 0,
@@ -610,6 +625,13 @@ function reportMetrics() {
 }
 
 // ── Simulated user ──────────────────────────────────────────────────────
+/**
+ * @param {string} userId
+ * @param {string} sessionId
+ * @param {string} projectId
+ * @param {string} fileId
+ * @param {number} userIndex
+ */
 function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
   return new Promise((resolve) => {
     const signedCookie = signCookie(sessionId);
@@ -624,6 +646,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
     let cursorPos = 3000 + Math.floor(Math.random() * 2000); // start typing at a random position in the paper body
     let corpusIdx = 0;
     let charIdx = 0;
+    /** @type {ReturnType<typeof setTimeout> | null} */
     let typingTimer = null;
     let alive = true;
 
@@ -691,6 +714,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
     // ── Chat sender ─────────────────────────────────────────────────────
     // Each chat message → handleChat in websocket.js → 1 INSERT into
     // chat_messages via db.run → bumps the in-memory write counter.
+    /** @type {ReturnType<typeof setTimeout> | null} */
     let chatTimer = null;
     let chatSent = 0;
     function sendChat() {
@@ -712,7 +736,7 @@ function createSimulatedUser(userId, sessionId, projectId, fileId, userIndex) {
       }
     }
 
-    ws.on('error', (err) => {
+    ws.on('error', (/** @type {Error} */ err) => {
       metrics.errors++;
       if (!metrics.wsConnected && metrics.wsConnectFailed < 3) {
         console.error(`  User ${userIndex} connect error: ${err.message}`);
@@ -772,14 +796,20 @@ async function pollDbMetrics() {
         `cache hit ratio: ${tx.blks_hit && tx.blks_read !== undefined ? ((Number(tx.blks_hit) / (Number(tx.blks_hit) + Number(tx.blks_read) || 1)) * 100).toFixed(1) : 'N/A'}%`,
     );
   } catch (err) {
-    console.error(`  DB metrics error: ${err.message}`);
+    console.error(`  DB metrics error: ${err instanceof Error ? err.message : err}`);
   }
 }
 
 // ── Compile scheduler ───────────────────────────────────────────────────
 // One compile timer per project. Uses the first user assigned to that project.
+/**
+ * @param {string[]} projectIds
+ * @param {string[]} sessionIds
+ * @param {string[]} csrfTokens
+ */
 function startCompileSchedulers(projectIds, sessionIds, csrfTokens) {
-  if (COMPILE_INTERVAL_S <= 0) return [];
+  if (COMPILE_INTERVAL_S <= 0) return /** @type {Array<ReturnType<typeof setTimeout> | { stop: () => void }>} */ ([]);
+  /** @type {Array<ReturnType<typeof setTimeout> | { stop: () => void }>} */
   const timers = [];
   for (let d = 0; d < projectIds.length; d++) {
     // Use the first user assigned to this project (user index = d, since round-robin)
@@ -845,9 +875,10 @@ function startCompileSchedulers(projectIds, sessionIds, csrfTokens) {
   return timers;
 }
 
+/** @param {Array<ReturnType<typeof setTimeout> | { stop: () => void }>} timers */
 function stopCompileSchedulers(timers) {
   for (const t of timers) {
-    if (typeof t === 'object' && t.stop) t.stop();
+    if (typeof t === 'object' && 'stop' in t) t.stop();
     else clearTimeout(t);
   }
 }
@@ -863,7 +894,7 @@ async function main() {
   try {
     testData = await setupTestData();
   } catch (err) {
-    console.error('Failed to set up test data:', err.message);
+    console.error('Failed to set up test data:', err instanceof Error ? err.message : err);
     process.exit(1);
   }
 

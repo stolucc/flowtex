@@ -1,3 +1,4 @@
+// @ts-check
 import pg from 'pg';
 import logger from './logger.js';
 
@@ -25,6 +26,7 @@ pool.on('error', (err) => {
 // In-memory only; resets on process restart. Surfaced via
 // /api/admin/stats/db-writes. Reads (SELECT, BEGIN, COMMIT, ROLLBACK) are
 // intentionally not counted.
+/** @type {{ total: number, byOp: Record<string, number>, byTable: Record<string, number>, startedAt: string }} */
 const writeStats = {
   total: 0,
   byOp: Object.create(null),
@@ -40,9 +42,10 @@ const writeStats = {
  * `DELETE FROM`, `TRUNCATE TABLE` variants. Unparseable writes still bump
  * the total counter but land in the `unknown` table bucket.
  */
+/** @param {unknown} sql */
 function detectWrite(sql) {
   if (typeof sql !== 'string') return null;
-  const trimmed = sql.replace(/^\s*\/\*[\s\S]*?\*\//, '').trimStart();
+  const trimmed = /** @type {string} */ (sql).replace(/^\s*\/\*[\s\S]*?\*\//, '').trimStart();
   const opMatch = /^(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i.exec(trimmed);
   if (!opMatch) return null;
   const op = opMatch[1].toUpperCase();
@@ -53,6 +56,7 @@ function detectWrite(sql) {
   // backtrack across them. Inputs are server-emitted SQL strings, not
   // user data. ReDoS-reviewed 2026-06-02.
   /* eslint-disable security/detect-unsafe-regex */
+  /** @type {Record<string, RegExp>} */
   const patterns = {
     INSERT: /^INSERT\s+INTO\s+(?:ONLY\s+)?"?(\w+)"?/i,
     UPDATE: /^UPDATE\s+(?:ONLY\s+)?"?(\w+)"?/i,
@@ -73,6 +77,7 @@ function detectWrite(sql) {
 // FlowTex has well under 64 real tables; 256 leaves comfortable headroom.
 const MAX_TABLE_BUCKETS = 256;
 
+/** @param {unknown} sql */
 function recordWrite(sql) {
   const w = detectWrite(sql);
   if (!w) return;
@@ -114,6 +119,7 @@ export function _resetWriteStatsForTesting() {
 // changes from the test (and any nested db.transaction calls, which now
 // use SAVEPOINTs) are reverted at the end of the test — no test data
 // leaks into the real database.
+/** @type {import('pg').PoolClient | null} */
 let _sharedClient = null;
 
 /**
@@ -121,6 +127,7 @@ let _sharedClient = null;
  * cleared with `_setSharedClient(null)`. Production code must never call
  * this; it would serialize every API request through one connection.
  */
+/** @param {import('pg').PoolClient | null} client */
 export function _setSharedClient(client) {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('_setSharedClient may only be called in tests (set NODE_ENV=test)');
@@ -135,23 +142,40 @@ function runner() {
 
 let _savepointCounter = 0;
 
+/**
+ * @typedef {{
+ *   get: (sql: string, params?: unknown[]) => Promise<any>,
+ *   all: (sql: string, params?: unknown[]) => Promise<any[]>,
+ *   run: (sql: string, params?: unknown[]) => Promise<any>,
+ * }} TxDb
+ */
+
 /** Convenience wrappers around the pg Pool matching a simple get/all/run API. */
 const db = {
   pool,
 
-  /** Run a query and return the first row, or undefined. */
+  /** Run a query and return the first row, or undefined.
+   *  @param {string} sql
+   *  @param {unknown[]} [params]
+   */
   async get(sql, params = []) {
     const { rows } = await runner().query(sql, params);
     return rows[0] || undefined;
   },
 
-  /** Run a query and return all matching rows. */
+  /** Run a query and return all matching rows.
+   *  @param {string} sql
+   *  @param {unknown[]} [params]
+   */
   async all(sql, params = []) {
     const { rows } = await runner().query(sql, params);
     return rows;
   },
 
-  /** Run a query and return the full pg Result (rowCount, rows, etc.). */
+  /** Run a query and return the full pg Result (rowCount, rows, etc.).
+   *  @param {string} sql
+   *  @param {unknown[]} [params]
+   */
   async run(sql, params = []) {
     recordWrite(sql);
     const result = await runner().query(sql, params);
@@ -164,8 +188,9 @@ const db = {
    * test-level BEGIN/ROLLBACK keeps working — PostgreSQL doesn't allow
    * truly nested BEGIN, and a naive nested COMMIT here would leak the
    * inner changes past the outer rollback.
-   * @param {(txDb: {get, all, run}) => Promise} fn - Receives a transaction-scoped db object.
-   * @returns {Promise} The return value of fn.
+   * @template T
+   * @param {(txDb: TxDb) => Promise<T>} fn - Receives a transaction-scoped db object.
+   * @returns {Promise<T>} The return value of fn.
    */
   async transaction(fn) {
     if (_sharedClient) {
@@ -173,6 +198,7 @@ const db = {
       const c = _sharedClient;
       await c.query(`SAVEPOINT ${sp}`);
       try {
+        /** @type {TxDb} */
         const txDb = {
           async get(sql, params = []) {
             const { rows } = await c.query(sql, params);
@@ -198,6 +224,7 @@ const db = {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      /** @type {TxDb} */
       const txDb = {
         async get(sql, params = []) {
           const { rows } = await client.query(sql, params);
@@ -918,7 +945,7 @@ async function initSchema() {
 }
 
 // Initialize schema — called before server starts
-db.initSchema = initSchema;
+/** @type {any} */ (db).initSchema = initSchema;
 
 /** Start a periodic cleanup job that prunes old audit logs, login attempts, and expired tokens. */
 function startCleanupJob() {
@@ -957,6 +984,6 @@ function startCleanupJob() {
   setTimeout(cleanup, 60000).unref();
   setInterval(cleanup, 6 * 60 * 60 * 1000).unref();
 }
-db.startCleanupJob = startCleanupJob;
+/** @type {any} */ (db).startCleanupJob = startCleanupJob;
 
 export default db;

@@ -49,18 +49,11 @@ router.post('/init', async (req, res) => {
       // because the advisory lock pins the critical region — the
       // second caller stays blocked until we commit and then loses
       // the existence re-check above.
-      // registerUser returns User on success OR { error: string } on
-      // policy reject (HIBP, validation). authService isn't ts-check'd
-      // yet so we cast at the boundary -- same temporary pattern as
-      // routes/auth.js.
-      const reg = /** @type {{ id?: string, error?: string }} */ (
-        await registerUser(email, name, password)
-      );
-      if (reg.error) {
-        const err = /** @type {Error & { status: number }} */ (new Error(reg.error));
-        err.status = 400;
-        throw err;
-      }
+      // registerUser throws on policy reject (HIBP, validation). The
+      // (now-removed) `{ error: string }` branch was leftover from an
+      // earlier API shape -- tsc surfaced it as dead code when
+      // authService landed in @ts-check.
+      const reg = await registerUser(email, name, password);
       // Promote to admin and mark email as verified
       await tx.run('UPDATE users SET is_admin = TRUE, email_verified = TRUE WHERE id = $1', [reg.id]);
       return reg;
@@ -86,7 +79,10 @@ router.post('/init', async (req, res) => {
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       req.session.regenerate((/** @type {Error | null} */ err) => (err ? reject(err) : resolve()));
     }));
-    req.session.userId = result.id;
+    // First-run setup just inserted the admin row so `id` is non-null;
+    // registerUser's union return type accommodates the
+    // alreadyExisted=true arm that's unreachable here.
+    req.session.userId = /** @type {string} */ (result.id);
     req.session.userName = name.trim();
     // Mint a CSRF token + cookie up front so the very next state-changing
     // request from the client (e.g. creating their first project) has

@@ -238,7 +238,7 @@ router.post('/restore/:snapshotId', async (req, res) => {
       [projectId],
     );
     await createSnapshotWithRefs(tx, currentFiles, 'Before restore');
-    const currentById = new Map(currentFiles.map((/** @type {{ id: string }} */ f) => [f.id, f]));
+    const currentById = new Map(currentFiles.map((/** @type {any} */ f) => [f.id, f]));
 
     // 1. Delete files in current but not target. Drop the blob ref so the
     //    refcount stays accurate; the snapshot still holds its own ref

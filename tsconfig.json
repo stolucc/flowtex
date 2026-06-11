@@ -135,7 +135,9 @@
     "server/utils/templates.js",
     "server/utils/email.js",
     "server/yjsWorker.js",
-    "server/compiler.js"
+    "server/compiler.js",
+    "server/db.js",
+    "server/loadtest.js"
   ],
   "exclude": [
     "node_modules",
