@@ -137,7 +137,8 @@
     "server/yjsWorker.js",
     "server/compiler.js",
     "server/db.js",
-    "server/loadtest.js"
+    "server/loadtest.js",
+    "server/index.js"
   ],
   "exclude": [
     "node_modules",

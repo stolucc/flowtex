@@ -55,6 +55,9 @@ declare module 'express-session' {
     samlNameId?: string;
     /** When authMethod=='saml', for SLO LogoutRequest construction. */
     samlSessionIndex?: string;
+    /** Set on first save -- compared to session-store row's `expire` to
+     *  detect rolling-renew vs original-issued-time. */
+    createdAt?: number;
     /** GitHub OAuth state nonce. Stashed before redirecting to GitHub
      *  so the callback can verify the state belongs to this session
      *  (anti-CSRF for OAuth2). Cleared after consumption. */

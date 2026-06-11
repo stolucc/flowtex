@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 5 (continued): OpenTelemetry boots first.
 // When OTEL_EXPORTER_OTLP_ENDPOINT is unset this is a no-op import
 // (the SDK isn't loaded). When set, it installs auto-instrumentations
@@ -7,9 +8,15 @@
 import './tracing.js';
 
 import express from 'express';
+// compression/cors/connect-pg-simple/cookie-parser have no bundled types;
+// pulling @types/* for any of them re-introduces the duplicate
+// @types/express-serve-static-core trap. @ts-ignore each import.
+// @ts-ignore
 import compression from 'compression';
+// @ts-ignore
 import cors from 'cors';
 import session from 'express-session';
+// @ts-ignore
 import pgSession from 'connect-pg-simple';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -47,6 +54,7 @@ import bugReportsRouter from './routes/bugReports.js';
 import metricsRouter from './routes/metrics.js';
 import { recordHttpRequest } from './services/metrics.js';
 import { errorReporterMiddleware } from './services/errorReporter.js';
+// @ts-ignore
 import cookieParser from 'cookie-parser';
 import { requireAuth, requireAdmin } from './middleware/auth.js';
 import { initWebSocket } from './websocket.js';
@@ -89,7 +97,7 @@ app.use(
           "'self'",
           // Nonce is injected into served HTML by the SPA-fallback templating
           // step. Inline scripts without this nonce are blocked.
-          (req, res) => `'nonce-${res.locals.cspNonce}'`,
+          (/** @type {any} */ req, /** @type {any} */ res) => `'nonce-${res.locals.cspNonce}'`,
         ],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
@@ -145,7 +153,7 @@ const allowedOrigins = (
 ).split(',');
 app.use(
   cors({
-    origin(origin, cb) {
+    origin(/** @type {string | undefined} */ origin, /** @type {(err: Error | null, allow: boolean) => void} */ cb) {
       // No Origin header = same-origin request (browser navigation, fetch from same host, curl, healthchecks)
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
@@ -161,7 +169,7 @@ app.use(
 );
 
 app.use(compression({
-  filter: (req, res) => {
+  filter: (/** @type {any} */ req, /** @type {any} */ res) => {
     // Don't compress SSE streams — compression buffers the whole response
     if (res.getHeader('Content-Type') === 'text/event-stream') return false;
     return compression.filter(req, res);
@@ -234,7 +242,7 @@ const PgStore = pgSession(session);
 const sessionMiddleware = session({
   name: '__session',
   store: new PgStore({ pool: db.pool, tableName: 'session' }),
-  secret: SESSION_SECRET,
+  secret: /** @type {string} */ (SESSION_SECRET),
   resave: false,
   saveUninitialized: false,
   rolling: true, // Reset maxAge on every request (activity-based expiry)
@@ -245,7 +253,7 @@ const sessionMiddleware = session({
     secure: process.env.NODE_ENV === 'production',
   },
 });
-app.use(sessionMiddleware);
+app.use(/** @type {import('express').RequestHandler} */ (/** @type {any} */ (sessionMiddleware)));
 
 // Enforce absolute session lifetime (7 days) regardless of activity
 const ABSOLUTE_SESSION_MAX = 7 * 24 * 60 * 60 * 1000;
@@ -412,8 +420,11 @@ const bugReportLimiter = rateLimit({
   // same /64 subnet dont share a bucket (which would let one tenant
   // silence a neighbour). When the user is authenticated we key by userId
   // directly, which is the common path.
-  keyGenerator: (req, res) =>
-    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  // ipKeyGenerator takes a string IP -- previous form passed (req, res),
+  // which silently coerced to "[object Object]" and lumped every
+  // unauthenticated request into one bucket. Use req.ip directly.
+  keyGenerator: (/** @type {import('express').Request} */ req) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req.ip || '0.0.0.0')}`,
   skip: () => skipRateLimit,
 });
 
@@ -430,8 +441,11 @@ const commentCreateLimiter = rateLimit({
   message: { error: 'Too many comments created in a short period. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req, res) =>
-    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  // ipKeyGenerator takes a string IP -- previous form passed (req, res),
+  // which silently coerced to "[object Object]" and lumped every
+  // unauthenticated request into one bucket. Use req.ip directly.
+  keyGenerator: (/** @type {import('express').Request} */ req) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req.ip || '0.0.0.0')}`,
   skip: () => skipRateLimit,
   // Only count creates. Resolve/edit/delete/reply on existing comments
   // is throttled by the generic apiLimiter.
@@ -455,8 +469,11 @@ const inviteLimiter = rateLimit({
   message: { error: 'Too many invitations sent — please wait before sending more.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req, res) =>
-    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req, res)}`,
+  // ipKeyGenerator takes a string IP -- previous form passed (req, res),
+  // which silently coerced to "[object Object]" and lumped every
+  // unauthenticated request into one bucket. Use req.ip directly.
+  keyGenerator: (/** @type {import('express').Request} */ req) =>
+    req.session?.userId ? `user:${req.session.userId}` : `ip:${ipKeyGenerator(req.ip || '0.0.0.0')}`,
   skip: () => skipRateLimit,
 });
 
@@ -577,7 +594,7 @@ app.get('/api/ready', async (req, res) => {
   const result = await evaluateReadiness({
     draining,
     probeDb: () => db.get('SELECT 1'),
-    instanceMode: process.env.FLOWTEX_INSTANCE_MODE,
+    instanceMode: process.env.FLOWTEX_INSTANCE_MODE || 'single',
     redisClient: redisPub || redisSub || null,
   });
   if (!result.ready) {
@@ -613,6 +630,7 @@ function loadIndexTemplate() {
   }
   return _indexHtmlTemplate;
 }
+/** @param {string} nonce */
 function renderIndexWithNonce(nonce) {
   const tpl = loadIndexTemplate();
   // Add nonce attribute to every <script> tag. Vite's output has only
@@ -635,22 +653,26 @@ function renderIndexWithNonce(nonce) {
 // (e.g. wrapping @sentry/node). The middleware passes the error
 // through via next, so the response shape is unchanged.
 app.use(errorReporterMiddleware);
-app.use((err, req, res, _next) => {
+/** @type {import('express').ErrorRequestHandler} */
+const globalErrorHandler = (err, req, res, _next) => {
   logger.error({ err, method: req.method, url: req.url }, 'Unhandled route error');
   if (res.headersSent) return;
-  const status = err.status || 500;
+  const e = /** @type {{ status?: number, message?: string }} */ (err && typeof err === 'object' ? err : {});
+  const status = e.status || 500;
   let message = 'Internal server error';
   if (status < 500) {
     // Map well-known body-parser error types to clean strings; fall
     // back to the err's own message when it looks safe to surface.
-    if (err.type === 'entity.too.large') message = 'Payload too large';
-    else if (err.type === 'entity.parse.failed') message = 'Invalid JSON';
-    else if (err.type === 'entity.verify.failed') message = 'Body verification failed';
-    else if (typeof err.message === 'string' && err.message.length < 200) message = err.message;
+    const bodyErr = /** @type {{ type?: string }} */ (err && typeof err === 'object' ? err : {});
+    if (bodyErr.type === 'entity.too.large') message = 'Payload too large';
+    else if (bodyErr.type === 'entity.parse.failed') message = 'Invalid JSON';
+    else if (bodyErr.type === 'entity.verify.failed') message = 'Body verification failed';
+    else if (typeof e.message === 'string' && e.message.length < 200) message = e.message;
     else message = 'Bad request';
   }
   res.status(status).json({ error: message });
-});
+};
+app.use(globalErrorHandler);
 
 // Block common scanner probes — return 404 instead of SPA fallback
 const blockedPathPattern =
@@ -860,11 +882,13 @@ async function warnIfImageMagickPolicyMissing() {
 // Initialize database schema, seed templates, then start server
 import seedPreloadedTemplates from './utils/seedTemplates.js';
 import { initCrypto } from './utils/crypto.js';
-db.initSchema()
+/** @type {any} */
+const _db = db;
+_db.initSchema()
   .then(() => initCrypto())
   .then(() => seedPreloadedTemplates())
   .then(() => {
-    db.startCleanupJob();
+    _db.startCleanupJob();
     import('./utils/mentionDigest.js').then((m) => m.startMentionDigestJob());
     import('./utils/softDeletePurge.js').then((m) => m.startSoftDeletePurgeJob());
     import('./utils/blobSweep.js').then((m) => m.startBlobSweepJob());
@@ -874,7 +898,7 @@ db.initSchema()
       logger.info(`FlowTex server running on ${proto}://localhost:${PORT}`);
     });
   })
-  .catch((err) => {
+  .catch((/** @type {unknown} */ err) => {
     logger.fatal({ err }, 'Failed to initialize database');
     process.exit(1);
   });
