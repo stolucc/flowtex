@@ -34,14 +34,33 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  // The integration harness opens a BEGIN before each test. Any
-  // saml_sp_keypair row created in a prior test run may still be
-  // sitting in the DB (the global initSchema ran outside the
-  // transaction). Clear inside THIS transaction so we always start
-  // from a known state, then invalidate the in-memory cache so
-  // getSpKeypair regenerates rather than returning the previous
-  // decrypted view.
+  // The integration harness opens a BEGIN before each test. Any rows
+  // created in a prior run that ESCAPED a rollback (test process killed
+  // mid-flight, manual DB usage, etc.) are still sitting in the DB --
+  // the global initSchema ran outside the transaction, so initial
+  // visibility is whatever's already committed.
+  //
+  // saml_sp_keypair: cache invalidation needed too, since the in-memory
+  // cache survives across tests.
+  //
+  // saml_idp_config: every test in this file seeds an IdP claiming
+  // 'example.test' (createIdP's domain-uniqueness check throws 409 on
+  // collision). Without this cleanup, a single stuck row from an earlier
+  // crashed run breaks every subsequent test until the row is removed
+  // by hand. The DELETE here runs INSIDE the per-test BEGIN so it can't
+  // ever wipe production data even if PGDATABASE were misconfigured to
+  // a live DB -- the rollback will undo the delete if the test fails
+  // partway through.
   await db.run('DELETE FROM saml_sp_keypair');
+  await db.run('DELETE FROM saml_idp_config');
+  // The happy/confirm-link/refusal tests use hardcoded @example.test
+  // mailboxes (alice, bob, carol, dave, eve, frank, henry). If an
+  // earlier run committed a JIT-provisioned user row (or the test
+  // process was killed mid-test), the row sits in users.email and
+  // collides with the next run -- the SAML link path then throws
+  // "User with this email exists but cannot be linked to this IdP".
+  // Clean any users.email matching the test domain pattern.
+  await db.run("DELETE FROM users WHERE email LIKE '%@example.test'");
   samlTesting.resetCache();
 });
 
