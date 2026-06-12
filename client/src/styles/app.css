@@ -4315,6 +4315,40 @@ html {
   color: var(--accent);
 }
 
+/* One-click "Apply fix" button (e.g. add \usepackage{...}). Sits to
+   the LEFT of the help "?" button, marked with the accent colour so
+   it reads as the primary action on the row. */
+.pdf-log-fix-btn {
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 1px 7px 1px 5px;
+  cursor: pointer;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.pdf-log-fix-btn:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+.pdf-log-fix-btn-label {
+  font-weight: 500;
+}
+/* When both buttons are present, the fix btn already takes the
+   margin-left:auto; help btn collapses to a small gap next to it. */
+.pdf-log-fix-btn + .pdf-log-help-btn {
+  margin-left: 4px;
+}
+
 /* Copy-to-clipboard button on each log row. Plain icon button (no
    round border) so a row with both buttons doesn't look like a pair
    of identical chips. Both buttons get `margin-left: auto`; in a flex

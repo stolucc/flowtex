@@ -36,6 +36,7 @@ import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
 import { shouldShowRailMarker } from './utils/commentsRail.js';
+import { applyAddUsepackage } from './utils/latexQuickFixes.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
 import { AlertProvider, useAlert } from './contexts/AlertContext.jsx';
@@ -1599,6 +1600,63 @@ function AppInner() {
                   switchFile(f);
                   setTimeout(() => editorRef.current?.goToLine(line, col), 50);
                 } else editorRef.current?.goToLine(line, col);
+              }}
+              onApplyQuickFix={(/** @type {any} */ fix) => {
+                // First-iteration scope: only the 'add-usepackage' fix
+                // kind exists. New kinds plug in here as additional
+                // dispatch cases; the LogItem button is already plumbed
+                // through generically.
+                if (fix?.kind !== 'add-usepackage' || !fix.package) return;
+
+                const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                if (!mainFile) {
+                  showAlert(
+                    `Couldn't find the main file (${mainFilePath}) to add \\usepackage{${fix.package}} to.`,
+                    { title: 'Apply fix failed' },
+                  );
+                  return;
+                }
+
+                // Get current content. If the main file is already the
+                // active file, read from the live editor (which may have
+                // unsaved edits); otherwise use the cached file row.
+                const currentContent = activeFile?.id === mainFile.id
+                  ? (editorRef.current?.getContent() ?? mainFile.content ?? '')
+                  : (mainFile.content ?? '');
+
+                const result = applyAddUsepackage(currentContent, fix.package);
+                if (!result.changed) {
+                  showAlert(
+                    `\\usepackage{${fix.package}} is already in ${mainFilePath}. The error may be due to a stale compile cache — try recompiling.`,
+                    { title: 'No changes needed' },
+                  );
+                  return;
+                }
+
+                const snippet = result.newContent.slice(
+                  result.insertAt,
+                  result.insertAt + result.insertLength,
+                );
+                const applyToActiveEditor = () => {
+                  // Single-dispatch insertion so the CM undo stack
+                  // collapses the whole fix into one Ctrl-Z step.
+                  editorRef.current?.replaceRange(result.insertAt, result.insertAt, snippet);
+                  // Centre the viewport on the post-insert anchor so
+                  // the user sees what just changed.
+                  setTimeout(
+                    () => editorRef.current?.goToPosition(result.insertAt + result.insertLength),
+                    50,
+                  );
+                };
+
+                if (activeFile?.id === mainFile.id) {
+                  applyToActiveEditor();
+                } else {
+                  // Switch first, then apply on the next tick once the
+                  // editor has re-mounted with main file's content.
+                  switchFile(mainFile);
+                  setTimeout(applyToActiveEditor, 80);
+                }
               }}
               tapsDiagnostics={tapsEnabled ? tapsDiagnostics : []}
               showBoxWarnings={showBoxWarnings}

@@ -1,6 +1,71 @@
 // @ts-check
 // Maps common LaTeX error patterns to actionable fix suggestions.
-// Each rule: { pattern, title, suggestion, searchQuery }
+// Each rule: { pattern, title, suggestion, searchQuery, optional fix }.
+//
+// The optional `fix` function returns a fix descriptor that the UI can
+// surface as a one-click "Apply fix" button. Only return a fix when
+// we're confident enough to mutate the user's source (e.g. there's a
+// single canonical package for an undefined command -- ambiguous cases
+// like `\url` / `\href` get a textual suggestion only).
+
+/**
+ * Lookup: command name (without the leading backslash) -> the canonical
+ * package that provides it. `null` means the command is built-in (and
+ * the error is probably a typo). A string containing spaces means
+ * there are multiple plausible packages -- we surface the suggestion
+ * but won't offer a one-click fix.
+ *
+ * Kept at module scope so both the suggestion text and the fix
+ * descriptor read from the same source of truth.
+ *
+ * @type {Record<string, string | null>}
+ */
+const COMMAND_PACKAGES = {
+  textbf: null,
+  textit: null,
+  emph: null,
+  includegraphics: 'graphicx',
+  url: 'url or hyperref',
+  href: 'hyperref',
+  multicolumn: null,
+  multirow: 'multirow',
+  toprule: 'booktabs',
+  midrule: 'booktabs',
+  bottomrule: 'booktabs',
+  SI: 'siunitx',
+  si: 'siunitx',
+  num: 'siunitx',
+  textcolor: 'xcolor',
+  colorbox: 'xcolor',
+  lstlisting: 'listings',
+  mintinline: 'minted',
+  subcaption: 'subcaption',
+  subfigure: 'subcaption',
+  tikz: 'tikz',
+  pgfplotsset: 'pgfplots',
+  lipsum: 'lipsum',
+  blindtext: 'blindtext',
+};
+
+/**
+ * Return a fix descriptor when we can offer a one-click fix for the
+ * "Undefined command" error.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'add-usepackage', package: string, label: string } | null}
+ */
+function buildUndefinedCommandFix(m) {
+  const cmd = m[1];
+  const pkg = COMMAND_PACKAGES[cmd];
+  // Skip null entries (built-in commands) and ambiguous suggestions
+  // (the "url or hyperref" pattern) -- those need human judgement.
+  if (!pkg || /\s/.test(pkg)) return null;
+  return {
+    kind: 'add-usepackage',
+    package: pkg,
+    label: `Add \\usepackage{${pkg}} to preamble`,
+  };
+}
 
 const ERROR_RULES = [
   // ── Missing packages / commands ────────────────────────────
@@ -9,38 +74,12 @@ const ERROR_RULES = [
     title: 'Undefined command',
     suggestion: (/** @type {RegExpMatchArray} */ m) => {
       const cmd = m[1];
-      /** @type {Record<string, string | null>} */
-      const packages = {
-        textbf: null,
-        textit: null,
-        emph: null,
-        includegraphics: 'graphicx',
-        url: 'url or hyperref',
-        href: 'hyperref',
-        multicolumn: null,
-        multirow: 'multirow',
-        toprule: 'booktabs',
-        midrule: 'booktabs',
-        bottomrule: 'booktabs',
-        SI: 'siunitx',
-        si: 'siunitx',
-        num: 'siunitx',
-        textcolor: 'xcolor',
-        colorbox: 'xcolor',
-        lstlisting: 'listings',
-        mintinline: 'minted',
-        subcaption: 'subcaption',
-        subfigure: 'subcaption',
-        tikz: 'tikz',
-        pgfplotsset: 'pgfplots',
-        lipsum: 'lipsum',
-        blindtext: 'blindtext',
-      };
-      const pkg = packages[cmd];
+      const pkg = COMMAND_PACKAGES[cmd];
       if (pkg) return `The command \\${cmd} requires \\usepackage{${pkg}} in your preamble.`;
       return `\\${cmd} is not defined. Check for typos, or add the required \\usepackage{} in your preamble.`;
     },
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `undefined control sequence ${m[1]}`,
+    fix: buildUndefinedCommandFix,
     tips: [
       'Check for typos in the command name',
       'Add the missing \\usepackage{} in your preamble before \\begin{document}',
@@ -525,8 +564,20 @@ const ERROR_RULES = [
 
 /**
  * Match an error message against known LaTeX error patterns and return help info.
+ *
+ * The returned `fix` field, when present, is a descriptor the UI can
+ * surface as a one-click "Apply fix" button. See latexQuickFixes.js
+ * for the executor.
+ *
  * @param {string} message - Raw error or lint message
- * @returns {{title: string, suggestion: string, tips: string[], example: string|null, searchUrl: string}|null}
+ * @returns {{
+ *   title: string,
+ *   suggestion: string,
+ *   tips: string[],
+ *   example: string|null,
+ *   searchUrl: string,
+ *   fix: { kind: string, package?: string, label: string } | null
+ * } | null}
  */
 export function getErrorHelp(message) {
   if (!message) return null;
@@ -534,12 +585,15 @@ export function getErrorHelp(message) {
     const m = message.match(rule.pattern);
     if (m) {
       const query = typeof rule.searchQuery === 'function' ? rule.searchQuery(m) : rule.searchQuery || rule.title;
+      // @ts-ignore -- `fix` is rule-defined and optional
+      const fix = typeof rule.fix === 'function' ? rule.fix(m) : null;
       return {
         title: rule.title,
         suggestion: typeof rule.suggestion === 'function' ? rule.suggestion(m) : rule.suggestion,
         tips: rule.tips || [],
         example: rule.example || null,
         searchUrl: `https://tex.stackexchange.com/search?q=${encodeURIComponent(query)}`,
+        fix,
       };
     }
   }
