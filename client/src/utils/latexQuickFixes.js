@@ -109,3 +109,208 @@ export function applyAddUsepackage(content, packageName) {
     insertLength: snippet.length,
   };
 }
+
+// ─── Remove a \usepackage line ────────────────────────────────────────
+
+/**
+ * Find the character range of the `\usepackage[opts]{name}` line for a
+ * given package, plus a trailing newline if present. Returns null if
+ * the package isn't loaded.
+ *
+ * Used by the "Remove \usepackage{X}" quick fix when the package isn't
+ * installed on the system and the user wants to compile without it.
+ *
+ * @param {string} content
+ * @param {string} packageName
+ * @returns {{ from: number, to: number, line: string } | null}
+ */
+export function findUsepackageRange(content, packageName) {
+  const safe = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Capture the WHOLE line that holds the \usepackage{name} call. We
+  // anchor on the newline boundaries so removing the line also removes
+  // its trailing \n (when present). A package listed alongside others
+  // in a single brace -- `\usepackage{foo,bar}` -- is detected but the
+  // remover declines to mutate, since picking only `foo` out of that
+  // list requires understanding the surrounding context.
+  const lineRe = new RegExp(
+    `(^|\\n)([^\\n]*\\\\usepackage(?:\\[[^\\]]*\\])?\\{[^}]*\\b${safe}\\b[^}]*\\}[^\\n]*)(\\n?)`,
+  );
+  const m = content.match(lineRe);
+  if (!m) return null;
+
+  // If the brace contained MORE than one package name, don't touch it
+  // -- the safe behaviour is to back off so the user resolves it by
+  // hand. We detect "more than one" by counting commas in the brace.
+  const braceMatch = m[2].match(/\\usepackage(?:\[[^\]]*\])?\{([^}]*)\}/);
+  if (braceMatch && braceMatch[1].includes(',')) {
+    return null;
+  }
+
+  const leadingLen = m[1].length; // 0 or 1 (the preceding \n)
+  const trailingLen = m[3].length;
+  const from = (m.index ?? 0) + leadingLen;
+  const to = from + m[2].length + trailingLen;
+  return { from, to, line: m[2] };
+}
+
+/**
+ * Remove the `\usepackage{X}` line from the file. Returns the new
+ * content + the removed range so the caller can scroll to roughly
+ * where the deletion happened.
+ *
+ * @param {string} content
+ * @param {string} packageName
+ * @returns {{ changed: true, newContent: string, removedFrom: number, removedTo: number, removedText: string } | { changed: false, reason: 'not-found' | 'grouped-with-other-packages' }}
+ */
+export function applyRemoveUsepackage(content, packageName) {
+  const range = findUsepackageRange(content, packageName);
+  if (!range) {
+    // Distinguish the two failure modes so the UI can explain them.
+    const stillThere = hasPackage(content, packageName);
+    return {
+      changed: false,
+      reason: stillThere ? 'grouped-with-other-packages' : 'not-found',
+    };
+  }
+  const newContent = content.slice(0, range.from) + content.slice(range.to);
+  return {
+    changed: true,
+    newContent,
+    removedFrom: range.from,
+    removedTo: range.to,
+    removedText: range.line,
+  };
+}
+
+// ─── Environment rename (auto-correct mismatched begin/end) ───────────
+
+/**
+ * Find the most-recent `\begin{name}` opening before character offset
+ * `searchUpTo`, walking backwards. Returns the full match info so the
+ * caller can replace the captured environment name.
+ *
+ * Used to support the "change \end{X} to match \begin{Y}" fix when
+ * LaTeX reports a mismatched environment.
+ *
+ * @param {string} content
+ * @param {number} searchUpTo - byte offset to search BEFORE
+ * @returns {{ index: number, length: number, name: string } | null}
+ */
+export function findPrecedingBegin(content, searchUpTo) {
+  // Scan backwards from `searchUpTo` for the most recent `\begin{X}`.
+  const slice = content.slice(0, searchUpTo);
+  // Use exec in a loop; capturing all \begin and keeping the last one
+  // is simpler than reverse-iterating with a sticky regex.
+  const re = /\\begin\{(\w+\*?)\}/g;
+  let last = null;
+  let m;
+  while ((m = re.exec(slice)) !== null) {
+    last = { index: m.index, length: m[0].length, name: m[1] };
+  }
+  return last;
+}
+
+/**
+ * Find a `\end{name}` token at-or-near `targetLine` in the content.
+ * Lines are 1-indexed (matching LaTeX log conventions).
+ *
+ * @param {string} content
+ * @param {number} targetLine - 1-indexed line number reported by LaTeX
+ * @param {string} endName    - the environment name reported in the \end
+ * @returns {{ index: number, length: number, name: string } | null}
+ */
+export function findEndAtLine(content, targetLine, endName) {
+  // Convert targetLine (1-indexed) to a character range.
+  let lineStart = 0;
+  let lineCount = 1;
+  while (lineCount < targetLine && lineStart < content.length) {
+    const nl = content.indexOf('\n', lineStart);
+    if (nl < 0) break;
+    lineStart = nl + 1;
+    lineCount++;
+  }
+  // Search a small window starting at this line for the `\end{name}`.
+  // We allow up to 3 lines ahead to tolerate the off-by-one that
+  // LaTeX's error reporting sometimes introduces.
+  const winEnd = (() => {
+    let end = lineStart;
+    for (let i = 0; i < 4 && end < content.length; i++) {
+      const nl = content.indexOf('\n', end);
+      if (nl < 0) return content.length;
+      end = nl + 1;
+    }
+    return end;
+  })();
+  const window = content.slice(lineStart, winEnd);
+  const safe = endName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\\\end\\{${safe}\\}`);
+  const m = window.match(re);
+  if (!m || m.index == null) return null;
+  return {
+    index: lineStart + m.index,
+    length: m[0].length,
+    name: endName,
+  };
+}
+
+/**
+ * Build a replacement for the \end{X} token, swapping the environment
+ * name. Returns { changed: true, newContent, replaceAt, replaceLength,
+ * insertedText } so the caller can scroll to the change.
+ *
+ * @param {string} content
+ * @param {number} endIndex   - char offset of `\end{` token
+ * @param {number} endLength  - length of the full `\end{X}` token
+ * @param {string} newName
+ */
+export function buildEnvRename(content, endIndex, endLength, newName) {
+  const replacement = `\\end{${newName}}`;
+  const newContent =
+    content.slice(0, endIndex) + replacement + content.slice(endIndex + endLength);
+  return {
+    changed: /** @type {true} */ (true),
+    newContent,
+    replaceAt: endIndex,
+    replaceLength: endLength,
+    insertedText: replacement,
+  };
+}
+
+/**
+ * High-level: given a "mismatched environments" error context, find the
+ * `\end{bad}` at the reported line and propose renaming it to match the
+ * most recent `\begin{good}` before it.
+ *
+ * Returns { changed: false } if the editor's snapshot of the source
+ * doesn't agree with the log (likely the user already edited it).
+ *
+ * @param {string} content
+ * @param {string} beginName - the name reported on the \begin side
+ * @param {string} endName   - the name reported on the \end side
+ * @param {number} [endLine] - 1-indexed line the \end appears on, when known
+ * @returns {{ changed: true, newContent: string, replaceAt: number, replaceLength: number, insertedText: string } | { changed: false, reason: 'no-end-found' | 'no-begin-found' }}
+ */
+export function applyRenameEndEnv(content, beginName, endName, endLine) {
+  // Locate the \end{endName} site. If we have a line, search there;
+  // otherwise scan globally for the first match.
+  let endHit;
+  if (endLine != null) {
+    endHit = findEndAtLine(content, endLine, endName);
+  } else {
+    const safe = endName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\\\end\\{${safe}\\}`);
+    const m = content.match(re);
+    endHit = m && m.index != null ? { index: m.index, length: m[0].length, name: endName } : null;
+  }
+  if (!endHit) return { changed: false, reason: 'no-end-found' };
+
+  // Find the most recent \begin{X} BEFORE the \end site.
+  const begin = findPrecedingBegin(content, endHit.index);
+  if (!begin) return { changed: false, reason: 'no-begin-found' };
+
+  // If the source's \begin disagrees with what the log called the
+  // begin side, prefer the source's view -- the log might be stale.
+  void beginName;
+
+  return buildEnvRename(content, endHit.index, endHit.length, begin.name);
+}

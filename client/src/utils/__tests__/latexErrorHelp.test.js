@@ -57,6 +57,36 @@ describe('getErrorHelp — Undefined command fix descriptors', () => {
     expect(getErrorHelp('Undefined control sequence \\bottomrule')?.fix?.package).toBe('booktabs');
   });
 
+  it('expanded COMMAND_PACKAGES coverage: cleveref / mhchem / fontawesome5 / todonotes', () => {
+    expect(getErrorHelp('Undefined control sequence \\cref')?.fix?.package).toBe('cleveref');
+    expect(getErrorHelp('Undefined control sequence \\Cref')?.fix?.package).toBe('cleveref');
+    expect(getErrorHelp('Undefined control sequence \\ce')?.fix?.package).toBe('mhchem');
+    expect(getErrorHelp('Undefined control sequence \\faIcon')?.fix?.package).toBe('fontawesome5');
+    expect(getErrorHelp('Undefined control sequence \\todo')?.fix?.package).toBe('todonotes');
+  });
+
+  it('expanded COMMAND_PACKAGES coverage: amsmath family (\\dfrac, \\binom, \\substack)', () => {
+    expect(getErrorHelp('Undefined control sequence \\dfrac')?.fix?.package).toBe('amsmath');
+    expect(getErrorHelp('Undefined control sequence \\binom')?.fix?.package).toBe('amsmath');
+    expect(getErrorHelp('Undefined control sequence \\substack')?.fix?.package).toBe('amsmath');
+  });
+
+  it('expanded COMMAND_PACKAGES coverage: amssymb (\\mathbb, \\mathfrak)', () => {
+    expect(getErrorHelp('Undefined control sequence \\mathbb')?.fix?.package).toBe('amssymb');
+    expect(getErrorHelp('Undefined control sequence \\mathfrak')?.fix?.package).toBe('amssymb');
+  });
+
+  it('expanded COMMAND_PACKAGES coverage: biblatex citation commands', () => {
+    expect(getErrorHelp('Undefined control sequence \\autocite')?.fix?.package).toBe('biblatex');
+    expect(getErrorHelp('Undefined control sequence \\parencite')?.fix?.package).toBe('biblatex');
+    expect(getErrorHelp('Undefined control sequence \\textcite')?.fix?.package).toBe('biblatex');
+  });
+
+  it('expanded COMMAND_PACKAGES coverage: siunitx modern interface (\\qty, \\ang)', () => {
+    expect(getErrorHelp('Undefined control sequence \\qty')?.fix?.package).toBe('siunitx');
+    expect(getErrorHelp('Undefined control sequence \\ang')?.fix?.package).toBe('siunitx');
+  });
+
   it('does NOT offer a fix for built-in commands the user has a typo on (e.g. \\textbf)', () => {
     // textbf maps to `null` in the lookup -- the command exists in
     // every standard class, so an undefined-command error means a
@@ -139,6 +169,41 @@ describe('getErrorHelp — Unknown environment fix descriptors', () => {
   it('falls back to the generic suggestion when the environment is unknown', () => {
     const help = getErrorHelp('Environment frobozz undefined.');
     expect(help?.suggestion).toMatch(/Check spelling/);
+  });
+});
+
+// ─── Missing package: offer to REMOVE the \usepackage line ────────────
+
+describe('getErrorHelp — Missing package fix (remove-usepackage)', () => {
+  it('offers remove-usepackage{X} for "File `X.sty\' not found"', () => {
+    const help = getErrorHelp("LaTeX Error: File `obscure.sty' not found.");
+    expect(help?.fix).toEqual({
+      kind: 'remove-usepackage',
+      package: 'obscure',
+      label: 'Remove \\usepackage{obscure}',
+    });
+  });
+
+  it("captures the package name without the .sty extension", () => {
+    const help = getErrorHelp("LaTeX Error: File `tikz-cd.sty' not found.");
+    expect(help?.fix?.package).toBe('tikz-cd');
+  });
+});
+
+// ─── Mismatched environment: offer to rename the \end{X} ──────────────
+
+describe('getErrorHelp — Mismatched environment fix (rename-env-end)', () => {
+  it('offers rename-env-end with the begin/end names captured', () => {
+    const help = getErrorHelp(
+      '\\begin{itemize} on input line 5 ended by \\end{enumerate}',
+    );
+    expect(help?.fix).toMatchObject({
+      kind: 'rename-env-end',
+      beginName: 'itemize',
+      endName: 'enumerate',
+    });
+    expect(help?.fix?.label).toContain('\\end{enumerate}');
+    expect(help?.fix?.label).toContain('\\begin{itemize}');
   });
 });
 

@@ -36,7 +36,7 @@ import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
 import { shouldShowRailMarker } from './utils/commentsRail.js';
-import { applyAddUsepackage } from './utils/latexQuickFixes.js';
+import { applyAddUsepackage, applyRemoveUsepackage, applyRenameEndEnv } from './utils/latexQuickFixes.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
 import { AlertProvider, useAlert } from './contexts/AlertContext.jsx';
@@ -1602,60 +1602,116 @@ function AppInner() {
                 } else editorRef.current?.goToLine(line, col);
               }}
               onApplyQuickFix={(/** @type {any} */ fix) => {
-                // First-iteration scope: only the 'add-usepackage' fix
-                // kind exists. New kinds plug in here as additional
-                // dispatch cases; the LogItem button is already plumbed
-                // through generically.
-                if (fix?.kind !== 'add-usepackage' || !fix.package) return;
+                if (!fix?.kind) return;
 
-                const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
-                if (!mainFile) {
-                  showAlert(
-                    `Couldn't find the main file (${mainFilePath}) to add \\usepackage{${fix.package}} to.`,
-                    { title: 'Apply fix failed' },
-                  );
-                  return;
-                }
-
-                // Get current content. If the main file is already the
-                // active file, read from the live editor (which may have
-                // unsaved edits); otherwise use the cached file row.
-                const currentContent = activeFile?.id === mainFile.id
-                  ? (editorRef.current?.getContent() ?? mainFile.content ?? '')
-                  : (mainFile.content ?? '');
-
-                const result = applyAddUsepackage(currentContent, fix.package);
-                if (!result.changed) {
-                  showAlert(
-                    `\\usepackage{${fix.package}} is already in ${mainFilePath}. The error may be due to a stale compile cache — try recompiling.`,
-                    { title: 'No changes needed' },
-                  );
-                  return;
-                }
-
-                const snippet = result.newContent.slice(
-                  result.insertAt,
-                  result.insertAt + result.insertLength,
-                );
-                const applyToActiveEditor = () => {
-                  // Single-dispatch insertion so the CM undo stack
-                  // collapses the whole fix into one Ctrl-Z step.
-                  editorRef.current?.replaceRange(result.insertAt, result.insertAt, snippet);
-                  // Centre the viewport on the post-insert anchor so
-                  // the user sees what just changed.
-                  setTimeout(
-                    () => editorRef.current?.goToPosition(result.insertAt + result.insertLength),
-                    50,
-                  );
+                // ── Helpers shared across fix kinds ──────────────
+                /** @param {any} targetFile @param {(content: string) => void} onReady */
+                const withEditor = (targetFile, onReady) => {
+                  const currentContent =
+                    activeFile?.id === targetFile.id
+                      ? (editorRef.current?.getContent() ?? targetFile.content ?? '')
+                      : (targetFile.content ?? '');
+                  if (activeFile?.id === targetFile.id) {
+                    onReady(currentContent);
+                  } else {
+                    switchFile(targetFile);
+                    setTimeout(() => onReady(currentContent), 80);
+                  }
+                };
+                /** @param {number} from @param {number} to @param {string} text @param {number} anchor */
+                const dispatchEdit = (from, to, text, anchor) => {
+                  editorRef.current?.replaceRange(from, to, text);
+                  setTimeout(() => editorRef.current?.goToPosition(anchor), 50);
                 };
 
-                if (activeFile?.id === mainFile.id) {
-                  applyToActiveEditor();
-                } else {
-                  // Switch first, then apply on the next tick once the
-                  // editor has re-mounted with main file's content.
-                  switchFile(mainFile);
-                  setTimeout(applyToActiveEditor, 80);
+                // ── Dispatch by fix kind ─────────────────────────
+                if (fix.kind === 'add-usepackage' && fix.package) {
+                  const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                  if (!mainFile) {
+                    showAlert(
+                      `Couldn't find the main file (${mainFilePath}) to add \\usepackage{${fix.package}} to.`,
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  withEditor(mainFile, (currentContent) => {
+                    const result = applyAddUsepackage(currentContent, fix.package);
+                    if (!result.changed) {
+                      showAlert(
+                        `\\usepackage{${fix.package}} is already in ${mainFilePath}. The error may be due to a stale compile cache — try recompiling.`,
+                        { title: 'No changes needed' },
+                      );
+                      return;
+                    }
+                    const snippet = result.newContent.slice(
+                      result.insertAt,
+                      result.insertAt + result.insertLength,
+                    );
+                    dispatchEdit(
+                      result.insertAt,
+                      result.insertAt,
+                      snippet,
+                      result.insertAt + result.insertLength,
+                    );
+                  });
+                  return;
+                }
+
+                if (fix.kind === 'remove-usepackage' && fix.package) {
+                  const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                  if (!mainFile) {
+                    showAlert(
+                      `Couldn't find the main file (${mainFilePath}).`,
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  withEditor(mainFile, (currentContent) => {
+                    const result = applyRemoveUsepackage(currentContent, fix.package);
+                    if (!result.changed) {
+                      const msg =
+                        result.reason === 'grouped-with-other-packages'
+                          ? `\\usepackage{${fix.package}} is bundled in a multi-package brace (e.g. \\usepackage{foo,${fix.package},bar}). Edit the line by hand to remove just this one.`
+                          : `Couldn't find \\usepackage{${fix.package}} in ${mainFilePath} — the package may already be removed.`;
+                      showAlert(msg, { title: 'No changes made' });
+                      return;
+                    }
+                    // The "edit" is a pure deletion: replace [from,to]
+                    // with empty text. Anchor at the deletion point so
+                    // the viewport doesn't jump.
+                    dispatchEdit(result.removedFrom, result.removedTo, '', result.removedFrom);
+                  });
+                  return;
+                }
+
+                if (fix.kind === 'rename-env-end' && fix.beginName && fix.endName) {
+                  // Mismatched-environment fixes always edit the file the
+                  // user is currently looking at (the error location), so
+                  // operate on activeFile, not mainFile.
+                  if (!activeFile) {
+                    showAlert(
+                      'Open a file before applying this fix.',
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  const currentContent = editorRef.current?.getContent() ?? activeFile.content ?? '';
+                  const result = applyRenameEndEnv(currentContent, fix.beginName, fix.endName);
+                  if (!result.changed) {
+                    const msg =
+                      result.reason === 'no-end-found'
+                        ? `Couldn't find \\end{${fix.endName}} in the active file — the source may have already been edited.`
+                        : `No matching \\begin{...} was found before the \\end{${fix.endName}}.`;
+                    showAlert(msg, { title: 'No changes made' });
+                    return;
+                  }
+                  dispatchEdit(
+                    result.replaceAt,
+                    result.replaceAt + result.replaceLength,
+                    result.insertedText,
+                    result.replaceAt + result.insertedText.length,
+                  );
+                  return;
                 }
               }}
               tapsDiagnostics={tapsEnabled ? tapsDiagnostics : []}

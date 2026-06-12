@@ -4,6 +4,12 @@ import {
   hasPackage,
   buildUsepackageSnippet,
   applyAddUsepackage,
+  findUsepackageRange,
+  applyRemoveUsepackage,
+  findPrecedingBegin,
+  findEndAtLine,
+  buildEnvRename,
+  applyRenameEndEnv,
 } from '../latexQuickFixes.js';
 
 describe('findInsertionPointForPackage', () => {
@@ -157,5 +163,178 @@ describe('applyAddUsepackage', () => {
     expect(r.newContent).toBe('\\usepackage{xcolor}\na fragment with no preamble');
     expect(r.insertAt).toBe(0);
     expect(r.insertLength).toBe('\\usepackage{xcolor}\n'.length);
+  });
+});
+
+// ─── findUsepackageRange + applyRemoveUsepackage ──────────────────────
+
+describe('findUsepackageRange', () => {
+  it('returns the range of a bare \\usepackage{name} line including its trailing newline', () => {
+    const src =
+      '\\documentclass{article}\n' +
+      '\\usepackage{amsmath}\n' +
+      '\\usepackage{xcolor}\n' +
+      '\\begin{document}';
+    const r = findUsepackageRange(src, 'xcolor');
+    expect(r).not.toBeNull();
+    if (!r) return;
+    // The range should remove the \usepackage{xcolor}\n exactly.
+    expect(src.slice(r.from, r.to)).toBe('\\usepackage{xcolor}\n');
+  });
+
+  it('returns the range when the package is loaded with options', () => {
+    const src = '\\documentclass{article}\n\\usepackage[table]{xcolor}\n\\begin{document}';
+    const r = findUsepackageRange(src, 'xcolor');
+    expect(r).not.toBeNull();
+    if (!r) return;
+    expect(src.slice(r.from, r.to)).toBe('\\usepackage[table]{xcolor}\n');
+  });
+
+  it('returns null when the package is not loaded', () => {
+    expect(findUsepackageRange('\\documentclass{article}\n', 'xcolor')).toBeNull();
+  });
+
+  it('returns null (declines to mutate) when the package shares a brace with other packages', () => {
+    // \usepackage{foo,bar,baz} -- picking out one without breaking the
+    // line is annoying and rare; back off and let the user resolve it.
+    const src = '\\usepackage{amsmath,xcolor,graphicx}\n';
+    expect(findUsepackageRange(src, 'xcolor')).toBeNull();
+  });
+});
+
+describe('applyRemoveUsepackage', () => {
+  it('removes the line cleanly when the package is on its own line', () => {
+    const src =
+      '\\documentclass{article}\n' +
+      '\\usepackage{amsmath}\n' +
+      '\\usepackage{xcolor}\n' +
+      '\\begin{document}';
+    const r = applyRemoveUsepackage(src, 'xcolor');
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.newContent).toBe(
+      '\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}',
+    );
+    expect(r.removedText).toBe('\\usepackage{xcolor}');
+  });
+
+  it("returns reason 'not-found' when the package isn't there at all", () => {
+    const r = applyRemoveUsepackage('\\documentclass{article}\n\\begin{document}', 'xcolor');
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('not-found');
+  });
+
+  it("returns reason 'grouped-with-other-packages' when the package is in a shared brace", () => {
+    const r = applyRemoveUsepackage('\\usepackage{amsmath,xcolor}\n\\begin{document}', 'xcolor');
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('grouped-with-other-packages');
+  });
+
+  it("does not match a different package name (regression: prefix-collision safety)", () => {
+    // Removing 'xcolor' must not knock out '\usepackage{xcolors}'.
+    const src = '\\usepackage{xcolors}\n\\begin{document}';
+    const r = applyRemoveUsepackage(src, 'xcolor');
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('not-found');
+  });
+});
+
+// ─── Environment rename (auto-correct mismatched environments) ────────
+
+describe('findPrecedingBegin', () => {
+  it('returns the most recent \\begin{X} before the search offset', () => {
+    const src = '\\begin{itemize}\nfoo\n\\begin{enumerate}\nbar\n\\end{enumerate}';
+    const target = src.indexOf('\\end{enumerate}');
+    const r = findPrecedingBegin(src, target);
+    expect(r?.name).toBe('enumerate');
+  });
+
+  it('returns null when no \\begin appears before the offset', () => {
+    expect(findPrecedingBegin('plain text', 5)).toBeNull();
+  });
+
+  it('handles starred environment names (align* / equation*)', () => {
+    const src = '\\begin{align*}\nx = 1\n\\end{align}';
+    const target = src.indexOf('\\end{align}');
+    expect(findPrecedingBegin(src, target)?.name).toBe('align*');
+  });
+});
+
+describe('findEndAtLine', () => {
+  it('finds \\end{X} on the reported line', () => {
+    const src = 'line 1\n\\begin{itemize}\n\\end{itemize}\nline 4';
+    const r = findEndAtLine(src, 3, 'itemize');
+    expect(r).not.toBeNull();
+    if (!r) return;
+    expect(src.slice(r.index, r.index + r.length)).toBe('\\end{itemize}');
+  });
+
+  it('tolerates the reported line being off-by-one or off-by-two', () => {
+    // LaTeX sometimes reports an environment error a line or two early.
+    const src = '\\begin{itemize}\n\n\n\\end{itemize}\nrest';
+    expect(findEndAtLine(src, 1, 'itemize')).not.toBeNull();
+    expect(findEndAtLine(src, 2, 'itemize')).not.toBeNull();
+  });
+
+  it('returns null if the \\end is not at-or-near the reported line', () => {
+    const src = '\\begin{x}\n' + '\n'.repeat(20) + '\\end{x}';
+    expect(findEndAtLine(src, 1, 'x')).toBeNull();
+  });
+});
+
+describe('buildEnvRename', () => {
+  it('replaces \\end{old} with \\end{new}, leaving surrounding text intact', () => {
+    const src = 'a\\end{old}b';
+    const endIdx = src.indexOf('\\end{old}');
+    const endLen = '\\end{old}'.length;
+    const r = buildEnvRename(src, endIdx, endLen, 'new');
+    expect(r.newContent).toBe('a\\end{new}b');
+    expect(r.replaceAt).toBe(endIdx);
+    expect(r.replaceLength).toBe(endLen);
+    expect(r.insertedText).toBe('\\end{new}');
+  });
+});
+
+describe('applyRenameEndEnv', () => {
+  it('renames \\end{enumerate} to \\end{itemize} when the matching begin is itemize', () => {
+    const src = '\\begin{itemize}\n\\item a\n\\end{enumerate}\n';
+    const r = applyRenameEndEnv(src, 'itemize', 'enumerate', 3);
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.newContent).toBe('\\begin{itemize}\n\\item a\n\\end{itemize}\n');
+  });
+
+  it("returns reason 'no-end-found' when the source's \\end is gone (stale log)", () => {
+    const r = applyRenameEndEnv('\\begin{itemize}\n\\end{itemize}\n', 'itemize', 'enumerate', 3);
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('no-end-found');
+  });
+
+  it("returns reason 'no-begin-found' when no opening \\begin exists before the \\end", () => {
+    const r = applyRenameEndEnv('\\end{itemize}\n', 'itemize', 'itemize', 1);
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('no-begin-found');
+  });
+
+  it('prefers the source\'s view of the matching \\begin over the log\'s `beginName` arg', () => {
+    // If the user has \begin{enumerate} but the log called it \begin{itemize}
+    // (stale or wrong), the rename uses the source's actual environment.
+    const src = '\\begin{enumerate}\n\\end{itemize}\n';
+    const r = applyRenameEndEnv(src, 'itemize', 'itemize', 2);
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.insertedText).toBe('\\end{enumerate}');
+  });
+
+  it('works without a line hint (scans globally for the first \\end{name})', () => {
+    const r = applyRenameEndEnv('\\begin{itemize}\nx\n\\end{enumerate}', 'itemize', 'enumerate');
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.insertedText).toBe('\\end{itemize}');
   });
 });

@@ -21,30 +21,155 @@
  * @type {Record<string, string | null>}
  */
 const COMMAND_PACKAGES = {
+  // Built-ins: an undefined-command error here is almost certainly a typo.
   textbf: null,
   textit: null,
+  texttt: null,
+  textrm: null,
+  textsf: null,
   emph: null,
+  multicolumn: null,
+  hline: null,
+  cline: null,
+
+  // Color
+  textcolor: 'xcolor',
+  colorbox: 'xcolor',
+  fcolorbox: 'xcolor',
+  pagecolor: 'xcolor',
+  rowcolor: 'xcolor',
+  cellcolor: 'xcolor',
+  columncolor: 'xcolor',
+  definecolor: 'xcolor',
+
+  // Graphics
   includegraphics: 'graphicx',
+  graphicspath: 'graphicx',
+  rotatebox: 'graphicx',
+  scalebox: 'graphicx',
+  reflectbox: 'graphicx',
+  resizebox: 'graphicx',
+
+  // Hyperref / URL (ambiguous: url could be either)
   url: 'url or hyperref',
   href: 'hyperref',
-  multicolumn: null,
+  hyperref: 'hyperref',
+  hypersetup: 'hyperref',
+  autoref: 'hyperref',
+  nameref: 'hyperref',
+
+  // Tables
   multirow: 'multirow',
   toprule: 'booktabs',
   midrule: 'booktabs',
   bottomrule: 'booktabs',
+  cmidrule: 'booktabs',
+  addlinespace: 'booktabs',
+
+  // SI units (legacy + modern interface)
   SI: 'siunitx',
   si: 'siunitx',
   num: 'siunitx',
-  textcolor: 'xcolor',
-  colorbox: 'xcolor',
+  qty: 'siunitx',
+  ang: 'siunitx',
+  numlist: 'siunitx',
+  numrange: 'siunitx',
+  SIrange: 'siunitx',
+  SIlist: 'siunitx',
+
+  // Code / listings
   lstlisting: 'listings',
+  lstinputlisting: 'listings',
+  lstset: 'listings',
   mintinline: 'minted',
+  inputminted: 'minted',
+
+  // Sub-figures / captions
   subcaption: 'subcaption',
   subfigure: 'subcaption',
+  caption: 'caption',
+  captionof: 'caption',
+
+  // TikZ / PGF
   tikz: 'tikz',
+  tikzset: 'tikz',
+  begintikzpicture: 'tikz',
   pgfplotsset: 'pgfplots',
+  addplot: 'pgfplots',
+
+  // Algorithms
+  algorithmiccomment: 'algorithmicx',
+
+  // Chemistry
+  ce: 'mhchem',
+  chemfig: 'chemfig',
+
+  // amsmath / amssymb
+  text: 'amsmath',
+  cfrac: 'amsmath',
+  dfrac: 'amsmath',
+  tfrac: 'amsmath',
+  binom: 'amsmath',
+  dbinom: 'amsmath',
+  tbinom: 'amsmath',
+  intertext: 'amsmath',
+  substack: 'amsmath',
+  pmatrix: 'amsmath',
+  bmatrix: 'amsmath',
+  vmatrix: 'amsmath',
+  Bmatrix: 'amsmath',
+  Vmatrix: 'amsmath',
+  mathbb: 'amssymb',
+  mathfrak: 'amssymb',
+  varnothing: 'amssymb',
+  blacksquare: 'amssymb',
+
+  // amsthm
+  theoremstyle: 'amsthm',
+  newtheorem: 'amsthm',
+  qedhere: 'amsthm',
+
+  // Bibliography (biblatex)
+  printbibliography: 'biblatex',
+  addbibresource: 'biblatex',
+  autocite: 'biblatex',
+  parencite: 'biblatex',
+  textcite: 'biblatex',
+  citeauthor: 'biblatex',
+
+  // ToDo / annotation
+  todo: 'todonotes',
+  missingfigure: 'todonotes',
+  listoftodos: 'todonotes',
+
+  // Lorem-ipsum
   lipsum: 'lipsum',
   blindtext: 'blindtext',
+  Blindtext: 'blindtext',
+
+  // Misc filler / text
+  ifthenelse: 'ifthen',
+  pageref: null,
+
+  // Fancy headers
+  fancyhead: 'fancyhdr',
+  fancyfoot: 'fancyhdr',
+  pagestyle: null,
+
+  // Floats / placement
+  FloatBarrier: 'placeins',
+
+  // Icons / fonts
+  faIcon: 'fontawesome5',
+  textbullet: null,
+
+  // Cross-ref groups
+  cref: 'cleveref',
+  Cref: 'cleveref',
+  cpageref: 'cleveref',
+
+  // Microtype / fonts
+  microtypesetup: 'microtype',
 };
 
 /**
@@ -168,6 +293,41 @@ function buildUndefinedEnvironmentFix(m) {
   };
 }
 
+/**
+ * Build a "remove \usepackage{X}" fix for the "Missing package" error.
+ * Used when the package is not installed on the system and the user
+ * may want to compile without it.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'remove-usepackage', package: string, label: string }}
+ */
+function buildRemoveMissingPackageFix(m) {
+  const pkg = m[1];
+  return {
+    kind: 'remove-usepackage',
+    package: pkg,
+    label: `Remove \\usepackage{${pkg}}`,
+  };
+}
+
+/**
+ * Build a "rename \end{X} to \end{Y}" fix for the "Mismatched
+ * environments" error. Reuses the env-rename pipeline; the actual
+ * begin/end names come from the source at fix-application time, not
+ * the log, so this descriptor is small.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'rename-env-end', beginName: string, endName: string, label: string }}
+ */
+function buildRenameEndEnvFix(m) {
+  return {
+    kind: 'rename-env-end',
+    beginName: m[1],
+    endName: m[2],
+    label: `Change \\end{${m[2]}} to match \\begin{${m[1]}}`,
+  };
+}
+
 const ERROR_RULES = [
   // ── Missing packages / commands ────────────────────────────
   {
@@ -224,6 +384,7 @@ const ERROR_RULES = [
     suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `\\begin{${m[1]}} is closed by \\end{${m[2]}}. Make sure each \\begin has a matching \\end with the same name.`,
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `mismatched begin end ${m[1]} ${m[2]} latex`,
+    fix: buildRenameEndEnvFix,
     tips: [
       'Every \\begin{name} must have a matching \\end{name}',
       'Check for typos in the environment name',
@@ -300,6 +461,7 @@ const ERROR_RULES = [
     suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The package "${m[1]}" is not installed. Check the package name for typos. If correct, this package may not be available in the current TeX installation.`,
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `package ${m[1]} not found latex install`,
+    fix: buildRemoveMissingPackageFix,
     tips: [
       'Check the package name for typos',
       'The package may need to be installed in the TeX distribution',
