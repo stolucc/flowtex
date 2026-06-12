@@ -59,7 +59,7 @@ export default function parseLog(log) {
 
     // Errors: lines starting with "!"
     if (line.startsWith('!')) {
-      const msg = line.substring(2).trim();
+      let msg = line.substring(2).trim();
       if (msg) {
         // Look ahead for line number and column from "l.NNN text" context line
         let lineNum = null;
@@ -71,6 +71,12 @@ export default function parseLog(log) {
             // Column is length of text after "l.NNN " — the error is at/near the end
             const textAfter = lMatch[2] || '';
             col = textAfter.length;
+            // Enrich msg with the source-context tail so the rule
+            // matcher (e.g. /Undefined control sequence.*\\(\w+)/)
+            // can extract the offending command. Without this, the
+            // command name lives on a separate line and the regex
+            // never sees it.
+            if (textAfter) msg = `${msg} ${textAfter.trim()}`;
             break;
           }
         }

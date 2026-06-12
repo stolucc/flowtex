@@ -21,7 +21,7 @@ Output written on main.pdf (1 page).`;
     expect(parseLog(log)).toEqual({ errors: [], warnings: [] });
   });
 
-  it('captures an error line starting with "!" and strips the "! " prefix', () => {
+  it('captures an error line starting with "!" and strips the "! " prefix, with source-context tail appended', () => {
     const log = `(./main.tex
 ! Undefined control sequence.
 l.42 \\nonexistent
@@ -29,7 +29,11 @@ l.42 \\nonexistent
 )`;
     const { errors } = parseLog(log);
     expect(errors).toHaveLength(1);
-    expect(errors[0].text).toBe('Undefined control sequence.');
+    // The parser now appends the source-context tail (the "\nonexistent"
+    // part of "l.42 \\nonexistent") to the message so the rule matcher
+    // can extract the command name.
+    expect(errors[0].text).toContain('Undefined control sequence.');
+    expect(errors[0].text).toContain('\\nonexistent');
   });
 
   it('attaches the line number from the "l.NNN" context line that follows the error', () => {
