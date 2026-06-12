@@ -8,169 +8,39 @@
 // single canonical package for an undefined command -- ambiguous cases
 // like `\url` / `\href` get a textual suggestion only).
 
+import commandPackagesJson from '../data/commandPackages.json';
+
 /**
  * Lookup: command name (without the leading backslash) -> the canonical
- * package that provides it. `null` means the command is built-in (and
- * the error is probably a typo). A string containing spaces means
- * there are multiple plausible packages -- we surface the suggestion
- * but won't offer a one-click fix.
+ * package that provides it. Caveman mode: a curated JSON shipped in
+ * the client bundle. Built from CTAN docs / Claude knowledge.
  *
- * Kept at module scope so both the suggestion text and the fix
- * descriptor read from the same source of truth.
+ *   null      -- built-in command (typo, not a missing package)
+ *   "X"       -- single canonical package, surface a one-click fix
+ *   "X or Y"  -- ambiguous, suggestion text only, no fix button
+ *
+ * The JSON file ALSO carries section-marker keys whose names start
+ * with an underscore (`_amsmath`, `_xcolor`, ...). Those are stripped
+ * here so the runtime lookup is clean. Same goes for any key ending
+ * with `_dup` (used as a placeholder when a command is listed under
+ * two sections in the JSON for readability).
  *
  * @type {Record<string, string | null>}
  */
-const COMMAND_PACKAGES = {
-  // Built-ins: an undefined-command error here is almost certainly a typo.
-  textbf: null,
-  textit: null,
-  texttt: null,
-  textrm: null,
-  textsf: null,
-  emph: null,
-  multicolumn: null,
-  hline: null,
-  cline: null,
-
-  // Color
-  textcolor: 'xcolor',
-  colorbox: 'xcolor',
-  fcolorbox: 'xcolor',
-  pagecolor: 'xcolor',
-  rowcolor: 'xcolor',
-  cellcolor: 'xcolor',
-  columncolor: 'xcolor',
-  definecolor: 'xcolor',
-
-  // Graphics
-  includegraphics: 'graphicx',
-  graphicspath: 'graphicx',
-  rotatebox: 'graphicx',
-  scalebox: 'graphicx',
-  reflectbox: 'graphicx',
-  resizebox: 'graphicx',
-
-  // Hyperref / URL (ambiguous: url could be either)
-  url: 'url or hyperref',
-  href: 'hyperref',
-  hyperref: 'hyperref',
-  hypersetup: 'hyperref',
-  autoref: 'hyperref',
-  nameref: 'hyperref',
-
-  // Tables
-  multirow: 'multirow',
-  toprule: 'booktabs',
-  midrule: 'booktabs',
-  bottomrule: 'booktabs',
-  cmidrule: 'booktabs',
-  addlinespace: 'booktabs',
-
-  // SI units (legacy + modern interface)
-  SI: 'siunitx',
-  si: 'siunitx',
-  num: 'siunitx',
-  qty: 'siunitx',
-  ang: 'siunitx',
-  numlist: 'siunitx',
-  numrange: 'siunitx',
-  SIrange: 'siunitx',
-  SIlist: 'siunitx',
-
-  // Code / listings
-  lstlisting: 'listings',
-  lstinputlisting: 'listings',
-  lstset: 'listings',
-  mintinline: 'minted',
-  inputminted: 'minted',
-
-  // Sub-figures / captions
-  subcaption: 'subcaption',
-  subfigure: 'subcaption',
-  caption: 'caption',
-  captionof: 'caption',
-
-  // TikZ / PGF
-  tikz: 'tikz',
-  tikzset: 'tikz',
-  begintikzpicture: 'tikz',
-  pgfplotsset: 'pgfplots',
-  addplot: 'pgfplots',
-
-  // Algorithms
-  algorithmiccomment: 'algorithmicx',
-
-  // Chemistry
-  ce: 'mhchem',
-  chemfig: 'chemfig',
-
-  // amsmath / amssymb
-  text: 'amsmath',
-  cfrac: 'amsmath',
-  dfrac: 'amsmath',
-  tfrac: 'amsmath',
-  binom: 'amsmath',
-  dbinom: 'amsmath',
-  tbinom: 'amsmath',
-  intertext: 'amsmath',
-  substack: 'amsmath',
-  pmatrix: 'amsmath',
-  bmatrix: 'amsmath',
-  vmatrix: 'amsmath',
-  Bmatrix: 'amsmath',
-  Vmatrix: 'amsmath',
-  mathbb: 'amssymb',
-  mathfrak: 'amssymb',
-  varnothing: 'amssymb',
-  blacksquare: 'amssymb',
-
-  // amsthm
-  theoremstyle: 'amsthm',
-  newtheorem: 'amsthm',
-  qedhere: 'amsthm',
-
-  // Bibliography (biblatex)
-  printbibliography: 'biblatex',
-  addbibresource: 'biblatex',
-  autocite: 'biblatex',
-  parencite: 'biblatex',
-  textcite: 'biblatex',
-  citeauthor: 'biblatex',
-
-  // ToDo / annotation
-  todo: 'todonotes',
-  missingfigure: 'todonotes',
-  listoftodos: 'todonotes',
-
-  // Lorem-ipsum
-  lipsum: 'lipsum',
-  blindtext: 'blindtext',
-  Blindtext: 'blindtext',
-
-  // Misc filler / text
-  ifthenelse: 'ifthen',
-  pageref: null,
-
-  // Fancy headers
-  fancyhead: 'fancyhdr',
-  fancyfoot: 'fancyhdr',
-  pagestyle: null,
-
-  // Floats / placement
-  FloatBarrier: 'placeins',
-
-  // Icons / fonts
-  faIcon: 'fontawesome5',
-  textbullet: null,
-
-  // Cross-ref groups
-  cref: 'cleveref',
-  Cref: 'cleveref',
-  cpageref: 'cleveref',
-
-  // Microtype / fonts
-  microtypesetup: 'microtype',
-};
+const COMMAND_PACKAGES = (() => {
+  /** @type {Record<string, string | null>} */
+  const out = {};
+  for (const [k, v] of Object.entries(/** @type {Record<string, string | null>} */ (commandPackagesJson))) {
+    if (k.startsWith('_')) continue;        // section comment
+    if (k.endsWith('_dup')) continue;       // duplicate placeholder
+    if (k.endsWith('_cmd')) continue;       // category placeholder
+    if (k.endsWith('_kernel')) continue;    // kernel-cross-ref placeholder
+    if (k.endsWith('_paragraph')) continue; // category placeholder
+    if (k.endsWith('_arith')) continue;     // category placeholder
+    out[k] = v;
+  }
+  return out;
+})();
 
 /**
  * Lookup: environment name -> the canonical package that provides it.

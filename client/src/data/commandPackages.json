@@ -1,0 +1,819 @@
+{
+  "_comment": "Canonical \\command -> package map. Curated. Caveman mode: static lookup, no runtime LLM, no server index. null = built-in (typo, not missing pkg). Space-separated value = ambiguous (suggestion only, no fix button).",
+
+  "_amsmath": "amsmath family",
+  "binom": "amsmath", "dbinom": "amsmath", "tbinom": "amsmath",
+  "cfrac": "amsmath", "dfrac": "amsmath", "tfrac": "amsmath",
+  "text": "amsmath", "intertext": "amsmath", "shortintertext": "mathtools",
+  "substack": "amsmath", "underset": "amsmath", "overset": "amsmath",
+  "boxed": "amsmath", "pmod": "amsmath", "bmod": "amsmath", "pod": "amsmath", "mod": "amsmath",
+  "DeclareMathOperator": "amsmath",
+  "operatorname": "amsmath",
+  "overleftrightarrow": "amsmath", "underleftrightarrow": "amsmath",
+  "overleftarrow": "amsmath", "overrightarrow": "amsmath",
+  "xleftarrow": "amsmath", "xrightarrow": "amsmath", "xLeftarrow": "amsmath", "xRightarrow": "amsmath",
+  "hookrightarrow": null, "hookleftarrow": null, "leftrightarrow": null, "Leftrightarrow": null,
+  "implies": "amsmath", "iff": "amsmath", "impliedby": "amsmath",
+  "mathring": "amsmath", "lvert": "amsmath", "rvert": "amsmath", "lVert": "amsmath", "rVert": "amsmath",
+  "varinjlim": "amsmath", "varprojlim": "amsmath", "varliminf": "amsmath", "varlimsup": "amsmath",
+  "varnothing": "amssymb",
+  "smash": "amsmath",
+  "tag": "amsmath", "notag": "amsmath", "nonumber": null,
+
+  "_amssymb": "amssymb (symbols only, requires amsfonts)",
+  "mathbb": "amssymb", "mathfrak": "amssymb", "mathscr": "mathrsfs", "mathcal": null, "mathbf": null, "mathit": null, "mathrm": null, "mathsf": null, "mathtt": null,
+  "blacksquare": "amssymb", "square": "amssymb", "blacktriangle": "amssymb", "triangle": null, "vartriangle": "amssymb",
+  "checkmark": "amssymb", "circledR": "amssymb", "yen": "amssymb",
+  "nmid": "amssymb", "nparallel": "amssymb", "nleq": "amssymb", "ngeq": "amssymb", "nless": "amssymb", "ngtr": "amssymb",
+  "nsubset": "amssymb", "nsupset": "amssymb", "nsubseteq": "amssymb", "nsupseteq": "amssymb",
+  "leqslant": "amssymb", "geqslant": "amssymb", "lesssim": "amssymb", "gtrsim": "amssymb",
+  "approxeq": "amssymb", "thicksim": "amssymb", "thickapprox": "amssymb",
+  "complement": "amssymb", "circlearrowleft": "amssymb", "circlearrowright": "amssymb",
+
+  "_amsthm": "amsthm",
+  "newtheorem": "amsthm", "theoremstyle": "amsthm", "qedhere": "amsthm", "qedsymbol": "amsthm",
+
+  "_mathtools": "mathtools",
+  "newtagform": "mathtools", "DeclarePairedDelimiter": "mathtools", "DeclarePairedDelimiterX": "mathtools",
+  "smashoperator": "mathtools", "MoveEqLeft": "mathtools",
+
+  "_xcolor": "xcolor",
+  "textcolor": "xcolor", "colorbox": "xcolor", "fcolorbox": "xcolor",
+  "pagecolor": "xcolor", "rowcolor": "xcolor", "cellcolor": "xcolor", "columncolor": "xcolor",
+  "definecolor": "xcolor", "definecolors": "xcolor", "colorlet": "xcolor",
+  "color": "xcolor", "selectcolormodel": "xcolor",
+  "preparecolor": "xcolor", "rowcolors": "xcolor", "arrayrulecolor": "xcolor", "doublerulesepcolor": "xcolor",
+
+  "_graphicx": "graphicx",
+  "includegraphics": "graphicx", "graphicspath": "graphicx", "DeclareGraphicsExtensions": "graphicx",
+  "DeclareGraphicsRule": "graphicx", "rotatebox": "graphicx", "scalebox": "graphicx",
+  "reflectbox": "graphicx", "resizebox": "graphicx",
+
+  "_hyperref": "hyperref",
+  "href": "hyperref", "url": "url or hyperref", "hyperref": "hyperref",
+  "hypersetup": "hyperref", "autoref": "hyperref", "nameref": "hyperref",
+  "hyperlink": "hyperref", "hypertarget": "hyperref", "hyperbaseurl": "hyperref",
+  "hyperdef": "hyperref", "phantomsection": "hyperref",
+  "texorpdfstring": "hyperref",
+
+  "_cleveref": "cleveref",
+  "cref": "cleveref", "Cref": "cleveref", "crefname": "cleveref", "Crefname": "cleveref",
+  "cpageref": "cleveref", "Cpageref": "cleveref", "cpagerefrange": "cleveref",
+  "crefrange": "cleveref", "Crefrange": "cleveref",
+  "namecref": "cleveref", "labelcref": "cleveref", "nameCref": "cleveref",
+
+  "_booktabs": "booktabs",
+  "toprule": "booktabs", "midrule": "booktabs", "bottomrule": "booktabs",
+  "cmidrule": "booktabs", "addlinespace": "booktabs", "morecmidrules": "booktabs",
+  "specialrule": "booktabs",
+
+  "_array_etc": "table packages",
+  "multirow": "multirow", "multicolumn": null, "hline": null, "cline": null,
+  "rotcell": "rotating",
+  "rowfont": "tabu", "tabu": "tabu",
+  "tabularx": "tabularx", "tabulary": "tabulary",
+  "longtable": "longtable", "endfirsthead": "longtable", "endhead": "longtable", "endfoot": "longtable", "endlastfoot": "longtable",
+  "threeparttable": "threeparttable", "tablenotes": "threeparttable",
+  "makecell": "makecell", "thead": "makecell", "diagbox": "diagbox",
+  "tabularray": "tabularray", "SetTblr": "tabularray", "DefTblrTemplate": "tabularray",
+
+  "_siunitx": "siunitx",
+  "SI": "siunitx", "si": "siunitx", "num": "siunitx", "qty": "siunitx", "ang": "siunitx",
+  "SIrange": "siunitx", "SIlist": "siunitx", "numrange": "siunitx", "numlist": "siunitx",
+  "qtyrange": "siunitx", "qtylist": "siunitx", "qtyproduct": "siunitx",
+  "sisetup": "siunitx", "DeclareSIUnit": "siunitx", "DeclareSIPrefix": "siunitx",
+  "ohm": null, "celsius": null, "metre": null,
+
+  "_listings": "listings",
+  "lstinputlisting": "listings", "lstset": "listings", "lstdefinestyle": "listings",
+  "lstdefinelanguage": "listings", "lstnewenvironment": "listings", "lstlistoflistings": "listings",
+  "lstname": "listings",
+
+  "_minted": "minted",
+  "mintinline": "minted", "inputminted": "minted", "newminted": "minted", "newmintinline": "minted",
+  "usemintedstyle": "minted", "setminted": "minted", "setmintedinline": "minted",
+
+  "_subcaption": "subcaption",
+  "subcaption": "subcaption", "subcaptionbox": "subcaption", "subref": "subcaption",
+  "subfloat": "subfig",
+
+  "_caption": "caption",
+  "captionof": "caption", "captionsetup": "caption", "DeclareCaptionStyle": "caption",
+  "DeclareCaptionFormat": "caption", "DeclareCaptionLabelFormat": "caption",
+  "DeclareCaptionLabelSeparator": "caption", "DeclareCaptionFont": "caption",
+
+  "_tikz_pgf": "tikz / pgf / pgfplots",
+  "tikz": "tikz", "tikzset": "tikz", "useasboundingbox": "tikz", "tikzpicture": "tikz",
+  "tikzmath": "tikz", "foreach": "pgffor", "pgfmathsetmacro": "pgf",
+  "pgfsetlinewidth": "pgf", "pgfdeclareimage": "pgf",
+  "pgfplotsset": "pgfplots", "addplot": "pgfplots", "addplot3": "pgfplots", "addplotgraphicsnatural": "pgfplots",
+  "legend": "pgfplots", "addlegendentry": "pgfplots", "addlegendimage": "pgfplots",
+  "pgfplotstabletypeset": "pgfplotstable", "pgfplotstableread": "pgfplotstable",
+
+  "_floats_misc": "float / placement",
+  "FloatBarrier": "placeins", "wrapfigure": "wrapfig", "wraptable": "wrapfig",
+  "sidewaystable": "rotating", "sidewaysfigure": "rotating", "sideways": "rotating",
+  "afterpage": "afterpage", "clearpage": null, "newpage": null,
+  "endfloat": "endfloat",
+  "floatsetup": "floatrow", "thisfloatsetup": "floatrow",
+  "marginnote": "marginnote", "marginpar": null,
+
+  "_algorithms": "algorithm / algorithmicx",
+  "algorithm": "algorithm", "Algorithm": "algorithm",
+  "algorithmic": "algorithmicx", "STATE": "algorithmicx", "STATEx": "algorithmicx",
+  "IF": "algorithmicx", "ELSE": "algorithmicx", "ELSIF": "algorithmicx", "ENDIF": "algorithmicx",
+  "FOR": "algorithmicx", "FORALL": "algorithmicx", "ENDFOR": "algorithmicx",
+  "WHILE": "algorithmicx", "ENDWHILE": "algorithmicx", "REPEAT": "algorithmicx", "UNTIL": "algorithmicx",
+  "RETURN": "algorithmicx", "PRINT": "algorithmicx", "COMMENT": "algorithmicx",
+  "Procedure": "algpseudocode", "EndProcedure": "algpseudocode",
+  "Function": "algpseudocode", "EndFunction": "algpseudocode",
+  "Require": "algpseudocode", "Ensure": "algpseudocode",
+
+  "_biblatex": "biblatex",
+  "printbibliography": "biblatex", "addbibresource": "biblatex", "DeclareBibliographyAlias": "biblatex",
+  "autocite": "biblatex", "Autocite": "biblatex", "autocites": "biblatex",
+  "parencite": "biblatex", "Parencite": "biblatex", "parencites": "biblatex",
+  "textcite": "biblatex", "Textcite": "biblatex", "textcites": "biblatex",
+  "citeauthor": "biblatex or natbib", "citeyear": "biblatex or natbib", "citetitle": "biblatex",
+  "fullcite": "biblatex", "footcite": "biblatex", "footcitetext": "biblatex",
+  "ExecuteBibliographyOptions": "biblatex",
+
+  "_natbib": "natbib",
+  "citet": "natbib", "citep": "natbib", "citealt": "natbib", "citealp": "natbib",
+  "citenum": "natbib", "Citet": "natbib", "Citep": "natbib", "citetext": "natbib",
+  "bibstyle": "natbib",
+  "shortcites": "natbib",
+  "harvardparenthesis": "natbib",
+
+  "_listings_misc": "verbatim / source",
+  "verbatim": null, "verb": null, "alltt": "alltt", "fvset": "fancyvrb", "VerbatimInput": "fancyvrb",
+  "Verbatim": "fancyvrb", "BVerbatim": "fancyvrb", "LVerbatim": "fancyvrb",
+  "DefineVerbatimEnvironment": "fancyvrb",
+
+  "_color_legacy": "color",
+  "definecolor_legacy": "color",
+
+  "_geometry": "geometry",
+  "geometry": "geometry", "newgeometry": "geometry", "restoregeometry": "geometry",
+  "savegeometry": "geometry", "loadgeometry": "geometry",
+
+  "_fancyhdr": "fancyhdr",
+  "fancyhead": "fancyhdr", "fancyfoot": "fancyhdr", "fancyhf": "fancyhdr",
+  "fancyheadoffset": "fancyhdr", "fancyfootoffset": "fancyhdr",
+  "headrulewidth": "fancyhdr", "footrulewidth": "fancyhdr",
+  "lhead": "fancyhdr", "chead": "fancyhdr", "rhead": "fancyhdr",
+  "lfoot": "fancyhdr", "cfoot": "fancyhdr", "rfoot": "fancyhdr",
+  "pagestyle": null, "thispagestyle": null,
+
+  "_titlesec": "titlesec",
+  "titleformat": "titlesec", "titlespacing": "titlesec", "titleclass": "titlesec",
+  "titleline": "titlesec", "titlerule": "titlesec",
+  "titlecontents": "titletoc", "contentsmargin": "titletoc",
+
+  "_enumitem": "enumitem",
+  "setlist": "enumitem", "setdescription": "enumitem", "setenumerate": "enumitem", "setitemize": "enumitem",
+  "newlist": "enumitem", "renewlist": "enumitem", "AddEnumerateCounter": "enumitem",
+
+  "_todonotes": "todonotes",
+  "todo": "todonotes", "missingfigure": "todonotes", "listoftodos": "todonotes",
+
+  "_changes_etc": "annotation / review",
+  "added": "changes", "deleted": "changes", "replaced": "changes", "comment": "changes or verbatim",
+  "highlight": "changes", "definechangesauthor": "changes",
+
+  "_soul": "soul",
+  "hl": "soul", "texthl": "soul", "sethlcolor": "soul",
+  "so": "soul", "ul": "soul", "st": "soul", "caps": "soul", "soulregister": "soul",
+  "sloppy": null, "fussy": null,
+
+  "_microtype": "microtype",
+  "microtypesetup": "microtype", "DeclareMicrotypeAlias": "microtype",
+  "DisableLigatures": "microtype",
+
+  "_setspace": "setspace",
+  "singlespacing": "setspace", "doublespacing": "setspace", "onehalfspacing": "setspace",
+  "linespread": null, "setstretch": "setspace",
+  "singlespace": "setspace", "doublespace": "setspace", "spacing": "setspace",
+
+  "_parskip": "parskip",
+  "parskip": "parskip",
+  "noindent": null, "indent": null,
+
+  "_babel": "babel / polyglossia",
+  "selectlanguage": "babel or polyglossia",
+  "foreignlanguage": "babel", "shorthandoff": "babel", "shorthandon": "babel",
+  "iflanguage": "babel", "languagename": "babel",
+  "setmainlanguage": "polyglossia", "setotherlanguage": "polyglossia", "setotherlanguages": "polyglossia",
+
+  "_csquotes": "csquotes",
+  "enquote": "csquotes", "foreignquote": "csquotes", "hyphenquote": "csquotes",
+  "MakeOuterQuote": "csquotes", "MakeInnerQuote": "csquotes", "EnableQuotes": "csquotes",
+  "DisableQuotes": "csquotes",
+
+  "_fontspec": "fontspec",
+  "setmainfont": "fontspec", "setsansfont": "fontspec", "setmonofont": "fontspec",
+  "setmathfont": "unicode-math", "newfontfamily": "fontspec", "newfontface": "fontspec",
+  "fontspec": "fontspec",
+
+  "_unicode_math": "unicode-math",
+  "symbf": "unicode-math", "symit": "unicode-math", "symbfit": "unicode-math", "symsf": "unicode-math",
+  "symtt": "unicode-math",
+  "setmathfontface": "unicode-math",
+
+  "_fontawesome5": "fontawesome5",
+  "faIcon": "fontawesome5", "faIconStyle": "fontawesome5",
+  "faGithub": "fontawesome5", "faLinkedin": "fontawesome5", "faTwitter": "fontawesome5",
+  "faEnvelope": "fontawesome5", "faPhone": "fontawesome5", "faGlobe": "fontawesome5",
+
+  "_chem": "chemistry",
+  "ce": "mhchem", "cee": "mhchem", "cf": "mhchem",
+  "chemfig": "chemfig", "schemestart": "chemfig", "schemestop": "chemfig", "arrow": "chemfig",
+  "definechemfigskeleton": "chemfig",
+  "chemmacros": "chemmacros",
+
+  "_lipsum": "lipsum / blindtext",
+  "lipsum": "lipsum",
+  "blindtext": "blindtext", "Blindtext": "blindtext",
+  "blinddocument": "blindtext", "Blinddocument": "blindtext",
+
+  "_tcolorbox": "tcolorbox",
+  "tcbset": "tcolorbox", "tcblistof": "tcolorbox", "tcbox": "tcolorbox",
+  "newtcolorbox": "tcolorbox", "newtcblisting": "tcolorbox",
+  "tcblisting": "tcolorbox", "tcbuselibrary": "tcolorbox",
+
+  "_mdframed": "mdframed",
+  "newmdenv": "mdframed", "newmdtheoremenv": "mdframed", "mdfsetup": "mdframed",
+  "mdfdefinestyle": "mdframed",
+
+  "_etoolbox": "etoolbox",
+  "newtoggle": "etoolbox", "toggletrue": "etoolbox", "togglefalse": "etoolbox",
+  "iftoggle": "etoolbox", "settoggle": "etoolbox", "patchcmd": "etoolbox",
+  "xpatchcmd": "xpatch",
+  "robustify": "etoolbox", "AtEndPreamble": "etoolbox", "AfterPreamble": "etoolbox",
+  "AtEndDocument": null, "AtBeginDocument": null,
+  "ifstrempty": "etoolbox", "ifstrequal": "etoolbox", "ifdef": "etoolbox", "ifcsdef": "etoolbox",
+
+  "_ifthen": "ifthen",
+  "ifthenelse": "ifthen", "isodd": "ifthen", "isundefined": "ifthen", "lengthtest": "ifthen",
+  "AND": "ifthen", "OR": "ifthen", "NOT": "ifthen",
+
+  "_xparse_latex3": "xparse / LaTeX3",
+  "NewDocumentCommand": "xparse",
+  "RenewDocumentCommand": "xparse",
+  "ProvideDocumentCommand": "xparse",
+  "DeclareDocumentCommand": "xparse",
+  "NewDocumentEnvironment": "xparse",
+  "DeclareDocumentEnvironment": "xparse",
+  "NewExpandableDocumentCommand": "xparse",
+  "ExplSyntaxOn": "expl3",
+  "ExplSyntaxOff": "expl3",
+
+  "_xstring": "xstring",
+  "IfStrEq": "xstring", "IfBeginWith": "xstring", "IfSubStr": "xstring",
+  "StrSubstitute": "xstring", "StrCount": "xstring", "StrLen": "xstring",
+  "StrLeft": "xstring", "StrRight": "xstring", "StrMid": "xstring", "StrBefore": "xstring",
+  "StrBehind": "xstring", "StrBetween": "xstring",
+
+  "_hyperref_aux": "url / nameref",
+  "urlstyle": "url",
+
+  "_pdflatex_misc": "pdfx / pdfpages / pdftex",
+  "includepdf": "pdfpages",
+
+  "_inputenc_fontenc": "encoding (legacy)",
+  "inputenc": null, "fontenc": null,
+
+  "_lmodern": "lmodern",
+  "lmodern": "lmodern",
+
+  "_calc_misc": "calc",
+  "widthof": "calc", "heightof": "calc", "depthof": "calc", "totalheightof": "calc",
+  "real": "calc", "ratio": "calc", "maxof": "calc", "minof": "calc",
+
+  "_eso_pic": "eso-pic",
+  "AddToShipoutPicture": "eso-pic", "AddToShipoutPictureFG": "eso-pic", "AddToShipoutPictureBG": "eso-pic",
+  "ClearShipoutPicture": "eso-pic",
+
+  "_pdfpages": "pdfpages",
+  "includepdfset": "pdfpages",
+
+  "_hologo": "hologo",
+  "hologo": "hologo", "hologoFont": "hologo",
+  "LaTeX": null, "TeX": null, "BibTeX": null, "LaTeXe": null,
+
+  "_logos": "common",
+  "MakeIndex": null, "makeindex": "makeidx",
+  "printindex": "makeidx",
+
+  "_underscore": "underscore",
+  "_underscore_cmd": null,
+
+  "_marvosym": "marvosym",
+  "Email": "marvosym", "Letter": "marvosym", "Mobilefone": "marvosym",
+  "Telefon": "marvosym", "Mundus": "marvosym",
+
+  "_wasysym": "wasysym",
+  "wasysym": "wasysym", "smiley": "wasysym", "frownie": "wasysym",
+  "permil": "wasysym",
+
+  "_pifont": "pifont",
+  "ding": "pifont", "Pisymbol": "pifont", "dingfill": "pifont", "dingline": "pifont",
+  "dinglist": "pifont", "dingautolist": "pifont",
+
+  "_textcomp": "textcomp (LaTeX2e built-in since 2018)",
+  "textcelsius": null, "textdegree": null, "textmu": null, "textohm": null,
+  "textbullet": null, "textregistered": null, "texttrademark": null, "textcopyright": null,
+  "textparagraph": null, "textsection": null, "textdagger": null, "textdaggerdbl": null,
+  "textperthousand": null,
+  "texteuro": null, "textcent": null, "textsterling": null, "textyen": null,
+
+  "_gensymb": "gensymb",
+  "degree": "gensymb", "celsius": "gensymb", "perthousand": "gensymb", "ohm": "gensymb",
+  "micro": "gensymb",
+
+  "_picinpar_etc": "picture / pictures",
+  "begin_picture": null,
+
+  "_listings_legacy": "listings legacy",
+
+  "_jurabib": "jurabib",
+  "jurabibsetup": "jurabib",
+
+  "_acro_glossaries": "acro / glossaries",
+  "DeclareAcronym": "acro", "ac": "acro", "Ac": "acro", "acp": "acro",
+  "newacro": "acronym", "newglossaryentry": "glossaries", "gls": "glossaries", "Gls": "glossaries",
+  "glspl": "glossaries", "Glspl": "glossaries",
+  "printnoidxglossary": "glossaries", "printglossary": "glossaries", "printglossaries": "glossaries",
+  "makeglossaries": "glossaries", "loadglsentries": "glossaries",
+  "newabbreviation": "glossaries-extra",
+
+  "_lineno": "lineno",
+  "linenumbers": "lineno", "nolinenumbers": "lineno", "modulolinenumbers": "lineno",
+  "lineno": "lineno", "linelabel": "lineno",
+
+  "_microtype_misc": "microtype",
+
+  "_acronym": "acronym",
+
+  "_lscape": "lscape",
+  "landscape": "lscape",
+
+  "_pdflscape": "pdflscape",
+  "pdflandscape": "pdflscape",
+
+  "_changepage": "changepage",
+  "adjustwidth": "changepage", "strictpagecheck": "changepage",
+  "checkoddpage": "changepage", "ifoddpageoroneside": "changepage",
+
+  "_multicol": "multicol",
+  "columnbreak": "multicol", "multicolumn_paragraph": "multicol", "premulticols": "multicol",
+  "postmulticols": "multicol", "multicolsep": "multicol",
+
+  "_multind_idx": "index",
+  "newindex": "index",
+
+  "_appendix": "appendix",
+  "appendices": "appendix", "addappheadtotoc": "appendix", "appendixpage": "appendix",
+
+  "_abstract": "abstract",
+  "abstractname": null,
+
+  "_ragged2e": "ragged2e",
+  "RaggedRight": "ragged2e", "RaggedLeft": "ragged2e", "Centering": "ragged2e",
+  "justifying": "ragged2e", "centering": null, "raggedleft": null, "raggedright": null,
+
+  "_csvsimple": "csvsimple",
+  "csvreader": "csvsimple", "csvautotabular": "csvsimple", "csvautobooktabular": "csvsimple",
+
+  "_datatool": "datatool",
+  "DTLloaddb": "datatool", "DTLforeach": "datatool",
+
+  "_bigfoot_etc": "footnotes",
+  "footnotetext": null, "footnotemark": null, "footnote": null,
+  "footcite_dup": "biblatex",
+
+  "_minitoc": "minitoc",
+  "minitoc": "minitoc", "dominitoc": "minitoc", "faketableofcontents": "minitoc",
+
+  "_imakeidx": "imakeidx",
+  "makeindex_im": "imakeidx", "indexsetup": "imakeidx",
+
+  "_hyphenat": "hyphenat",
+  "nohyphens": "hyphenat", "hyp": "hyphenat", "textnhtt": "hyphenat",
+
+  "_microtype2": "microtype",
+
+  "_xspace": "xspace",
+  "xspace": "xspace",
+
+  "_listings_lang": "listings",
+
+  "_lstaddons": "listings",
+
+  "_carlisle_etc": "small classics",
+  "remreset": "remreset",
+
+  "_textcase": "textcase",
+  "MakeTextUppercase": "textcase", "MakeTextLowercase": "textcase",
+
+  "_relsize": "relsize",
+  "larger": "relsize", "smaller": "relsize", "relsize": "relsize", "textlarger": "relsize",
+  "textsmaller": "relsize",
+
+  "_changelog": "changelog",
+
+  "_apxproof": "apxproof",
+  "newtheoremrep": "apxproof",
+
+  "_bm": "bm (bold math)",
+  "bm": "bm", "boldsymbol": "amsmath",
+
+  "_amsmath_arrows": "amsmath",
+  "vec": null,
+
+  "_units_packages_misc": "units / nicefrac",
+  "nicefrac": "nicefrac", "unitfrac": "units",
+
+  "_etex": "etex",
+  "etex": "etex",
+
+  "_dsfont": "dsfont",
+  "mathds": "dsfont",
+
+  "_thmtools": "thmtools",
+  "declaretheorem": "thmtools", "declaretheoremstyle": "thmtools", "listoftheorems": "thmtools",
+
+  "_easybmat": "easybmat",
+  "smallmatrix": "amsmath",
+
+  "_bytefield": "bytefield",
+  "bytefieldsetup": "bytefield", "bitbox": "bytefield", "wordbox": "bytefield",
+
+  "_circuit": "circuitikz",
+  "ctikzset": "circuitikz",
+
+  "_subfiles": "subfiles",
+  "subfile": "subfiles", "subfileinclude": "subfiles",
+
+  "_standalone": "standalone",
+  "standalone": "standalone",
+
+  "_filecontents": "latex2e built-in since 2019",
+  "filecontents": null, "endfilecontents": null,
+
+  "_tikz_extras": "tikz libraries / extras",
+  "matrixname": "tikz",
+  "draw": null,
+  "node": null,
+  "path": null,
+
+  "_titling": "titling",
+  "thetitle": "titling", "theauthor": "titling", "thedate": "titling",
+  "maketitlehooka": "titling",
+
+  "_etoc": "etoc",
+  "etocsettocstyle": "etoc", "etocsetnexttocdepth": "etoc",
+
+  "_breqn": "breqn",
+  "dmath": "breqn", "dseries": "breqn",
+
+  "_diagbox": "diagbox",
+  "slashbox": "slashbox",
+
+  "_microtype3": "microtype",
+
+  "_xifthen": "xifthen",
+  "ifthenelse_x": "xifthen", "isempty": "xifthen", "isin": "xifthen",
+
+  "_carlisle_array": "array (kernel)",
+  "newcolumntype": "array", "showcols": "array",
+
+  "_kantlipsum_etc": "lipsum-like",
+  "kant": "kantlipsum",
+
+  "_bera_arev": "fonts",
+
+  "_sectsty": "sectsty",
+  "allsectionsfont": "sectsty", "chapterfont": "sectsty", "sectionfont": "sectsty",
+  "subsectionfont": "sectsty", "subsubsectionfont": "sectsty",
+  "partfont": "sectsty",
+
+  "_anyfontsize": "anyfontsize",
+
+  "_truncate": "truncate",
+  "truncate": "truncate",
+
+  "_pict2e_curve2e": "pict2e",
+  "moveto": "pict2e",
+
+  "_pgfgantt": "pgfgantt",
+  "gantttitle": "pgfgantt", "ganttbar": "pgfgantt", "ganttgroup": "pgfgantt",
+  "ganttmilestone": "pgfgantt",
+
+  "_paralist": "paralist",
+  "compactitem": "paralist", "compactenum": "paralist", "compactdesc": "paralist",
+  "asparaitem": "paralist", "inparaitem": "paralist", "asparaenum": "paralist", "inparaenum": "paralist",
+
+  "_etoolbox_more": "etoolbox",
+  "csuse": "etoolbox", "csdef": "etoolbox", "csedef": "etoolbox", "csname_etoolbox": "etoolbox",
+  "preto": "etoolbox", "appto": "etoolbox",
+  "letcs": "etoolbox", "newrobustcmd": "etoolbox",
+  "deflength": "etoolbox", "addtolength": null, "setlength": null,
+
+  "_anyfontsize_misc": "anyfontsize",
+
+  "_floats_more": "floatrow / sidecap",
+  "DeclareFloatStyle": "floatrow", "DeclareFloatLayout": "floatrow",
+  "sidecaption": "sidecap",
+
+  "_thebibliography": "kernel",
+  "bibitem": null, "bibliography": null, "bibliographystyle": null,
+
+  "_lazylist": "lazylist",
+
+  "_titlesec_etc": "titlesec",
+
+  "_minted_extra": "minted",
+  "mintinline_dup": "minted",
+
+  "_xy": "xy-pic",
+  "xymatrix": "xy",
+
+  "_amscd": "amscd",
+  "CD": "amscd",
+
+  "_mathastext": "mathastext",
+  "MathastextEnable": "mathastext",
+
+  "_breakurl": "breakurl",
+
+  "_pdfx": "pdfx",
+
+  "_marginfix": "marginfix",
+  "marginfix": "marginfix",
+
+  "_keyval_pgfkeys": "keyval / pgfkeys",
+  "define@key": "keyval", "setkeys": "keyval",
+  "pgfkeyssetvalue": "pgfkeys", "pgfkeysvalueof": "pgfkeys",
+
+  "_url": "url",
+
+  "_natbib_extra": "natbib",
+
+  "_apacite_etc": "apacite",
+  "BAvailFrom": "apacite",
+
+  "_chapterbib": "chapterbib",
+
+  "_bookmark": "bookmark",
+  "bookmark": "bookmark", "bookmarksetup": "bookmark", "bookmarkdefinestyle": "bookmark",
+
+  "_pdfcomment": "pdfcomment",
+  "pdfcomment": "pdfcomment", "pdftooltip": "pdfcomment", "pdfmargincomment": "pdfcomment",
+
+  "_listings_morestyles": "listings",
+
+  "_xkeyval": "xkeyval",
+  "DeclareOptionX": "xkeyval", "ExecuteOptionsX": "xkeyval", "DeclareCmdKey": "xkeyval",
+
+  "_lstlisting_morelisting": "listings",
+  "listoflistings": "listings",
+
+  "_chemnum_etc": "chemnum",
+  "cmpd": "chemnum",
+
+  "_biblatex_styles": "biblatex",
+
+  "_dsfont_misc": "dsfont",
+
+  "_microtype_etc": "microtype",
+
+  "_pst_packages": "PSTricks",
+  "psset": "pstricks", "pscircle": "pstricks", "psline": "pstricks", "psframe": "pstricks",
+
+  "_marginnote_etc": "marginnote",
+  "reversemarginpar": null,
+
+  "_lwarp": "lwarp (HTML export — usually not user-facing)",
+
+  "_amsxtra_etc": "amsxtra",
+  "sphat": "amsxtra", "spcheck": "amsxtra", "spdot": "amsxtra", "spddot": "amsxtra",
+
+  "_alphalph": "alphalph",
+  "AlphAlph": "alphalph",
+
+  "_bigintcalc": "bigintcalc",
+  "BigIntCalcAdd": "bigintcalc",
+
+  "_intcalc": "intcalc",
+  "IntCalcAdd": "intcalc", "IntCalcSub": "intcalc", "IntCalcMul": "intcalc",
+
+  "_etoolbox_apt": "etoolbox",
+
+  "_easybox": "easybox",
+
+  "_environ": "environ",
+  "NewEnviron": "environ", "RenewEnviron": "environ",
+
+  "_listings_misc2": "listings",
+
+  "_keyval_misc": "keyval",
+
+  "_paracol": "paracol",
+  "switchcolumn": "paracol",
+
+  "_amsmath_extras": "amsmath",
+  "lefteqn": null, "ldots": null, "cdots": null, "vdots": null, "ddots": null,
+  "frac": null, "sqrt": null,
+
+  "_csvkit_misc": "csvsimple",
+
+  "_pdfescape_etc": "pdfescape",
+  "pdfstringdefDisableCommands": "hyperref",
+
+  "_textgreek_etc": "textgreek",
+  "textalpha": "textgreek", "textbeta": "textgreek", "textgamma": "textgreek",
+
+  "_units_misc": "units",
+
+  "_keystroke": "keystroke",
+  "keystroke": "keystroke",
+
+  "_apostroph_etc": "csquotes",
+
+  "_appendices_etc": "appendix",
+
+  "_microtype_v2": "microtype",
+
+  "_amsbsy": "amsbsy",
+  "boldsymbol_dup": "amsbsy",
+
+  "_pgf_layers": "pgf",
+
+  "_mathtools_misc": "mathtools",
+
+  "_dejavu_etc": "fonts (variants)",
+
+  "_morewrites": "morewrites",
+  "morewrites": "morewrites",
+
+  "_xtab": "xtab",
+  "newxtab": "xtab",
+
+  "_tabularnewline": "kernel",
+
+  "_xcolor_more": "xcolor",
+  "extractcolorspecs": "xcolor",
+
+  "_bidi": "bidi",
+  "setLR": "bidi", "setRL": "bidi",
+
+  "_unicode_engines": "engine globals",
+  "directlua": null, "luaexec": null, "luastring": null,
+
+  "_aux_listings": "listings",
+
+  "_eqparbox": "eqparbox",
+  "eqparbox": "eqparbox", "eqmakebox": "eqparbox",
+
+  "_xargs": "xargs",
+  "newcommandx": "xargs", "renewcommandx": "xargs", "providecommandx": "xargs",
+
+  "_array_kernel": "array",
+  "arraybackslash": "array", "arrayrulewidth": null,
+  "extracolsep": null, "tabcolsep": null, "arraycolsep": null,
+
+  "_amsmath_more": "amsmath",
+  "iiiint": "amsmath", "iiint": "amsmath", "iint": "amsmath", "idotsint": "amsmath",
+
+  "_chemistry_more": "chemistry",
+  "DeclareChemFormula": "chemformula",
+
+  "_marvosym_misc": "marvosym",
+
+  "_microtype_misc2": "microtype",
+
+  "_simplekv_misc": "simplekv",
+
+  "_hyperref_more": "hyperref",
+  "url_dup": "hyperref",
+
+  "_tikz_libs_more": "tikz",
+
+  "_listings_more": "listings",
+
+  "_xstring_misc": "xstring",
+
+  "_pdfescape_misc": "pdfescape",
+
+  "_amsfonts_misc": "amsfonts",
+  "boldsymbol_kernel": "amsbsy",
+
+  "_amsfonts": "amsfonts (loaded by amssymb)",
+  "Bbbk": "amssymb",
+
+  "_amsthm_more": "amsthm",
+  "renewtheorem": "amsthm",
+
+  "_chemarrow_etc": "chemfig",
+
+  "_listings_etc": "listings",
+
+  "_xpatch": "xpatch",
+  "xpatchcmd_dup": "xpatch",
+
+  "_mfirstuc": "mfirstuc",
+  "makefirstuc": "mfirstuc",
+
+  "_unicode_misc": "expl3",
+
+  "_etoolbox_xparse": "xparse",
+
+  "_textgreek_more": "textgreek",
+  "textTheta": "textgreek",
+
+  "_titlesec_more": "titlesec",
+  "assignpagestyle": "titleps",
+
+  "_etoolbox_more2": "etoolbox",
+
+  "_mh_etc": "amsmath / mathtools",
+
+  "_listings_lang_extra": "listings",
+
+  "_lstdoc": "listings",
+
+  "_seqsplit": "seqsplit",
+  "seqsplit": "seqsplit",
+
+  "_xtab_misc": "xtab",
+
+  "_tabu_etc": "tabu",
+
+  "_pdfescape_extra": "pdfescape",
+
+  "_carlisle_misc": "small classics",
+
+  "_uniquecounter": "uniquecounter",
+  "newuniquecounter": "uniquecounter",
+
+  "_lscape_misc": "lscape",
+
+  "_mathastext_misc": "mathastext",
+
+  "_yhmath": "yhmath",
+  "widetilde": null, "widehat": null,
+
+  "_xtab_misc2": "xtab",
+
+  "_relsize_misc": "relsize",
+
+  "_misc_kernel": "kernel built-ins",
+  "textbf": null, "textit": null, "texttt": null, "textsf": null, "textrm": null, "textmd": null,
+  "textnormal": null, "textsl": null, "textsc": null, "textup": null,
+  "emph": null, "underline": null, "overline": null,
+  "small": null, "tiny": null, "footnotesize": null, "scriptsize": null,
+  "normalsize": null, "large": null, "Large": null, "LARGE": null, "huge": null, "Huge": null,
+  "begin": null, "end": null, "item": null, "label": null, "ref": null, "pageref": null,
+  "cite": null, "newcommand": null, "renewcommand": null, "providecommand": null,
+  "newenvironment": null, "renewenvironment": null,
+  "DeclareRobustCommand": null, "let": null, "def": null,
+  "documentclass": null, "usepackage": null, "RequirePackage": null,
+  "input": null, "include": null, "includeonly": null,
+  "tableofcontents": null, "listoffigures": null, "listoftables": null,
+  "maketitle": null, "title": null, "author": null, "date": null, "thanks": null,
+  "section": null, "subsection": null, "subsubsection": null, "paragraph": null, "subparagraph": null,
+  "part": null, "chapter": null,
+  "appendix": null, "frontmatter": null, "mainmatter": null, "backmatter": null,
+  "newpage": null, "clearpage": null, "cleardoublepage": null, "pagebreak": null,
+  "newline": null, "linebreak": null, "nolinebreak": null, "raggedbottom": null, "flushbottom": null,
+  "alpha": null, "beta": null, "gamma": null, "delta": null, "epsilon": null, "varepsilon": null,
+  "zeta": null, "eta": null, "theta": null, "vartheta": null, "iota": null, "kappa": null,
+  "lambda": null, "mu": null, "nu": null, "xi": null, "pi": null, "varpi": null, "rho": null, "varrho": null,
+  "sigma": null, "varsigma": null, "tau": null, "upsilon": null, "phi": null, "varphi": null,
+  "chi": null, "psi": null, "omega": null,
+  "Gamma": null, "Delta": null, "Theta": null, "Lambda": null, "Xi": null, "Pi": null,
+  "Sigma": null, "Upsilon": null, "Phi": null, "Psi": null, "Omega": null,
+  "sin": null, "cos": null, "tan": null, "csc": null, "sec": null, "cot": null,
+  "arcsin": null, "arccos": null, "arctan": null,
+  "sinh": null, "cosh": null, "tanh": null, "coth": null,
+  "log": null, "ln": null, "exp": null, "lim": null, "limsup": null, "liminf": null,
+  "max": null, "min": null, "sup": null, "inf": null, "det": null, "gcd": null, "mod_arith": null,
+  "sum": null, "prod": null, "int": null, "oint": null,
+  "leq": null, "geq": null, "neq": null, "approx": null, "equiv": null, "sim": null, "simeq": null,
+  "cong": null, "propto": null, "infty": null, "partial": null, "nabla": null,
+  "in": null, "notin": null, "subset": null, "supset": null, "subseteq": null, "supseteq": null,
+  "cap": null, "cup": null, "setminus": null, "emptyset": null,
+  "to": null, "rightarrow": null, "Rightarrow": null, "leftarrow": null, "Leftarrow": null,
+  "mapsto": null, "longmapsto": null, "longrightarrow": null, "longleftarrow": null, "Longrightarrow": null, "Longleftarrow": null,
+  "cdot": null, "times": null, "div": null, "pm": null, "mp": null, "ast": null, "star": null,
+  "circ": null, "bullet": null, "diamond": null, "wedge": null, "vee": null, "neg": null, "lnot": null,
+  "forall": null, "exists": null, "nexists": null,
+  "Re": null, "Im": null, "aleph": null, "hbar": null, "imath": null, "jmath": null,
+  "ell": null, "wp": null, "prime": null, "dagger": null, "ddagger": null,
+  "ldots_dup": null,
+  "bigskip": null, "medskip": null, "smallskip": null, "vspace": null, "hspace": null, "hfill": null, "vfill": null,
+  "centering_dup": null,
+
+  "_xcolor_misc": "xcolor"
+}

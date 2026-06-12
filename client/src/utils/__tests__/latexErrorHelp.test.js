@@ -33,6 +33,21 @@ describe('getErrorHelp', () => {
 // ─── Undefined command (the headline fix) ─────────────────────────────
 
 describe('getErrorHelp — Undefined command fix descriptors', () => {
+  it('caveman JSON: \\hl -> soul', () => {
+    const help = getErrorHelp('Undefined control sequence \\hl');
+    expect(help?.fix?.package).toBe('soul');
+  });
+
+  it('caveman JSON: \\dfrac -> amsmath', () => {
+    const help = getErrorHelp('Undefined control sequence \\dfrac');
+    expect(help?.fix?.package).toBe('amsmath');
+  });
+
+  it('caveman JSON: \\mathbb -> amssymb', () => {
+    const help = getErrorHelp('Undefined control sequence \\mathbb');
+    expect(help?.fix?.package).toBe('amssymb');
+  });
+
   it('offers add-usepackage{xcolor} for \\textcolor', () => {
     // The regex is single-line (`.` doesn't match newlines). The LaTeX
     // log parser strips the "! " prefix and emits the command name on

@@ -7,21 +7,14 @@ vi.mock('../helperBridge.js', () => ({
   fetchLlmStatus: vi.fn(),
 }));
 
-// Mock the api fetch wrapper too.
-vi.mock('../../api.js', () => ({
-  get: vi.fn(),
-}));
-
 import {
   parseLlmAnswer,
   cacheLookup,
   readCache,
-  queryServerIndex,
   queryHelperLlm,
   lookupCommandPackage,
   _resetForTesting,
 } from '../commandPackageLookup.js';
-import { get } from '../../api.js';
 import { streamLlmComplete, fetchLlmStatus } from '../helperBridge.js';
 
 beforeEach(() => {
@@ -111,37 +104,6 @@ describe('cacheLookup + readCache (in-memory)', () => {
   });
 });
 
-describe('queryServerIndex', () => {
-  it('returns the package field from a successful response', async () => {
-    get.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ package: 'cleveref', source: 'index' }),
-    });
-    expect(await queryServerIndex('cref')).toBe('cleveref');
-  });
-
-  it('returns null when the endpoint responds 4xx', async () => {
-    get.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'bad' }) });
-    expect(await queryServerIndex('cref')).toBeNull();
-  });
-
-  it('returns null when the response has no package field', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
-    expect(await queryServerIndex('cref')).toBeNull();
-  });
-
-  it('returns null when the fetch throws', async () => {
-    get.mockRejectedValueOnce(new Error('offline'));
-    expect(await queryServerIndex('cref')).toBeNull();
-  });
-
-  it('URL-encodes the cmd query', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({ package: 'x' }) });
-    await queryServerIndex('foo@bar');
-    expect(get).toHaveBeenCalledWith(expect.stringContaining(encodeURIComponent('foo@bar')));
-  });
-});
-
 describe('queryHelperLlm', () => {
   it('returns null when helper is unavailable', async () => {
     fetchLlmStatus.mockResolvedValueOnce({ ok: false, error: 'not paired' });
@@ -199,26 +161,14 @@ describe('queryHelperLlm', () => {
 });
 
 describe('lookupCommandPackage (orchestrator)', () => {
-  it('serves from cache without hitting the server', async () => {
-    cacheLookup('cref', { package: 'cleveref', source: 'index' });
+  it('serves from cache without hitting the LLM', async () => {
+    cacheLookup('cref', { package: 'cleveref', source: 'static' });
     const r = await lookupCommandPackage('cref');
     expect(r.package).toBe('cleveref');
-    expect(get).not.toHaveBeenCalled();
+    expect(fetchLlmStatus).not.toHaveBeenCalled();
   });
 
-  it('falls through to the server when no cache entry exists', async () => {
-    get.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ package: 'amsmath' }),
-    });
-    const r = await lookupCommandPackage('binom');
-    expect(r.package).toBe('amsmath');
-    expect(r.source).toBe('index');
-    expect(get).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls through to the LLM when the server returns null', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({ package: null }) });
+  it('falls through to the LLM when no cache entry exists', async () => {
     fetchLlmStatus.mockResolvedValueOnce({
       ok: true,
       status: { available: true, defaultModel: 'llama3' },
@@ -233,24 +183,28 @@ describe('lookupCommandPackage (orchestrator)', () => {
     expect(r.confidence).toBe('low');
   });
 
-  it('caches the result so a second call is server-free', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({ package: 'amsmath' }) });
-    await lookupCommandPackage('binom');
-    await lookupCommandPackage('binom');
-    expect(get).toHaveBeenCalledTimes(1);
+  it('caches the result so a second call is LLM-free', async () => {
+    fetchLlmStatus.mockResolvedValueOnce({
+      ok: true,
+      status: { available: true, defaultModel: 'llama3' },
+    });
+    streamLlmComplete.mockImplementationOnce(async (_req, onDelta) => {
+      onDelta('foo');
+      return { ok: true };
+    });
+    await lookupCommandPackage('something');
+    await lookupCommandPackage('something');
+    expect(fetchLlmStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('caches null results so we don\'t re-query unknown commands', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({ package: null }) });
+  it("caches null results so we don't re-query unknown commands", async () => {
     fetchLlmStatus.mockResolvedValueOnce({ ok: false, error: 'no helper' });
     await lookupCommandPackage('totallyunknown');
     await lookupCommandPackage('totallyunknown');
-    expect(get).toHaveBeenCalledTimes(1);
     expect(fetchLlmStatus).toHaveBeenCalledTimes(1);
   });
 
   it('skips the LLM entirely when { allowLlm: false }', async () => {
-    get.mockResolvedValueOnce({ ok: true, json: async () => ({ package: null }) });
     const r = await lookupCommandPackage('weird', { allowLlm: false });
     expect(r.package).toBeNull();
     expect(streamLlmComplete).not.toHaveBeenCalled();

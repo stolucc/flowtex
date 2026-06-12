@@ -148,8 +148,6 @@
     "server/websocket.js",
     "server/utils/docxToLatex.js",
     "server/services/blobPersistorS3.js",
-    "server/services/commandPackageIndex.js",
-    "server/routes/latex.js",
     "server/migrate-salt.js",
     "server/migrate-to-pg.js",
     "server/migrate-yjs-init.js",

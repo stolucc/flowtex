@@ -1,19 +1,21 @@
 // @ts-check
 //
 // Resolve `\command` -> `package` for arbitrary LaTeX commands, NOT
-// just the hand-curated COMMAND_PACKAGES list in latexErrorHelp.js.
+// just the curated COMMAND_PACKAGES list in latexErrorHelp.js.
 //
-// Lookup order (each step is async, cached, and cheap on a hit):
-//   1. Static map: COMMAND_PACKAGES in latexErrorHelp.js. This file
-//      doesn't reach into that map; callers (the React hook) check it
-//      first and only fall here when the static map says "unknown".
-//   2. localStorage cache: persists across page loads and tabs.
-//   3. Server texdef-style index: hits /api/latex/command-package and
-//      returns whatever the server's .sty-grepped index says.
-//   4. Helper LLM fallback: if the helper is paired and an LLM is
+// Caveman mode: lookup order is
+//   1. Static JSON map: see latexErrorHelp.js. The React hook checks
+//      this first and only falls through to this file when the JSON
+//      doesn't have an entry.
+//   2. localStorage cache: persists previously-resolved answers.
+//   3. Helper LLM fallback: if the helper is paired and an LLM is
 //      configured, ask the LLM "Which CTAN package provides \X?".
-//      Quoted as low-confidence in the cache so the UI can surface a
-//      "may be wrong" hint later.
+//      Cached as low-confidence so the UI can surface a "may be wrong"
+//      hint later.
+//
+// The previous architecture also had a server-side TeX-Live index
+// (.sty file grep). It was removed in favor of the static JSON +
+// LLM fallback. See [[project-flowtex-latex-errors]] notes.
 //
 // Storage shape (localStorage key `flowtex-cmdpkg`):
 //   { [cmd]: { package: string | null, source: string, ts: number } }
@@ -22,11 +24,10 @@
 // thousand commands max -- a TL install has ~10k commands; the
 // localStorage limit is 5 MB, well above our worst case.
 
-import { get } from '../api.js';
 import { streamLlmComplete, fetchLlmStatus } from './helperBridge.js';
 
 /**
- * @typedef {{ package: string | null, source: 'static' | 'localStorage' | 'index' | 'llm' | 'unknown', confidence?: 'high' | 'low' }} LookupResult
+ * @typedef {{ package: string | null, source: 'static' | 'localStorage' | 'llm' | 'unknown', confidence?: 'high' | 'low' }} LookupResult
  */
 
 const STORAGE_KEY = 'flowtex-cmdpkg';
@@ -122,24 +123,9 @@ export function readCache(cmd) {
   };
 }
 
-/**
- * Hit the server's command-package index. Returns null when the
- * endpoint returns no package (or fails).
- *
- * @param {string} cmd
- * @returns {Promise<string | null>}
- */
-export async function queryServerIndex(cmd) {
-  try {
-    const res = await get(`/api/latex/command-package?cmd=${encodeURIComponent(cmd)}`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    if (body && typeof body.package === 'string') return body.package;
-    return null;
-  } catch {
-    return null;
-  }
-}
+// queryServerIndex was removed when the TL .sty-grep server endpoint
+// was deleted -- the index produced too many false positives. The
+// orchestrator now falls straight from cache to LLM.
 
 /**
  * Parse the helper LLM's freeform answer into a single package name.
@@ -216,15 +202,7 @@ export async function lookupCommandPackage(cmd, opts = {}) {
   const cached = readCache(cmd);
   if (cached) return cached;
 
-  // 2. Server.
-  const fromIndex = await queryServerIndex(cmd);
-  if (fromIndex) {
-    const r = /** @type {LookupResult} */ ({ package: fromIndex, source: 'index', confidence: 'high' });
-    cacheLookup(cmd, r);
-    return r;
-  }
-
-  // 3. Helper LLM.
+  // 2. Helper LLM. (The server-side TL index step was removed.)
   if (allowLlm) {
     const fromLlm = await queryHelperLlm(cmd);
     if (fromLlm) {
