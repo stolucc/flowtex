@@ -129,49 +129,172 @@ export function styPathToPackageName(styPath) {
 
 /**
  * When the same command is defined in multiple packages, pick the
- * "preferred" one. Heuristic: shorter package names usually beat
- * longer ones (e.g., `amsmath` beats `amsmath-light`); names matching
- * the command's prefix beat unrelated names (e.g., `tikz-*` for
- * commands starting with `tikz`); and built-in LaTeX classes (`*.cls`
- * disguised as `.sty`) are deprioritised.
+ * "preferred" one. Heuristics, in priority order:
+ *
+ *   1. Strongest demotion: packages that are `\input`ed by another
+ *      package in the index. These are internal/backend files (e.g.
+ *      `soul-ori`, which the user never loads -- they load `soul`).
+ *   2. Demotion: suffix matches like `*-tools`, `*-internal`, `*-base`,
+ *      `*-kernel` -- conventional implementation-package names.
+ *   3. Boost: package name shares a prefix with the command (so
+ *      \tikzset -> tikz, not some unrelated pkg that exports tikzset).
+ *   4. Tie-break: shorter name beats longer (so `amsmath` > `amsmath2`).
  *
  * @param {string} cmd
  * @param {Set<string>} candidates
+ * @param {Set<string>} [internalPkgs] - packages that are inputs of others
  * @returns {string}
  */
-export function pickPreferredPackage(cmd, candidates) {
+export function pickPreferredPackage(cmd, candidates, internalPkgs) {
   if (candidates.size === 1) return [...candidates][0];
+  const internals = internalPkgs ?? new Set();
   const arr = [...candidates];
   arr.sort((a, b) => {
-    // Lower priority: package names matching `*-tools`, `*-internal`,
-    // or `*-base` which are usually implementation packages.
-    const aDemote = /(tools|internal|base|kernel|utils?)$/.test(a) ? 1 : 0;
-    const bDemote = /(tools|internal|base|kernel|utils?)$/.test(b) ? 1 : 0;
+    // (1) Strongest demote: package is an internal/backend file.
+    const aInternal = internals.has(a) ? 1 : 0;
+    const bInternal = internals.has(b) ? 1 : 0;
+    if (aInternal !== bInternal) return aInternal - bInternal;
+    // (2) Suffix-shape demote.
+    const aDemote = /(tools|internal|base|kernel|utils?|ori)$/.test(a) ? 1 : 0;
+    const bDemote = /(tools|internal|base|kernel|utils?|ori)$/.test(b) ? 1 : 0;
     if (aDemote !== bDemote) return aDemote - bDemote;
-    // Higher priority: package name shares a prefix with the command.
+    // (3) Prefix-match boost.
     const aPrefix = cmd.toLowerCase().startsWith(a.toLowerCase()) ? 1 : 0;
     const bPrefix = cmd.toLowerCase().startsWith(b.toLowerCase()) ? 1 : 0;
     if (aPrefix !== bPrefix) return bPrefix - aPrefix;
-    // Tie-break: shorter name beats longer.
+    // (4) Tie-break on shorter name.
     return a.length - b.length;
   });
   return arr[0];
 }
 
 /**
+ * Extract the names of .sty (or .tex) files this file `\input`s,
+ * `\RequirePackage`s, `\LoadPackage`s, or `\usepackage`s.
+ *
+ * Used to build the inclusion graph so a command defined in
+ * `soul-ori.sty` correctly resolves to the user-facing package `soul`
+ * (which `\input`s soul-ori).
+ *
+ * @param {string} content
+ * @returns {Set<string>}
+ */
+export function extractInputs(content) {
+  /** @type {Set<string>} */
+  const out = new Set();
+  // Strip comments first (same logic as extractCommandsFromStyContent).
+  const stripped = content
+    .split('\n')
+    .map((line) => {
+      let i = 0;
+      while (i < line.length) {
+        if (line[i] === '%' && (i === 0 || line[i - 1] !== '\\')) {
+          return line.slice(0, i);
+        }
+        i++;
+      }
+      return line;
+    })
+    .join('\n');
+
+  const patterns = [
+    // \input soul-ori.sty   /   \input{soul-ori.sty}   /   \input{soul-ori}
+    // The unbraced form stops at the next whitespace, %, OR backslash
+    // (the latter so `\input soul-ori.sty\relax` is parsed correctly).
+    /\\input\s*(?:\{([^}]+)\}|([^\s{}\\][^\s%\\]*))/g,
+    // \RequirePackage{X} / \RequirePackage[opts]{X}
+    /\\RequirePackage(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/g,
+    // \LoadPackage{X}
+    /\\LoadPackage(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/g,
+    // \usepackage{X} - rare in .sty files but used in some bundles
+    /\\usepackage(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/g,
+  ];
+  for (const pat of patterns) {
+    pat.lastIndex = 0;
+    let m;
+    while ((m = pat.exec(stripped)) !== null) {
+      const arg = (m[1] || m[2] || '').trim();
+      if (!arg) continue;
+      // Multiple packages can be comma-separated.
+      for (const raw of arg.split(',')) {
+        let name = raw.trim().replace(/\.(sty|tex|cls|def|cfg)$/i, '');
+        // Reject paths/relative refs we can't resolve confidently.
+        if (!name || /[/\\]/.test(name)) continue;
+        // Reject names that aren't plausible package names.
+        if (!/^[a-zA-Z][a-zA-Z0-9@.-]*$/.test(name)) continue;
+        out.add(name);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Build a command-package map from a list of { path, content } records.
- * Pure function for testability.
+ *
+ * Algorithm:
+ *   1. For each file F, extract the set of commands it defines AND
+ *      the set of other files it `\input`s / `\RequirePackage`s.
+ *   2. Walk the inclusion graph: when file A inputs file B, any
+ *      command defined in B also lives in A's user-facing package
+ *      (because `\usepackage{A}` triggers loading B).
+ *   3. For each command, pick the canonical package using
+ *      pickPreferredPackage, which now also demotes "internal-looking"
+ *      package names (those that are `\input`ed by another file in the
+ *      index).
  *
  * @param {Array<{ path: string, content: string }>} files
  * @returns {Map<string, string>}
  */
 export function buildIndexFromFileContents(files) {
-  /** @type {Map<string, Set<string>>} */
-  const cmdToPkgs = new Map();
+  /** @type {Map<string, { cmds: Set<string>, inputs: Set<string> }>} */
+  const perFile = new Map();
   for (const file of files) {
     const pkg = styPathToPackageName(file.path);
-    const cmds = extractCommandsFromStyContent(file.content);
-    for (const cmd of cmds) {
+    if (perFile.has(pkg)) continue; // dup .sty (rare; first wins)
+    perFile.set(pkg, {
+      cmds: extractCommandsFromStyContent(file.content),
+      inputs: extractInputs(file.content),
+    });
+  }
+
+  // Identify "internal" packages: any package that is `\input`ed by
+  // another package in the index. The user can't load these directly
+  // via `\usepackage{}` -- they're loaded transitively. Demote them
+  // in the canonical-package picker.
+  /** @type {Set<string>} */
+  const internalPkgs = new Set();
+  for (const [, entry] of perFile.entries()) {
+    for (const input of entry.inputs) {
+      if (perFile.has(input)) internalPkgs.add(input);
+    }
+  }
+
+  // Build the cmd -> set<pkg> map, walking the inclusion graph so a
+  // command defined in an internal file also lives in any wrapper
+  // that inputs it. Use a transitive-closure walk with a depth cap to
+  // bound pathological cases.
+  /** @type {Map<string, Set<string>>} */
+  const cmdToPkgs = new Map();
+  /** @param {string} pkg @param {Set<string>} pkgsSeen @returns {Set<string>} */
+  function transitiveInputs(pkg, pkgsSeen) {
+    /** @type {Set<string>} */
+    const out = new Set();
+    if (pkgsSeen.has(pkg) || pkgsSeen.size > 50) return out;
+    pkgsSeen.add(pkg);
+    const entry = perFile.get(pkg);
+    if (!entry) return out;
+    for (const child of entry.inputs) {
+      if (!perFile.has(child)) continue;
+      out.add(child);
+      for (const grandchild of transitiveInputs(child, pkgsSeen)) out.add(grandchild);
+    }
+    return out;
+  }
+
+  for (const [pkg, entry] of perFile.entries()) {
+    // The package's "own" commands -- defined in its own .sty.
+    for (const cmd of entry.cmds) {
       let set = cmdToPkgs.get(cmd);
       if (!set) {
         set = new Set();
@@ -179,11 +302,25 @@ export function buildIndexFromFileContents(files) {
       }
       set.add(pkg);
     }
+    // Plus commands from transitively-input packages.
+    for (const child of transitiveInputs(pkg, new Set())) {
+      const childEntry = perFile.get(child);
+      if (!childEntry) continue;
+      for (const cmd of childEntry.cmds) {
+        let set = cmdToPkgs.get(cmd);
+        if (!set) {
+          set = new Set();
+          cmdToPkgs.set(cmd, set);
+        }
+        set.add(pkg);
+      }
+    }
   }
+
   /** @type {Map<string, string>} */
   const result = new Map();
   for (const [cmd, pkgs] of cmdToPkgs.entries()) {
-    result.set(cmd, pickPreferredPackage(cmd, pkgs));
+    result.set(cmd, pickPreferredPackage(cmd, pkgs, internalPkgs));
   }
   return result;
 }
@@ -226,10 +363,15 @@ export async function walkDir(root, predicate) {
 
 /**
  * Discover the TeX paths that hold .sty files via kpsewhich. Returns
- * an array of roots; the indexer walks `<root>/tex/latex/` underneath.
+ * an array of roots; the indexer walks each one underneath.
  *
  * Vars consulted: TEXMFDIST (vendor), TEXMFLOCAL (admin-installed),
- * TEXMFHOME (per-user). Missing vars are silently skipped.
+ * TEXMFHOME (per-user). Under each, BOTH `tex/latex/` (LaTeX-only)
+ * AND `tex/generic/` (works in LaTeX too -- e.g. soul, xcolor) are
+ * walked. Without `tex/generic/`, packages like soul are completely
+ * missed because their .sty files live there.
+ *
+ * Missing vars and missing subdirs are silently skipped.
  *
  * @returns {Promise<string[]>}
  */
@@ -240,12 +382,13 @@ export async function discoverTexRoots() {
     try {
       const { stdout } = await execFileAsync('kpsewhich', ['-var-value', varName], { timeout: 5000 });
       const dir = stdout.trim();
-      if (dir) {
-        const styDir = path.join(dir, 'tex', 'latex');
+      if (!dir) continue;
+      for (const sub of ['latex', 'generic']) {
+        const styDir = path.join(dir, 'tex', sub);
         try {
           await stat(styDir);
           roots.push(styDir);
-        } catch { /* dir doesn't exist (e.g. empty TEXMFHOME) */ }
+        } catch { /* dir doesn't exist */ }
       }
     } catch {
       // kpsewhich missing / errored. Caller decides whether to fall

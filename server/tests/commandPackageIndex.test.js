@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractCommandsFromStyContent,
+  extractInputs,
   styPathToPackageName,
   pickPreferredPackage,
   buildIndexFromFileContents,
@@ -181,5 +182,119 @@ describe('buildIndexFromFileContents', () => {
     const idx = buildIndexFromFileContents(files);
     expect(idx.has('fake')).toBe(false);
     expect(idx.get('real')).toBe('y');
+  });
+
+  // Regression: soul/soul-ori (the bug the user reported on \hl)
+  it('resolves commands defined in an \\input-ed backend to the user-facing wrapper', () => {
+    const files = [
+      {
+        path: '/x/soul/soul.sty',
+        content: `\\input soul-ori.sty\\relax`,
+      },
+      {
+        path: '/x/soul/soul-ori.sty',
+        content: `\\newcommand{\\hl}[1]{...}`,
+      },
+    ];
+    const idx = buildIndexFromFileContents(files);
+    // \hl is defined in soul-ori.sty, but \usepackage{soul} loads it
+    // transitively. The user-facing package must be `soul`.
+    expect(idx.get('hl')).toBe('soul');
+  });
+
+  it('handles \\RequirePackage in addition to \\input', () => {
+    const files = [
+      { path: '/x/outer.sty', content: `\\RequirePackage{inner}` },
+      { path: '/x/inner.sty', content: `\\newcommand{\\fancycmd}{...}` },
+    ];
+    const idx = buildIndexFromFileContents(files);
+    expect(idx.get('fancycmd')).toBe('outer');
+  });
+
+  it('handles \\RequirePackage with options like [draft]{X}', () => {
+    const files = [
+      { path: '/x/wrapper.sty', content: `\\RequirePackage[draft]{backend}` },
+      { path: '/x/backend.sty', content: `\\newcommand{\\widget}{...}` },
+    ];
+    const idx = buildIndexFromFileContents(files);
+    expect(idx.get('widget')).toBe('wrapper');
+  });
+
+  it('handles comma-separated \\RequirePackage{a,b,c}', () => {
+    const files = [
+      { path: '/x/outer.sty', content: `\\RequirePackage{a,b}` },
+      { path: '/x/a.sty', content: `\\newcommand{\\fromA}{...}` },
+      { path: '/x/b.sty', content: `\\newcommand{\\fromB}{...}` },
+    ];
+    const idx = buildIndexFromFileContents(files);
+    expect(idx.get('fromA')).toBe('outer');
+    expect(idx.get('fromB')).toBe('outer');
+  });
+
+  it('walks transitive \\input chains (A inputs B which inputs C)', () => {
+    const files = [
+      { path: '/x/a.sty', content: `\\input{b.sty}` },
+      { path: '/x/b.sty', content: `\\input{c.sty}` },
+      { path: '/x/c.sty', content: `\\newcommand{\\threehopcmd}{...}` },
+    ];
+    const idx = buildIndexFromFileContents(files);
+    expect(idx.get('threehopcmd')).toBe('a');
+  });
+});
+
+describe('extractInputs', () => {
+  it('captures \\input filename and \\input{filename}', () => {
+    expect(extractInputs('\\input foo.sty\n').has('foo')).toBe(true);
+    expect(extractInputs('\\input{foo.sty}\n').has('foo')).toBe(true);
+    expect(extractInputs('\\input{foo}\n').has('foo')).toBe(true);
+  });
+
+  it('captures \\RequirePackage', () => {
+    expect(extractInputs('\\RequirePackage{xcolor}').has('xcolor')).toBe(true);
+  });
+
+  it('captures \\RequirePackage with options', () => {
+    expect(extractInputs('\\RequirePackage[table]{xcolor}').has('xcolor')).toBe(true);
+  });
+
+  it('captures \\LoadPackage', () => {
+    expect(extractInputs('\\LoadPackage{foo}').has('foo')).toBe(true);
+  });
+
+  it('strips extensions', () => {
+    const out = extractInputs('\\input{foo.sty}\n\\input{bar.tex}\n');
+    expect(out.has('foo')).toBe(true);
+    expect(out.has('bar')).toBe(true);
+  });
+
+  it('rejects paths and relative refs (we cannot resolve them confidently)', () => {
+    expect(extractInputs('\\input{../foo.sty}').size).toBe(0);
+    expect(extractInputs('\\input{dir/foo.sty}').size).toBe(0);
+  });
+
+  it('splits comma-separated package lists', () => {
+    expect(extractInputs('\\RequirePackage{a, b, c}')).toEqual(new Set(['a', 'b', 'c']));
+  });
+
+  it('ignores definitions inside comments', () => {
+    const out = extractInputs('% \\RequirePackage{notreal}\n\\RequirePackage{real}\n');
+    expect(out.has('notreal')).toBe(false);
+    expect(out.has('real')).toBe(true);
+  });
+});
+
+describe('pickPreferredPackage with internalPkgs (Batch F)', () => {
+  it("prefers a wrapper package over its internal backend", () => {
+    const internals = new Set(['soul-ori']);
+    const chosen = pickPreferredPackage('hl', new Set(['soul', 'soul-ori']), internals);
+    expect(chosen).toBe('soul');
+  });
+
+  it("still prefers shorter / prefix-matching names when no internal is involved", () => {
+    expect(pickPreferredPackage('foo', new Set(['amsmath', 'amsmath-tools']), new Set())).toBe('amsmath');
+  });
+
+  it("demotes the '-ori' suffix (used by Heiko's renamed-original-source idiom)", () => {
+    expect(pickPreferredPackage('foo', new Set(['amsmath', 'amsmath-ori']), new Set())).toBe('amsmath');
   });
 });
