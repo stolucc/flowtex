@@ -136,6 +136,7 @@ const Editor = forwardRef(function Editor(
     onDocChange,
     onCursorChange,
     onCompile,
+    onAddPackage,
     onRequestComment,
     onScroll,
     onLintDiagnostics,
@@ -2201,6 +2202,7 @@ const Editor = forwardRef(function Editor(
           initial={tableBuilder.initial}
           multiColumn={tableBuilder.multiColumn}
           declaredPackages={declaredPackages}
+          onAddPackage={onAddPackage}
           onInsert={handleTableBuilderInsert}
           onClose={() => setTableBuilder(null)}
           onDelete={tableBuilder.replaceFrom != null ? () => {

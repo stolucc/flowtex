@@ -1472,6 +1472,58 @@ function AppInner() {
                     }
                     onDocChange={refreshFromDoc}
                     onCompile={handleCompile}
+                    onAddPackage={(/** @type {string} */ pkg) => {
+                      // Same primitive as the LaTeX-error "Fix" pill:
+                      // add \usepackage{pkg} to the project's main file,
+                      // mark the inserted line as a pending fix-ack.
+                      // Used by the table builder's ⚠ button when a
+                      // required package (booktabs, longtable, etc.)
+                      // is missing from the preamble.
+                      if (!pkg) return;
+                      const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                      if (!mainFile) {
+                        showAlert(
+                          `Couldn't find the main file (${mainFilePath}) to add \\usepackage{${pkg}} to.`,
+                          { title: 'Apply fix failed' },
+                        );
+                        return;
+                      }
+                      const currentContent =
+                        activeFile?.id === mainFile.id
+                          ? (editorRef.current?.getContent() ?? mainFile.content ?? '')
+                          : (mainFile.content ?? '');
+                      const apply = (/** @type {string} */ content) => {
+                        const result = applyAddUsepackage(content, pkg);
+                        if (!result.changed) {
+                          showAlert(
+                            `\\usepackage{${pkg}} is already in ${mainFilePath}.`,
+                            { title: 'Already added' },
+                          );
+                          return;
+                        }
+                        const snippet = result.newContent.slice(
+                          result.insertAt,
+                          result.insertAt + result.insertLength,
+                        );
+                        editorRef.current?.replaceRange(result.insertAt, result.insertAt, snippet);
+                        if (snippet.length > 0) {
+                          setTimeout(
+                            () => editorRef.current?.markFixApplied(result.insertAt, result.insertAt + snippet.length),
+                            0,
+                          );
+                        }
+                        setTimeout(
+                          () => editorRef.current?.goToPosition(result.insertAt + result.insertLength),
+                          50,
+                        );
+                      };
+                      if (activeFile?.id === mainFile.id) {
+                        apply(currentContent);
+                      } else {
+                        switchFile(mainFile);
+                        setTimeout(() => apply(currentContent), 80);
+                      }
+                    }}
                     onRequestComment={(/** @type {any} */ sel) => {
                       setSelection(sel);
                       ui.setShowComments(true);

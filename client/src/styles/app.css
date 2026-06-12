@@ -3065,6 +3065,25 @@ html {
   vertical-align: middle;
   cursor: help;
 }
+/* Clickable variant -- used when an onAddPackage handler is wired up
+   (table builder + similar). Reset native button chrome, keep the
+   yellow ⚠ look, switch the cursor to "this is an action". */
+.pkg-warn-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 4px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: #e6a700;
+  vertical-align: middle;
+  line-height: 1;
+}
+.pkg-warn-btn:hover {
+  color: #b27d00;
+  text-shadow: 0 0 0.5px currentColor;
+}
 .pkg-ok {
   color: #2ea043;
   margin-right: 4px;

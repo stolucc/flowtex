@@ -14,7 +14,7 @@ const TABLE_ENV_OPTIONS = [
  * Interactive table builder with grid size selection, cell editing, merge, alignment, and LaTeX generation.
  * @param {any} props
  */
-function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, declaredPackages }) {
+function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, declaredPackages, onAddPackage }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const MAX_ROWS = 12;
   const MAX_COLS = 12;
@@ -541,14 +541,46 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
             </>
           )}
         </div>
-        {(borders === 'booktabs' || captionPos === 'left' || captionPos === 'right' || placement === 'H' || zebra) && (
-          <div className="table-pkg-notice">
-            {borders === 'booktabs' && <span>{declaredPackages && (declaredPackages.has('booktabs') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}booktabs{'}'}</code></span>}
-            {(captionPos === 'left' || captionPos === 'right') && <span>{declaredPackages && (declaredPackages.has('floatrow') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}floatrow{'}'}</code></span>}
-            {placement === 'H' && <span>{declaredPackages && (declaredPackages.has('float') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage{'{'}float{'}'}</code></span>}
-            {zebra && <span>{declaredPackages && (declaredPackages.has('xcolor') ? <span className="pkg-ok" title="Included in preamble">☑</span> : <span className="pkg-warn" title="Not in preamble">⚠</span>)}Requires <code>\usepackage[table]{'{'}xcolor{'}'}</code></span>}
-          </div>
-        )}
+        {(() => {
+          // Each entry: { needed: bool, pkg: 'name', label: 'name' or '[opts]{name}' }
+          // For an env-type requirement, the package name matches the env.
+          // `display` = what to show inside the \usepackage{...} part,
+          // including any options (e.g. '[table]{xcolor}').
+          const reqs = [
+            { needed: borders === 'booktabs', pkg: 'booktabs', display: '{booktabs}' },
+            { needed: captionPos === 'left' || captionPos === 'right', pkg: 'floatrow', display: '{floatrow}' },
+            { needed: placement === 'H', pkg: 'float', display: '{float}' },
+            { needed: zebra, pkg: 'xcolor', display: '[table]{xcolor}' },
+            { needed: env === 'tabularx', pkg: 'tabularx', display: '{tabularx}' },
+            { needed: env === 'longtable', pkg: 'longtable', display: '{longtable}' },
+          ].filter((r) => r.needed);
+          if (reqs.length === 0) return null;
+          return (
+            <div className="table-pkg-notice">
+              {reqs.map((r, i) => {
+                const present = declaredPackages?.has?.(r.pkg);
+                // When the package is missing AND the orchestrator
+                // wired an onAddPackage callback, render the warn icon
+                // as a clickable [Add] action. Otherwise, plain icon.
+                const icon = present
+                  ? <span className="pkg-ok" title="Included in preamble">☑</span>
+                  : (onAddPackage
+                      ? <button
+                          type="button"
+                          className="pkg-warn pkg-warn-btn"
+                          title={`Add \\usepackage{${r.pkg}} to preamble`}
+                          onClick={() => onAddPackage(r.pkg)}
+                        >⚠</button>
+                      : <span className="pkg-warn" title="Not in preamble">⚠</span>);
+                return (
+                  <span key={i}>
+                    {icon}Requires <code>{`\\usepackage${r.display}`}</code>
+                  </span>
+                );
+              })}
+            </div>
+          );
+        })()}
         <div className="table-builder-actions">
           {onDelete && !confirmDelete && (
             <button className="table-builder-delete" onClick={() => setConfirmDelete(true)}>
