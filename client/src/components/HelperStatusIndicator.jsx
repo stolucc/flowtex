@@ -29,6 +29,7 @@ import {
   helperDmgURL,
   helperReleasesURL,
 } from '../utils/platformDetect.js';
+import { clearHelperToken } from '../utils/helperBridge.js';
 
 /** @typedef {import('../../../shared/types.ts').HelperStatus} HelperStatus */
 /** @typedef {import('../../../shared/types.ts').LatestHelperVersionResponse} LatestHelperVersionResponse */
@@ -167,6 +168,22 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
                     onClick={() => { setOpen(false); onOpenGuide?.(); }}
                   >
                     Helper setup guide
+                  </button>,
+                  <button
+                    key="disconnect"
+                    type="button"
+                    className="helper-status-popover-link helper-status-popover-link-button helper-status-popover-disconnect"
+                    onClick={() => {
+                      // Drop the bearer; status will flip to unpaired
+                      // (helper still running) or missing (helper not
+                      // reachable). The popover's other branches
+                      // already render "Pair" / "Install" CTAs for
+                      // re-connecting.
+                      clearHelperToken();
+                      setOpen(false);
+                    }}
+                  >
+                    Disconnect
                   </button>,
                 ]}
               />

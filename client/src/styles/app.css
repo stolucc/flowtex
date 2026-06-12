@@ -11522,3 +11522,12 @@ kbd {
   font-size: inherit;
   font-family: inherit;
 }
+/* Destructive "Disconnect" -- subtler than primary actions, reads as
+   the only action that revokes pairing state. */
+.helper-status-popover-disconnect {
+  color: #b95757;
+}
+.helper-status-popover-disconnect:hover {
+  color: #d83838;
+  text-decoration: underline;
+}

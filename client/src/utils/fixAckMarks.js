@@ -130,9 +130,14 @@ export const fixAckGutterExtension = gutter({
     const builder = new RangeSetBuilder();
     const cursor = set.iter();
     while (cursor.value) {
-      // Anchor marker at the START of the range's line so it shows in
-      // the gutter even if the range covers multiple lines.
-      const line = view.state.doc.lineAt(cursor.from);
+      // The inserted text typically starts with a leading `\n` (so the
+      // new \usepackage line sits below the existing preamble). That
+      // makes `cursor.from` land on the PREVIOUS line's terminator.
+      // Skip the leading newline so the gutter ✓ shows next to the
+      // line the user actually inserted, not the line above it.
+      const startCh = view.state.doc.sliceString(cursor.from, Math.min(cursor.from + 1, view.state.doc.length));
+      const anchor = startCh === '\n' ? cursor.from + 1 : cursor.from;
+      const line = view.state.doc.lineAt(Math.min(anchor, view.state.doc.length));
       builder.add(line.from, line.from, /** @type {any} */ (new FixAckGutterMarker({ from: cursor.from, to: cursor.to })));
       cursor.next();
     }
