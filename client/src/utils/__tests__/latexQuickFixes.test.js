@@ -23,6 +23,8 @@ import {
   appendCitationSkeleton,
   extractContextLines,
   buildExplainPrompt,
+  groupCascadeErrors,
+  isErrorStale,
 } from '../latexQuickFixes.js';
 
 describe('findInsertionPointForPackage', () => {
@@ -824,5 +826,109 @@ describe('buildExplainPrompt', () => {
   it('omits the snippet block when not provided', () => {
     const out = buildExplainPrompt({ errorText: 'X', filePath: 'a.tex', line: 1 });
     expect(out.input).not.toContain('=== SOURCE CONTEXT ===');
+  });
+});
+
+// ─── Cascade-error grouping (Batch E) ─────────────────────────────────
+
+describe('groupCascadeErrors', () => {
+  it('collapses follow-on errors in the same file within the line window', () => {
+    const errors = [
+      { file: 'main.tex', line: 10, text: 'root' },
+      { file: 'main.tex', line: 11, text: 'follow1' },
+      { file: 'main.tex', line: 13, text: 'follow2' },
+    ];
+    const groups = groupCascadeErrors(errors);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].root.text).toBe('root');
+    expect(groups[0].followOn.map((e) => e.text)).toEqual(['follow1', 'follow2']);
+  });
+
+  it('starts a new group when the line gap exceeds the window', () => {
+    const errors = [
+      { file: 'main.tex', line: 10, text: 'root1' },
+      { file: 'main.tex', line: 100, text: 'root2' }, // 90 lines later
+    ];
+    const groups = groupCascadeErrors(errors);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].followOn).toEqual([]);
+    expect(groups[1].followOn).toEqual([]);
+  });
+
+  it('starts a new group when the file changes (no cross-file cascading)', () => {
+    const errors = [
+      { file: 'main.tex', line: 10, text: 'a' },
+      { file: 'other.tex', line: 11, text: 'b' },
+    ];
+    expect(groupCascadeErrors(errors)).toHaveLength(2);
+  });
+
+  it('treats errors without a file or line as their own root (cannot cluster)', () => {
+    const errors = [
+      { file: null, line: null, text: 'fileless' },
+      { file: 'main.tex', line: 5, text: 'real' },
+      { file: 'main.tex', line: null, text: 'lineless' },
+    ];
+    const groups = groupCascadeErrors(errors);
+    expect(groups).toHaveLength(3);
+    expect(groups[0].root.text).toBe('fileless');
+    expect(groups[1].root.text).toBe('real');
+    expect(groups[2].root.text).toBe('lineless');
+  });
+
+  it('walks the cluster: follow-on can extend the window from the previous follow-on', () => {
+    // Root at line 10, follow-on at 13, follow-on at 18. With window=6:
+    // 13 vs 10 -> within window. 18 vs 13 (latest) -> within window.
+    // All three should cluster.
+    const errors = [
+      { file: 'main.tex', line: 10 },
+      { file: 'main.tex', line: 13 },
+      { file: 'main.tex', line: 18 },
+    ];
+    const groups = groupCascadeErrors(errors);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].followOn).toHaveLength(2);
+  });
+
+  it("respects a custom lineWindow", () => {
+    const errors = [
+      { file: 'main.tex', line: 10 },
+      { file: 'main.tex', line: 14 },
+    ];
+    // Default window 6 -> single group; window 3 -> two groups.
+    expect(groupCascadeErrors(errors, { lineWindow: 6 })).toHaveLength(1);
+    expect(groupCascadeErrors(errors, { lineWindow: 3 })).toHaveLength(2);
+  });
+
+  it('returns an empty array for empty input', () => {
+    expect(groupCascadeErrors([])).toEqual([]);
+  });
+
+  it('preserves the original order of roots', () => {
+    const errors = [
+      { file: 'a.tex', line: 1, text: 'first' },
+      { file: 'b.tex', line: 1, text: 'second' },
+      { file: 'a.tex', line: 100, text: 'third' },
+    ];
+    const groups = groupCascadeErrors(errors);
+    expect(groups.map((g) => g.root.text)).toEqual(['first', 'second', 'third']);
+  });
+});
+
+describe('isErrorStale', () => {
+  it('returns true when the error file is in the edited set', () => {
+    expect(isErrorStale({ file: 'main.tex' }, new Set(['main.tex']))).toBe(true);
+  });
+
+  it('returns false when the error file is not edited', () => {
+    expect(isErrorStale({ file: 'main.tex' }, new Set(['other.tex']))).toBe(false);
+  });
+
+  it('returns false when the error has no file', () => {
+    expect(isErrorStale({ file: null }, new Set(['main.tex']))).toBe(false);
+  });
+
+  it('returns false when the edited set is empty', () => {
+    expect(isErrorStale({ file: 'main.tex' }, new Set())).toBe(false);
   });
 });

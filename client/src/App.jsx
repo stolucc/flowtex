@@ -136,7 +136,17 @@ function InvitationToast({ invitation, onDismiss, onOpen }) {
 /** Main application shell: wires together all hooks and renders the editor layout. */
 function AppInner() {
   const { user, setUser, authChecked, handleLogout, needsSetup, setNeedsSetup } = useAuth();
-  const { alert: showAlert } = useAlert();
+  const { alert: showAlert, confirm: showConfirm } = useAlert();
+  // Files touched in the editor since the last compile. The PdfViewer
+  // uses this to fade error rows whose line locations are now
+  // potentially stale (the user already started fixing it).
+  const [staleFilePaths, setStaleFilePaths] = useState(/** @type {Set<string>} */ (new Set()));
+
+  // Helper for orchestrator fixes: when an "already-present" path
+  // fires, give the user a one-click recompile instead of just text.
+  // Defined as a ref-passthrough so the orchestrator body (defined
+  // inline below) can call it without restructuring the closure.
+  const handleCompileRef = useRef(/** @type {(() => void) | null} */ (null));
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
   const [showAccountSettings, setShowAccountSettings] = useState(false);
 
@@ -327,6 +337,15 @@ function AppInner() {
     helperStatus: helperStatusForCompile,
     files,
   });
+  // Keep the ref in sync so the orchestrator's closure can invoke
+  // it without being recreated on every render.
+  handleCompileRef.current = handleCompile;
+
+  // Reset the "edited since compile" set every time a fresh compile
+  // log lands -- the new errors are fresh and shouldn't be faded.
+  useEffect(() => {
+    if (compileLog) setStaleFilePaths(new Set());
+  }, [compileLog]);
 
   const { githubLink, setGithubLink, hasGithubToken, autoSyncStatus, handleToggleAutoSync } =
     useGitHubSync(project);
@@ -1410,6 +1429,18 @@ function AppInner() {
                     onSave={handleSave}
                     onLineChange={setEditorLine}
                     onChanges={(/** @type {any} */ changes, /** @type {any} */ tracked, /** @type {any} */ deletions, /** @type {any} */ tcMarks) => {
+                      // Mark this file as "edited since last compile" so
+                      // the error panel can fade rows whose locations
+                      // are now potentially stale.
+                      if (activeFile?.path) {
+                        setStaleFilePaths((prev) => {
+                          if (prev.has(activeFile.path)) return prev;
+                          const next = new Set(prev);
+                          next.add(activeFile.path);
+                          return next;
+                        });
+                      }
+
                       // YJS-MIGRATION phase 1.5: when Y.js sync is on,
                       // doc text already flows over the `yjs-update`
                       // channel — broadcasting `changes` too would
@@ -1593,6 +1624,7 @@ function AppInner() {
               onPdfClick={handleSyncInverse}
               onPdfPositionChange={setPdfClickPos}
               compileLog={compileLog}
+              staleFilePaths={staleFilePaths}
               compileProfile={compileProfile}
               rebuildReason={rebuildReason}
               consoleOutput={consoleOutput}
@@ -1683,10 +1715,20 @@ function AppInner() {
                   withEditor(mainFile, (currentContent) => {
                     const result = applyAddUsepackage(currentContent, fix.package);
                     if (!result.changed) {
-                      showAlert(
-                        `\\usepackage{${fix.package}} is already in ${mainFilePath}. The error may be due to a stale compile cache — try recompiling.`,
-                        { title: 'No changes needed' },
-                      );
+                      // The package is already there but the compile
+                      // log still flagged the error -- stale cache is
+                      // the most likely culprit. Offer a one-click
+                      // recompile to clear it.
+                      showConfirm(
+                        `\\usepackage{${fix.package}} is already in ${mainFilePath}. The error is likely from a stale compile cache.`,
+                        {
+                          title: 'No changes needed',
+                          confirmLabel: 'Recompile now',
+                          cancelLabel: 'Close',
+                        },
+                      ).then((wants) => {
+                        if (wants) handleCompileRef.current?.();
+                      });
                       return;
                     }
                     const snippet = result.newContent.slice(

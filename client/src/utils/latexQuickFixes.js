@@ -276,6 +276,81 @@ export function buildEnvRename(content, endIndex, endLength, newName) {
   };
 }
 
+// ─── Cascade-error grouping ───────────────────────────────────────────
+
+/**
+ * Group a flat error list into a "root + follow-on" structure. A
+ * single LaTeX mistake (e.g. one missing `}`) typically produces 5-20
+ * follow-on errors as the parser tries to recover. The panel
+ * collapses follow-ons under their root so a one-bug compile reads
+ * as one bug, not twenty.
+ *
+ * Heuristic: an error is a "follow-on" of an earlier error if both:
+ *   1. they are in the SAME file (e.g.file)
+ *   2. their lines are within `lineWindow` of each other (default 6)
+ *
+ * Errors without a `file` or `line` are treated as their own roots.
+ *
+ * Order is preserved: the returned array has one entry per root, in
+ * the same order as the input's first occurrence of each root.
+ *
+ * @template {{ file?: string | null, line?: number | null }} E
+ * @param {E[]} errors
+ * @param {{ lineWindow?: number }} [opts]
+ * @returns {Array<{ root: E, followOn: E[] }>}
+ */
+export function groupCascadeErrors(errors, opts = {}) {
+  const lineWindow = opts.lineWindow ?? 6;
+  /** @type {Array<{ root: E, followOn: E[] }>} */
+  const groups = [];
+  for (const e of errors) {
+    // Try to attach to an existing root: same file, line within window
+    // of either the root's line or the most recent follow-on's line.
+    let attached = false;
+    if (e?.file && typeof e?.line === 'number') {
+      // Walk groups from the most recent; cascade follow-ons cluster
+      // tightly, so the latest group is the most likely host.
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const g = groups[i];
+        if (g.root.file !== e.file) continue;
+        const lastLine =
+          g.followOn.length > 0
+            ? (g.followOn[g.followOn.length - 1].line ?? g.root.line ?? -1)
+            : (g.root.line ?? -1);
+        if (typeof lastLine !== 'number' || lastLine < 0) continue;
+        if (Math.abs(e.line - lastLine) <= lineWindow) {
+          g.followOn.push(e);
+          attached = true;
+          break;
+        }
+        // Only walk back ONE group: if the previous one didn't host
+        // us, an earlier one almost certainly won't either, and we'd
+        // mis-attribute distant errors.
+        break;
+      }
+    }
+    if (!attached) {
+      groups.push({ root: e, followOn: [] });
+    }
+  }
+  return groups;
+}
+
+// ─── Stale-error detection ────────────────────────────────────────────
+
+/**
+ * Decide whether an error row should be visually faded as "probably
+ * stale" given the set of files the user has edited since the last
+ * compile.
+ *
+ * @param {{ file?: string | null }} error
+ * @param {Set<string>} editedFilePaths - file paths edited since last compile
+ */
+export function isErrorStale(error, editedFilePaths) {
+  if (!error?.file) return false;
+  return editedFilePaths.has(error.file);
+}
+
 // ─── AI explanation (no rule matched) ─────────────────────────────────
 
 /**

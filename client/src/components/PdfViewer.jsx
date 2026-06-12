@@ -20,6 +20,7 @@ import { getSetting, setSetting } from '../utils/settings.js';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { getErrorHelp } from '../utils/latexErrorHelp.js';
 import parseLog from '../utils/latexLogParser.js';
+import { groupCascadeErrors, isErrorStale } from '../utils/latexQuickFixes.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -148,6 +149,85 @@ function AnalysisPanel({ profile, rebuildReason }) {
  *  and a copy-to-clipboard button so users can paste the message into a
  * @param {any} props
  *  search engine without typing it out. */
+/**
+ * Renders the compile-error list with cascade collapsing and stale-fade.
+ * Roots always render; follow-ons hide behind a "+N more" toggle, since
+ * one missing `}` typically produces a long tail of derivative errors.
+ *
+ * @param {any} props
+ */
+/** @param {any} props */
+function CompileErrorList({ errors, staleFilePaths, onGoToLine, onGoToFileAndLine, setHelpDetail, onApplyQuickFix, onExplainErrorWithAi }) {
+  const [expanded, setExpanded] = useState(/** @type {Set<number>} */ (new Set()));
+  const groups = useMemo(() => groupCascadeErrors(errors), [errors]);
+  const stale = staleFilePaths instanceof Set ? staleFilePaths : new Set();
+
+  return (
+    <>
+      {groups.map((/** @type {any} */ g, /** @type {number} */ gi) => {
+        const e = g.root;
+        const isStale = isErrorStale(e, stale);
+        const isOpen = expanded.has(gi);
+        return (
+          <React.Fragment key={`group-${gi}`}>
+            <LogItem
+              className={`pdf-log-item error ${e.line ? 'clickable' : ''} ${isStale ? 'stale' : ''}`}
+              onClick={() =>
+                e.line && (e.file ? onGoToFileAndLine?.(e.file, e.line, e.col) : onGoToLine?.(e.line, e.col))
+              }
+              file={e.file}
+              line={e.line}
+              message={e.text}
+              help={getErrorHelp(e.text)}
+              onShowHelp={setHelpDetail}
+              onApplyFix={onApplyQuickFix}
+              onExplainWithAi={onExplainErrorWithAi}
+            />
+            {g.followOn.length > 0 && (
+              <div className="pdf-log-cascade-toggle">
+                <button
+                  type="button"
+                  className="pdf-log-cascade-btn"
+                  onClick={() =>
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(gi)) next.delete(gi);
+                      else next.add(gi);
+                      return next;
+                    })
+                  }
+                >
+                  {isOpen
+                    ? `Hide ${g.followOn.length} follow-on error${g.followOn.length !== 1 ? 's' : ''}`
+                    : `+${g.followOn.length} follow-on error${g.followOn.length !== 1 ? 's' : ''} (click to expand)`}
+                </button>
+              </div>
+            )}
+            {isOpen &&
+              g.followOn.map((/** @type {any} */ fo, /** @type {number} */ fi) => (
+                <LogItem
+                  key={`follow-${gi}-${fi}`}
+                  className={`pdf-log-item error pdf-log-followon ${fo.line ? 'clickable' : ''} ${isErrorStale(fo, stale) ? 'stale' : ''}`}
+                  onClick={() =>
+                    fo.line && (fo.file ? onGoToFileAndLine?.(fo.file, fo.line, fo.col) : onGoToLine?.(fo.line, fo.col))
+                  }
+                  file={fo.file}
+                  line={fo.line}
+                  message={fo.text}
+                  help={getErrorHelp(fo.text)}
+                  onShowHelp={setHelpDetail}
+                  onApplyFix={onApplyQuickFix}
+                  onExplainWithAi={onExplainErrorWithAi}
+                />
+              ))}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+/** @param {any} props */
 function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp, onApplyFix, onExplainWithAi }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = (/** @type {any} */ e) => {
@@ -424,6 +504,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     onGoToFileAndLine,
     onApplyQuickFix,
     onExplainErrorWithAi,
+    staleFilePaths,
     tapsDiagnostics,
     showBoxWarnings = true,
     onToggleBoxWarnings,
@@ -1303,24 +1384,18 @@ const PdfViewer = forwardRef(function PdfViewer(
               onExplainWithAi={onExplainErrorWithAi}
             />
           ))}
-          {errors
-            .filter((/** @type {any} */ e) => !e.isSystemFile)
-            .map((/** @type {any} */ e, /** @type {any} */ i) => (
-              <LogItem
-                key={`compile-${i}`}
-                className={`pdf-log-item error ${e.line ? 'clickable' : ''}`}
-                onClick={() =>
-                  e.line && (e.file ? onGoToFileAndLine?.(e.file, e.line, e.col) : onGoToLine?.(e.line, e.col))
-                }
-                file={e.file}
-                line={e.line}
-                message={e.text}
-                help={getErrorHelp(e.text)}
-                onShowHelp={setHelpDetail}
-                onApplyFix={onApplyQuickFix}
-                onExplainWithAi={onExplainErrorWithAi}
-              />
-            ))}
+          {/* Compile errors: grouped via groupCascadeErrors so a single
+              root error followed by 5-20 follow-on errors reads as one
+              bug. Each group renders the root + a "+N follow-on" toggle. */}
+          <CompileErrorList
+            errors={errors.filter((/** @type {any} */ e) => !e.isSystemFile)}
+            staleFilePaths={staleFilePaths}
+            onGoToLine={onGoToLine}
+            onGoToFileAndLine={onGoToFileAndLine}
+            setHelpDetail={setHelpDetail}
+            onApplyQuickFix={onApplyQuickFix}
+            onExplainErrorWithAi={onExplainErrorWithAi}
+          />
           {errors
             .filter((/** @type {any} */ e) => e.isSystemFile)
             .map((/** @type {any} */ e, /** @type {any} */ i) => (

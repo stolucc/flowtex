@@ -4441,6 +4441,44 @@ html {
   margin: 0 0 8px 0;
 }
 
+/* Cascade-collapsing: follow-on errors hide behind a toggle. */
+.pdf-log-cascade-toggle {
+  padding: 2px 12px 6px 12px;
+  font-size: 11px;
+}
+.pdf-log-cascade-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.pdf-log-cascade-btn:hover {
+  color: var(--accent);
+}
+/* Follow-on errors render slightly indented + subtler to read as
+   subordinate to the root. */
+.pdf-log-followon {
+  padding-left: 24px;
+  opacity: 0.8;
+}
+
+/* Stale-error fade: a file edited since the last compile is likely
+   to have produced now-stale error line locations. Fade the row to
+   tell the user "this is from BEFORE your latest edits." */
+.pdf-log-item.stale {
+  opacity: 0.5;
+  filter: saturate(0.7);
+}
+.pdf-log-item.stale .pdf-log-message {
+  text-decoration: line-through dotted;
+  text-decoration-color: var(--text-secondary);
+  text-underline-offset: 3px;
+}
+
 /* Copy-to-clipboard button on each log row. Plain icon button (no
    round border) so a row with both buttons doesn't look like a pair
    of identical chips. Both buttons get `margin-left: auto`; in a flex
