@@ -1,5 +1,5 @@
 {
-  "_comment": "Canonical \\command -> package map. Curated. Caveman mode: static lookup, no runtime LLM, no server index. null = built-in (typo, not missing pkg). Space-separated value = ambiguous (suggestion only, no fix button).",
+  "_comment": "Canonical \\command -> package map. Curated static lookup; no runtime LLM call, no server-side index. null = built-in (typo, not missing pkg). Space-separated value = ambiguous (suggestion only, no fix button).",
 
   "_amsmath": "amsmath family",
   "binom": "amsmath", "dbinom": "amsmath", "tbinom": "amsmath",

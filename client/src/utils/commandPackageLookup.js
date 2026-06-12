@@ -3,7 +3,7 @@
 // Resolve `\command` -> `package` for arbitrary LaTeX commands, NOT
 // just the curated COMMAND_PACKAGES list in latexErrorHelp.js.
 //
-// Caveman mode: lookup order is
+// Lookup order is
 //   1. Static JSON map: see latexErrorHelp.js. The React hook checks
 //      this first and only falls through to this file when the JSON
 //      doesn't have an entry.

@@ -33,17 +33,17 @@ describe('getErrorHelp', () => {
 // ─── Undefined command (the headline fix) ─────────────────────────────
 
 describe('getErrorHelp — Undefined command fix descriptors', () => {
-  it('caveman JSON: \\hl -> soul', () => {
+  it('static JSON:\\hl -> soul', () => {
     const help = getErrorHelp('Undefined control sequence \\hl');
     expect(help?.fix?.package).toBe('soul');
   });
 
-  it('caveman JSON: \\dfrac -> amsmath', () => {
+  it('static JSON:\\dfrac -> amsmath', () => {
     const help = getErrorHelp('Undefined control sequence \\dfrac');
     expect(help?.fix?.package).toBe('amsmath');
   });
 
-  it('caveman JSON: \\mathbb -> amssymb', () => {
+  it('static JSON:\\mathbb -> amssymb', () => {
     const help = getErrorHelp('Undefined control sequence \\mathbb');
     expect(help?.fix?.package).toBe('amssymb');
   });

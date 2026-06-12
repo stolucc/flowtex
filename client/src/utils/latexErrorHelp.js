@@ -12,8 +12,8 @@ import commandPackagesJson from '../data/commandPackages.json';
 
 /**
  * Lookup: command name (without the leading backslash) -> the canonical
- * package that provides it. Caveman mode: a curated JSON shipped in
- * the client bundle. Built from CTAN docs / Claude knowledge.
+ * package that provides it. A curated static JSON shipped in the
+ * client bundle. Built from CTAN docs.
  *
  *   null      -- built-in command (typo, not a missing package)
  *   "X"       -- single canonical package, surface a one-click fix
