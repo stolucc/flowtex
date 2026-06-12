@@ -36,7 +36,14 @@ import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
 import { shouldShowRailMarker } from './utils/commentsRail.js';
-import { applyAddUsepackage, applyRemoveUsepackage, applyRenameEndEnv } from './utils/latexQuickFixes.js';
+import {
+  applyAddUsepackage,
+  applyRemoveUsepackage,
+  applyRenameEndEnv,
+  applyAddGraphicspath,
+  applySwapImageExtension,
+  findGraphicspathCandidate,
+} from './utils/latexQuickFixes.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
 import { AlertProvider, useAlert } from './contexts/AlertContext.jsx';
@@ -1702,6 +1709,89 @@ function AppInner() {
                       result.reason === 'no-end-found'
                         ? `Couldn't find \\end{${fix.endName}} in the active file — the source may have already been edited.`
                         : `No matching \\begin{...} was found before the \\end{${fix.endName}}.`;
+                    showAlert(msg, { title: 'No changes made' });
+                    return;
+                  }
+                  dispatchEdit(
+                    result.replaceAt,
+                    result.replaceAt + result.replaceLength,
+                    result.insertedText,
+                    result.replaceAt + result.insertedText.length,
+                  );
+                  return;
+                }
+
+                if (fix.kind === 'add-graphicspath' && fix.missingFile) {
+                  // Look up the missing image's basename in the project to
+                  // see if it's just sitting in a different directory.
+                  const dir = findGraphicspathCandidate(fix.missingFile, files);
+                  if (!dir) {
+                    showAlert(
+                      `Couldn't find a matching image for "${fix.missingFile}" elsewhere in the project. Add the file, or update the \\includegraphics path by hand.`,
+                      { title: 'No matching file' },
+                    );
+                    return;
+                  }
+                  const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                  if (!mainFile) {
+                    showAlert(
+                      `Couldn't find the main file (${mainFilePath}).`,
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  withEditor(mainFile, (currentContent) => {
+                    const result = applyAddGraphicspath(currentContent, dir);
+                    if (!result.changed) {
+                      showAlert(
+                        `\\graphicspath is already defined in ${mainFilePath}. Edit the existing definition to include "${dir}" by hand.`,
+                        { title: 'No changes made' },
+                      );
+                      return;
+                    }
+                    const snippet = result.newContent.slice(
+                      result.insertAt,
+                      result.insertAt + result.insertLength,
+                    );
+                    dispatchEdit(
+                      result.insertAt,
+                      result.insertAt,
+                      snippet,
+                      result.insertAt + result.insertLength,
+                    );
+                  });
+                  return;
+                }
+
+                if (fix.kind === 'swap-image-ext' && fix.badName) {
+                  // Image-extension swaps edit the error site in the
+                  // ACTIVE file (where \includegraphics lives). The
+                  // LogItem provides the error's line as part of the
+                  // click handler's fix-with-line shape -- the
+                  // descriptor currently only carries badName; we read
+                  // the line out of the fix payload when present.
+                  if (!activeFile) {
+                    showAlert(
+                      'Open a file before applying this fix.',
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  const currentContent = editorRef.current?.getContent() ?? activeFile.content ?? '';
+                  // The line is attached by the LogItem wiring below
+                  // (we'll pass it through via fix.line). If absent,
+                  // fall back to line 1 -- findIncludegraphicsAtLine
+                  // tolerates fuzz so this still finds the first
+                  // \includegraphics in the file.
+                  const line = typeof fix.line === 'number' ? fix.line : 1;
+                  const result = applySwapImageExtension(currentContent, line, fix.badName, files);
+                  if (!result.changed) {
+                    const msg =
+                      result.reason === 'no-sibling'
+                        ? `Couldn't find a pdflatex-friendly sibling for "${fix.badName}" in the project. Convert the image manually.`
+                        : result.reason === 'name-mismatch'
+                        ? `The \\includegraphics on the error line doesn't reference "${fix.badName}". Source may already be edited.`
+                        : `Couldn't locate an \\includegraphics token near the error line.`;
                     showAlert(msg, { title: 'No changes made' });
                     return;
                   }

@@ -187,7 +187,11 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
             className="pdf-log-fix-btn"
             onClick={(/** @type {any} */ e) => {
               e.stopPropagation();
-              onApplyFix(help.fix);
+              // Enrich the fix payload with the error's line so
+              // line-sensitive fix kinds (e.g. swap-image-ext, which
+              // needs to find the \includegraphics token near the
+              // error site) don't have to be looked up separately.
+              onApplyFix({ ...help.fix, line });
             }}
             title={help.fix.label}
           >

@@ -10,6 +10,14 @@ import {
   findEndAtLine,
   buildEnvRename,
   applyRenameEndEnv,
+  looksLikeImagePath,
+  splitPath,
+  findGraphicspathCandidate,
+  findExtensionSibling,
+  applyAddGraphicspath,
+  findIncludegraphicsAtLine,
+  buildIncludegraphicsRename,
+  applySwapImageExtension,
 } from '../latexQuickFixes.js';
 
 describe('findInsertionPointForPackage', () => {
@@ -336,5 +344,278 @@ describe('applyRenameEndEnv', () => {
     expect(r.changed).toBe(true);
     if (!r.changed) return;
     expect(r.insertedText).toBe('\\end{itemize}');
+  });
+});
+
+// ─── Image / graphicspath fixes (Batch B) ─────────────────────────────
+
+describe('looksLikeImagePath', () => {
+  it('is true for common image extensions', () => {
+    expect(looksLikeImagePath('foo.png')).toBe(true);
+    expect(looksLikeImagePath('foo.jpg')).toBe(true);
+    expect(looksLikeImagePath('foo.jpeg')).toBe(true);
+    expect(looksLikeImagePath('foo.pdf')).toBe(true);
+    expect(looksLikeImagePath('foo.eps')).toBe(true);
+    expect(looksLikeImagePath('foo.svg')).toBe(true);
+  });
+
+  it('is true for a no-extension path (typical of \\includegraphics{foo})', () => {
+    expect(looksLikeImagePath('foo')).toBe(true);
+    expect(looksLikeImagePath('figs/foo')).toBe(true);
+  });
+
+  it('is false for non-image extensions', () => {
+    expect(looksLikeImagePath('chapter1.tex')).toBe(false);
+    expect(looksLikeImagePath('refs.bib')).toBe(false);
+    expect(looksLikeImagePath('mystyle.sty')).toBe(false);
+  });
+
+  it('handles a dot in a directory name correctly', () => {
+    // The dot is in the directory, not the basename. Treated as
+    // no-extension (image-like).
+    expect(looksLikeImagePath('v1.2/foo')).toBe(true);
+  });
+});
+
+describe('splitPath', () => {
+  it('splits a path with directories', () => {
+    expect(splitPath('figs/foo.png')).toEqual({ dir: 'figs/', base: 'foo.png' });
+  });
+
+  it('handles paths with no directory', () => {
+    expect(splitPath('foo.png')).toEqual({ dir: '', base: 'foo.png' });
+  });
+
+  it('handles nested directories', () => {
+    expect(splitPath('a/b/c/foo')).toEqual({ dir: 'a/b/c/', base: 'foo' });
+  });
+
+  it('handles backslash separators (Windows-style)', () => {
+    expect(splitPath('figs\\foo.png')).toEqual({ dir: 'figs\\', base: 'foo.png' });
+  });
+});
+
+describe('findGraphicspathCandidate', () => {
+  const projectFiles = [
+    { path: 'main.tex' },
+    { path: 'figs/diagram.png' },
+    { path: 'figs/intro.pdf' },
+    { path: 'assets/logo.jpg' },
+    { path: 'rootImage.png' }, // at root — would not suggest a graphicspath
+  ];
+
+  it('finds the directory of a same-stem file when the user referenced just the basename', () => {
+    expect(findGraphicspathCandidate('diagram.png', projectFiles)).toBe('figs/');
+  });
+
+  it('finds the directory when the missing file has no extension', () => {
+    // \includegraphics{diagram} -> LaTeX looks for diagram.png etc. and
+    // reports "diagram" missing. We strip the extension on both sides.
+    expect(findGraphicspathCandidate('diagram', projectFiles)).toBe('figs/');
+  });
+
+  it('returns null when no matching basename exists', () => {
+    expect(findGraphicspathCandidate('nope.png', projectFiles)).toBeNull();
+  });
+
+  it('returns null when the only match is at the project root', () => {
+    // rootImage.png is at the root -> \graphicspath wouldn't help.
+    expect(findGraphicspathCandidate('rootImage.png', projectFiles)).toBeNull();
+  });
+
+  it('handles the user-referenced-with-directory case (figs/diagram.png)', () => {
+    // If the user has \includegraphics{figs/diagram.png} but the file
+    // is actually at assets/figs/diagram.png, we still match on the
+    // basename and point at assets/figs/.
+    const files = [{ path: 'assets/figs/diagram.png' }];
+    expect(findGraphicspathCandidate('figs/diagram.png', files)).toBe('assets/figs/');
+  });
+});
+
+describe('findExtensionSibling', () => {
+  const projectFiles = [
+    { path: 'figs/foo.svg' },
+    { path: 'figs/foo.pdf' },
+    { path: 'figs/foo.png' },
+    { path: 'figs/bar.svg' },
+    { path: 'other/bar.png' }, // not in same dir as bar.svg, ignored
+  ];
+
+  it('returns the same-dir sibling with the preferred extension', () => {
+    // foo has .svg, .pdf, .png siblings -> prefer .pdf
+    expect(findExtensionSibling('figs/foo.svg', projectFiles)).toBe('figs/foo.pdf');
+  });
+
+  it('returns null when no sibling exists in the same directory', () => {
+    // bar has .svg in figs/ and .png in other/ -- the .png is in a
+    // different directory, so swapping the extension on the source
+    // wouldn't resolve unless graphicspath is set up. Conservative: null.
+    expect(findExtensionSibling('figs/bar.svg', projectFiles)).toBeNull();
+  });
+
+  it('returns null when the filename has no extension to swap', () => {
+    expect(findExtensionSibling('foo', projectFiles)).toBeNull();
+  });
+
+  it('handles a file at the project root', () => {
+    const files = [{ path: 'foo.svg' }, { path: 'foo.pdf' }];
+    expect(findExtensionSibling('foo.svg', files)).toBe('foo.pdf');
+  });
+
+  it('prefers .pdf > .png > .jpg in that order', () => {
+    const files = [{ path: 'foo.jpg' }, { path: 'foo.png' }, { path: 'foo.pdf' }];
+    expect(findExtensionSibling('foo.svg', files)).toBe('foo.pdf');
+    const files2 = [{ path: 'foo.jpg' }, { path: 'foo.png' }];
+    expect(findExtensionSibling('foo.svg', files2)).toBe('foo.png');
+    const files3 = [{ path: 'foo.jpg' }];
+    expect(findExtensionSibling('foo.svg', files3)).toBe('foo.jpg');
+  });
+});
+
+describe('applyAddGraphicspath', () => {
+  it('inserts \\graphicspath{{dir/}} after the last \\usepackage line', () => {
+    const src =
+      '\\documentclass{article}\n' +
+      '\\usepackage{graphicx}\n' +
+      '\\begin{document}';
+    const r = applyAddGraphicspath(src, 'figs');
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.newContent).toBe(
+      '\\documentclass{article}\n' +
+      '\\usepackage{graphicx}\n' +
+      '\\graphicspath{{figs/}}\n' +
+      '\\begin{document}',
+    );
+  });
+
+  it("normalises the directory (appends a trailing slash if missing)", () => {
+    const r = applyAddGraphicspath('\\documentclass{article}\n', 'images');
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.newContent).toContain('\\graphicspath{{images/}}');
+  });
+
+  it("keeps a trailing slash the caller already supplied", () => {
+    const r = applyAddGraphicspath('\\documentclass{article}\n', 'images/');
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    // Should not double up the slash.
+    expect(r.newContent).toContain('\\graphicspath{{images/}}');
+    expect(r.newContent).not.toContain('images//');
+  });
+
+  it("returns reason 'already-present' when \\graphicspath is already defined", () => {
+    const src =
+      '\\documentclass{article}\n' +
+      '\\graphicspath{{old/}}\n' +
+      '\\begin{document}';
+    const r = applyAddGraphicspath(src, 'new');
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('already-present');
+  });
+});
+
+describe('findIncludegraphicsAtLine', () => {
+  it('locates the \\includegraphics token on the reported line', () => {
+    const src = 'intro\n\\includegraphics{foo.png}\noutro';
+    const r = findIncludegraphicsAtLine(src, 2);
+    expect(r).not.toBeNull();
+    if (!r) return;
+    expect(r.filename).toBe('foo.png');
+    expect(src.slice(r.from, r.to)).toBe('\\includegraphics{foo.png}');
+  });
+
+  it('captures options inside [opts]', () => {
+    const src = '\\includegraphics[width=0.5\\textwidth]{img.pdf}';
+    const r = findIncludegraphicsAtLine(src, 1);
+    expect(r?.filename).toBe('img.pdf');
+    expect(src.slice(r?.from ?? 0, r?.to ?? 0)).toBe(src);
+  });
+
+  it('tolerates the reported line being off by 1-2 lines', () => {
+    const src = '\\begin{figure}\n\\includegraphics{foo}\n\\end{figure}';
+    // The error might be reported at line 1 (the \begin) or line 3
+    // (the \end); both should still find the token.
+    expect(findIncludegraphicsAtLine(src, 1)?.filename).toBe('foo');
+    expect(findIncludegraphicsAtLine(src, 3)?.filename).toBe('foo');
+  });
+
+  it('returns null when no \\includegraphics is near the line', () => {
+    const src = 'no images here\njust text';
+    expect(findIncludegraphicsAtLine(src, 1)).toBeNull();
+  });
+});
+
+describe('buildIncludegraphicsRename', () => {
+  it('rewrites the filename, preserving [opts]', () => {
+    const src = 'before \\includegraphics[width=0.5\\textwidth]{old.svg} after';
+    const r = buildIncludegraphicsRename(
+      src,
+      { from: src.indexOf('\\includegraphics'), to: src.indexOf(' after') },
+      'new.pdf',
+    );
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.newContent).toContain('\\includegraphics[width=0.5\\textwidth]{new.pdf}');
+    expect(r.newContent).not.toContain('old.svg');
+  });
+
+  it('returns changed=false when the range does not actually contain an \\includegraphics token', () => {
+    const src = 'plain text here';
+    const r = buildIncludegraphicsRename(src, { from: 0, to: src.length }, 'x.pdf');
+    expect(r.changed).toBe(false);
+  });
+});
+
+describe('applySwapImageExtension', () => {
+  const projectFiles = [
+    { path: 'figs/diagram.svg' },
+    { path: 'figs/diagram.pdf' },
+    { path: 'other/thing.png' },
+  ];
+
+  it('swaps .svg to .pdf when a sibling exists in the project', () => {
+    const src = '\\begin{figure}\n\\includegraphics{figs/diagram.svg}\n\\end{figure}';
+    const r = applySwapImageExtension(src, 2, 'figs/diagram.svg', projectFiles);
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.insertedText).toContain('figs/diagram.pdf');
+    expect(r.newExtension).toBe('.pdf');
+  });
+
+  it("returns 'no-sibling' when no preferred sibling exists in the project", () => {
+    const src = '\\includegraphics{figs/orphan.svg}';
+    const r = applySwapImageExtension(src, 1, 'figs/orphan.svg', projectFiles);
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('no-sibling');
+  });
+
+  it("returns 'no-token' when the active file has no \\includegraphics near the line", () => {
+    const src = 'just text';
+    const r = applySwapImageExtension(src, 1, 'figs/diagram.svg', projectFiles);
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('no-token');
+  });
+
+  it("returns 'name-mismatch' when the line's \\includegraphics refers to a different file", () => {
+    const src = '\\includegraphics{figs/unrelated.svg}';
+    const r = applySwapImageExtension(src, 1, 'figs/diagram.svg', projectFiles);
+    expect(r.changed).toBe(false);
+    if (r.changed) return;
+    expect(r.reason).toBe('name-mismatch');
+  });
+
+  it('matches when the source has no extension and the bad name has one (LaTeX appended)', () => {
+    // \includegraphics{figs/diagram} -> LaTeX tried figs/diagram.svg
+    // and couldn't size it. We should still swap to figs/diagram.pdf.
+    const src = '\\includegraphics{figs/diagram}';
+    const r = applySwapImageExtension(src, 1, 'figs/diagram.svg', projectFiles);
+    expect(r.changed).toBe(true);
+    if (!r.changed) return;
+    expect(r.insertedText).toContain('figs/diagram.pdf');
   });
 });

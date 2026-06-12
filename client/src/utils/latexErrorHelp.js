@@ -328,6 +328,56 @@ function buildRenameEndEnvFix(m) {
   };
 }
 
+const IMAGE_EXTS_RE = /\.(?:png|jpe?g|pdf|eps|svg|gif|bmp)$/i;
+
+/**
+ * Build a "find a graphicspath candidate, then add \graphicspath{{X/}}"
+ * fix for File-not-found errors that look like an image. The actual
+ * project-file lookup happens in the orchestrator; the descriptor
+ * just carries the missing path.
+ *
+ * Decline for non-image-looking files (.tex / .bib etc. — those have
+ * their own fix flows in batch C and don't belong on this rule).
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'add-graphicspath', missingFile: string, label: string } | null}
+ */
+function buildAddGraphicspathFix(m) {
+  const missing = m[1];
+  if (!missing) return null;
+  // Image-y extension OR no extension at all -> probably
+  // \includegraphics. Anything else (e.g. .bib, .tex) skip.
+  const lastDot = missing.lastIndexOf('.');
+  const lastSlash = Math.max(missing.lastIndexOf('/'), missing.lastIndexOf('\\'));
+  const hasExtension = lastDot > lastSlash;
+  if (hasExtension && !IMAGE_EXTS_RE.test(missing)) return null;
+  return {
+    kind: 'add-graphicspath',
+    missingFile: missing,
+    label: `Add \\graphicspath for "${missing}"`,
+  };
+}
+
+/**
+ * Build a "swap image extension" fix for "Cannot determine size of
+ * graphic in foo.svg" errors. The orchestrator looks at the active
+ * file at the reported line, finds the \includegraphics token, and
+ * checks the project for a sibling with a pdflatex-friendly
+ * extension.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'swap-image-ext', badName: string, label: string } | null}
+ */
+function buildSwapImageExtensionFix(m) {
+  const badName = m[1];
+  if (!badName) return null;
+  return {
+    kind: 'swap-image-ext',
+    badName,
+    label: `Swap "${badName}" to a pdflatex-friendly extension`,
+  };
+}
+
 const ERROR_RULES = [
   // ── Missing packages / commands ────────────────────────────
   {
@@ -474,6 +524,7 @@ const ERROR_RULES = [
     suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The file "${m[1]}" could not be found. Check that the filename and path are correct, and that the file exists in your project.`,
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `file not found "${m[1]}" latex`,
+    fix: buildAddGraphicspathFix,
     tips: [
       'Check that the file name and extension are correct',
       'File paths are relative to the main .tex file',
@@ -536,6 +587,25 @@ const ERROR_RULES = [
       'Add \\usepackage{epstopdf} for automatic EPS conversion',
     ],
   },
+  {
+    // Capture the filename: LaTeX writes "Cannot determine size of graphic
+    // in foo.svg (no BoundingBox)." -- the name (with extension) is the
+    // first word after "in ".
+    pattern: /Cannot determine size of graphic in ([^\s()]+)/i,
+    title: 'Image size unknown',
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
+      `LaTeX cannot determine the dimensions of "${m[1]}". This usually means the file's format is unsupported (e.g. .svg or .eps with pdflatex). Convert to PDF or PNG, or use a sibling already in the project.`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `cannot determine size of graphic ${m[1]} latex`,
+    fix: buildSwapImageExtensionFix,
+    tips: [
+      'Specify dimensions: \\includegraphics[width=0.8\\textwidth]{img}',
+      'Make sure the image file is not corrupted',
+      'EPS files need \\usepackage{epstopdf} with pdflatex',
+      'SVG files need conversion to PDF or PNG before use with pdflatex',
+    ],
+  },
+  // Generic catch-all in case the format we captured above doesn't
+  // match (older log shapes). Keeps the previous behaviour.
   {
     pattern: /Cannot determine size of graphic/i,
     title: 'Image size unknown',

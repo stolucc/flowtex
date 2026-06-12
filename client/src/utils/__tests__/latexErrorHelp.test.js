@@ -207,6 +207,52 @@ describe('getErrorHelp — Mismatched environment fix (rename-env-end)', () => {
   });
 });
 
+// ─── Image / graphicspath fixes (Batch B) ─────────────────────────────
+
+describe('getErrorHelp — add-graphicspath descriptor', () => {
+  it('offers add-graphicspath for "File `figs/foo.png\' not found"', () => {
+    const help = getErrorHelp("LaTeX Error: File `figs/foo.png' not found.");
+    expect(help?.fix).toEqual({
+      kind: 'add-graphicspath',
+      missingFile: 'figs/foo.png',
+      label: 'Add \\graphicspath for "figs/foo.png"',
+    });
+  });
+
+  it('offers add-graphicspath for "File `foo\' not found" (no extension)', () => {
+    // \includegraphics{foo} -> LaTeX appends extensions and reports
+    // "foo" missing. We still offer the fix because no-extension
+    // looks like \includegraphics use.
+    const help = getErrorHelp("LaTeX Error: File `foo' not found.");
+    expect(help?.fix?.kind).toBe('add-graphicspath');
+  });
+
+  it('does NOT offer add-graphicspath for non-image files (.tex, .bib)', () => {
+    expect(getErrorHelp("LaTeX Error: File `chapter1.tex' not found.")?.fix).toBeNull();
+    expect(getErrorHelp("LaTeX Error: File `refs.bib' not found.")?.fix).toBeNull();
+  });
+});
+
+describe('getErrorHelp — swap-image-ext descriptor', () => {
+  it('offers swap-image-ext for "Cannot determine size of graphic in foo.svg"', () => {
+    const help = getErrorHelp('Cannot determine size of graphic in foo.svg (no BoundingBox).');
+    expect(help?.fix).toEqual({
+      kind: 'swap-image-ext',
+      badName: 'foo.svg',
+      label: 'Swap "foo.svg" to a pdflatex-friendly extension',
+    });
+  });
+
+  it('falls back to the no-capture rule when the message has no filename', () => {
+    // Older log shapes that don't include the filename should still
+    // surface help, just without a fix descriptor.
+    const help = getErrorHelp('Cannot determine size of graphic.');
+    expect(help).not.toBeNull();
+    expect(help?.title).toBe('Image size unknown');
+    expect(help?.fix).toBeNull();
+  });
+});
+
 // ─── A handful of other rules — pin that getErrorHelp dispatches ───────
 
 describe('getErrorHelp — other rules dispatch correctly', () => {
