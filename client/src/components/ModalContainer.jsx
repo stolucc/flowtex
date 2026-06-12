@@ -18,6 +18,7 @@ const GitHubSyncModal = lazy(() => import('./GitHubSyncModal.jsx'));
 const BibEnrichModal = lazy(() => import('./BibEnrichModal.jsx'));
 const ZoteroModal = lazy(() => import('./ZoteroModal.jsx'));
 const BugReportModal = lazy(() => import('./BugReportModal.jsx'));
+const LatexErrorExplainModal = lazy(() => import('./LatexErrorExplainModal.jsx'));
 
 /**
  * Centralized container that conditionally renders all editor-level modals (share, settings, shortcuts, etc.).
@@ -313,6 +314,18 @@ export default function ModalContainer({
               }
               await put(`/api/projects/files/${targetId}`, { content: newContent });
             }}
+          />
+        </Suspense>
+      )}
+      {ui.explainAi && (
+        <Suspense fallback={null}>
+          <LatexErrorExplainModal
+            instruction={ui.explainAi.instruction}
+            input={ui.explainAi.input}
+            errorText={ui.explainAi.errorText}
+            filePath={ui.explainAi.filePath}
+            line={ui.explainAi.line}
+            onClose={() => ui.setExplainAi(null)}
           />
         </Suspense>
       )}

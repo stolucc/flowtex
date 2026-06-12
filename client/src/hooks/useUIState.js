@@ -38,6 +38,11 @@ export default function useUIState() {
   // (e.g. "Citation `smith2020' undefined" -> open Zotero pre-filtered
   // by smith2020). Reset to '' on every modal close.
   const [zoteroInitialSearch, setZoteroInitialSearch] = useState('');
+  // The "Explain with AI" modal payload, set by the orchestrator when
+  // the user clicks the AI button on an error row. Null = modal hidden.
+  const [explainAi, setExplainAi] = useState(
+    /** @type {null | { instruction: string, input: string, errorText: string, filePath?: string | null, line?: number | null }} */ (null),
+  );
   const [showCompareFiles, setShowCompareFiles] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyEditedFileIds, setHistoryEditedFileIds] = useState(/** @type {any[]} */ ([]));
@@ -112,6 +117,8 @@ export default function useUIState() {
     setShowZotero,
     zoteroInitialSearch,
     setZoteroInitialSearch,
+    explainAi,
+    setExplainAi,
     showCompareFiles,
     setShowCompareFiles,
     showHistory,

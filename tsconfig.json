@@ -239,6 +239,8 @@
     "client/src/components/WordCountModal.jsx",
     "client/src/components/ZoteroModal.jsx",
     "client/src/components/admin/SamlConfig.jsx",
+    "client/src/components/LatexErrorExplainModal.jsx",
+    "client/src/utils/latexQuickFixes.js",
     "client/src/App.jsx",
     "client/src/data/symbols.js"
   ],

@@ -4349,6 +4349,98 @@ html {
   margin-left: 4px;
 }
 
+/* AI-explain CTA — same pill geometry as the Fix button but in a
+   subtler colour, since it's the fallback action for errors no rule
+   matched (not the headline action when a rule fired). */
+.pdf-log-ai-btn {
+  background: none;
+  border: 1px dashed var(--text-secondary);
+  border-radius: 10px;
+  padding: 1px 7px 1px 5px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+.pdf-log-ai-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  border-style: solid;
+}
+.pdf-log-ai-btn-label {
+  font-weight: 500;
+}
+
+/* AI-explain modal. Uses the existing modal-window styles for the
+   shell; specific bits below are content layout. */
+.latex-explain-modal {
+  max-width: 720px;
+  width: 90vw;
+}
+.latex-explain-context {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.latex-explain-error,
+.latex-explain-location {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.latex-explain-error code {
+  background: rgba(0, 0, 0, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.latex-explain-output {
+  margin-top: 4px;
+}
+.latex-explain-text {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 80px;
+  max-height: 50vh;
+  overflow: auto;
+  margin: 0;
+  font-family: inherit;
+}
+.latex-explain-streaming-tag {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.latex-explain-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 12px;
+}
+.latex-explain-status-error {
+  color: var(--text-primary);
+}
+.latex-explain-status p {
+  margin: 0 0 8px 0;
+}
+
 /* Copy-to-clipboard button on each log row. Plain icon button (no
    round border) so a row with both buttons doesn't look like a pair
    of identical chips. Both buttons get `margin-left: auto`; in a flex

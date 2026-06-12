@@ -21,6 +21,8 @@ import {
   findBibFile,
   buildBibSkeleton,
   appendCitationSkeleton,
+  extractContextLines,
+  buildExplainPrompt,
 } from '../latexQuickFixes.js';
 
 describe('findInsertionPointForPackage', () => {
@@ -723,5 +725,104 @@ describe('appendCitationSkeleton', () => {
     expect(r.newContent.slice(r.insertAt, r.insertAt + r.insertLength)).toBe(
       buildBibSkeleton('b'),
     );
+  });
+});
+
+// ─── AI explanation prompt-builder (Batch D) ──────────────────────────
+
+describe('extractContextLines', () => {
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n');
+
+  it('returns ±radius lines around the target', () => {
+    const r = extractContextLines(lines, 10, 2);
+    // Lines 8..12 (1-indexed).
+    expect(r.firstLine).toBe(8);
+    expect(r.lastLine).toBe(12);
+    expect(r.snippet.split('\n')).toEqual(['line 8', 'line 9', 'line 10', 'line 11', 'line 12']);
+  });
+
+  it('uses radius=4 by default', () => {
+    const r = extractContextLines(lines, 10);
+    expect(r.firstLine).toBe(6);
+    expect(r.lastLine).toBe(14);
+  });
+
+  it('clamps to the start of the file when the target is near the top', () => {
+    const r = extractContextLines(lines, 1, 4);
+    expect(r.firstLine).toBe(1);
+    expect(r.lastLine).toBe(5);
+  });
+
+  it('clamps to the end of the file when the target is near the bottom', () => {
+    const r = extractContextLines(lines, 20, 4);
+    expect(r.firstLine).toBe(16);
+    expect(r.lastLine).toBe(20);
+  });
+
+  it('clamps the target line itself when out of range', () => {
+    // Target 999 in a 20-line file -> treated as 20.
+    const r = extractContextLines(lines, 999, 2);
+    expect(r.lastLine).toBe(20);
+  });
+
+  it('handles a 1-line file', () => {
+    const r = extractContextLines('only line', 1, 3);
+    expect(r.snippet).toBe('only line');
+    expect(r.firstLine).toBe(1);
+    expect(r.lastLine).toBe(1);
+  });
+});
+
+describe('buildExplainPrompt', () => {
+  it('returns a non-empty instruction with the "Cause:/Fix:" format directive', () => {
+    const out = buildExplainPrompt({ errorText: 'Some error' });
+    expect(out.instruction.length).toBeGreaterThan(50);
+    expect(out.instruction).toMatch(/Cause:/);
+    expect(out.instruction).toMatch(/Fix:/);
+  });
+
+  it('includes the error text verbatim in the input', () => {
+    const out = buildExplainPrompt({ errorText: 'Verbatim error text here.' });
+    expect(out.input).toContain('Verbatim error text here.');
+    expect(out.input).toContain('=== ERROR ===');
+  });
+
+  it('includes file + line in the input when provided', () => {
+    const out = buildExplainPrompt({
+      errorText: 'X',
+      filePath: 'main.tex',
+      line: 42,
+    });
+    expect(out.input).toContain('=== LOCATION ===');
+    expect(out.input).toContain('File: main.tex, line 42');
+  });
+
+  it('omits the line in the location when only filePath is provided', () => {
+    const out = buildExplainPrompt({ errorText: 'X', filePath: 'main.tex' });
+    expect(out.input).toContain('File: main.tex');
+    expect(out.input).not.toContain('line ');
+  });
+
+  it('omits the location block when no filePath given', () => {
+    const out = buildExplainPrompt({ errorText: 'X' });
+    expect(out.input).not.toContain('=== LOCATION ===');
+  });
+
+  it('includes the source snippet in a ```latex code block when provided', () => {
+    const out = buildExplainPrompt({
+      errorText: 'X',
+      contextSnippet: '\\foo\nbar',
+      contextFirstLine: 7,
+    });
+    expect(out.input).toContain('=== SOURCE CONTEXT ===');
+    expect(out.input).toContain('(starting at line 7)');
+    expect(out.input).toContain('```latex');
+    expect(out.input).toContain('\\foo\nbar');
+    expect(out.input).toContain('```');
+  });
+
+  it('omits the snippet block when not provided', () => {
+    const out = buildExplainPrompt({ errorText: 'X', filePath: 'a.tex', line: 1 });
+    expect(out.input).not.toContain('=== SOURCE CONTEXT ===');
   });
 });

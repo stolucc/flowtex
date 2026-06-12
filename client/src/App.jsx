@@ -45,6 +45,8 @@ import {
   findGraphicspathCandidate,
   findBibFile,
   appendCitationSkeleton,
+  extractContextLines,
+  buildExplainPrompt,
 } from './utils/latexQuickFixes.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
@@ -1609,6 +1611,41 @@ function AppInner() {
                   switchFile(f);
                   setTimeout(() => editorRef.current?.goToLine(line, col), 50);
                 } else editorRef.current?.goToLine(line, col);
+              }}
+              onExplainErrorWithAi={(/** @type {any} */ payload) => {
+                // payload: { message, file, line } from LogItem.
+                // Build the LLM prompt + a snippet of surrounding source
+                // and stash it in UI state; the modal reads + streams.
+                const targetFile = payload.file
+                  ? files.find((/** @type {any} */ f) => f.path === payload.file)
+                  : activeFile;
+                let snippet = '';
+                let snippetFirst = 0;
+                if (targetFile?.content || (activeFile?.id === targetFile?.id && editorRef.current)) {
+                  const fileContent =
+                    activeFile?.id === targetFile?.id
+                      ? (editorRef.current?.getContent() ?? targetFile?.content ?? '')
+                      : (targetFile?.content ?? '');
+                  if (typeof payload.line === 'number' && payload.line > 0) {
+                    const ctx = extractContextLines(fileContent, payload.line);
+                    snippet = ctx.snippet;
+                    snippetFirst = ctx.firstLine;
+                  }
+                }
+                const { instruction, input } = buildExplainPrompt({
+                  errorText: String(payload.message ?? ''),
+                  filePath: payload.file || targetFile?.path || null,
+                  line: typeof payload.line === 'number' ? payload.line : null,
+                  contextSnippet: snippet || undefined,
+                  contextFirstLine: snippet ? snippetFirst : undefined,
+                });
+                ui.setExplainAi({
+                  instruction,
+                  input,
+                  errorText: String(payload.message ?? ''),
+                  filePath: payload.file || targetFile?.path || null,
+                  line: typeof payload.line === 'number' ? payload.line : null,
+                });
               }}
               onApplyQuickFix={(/** @type {any} */ fix) => {
                 if (!fix?.kind) return;

@@ -148,7 +148,7 @@ function AnalysisPanel({ profile, rebuildReason }) {
  *  and a copy-to-clipboard button so users can paste the message into a
  * @param {any} props
  *  search engine without typing it out. */
-function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp, onApplyFix }) {
+function LogItem({ className, onClick, tag, file, line, message, help, onShowHelp, onApplyFix, onExplainWithAi }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = (/** @type {any} */ e) => {
     e.stopPropagation();
@@ -220,6 +220,36 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
             </button>
           ));
         })()}
+        {/* AI-explain button. Shown ONLY when no rule matched -- it's a
+            fallback for cryptic errors that don't have a hand-written
+            help mapping. Wired through onExplainWithAi from PdfViewer. */}
+        {!help && onExplainWithAi && (
+          <button
+            className="pdf-log-ai-btn"
+            onClick={(/** @type {any} */ e) => {
+              e.stopPropagation();
+              onExplainWithAi({ message, file, line });
+            }}
+            title="Explain this error with the local helper LLM"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 2a3 3 0 0 1 3 3v2.5a4.5 4.5 0 0 1 4.5 4.5 3 3 0 0 1-3 3" />
+              <path d="M12 2a3 3 0 0 0-3 3v2.5A4.5 4.5 0 0 0 4.5 12a3 3 0 0 0 3 3" />
+              <path d="M9 17h6" />
+              <path d="M10 21h4" />
+            </svg>
+            <span className="pdf-log-ai-btn-label">Explain</span>
+          </button>
+        )}
         {help && (
           <button
             className="pdf-log-help-btn"
@@ -393,6 +423,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     onGoToLine,
     onGoToFileAndLine,
     onApplyQuickFix,
+    onExplainErrorWithAi,
     tapsDiagnostics,
     showBoxWarnings = true,
     onToggleBoxWarnings,
@@ -1269,6 +1300,7 @@ const PdfViewer = forwardRef(function PdfViewer(
               help={getErrorHelp(e.message)}
               onShowHelp={setHelpDetail}
               onApplyFix={onApplyQuickFix}
+              onExplainWithAi={onExplainErrorWithAi}
             />
           ))}
           {errors
@@ -1286,6 +1318,7 @@ const PdfViewer = forwardRef(function PdfViewer(
                 help={getErrorHelp(e.text)}
                 onShowHelp={setHelpDetail}
                 onApplyFix={onApplyQuickFix}
+                onExplainWithAi={onExplainErrorWithAi}
               />
             ))}
           {errors
@@ -1341,6 +1374,7 @@ const PdfViewer = forwardRef(function PdfViewer(
                 help={getErrorHelp(w.message)}
                 onShowHelp={setHelpDetail}
                 onApplyFix={onApplyQuickFix}
+                onExplainWithAi={onExplainErrorWithAi}
               />
             ))}
             {warnings
@@ -1356,6 +1390,7 @@ const PdfViewer = forwardRef(function PdfViewer(
                   help={getErrorHelp(w.text)}
                   onShowHelp={setHelpDetail}
                   onApplyFix={onApplyQuickFix}
+                  onExplainWithAi={onExplainErrorWithAi}
                 />
               ))}
             {warnings

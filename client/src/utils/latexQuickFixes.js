@@ -276,6 +276,82 @@ export function buildEnvRename(content, endIndex, endLength, newName) {
   };
 }
 
+// ─── AI explanation (no rule matched) ─────────────────────────────────
+
+/**
+ * Extract a window of lines around a 1-indexed target line. Used to
+ * give the LLM enough context to explain a LaTeX error without
+ * shipping the whole file.
+ *
+ * Returns the joined window plus the absolute line range the snippet
+ * covers, so the UI can show "lines 38-46 of foo.tex" when displaying.
+ *
+ * @param {string} content
+ * @param {number} targetLine - 1-indexed
+ * @param {number} [radius=4] - lines before/after to include
+ * @returns {{ snippet: string, firstLine: number, lastLine: number }}
+ */
+export function extractContextLines(content, targetLine, radius = 4) {
+  const lines = content.split('\n');
+  const tl = Math.max(1, Math.min(targetLine, lines.length));
+  const first = Math.max(1, tl - radius);
+  const last = Math.min(lines.length, tl + radius);
+  const snippet = lines.slice(first - 1, last).join('\n');
+  return { snippet, firstLine: first, lastLine: last };
+}
+
+/**
+ * Build the LLM instruction prompt for explaining a LaTeX error.
+ *
+ * Designed for the helper's `custom` task: the helper takes
+ * `instruction` + `input` and sends the combined prompt to its
+ * Ollama backend. We put the structural framing in the instruction
+ * and the verbatim error/context in the input -- the helper's
+ * existing safety nets (the allowlist task, the SSE timeout) all
+ * still apply.
+ *
+ * @param {{
+ *   errorText: string,
+ *   filePath?: string | null,
+ *   line?: number | null,
+ *   contextSnippet?: string,
+ *   contextFirstLine?: number,
+ * }} args
+ * @returns {{ instruction: string, input: string }}
+ */
+export function buildExplainPrompt(args) {
+  const { errorText, filePath, line, contextSnippet, contextFirstLine } = args;
+  const instruction = [
+    'You are an expert LaTeX user helping a researcher understand a compile error.',
+    'Read the error message, then explain WHAT it means and WHY it likely happened.',
+    'Then suggest a CONCRETE fix the user can apply.',
+    'Be concise: aim for 150 words or fewer.',
+    'Format your answer as: "Cause: ..." then "Fix: ..." -- two short paragraphs.',
+    'If the error is ambiguous, say so and list the two most likely causes.',
+    'Avoid generic advice like "check your syntax"; ground each suggestion in the snippet provided.',
+  ].join('\n');
+
+  const parts = [];
+  parts.push('=== ERROR ===');
+  parts.push(errorText);
+  if (filePath) {
+    parts.push('');
+    parts.push(`=== LOCATION ===`);
+    parts.push(`File: ${filePath}${typeof line === 'number' ? `, line ${line}` : ''}`);
+  }
+  if (contextSnippet) {
+    parts.push('');
+    parts.push(`=== SOURCE CONTEXT ===`);
+    if (typeof contextFirstLine === 'number') {
+      parts.push(`(starting at line ${contextFirstLine})`);
+    }
+    parts.push('```latex');
+    parts.push(contextSnippet);
+    parts.push('```');
+  }
+  return { instruction, input: parts.join('\n') };
+}
+
 // ─── Citation fixes (open .bib / open Zotero) ─────────────────────────
 
 /**
