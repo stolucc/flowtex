@@ -4399,11 +4399,61 @@ html {
   font-weight: 500;
 }
 
-/* AI-explain modal. Uses the existing modal-window styles for the
-   shell; specific bits below are content layout. */
-.latex-explain-modal {
-  max-width: 720px;
-  width: 90vw;
+/* AI-explain floater: floating panel anchored to the right half of
+   the viewport (over the PDF area), no full-screen backdrop. Sized
+   so it doesn't cover the error panel underneath -- the user can
+   still see the original error row + click "Recompile" etc. */
+.latex-explain-floater {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  width: min(520px, 45vw);
+  max-height: calc(100vh - 120px);
+  z-index: 90;
+  pointer-events: auto;
+}
+.latex-explain-floater-inner {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+}
+.latex-explain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.latex-explain-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.latex-explain-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.latex-explain-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+.latex-explain-body {
+  padding: 12px 14px 14px 14px;
+  overflow-y: auto;
 }
 .latex-explain-context {
   background: var(--bg-surface);

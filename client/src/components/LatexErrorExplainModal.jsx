@@ -82,16 +82,29 @@ export default function LatexErrorExplainModal({ onClose, instruction, input, er
   }, [instruction, input]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-window latex-explain-modal"
-        onClick={(/** @type {any} */ e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
+    <div
+      className="latex-explain-floater"
+      role="dialog"
+      aria-label="Explain with AI"
+      onClick={(/** @type {any} */ e) => e.stopPropagation()}
+    >
+      <div className="latex-explain-floater-inner">
+        <div className="latex-explain-header">
           <h2>Explain with AI</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+          <button
+            type="button"
+            className="latex-explain-close"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
-        <div className="modal-body">
+        <div className="latex-explain-body">
           <div className="latex-explain-context">
             <div className="latex-explain-error">
               <strong>Error:</strong>{' '}
