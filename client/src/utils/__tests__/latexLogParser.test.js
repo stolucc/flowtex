@@ -21,6 +21,20 @@ Output written on main.pdf (1 page).`;
     expect(parseLog(log)).toEqual({ errors: [], warnings: [] });
   });
 
+  it("joins LaTeX's wrapped source-context lines so a split command name still matches", () => {
+    // LaTeX wraps the l.NNN context at ~79 chars. \textalpha can
+    // split across two lines as `l.42 ...\\textalp\nha`. The parser
+    // must reassemble so the rule regex can capture `textalpha`.
+    const log = `(./main.tex
+! Undefined control sequence.
+l.42 ...\\textalp
+ha
+
+)`;
+    const { errors } = parseLog(log);
+    expect(errors[0].text).toContain('\\textalpha');
+  });
+
   it('captures an error line starting with "!" and strips the "! " prefix, with source-context tail appended', () => {
     const log = `(./main.tex
 ! Undefined control sequence.

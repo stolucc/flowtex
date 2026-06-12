@@ -4479,6 +4479,42 @@ html {
   text-underline-offset: 3px;
 }
 
+/* Fix-ack glow: a recently-applied quick-fix gets a subtle background
+   highlight + ✓ in the gutter until the user dismisses (or next
+   compile auto-clears). */
+.cm-fix-glow {
+  background-color: rgba(110, 200, 130, 0.18);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(110, 200, 130, 0.4) inset;
+  animation: cm-fix-glow-pulse 1.2s ease-out 2;
+}
+@keyframes cm-fix-glow-pulse {
+  0%   { background-color: rgba(110, 200, 130, 0.40); }
+  100% { background-color: rgba(110, 200, 130, 0.18); }
+}
+.cm-fix-ack-gutter {
+  width: 18px;
+  background: transparent;
+}
+.cm-fix-ack-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: rgba(110, 200, 130, 0.95);
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  line-height: 18px;
+}
+.cm-fix-ack-marker:hover {
+  color: rgba(110, 200, 130, 1);
+  background-color: rgba(110, 200, 130, 0.15);
+  border-radius: 3px;
+}
+
 /* Copy-to-clipboard button on each log row. Plain icon button (no
    round border) so a row with both buttons doesn't look like a pair
    of identical chips. Both buttons get `margin-left: auto`; in a flex

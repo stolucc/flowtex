@@ -241,6 +241,7 @@
     "client/src/components/admin/SamlConfig.jsx",
     "client/src/components/LatexErrorExplainModal.jsx",
     "client/src/utils/latexQuickFixes.js",
+    "client/src/utils/fixAckMarks.js",
     "client/src/utils/commandPackageLookup.js",
     "client/src/hooks/useCommandPackageWarming.js",
     "client/src/App.jsx",

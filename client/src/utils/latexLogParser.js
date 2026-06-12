@@ -69,8 +69,29 @@ export default function parseLog(log) {
           if (lMatch) {
             lineNum = parseInt(lMatch[1]);
             // Column is length of text after "l.NNN " — the error is at/near the end
-            const textAfter = lMatch[2] || '';
+            let textAfter = lMatch[2] || '';
             col = textAfter.length;
+            // LaTeX wraps the source-context at ~79 chars, so a long
+            // line + command may split as `l.42 ...\\textal\nha rest`.
+            // Concatenate the next 1-2 non-empty, non-error
+            // continuation lines so the rule matcher sees the full
+            // command name.
+            // Only one continuation line max: LaTeX wraps source-context
+            // at a single line boundary. More than one continuation
+            // would also pull in unrelated structure (closing parens,
+            // help text, ...).
+            const k = j + 1;
+            if (k < lines.length) {
+              const cont = lines[k];
+              const shouldJoin = cont
+                && !cont.startsWith('!')
+                && !cont.startsWith(')')
+                && !cont.startsWith('?')
+                && !/^l\.\d+/.test(cont)
+                && !/^\s*$/.test(cont)
+                && !/^\(\.\//.test(cont);
+              if (shouldJoin) textAfter += cont.trimEnd();
+            }
             // Enrich msg with the source-context tail so the rule
             // matcher (e.g. /Undefined control sequence.*\\(\w+)/)
             // can extract the offending command. Without this, the

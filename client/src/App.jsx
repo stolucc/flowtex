@@ -344,7 +344,12 @@ function AppInner() {
   // Reset the "edited since compile" set every time a fresh compile
   // log lands -- the new errors are fresh and shouldn't be faded.
   useEffect(() => {
-    if (compileLog) setStaleFilePaths(new Set());
+    if (compileLog) {
+      setStaleFilePaths(new Set());
+      // Also drop pending fix-ack glows -- the user has now compiled
+      // past the fix and explicit acknowledgement is no longer needed.
+      editorRef.current?.clearFixAcks?.();
+    }
   }, [compileLog]);
 
   const { githubLink, setGithubLink, hasGithubToken, autoSyncStatus, handleToggleAutoSync } =
@@ -1699,6 +1704,13 @@ function AppInner() {
                 /** @param {number} from @param {number} to @param {string} text @param {number} anchor */
                 const dispatchEdit = (from, to, text, anchor) => {
                   editorRef.current?.replaceRange(from, to, text);
+                  // After the dispatch, mark the inserted span as a
+                  // pending fix-ack so the user sees a glow + ✓ next
+                  // to the new line. The next CodeMirror tick is when
+                  // the range exists; defer via setTimeout(0).
+                  if (text && text.length > 0) {
+                    setTimeout(() => editorRef.current?.markFixApplied(from, from + text.length), 0);
+                  }
                   setTimeout(() => editorRef.current?.goToPosition(anchor), 50);
                 };
 

@@ -85,6 +85,12 @@ import {
   updateFigureGutterMarkers,
   latexFoldService,
 } from '../utils/editorExtensions.js';
+import {
+  fixAckField,
+  fixAckGutterExtension,
+  addFixAckEffect,
+  clearAllFixAcksEffect,
+} from '../utils/fixAckMarks.js';
 import { visualModeExtension, refHoverTooltip, updateBibContext } from '../utils/visualMode.js';
 import {
   tcMarksExtensions,
@@ -650,6 +656,25 @@ const Editor = forwardRef(function Editor(
       const view = viewRef.current;
       return view ? view.state.doc.toString() : null;
     },
+    /** Mark a recently-inserted range as a pending fix acknowledgement.
+     *  Renders a glow over the range and a ✓ in the gutter; click ✓
+     *  (or call clearFixAcks) to dismiss.
+     *  @param {number} from @param {number} to */
+    markFixApplied(from, to) {
+      const view = viewRef.current;
+      if (!view) return;
+      const docLen = view.state.doc.length;
+      const f = Math.max(0, Math.min(from, docLen));
+      const t = Math.max(f, Math.min(to, docLen));
+      if (f >= t) return;
+      view.dispatch({ effects: addFixAckEffect.of({ from: f, to: t }) });
+    },
+    /** Clear ALL pending fix acks. Called when a fresh compile lands. */
+    clearFixAcks() {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: clearAllFixAcksEffect.of(null) });
+    },
     openSearch() {
       setShowSearch(true);
     },
@@ -1099,6 +1124,8 @@ const Editor = forwardRef(function Editor(
         lintField,
         lintGutterField,
         lintGutterExtension,
+        fixAckField,
+        fixAckGutterExtension,
         spellGutterField,
         spellGutterExtension,
         citeKeyHighlighter,
