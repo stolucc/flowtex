@@ -1,7 +1,11 @@
+// @ts-check
 /**
  * One-time migration script: SQLite → PostgreSQL
  * Run with: node server/migrate-to-pg.js
  */
+// @ts-ignore -- better-sqlite3 is a one-shot migration dep, not a runtime
+// dep. The package is installed only by operators who need to run this
+// once. Don't gate typecheck on it being present.
 import Database from 'better-sqlite3';
 import pg from 'pg';
 import path from 'path';

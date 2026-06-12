@@ -1,3 +1,4 @@
+// @ts-check
 // SAAS-FOUNDATIONS item 2 -- S3-compatible blob backend.
 //
 // Loaded only when FLOWTEX_BLOB_BACKEND=s3 so the AWS SDK doesn't
@@ -35,6 +36,7 @@ import logger from '../logger.js';
 const PROJECT_ID_RE = /^[a-z0-9-]+$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
+/** @param {string} projectId @param {string} sha256 */
 function keyFor(projectId, sha256) {
   if (!PROJECT_ID_RE.test(projectId)) {
     throw new Error('blobPersistorS3: invalid projectId');
@@ -49,7 +51,12 @@ async function loadSdk() {
   let s3;
   let upload;
   try {
+    // @ts-ignore -- optional dep, present only when self-hosted operator
+    // installs the AWS SDK explicitly. loadSdk throws a clear error if
+    // the dynamic import fails at runtime.
     s3 = await import('@aws-sdk/client-s3');
+    // @ts-ignore -- same as above; @aws-sdk/lib-storage is the multipart
+    // upload helper, also optional.
     upload = await import('@aws-sdk/lib-storage');
   } catch (err) {
     throw new Error(
@@ -74,6 +81,7 @@ async function loadSdk() {
 export async function makeS3Backend() {
   const { s3, upload, client, bucket } = await loadSdk();
 
+  /** @param {string} projectId @param {NodeJS.ReadableStream} stream @param {{ maxBytes?: number }} [opts] */
   async function writeBlob(projectId, stream, opts = {}) {
     const maxBytes = opts.maxBytes ?? 50 * 1024 * 1024;
     const hash = createHash('sha256');
@@ -134,7 +142,8 @@ export async function makeS3Backend() {
         return { sha256, size: bytesSeen, deduped: true };
       }
     } catch (err) {
-      if (err?.name !== 'NotFound' && err?.$metadata?.httpStatusCode !== 404) throw err;
+      const e = /** @type {any} */ (err);
+      if (e?.name !== 'NotFound' && e?.$metadata?.httpStatusCode !== 404) throw err;
     }
 
     // Promote tmp -> final via server-side copy, then delete the tmp.
@@ -147,6 +156,7 @@ export async function makeS3Backend() {
     return { sha256, size: bytesSeen, deduped: false };
   }
 
+  /** @param {string} projectId @param {string} sha256 */
   async function statBlob(projectId, sha256) {
     try {
       const head = await client.send(new s3.HeadObjectCommand({
@@ -158,11 +168,13 @@ export async function makeS3Backend() {
         mtimeMs: head?.LastModified?.getTime?.() ?? 0,
       };
     } catch (err) {
-      if (err?.name === 'NotFound' || err?.$metadata?.httpStatusCode === 404) return null;
+      const e = /** @type {any} */ (err);
+      if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) return null;
       throw err;
     }
   }
 
+  /** @param {string} projectId @param {string} sha256 */
   async function readBlobStream(projectId, sha256) {
     const out = await client.send(new s3.GetObjectCommand({
       Bucket: bucket,
@@ -171,6 +183,7 @@ export async function makeS3Backend() {
     return out?.Body ?? null;
   }
 
+  /** @param {string} projectId @param {string} sha256 */
   async function deleteBlob(projectId, sha256) {
     try {
       await client.send(new s3.DeleteObjectCommand({
@@ -178,7 +191,8 @@ export async function makeS3Backend() {
         Key: keyFor(projectId, sha256),
       }));
     } catch (err) {
-      if (err?.$metadata?.httpStatusCode === 404) return;
+      const e = /** @type {any} */ (err);
+      if (e?.$metadata?.httpStatusCode === 404) return;
       throw err;
     }
   }

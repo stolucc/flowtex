@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * One-time migration: re-encrypt all tokens from old hardcoded salt to new per-installation salt.
  * Run with: node --env-file=.env server/migrate-salt.js
@@ -18,11 +19,13 @@ const ALGORITHM = 'aes-256-gcm';
 const OLD_HARDCODED_SALT = 'flowtex-salt';
 const DEV_FALLBACK_KEY = '0'.repeat(64);
 
+/** @param {string} salt */
 function deriveKeyWith(salt) {
   const keyMaterial = process.env.ENCRYPTION_KEY || DEV_FALLBACK_KEY;
   return crypto.scryptSync(keyMaterial, salt, 32);
 }
 
+/** @param {Buffer} key @param {string} data */
 function decryptWith(key, data) {
   if (typeof data !== 'string') throw new Error('Invalid');
   const parts = data.split(':');
@@ -35,6 +38,7 @@ function decryptWith(key, data) {
   return decrypted;
 }
 
+/** @param {Buffer} key @param {string} text */
 function encryptWith(key, text) {
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);

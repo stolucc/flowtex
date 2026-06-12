@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * YJS-MIGRATION phase 3 — one-shot backfill of files.content_yjs.
  *
