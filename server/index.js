@@ -47,6 +47,7 @@ import adminRouter from './routes/admin.js';
 import adminSamlRouter from './routes/adminSaml.js';
 import setupRouter from './routes/setup.js';
 import bibRouter from './routes/bib.js';
+import latexRouter from './routes/latex.js';
 import zoteroRouter from './routes/zotero.js';
 import chatRouter from './routes/chat.js';
 import notificationsRouter from './routes/notifications.js';
@@ -552,6 +553,7 @@ app.use('/api/chat', requireAuth, chatRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
 app.use('/api/bug-reports', requireAuth, bugReportLimiter, bugReportsRouter);
 app.use('/api/bib', requireAuth, bibRouter);
+app.use('/api/latex', requireAuth, latexRouter);
 app.use('/api/zotero', requireAuth, zoteroRouter);
 app.use('/api/admin', adminApiLimiter, requireAuth, requireAdmin, adminRouter);
 // Same auth gating chain as the main admin router (requireAuth +

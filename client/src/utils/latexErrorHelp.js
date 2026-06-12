@@ -255,6 +255,67 @@ const ENVIRONMENT_PACKAGES = {
 };
 
 /**
+ * Dynamic augmentation of COMMAND_PACKAGES. Populated at runtime by
+ * useCommandPackageWarming (see hooks/useCommandPackageWarming.js):
+ * for every undefined-command error the panel shows that's NOT in the
+ * static map, the hook resolves it via the server's TeX-Live index +
+ * the helper LLM, then calls setDynamicCommandPackages() with the
+ * result. Subsequent renders of the same error pick up the resolved
+ * package and the Fix button appears.
+ *
+ * Kept separate from the static map so it can be mutated freely
+ * without altering the hand-curated overrides.
+ *
+ * @type {Map<string, string | null>}
+ */
+let DYNAMIC_COMMAND_PACKAGES = new Map();
+
+/**
+ * Replace the dynamic-command map. The hook calls this each time a
+ * new lookup resolves; the whole map is passed (not an incremental
+ * delta) so the call is atomic from getErrorHelp's perspective.
+ *
+ * @param {Map<string, string | null>} next
+ */
+export function setDynamicCommandPackages(next) {
+  DYNAMIC_COMMAND_PACKAGES = next;
+}
+
+/**
+ * Read the dynamic map without mutating it. Exposed for the hook to
+ * merge with new entries.
+ *
+ * @returns {Map<string, string | null>}
+ */
+export function getDynamicCommandPackages() {
+  return DYNAMIC_COMMAND_PACKAGES;
+}
+
+/**
+ * Single source of truth for "what package provides \cmd?". Checks
+ * the static map first (hand-curated, includes ambiguity marks like
+ * `"url or hyperref"`), falls back to the dynamic map.
+ *
+ * Returns:
+ *   string  - a single canonical package name (use it as a fix);
+ *   ''      - ambiguous (the static value contains whitespace; no fix);
+ *   null    - built-in (null entry in the static map; no fix);
+ *   undefined - not yet known (caller should kick off a lookup).
+ *
+ * @param {string} cmd
+ * @returns {string | null | undefined}
+ */
+export function getCommandPackage(cmd) {
+  if (Object.prototype.hasOwnProperty.call(COMMAND_PACKAGES, cmd)) {
+    return COMMAND_PACKAGES[cmd];
+  }
+  if (DYNAMIC_COMMAND_PACKAGES.has(cmd)) {
+    return DYNAMIC_COMMAND_PACKAGES.get(cmd);
+  }
+  return undefined;
+}
+
+/**
  * Return a fix descriptor when we can offer a one-click fix for the
  * "Undefined command" error.
  *
@@ -263,9 +324,10 @@ const ENVIRONMENT_PACKAGES = {
  */
 function buildUndefinedCommandFix(m) {
   const cmd = m[1];
-  const pkg = COMMAND_PACKAGES[cmd];
-  // Skip null entries (built-in commands) and ambiguous suggestions
-  // (the "url or hyperref" pattern) -- those need human judgement.
+  const pkg = getCommandPackage(cmd);
+  // Skip null/undefined entries (built-in or not-yet-known) and
+  // ambiguous suggestions (the "url or hyperref" pattern) -- those
+  // need human judgement OR a still-pending dynamic lookup.
   if (!pkg || /\s/.test(pkg)) return null;
   return {
     kind: 'add-usepackage',
@@ -415,7 +477,7 @@ const ERROR_RULES = [
     title: 'Undefined command',
     suggestion: (/** @type {RegExpMatchArray} */ m) => {
       const cmd = m[1];
-      const pkg = COMMAND_PACKAGES[cmd];
+      const pkg = getCommandPackage(cmd);
       if (pkg) return `The command \\${cmd} requires \\usepackage{${pkg}} in your preamble.`;
       return `\\${cmd} is not defined. Check for typos, or add the required \\usepackage{} in your preamble.`;
     },

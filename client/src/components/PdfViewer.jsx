@@ -21,6 +21,7 @@ import 'pdfjs-dist/web/pdf_viewer.css';
 import { getErrorHelp } from '../utils/latexErrorHelp.js';
 import parseLog from '../utils/latexLogParser.js';
 import { groupCascadeErrors, isErrorStale } from '../utils/latexQuickFixes.js';
+import useCommandPackageWarming from '../hooks/useCommandPackageWarming.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -551,6 +552,11 @@ const PdfViewer = forwardRef(function PdfViewer(
   const renderPageRef = useRef(/** @type {any} */ (null)); // stable ref to renderPageCanvas for use in scrollToPosition
 
   const { errors, warnings: allWarnings } = useMemo(() => parseLog(compileLog), [compileLog]);
+  // Warm the dynamic command-package map for any undefined-command
+  // errors NOT in the static lookup. As lookups resolve, the version
+  // bumps and the JSX below re-renders with fresh Fix buttons.
+  // eslint-disable-next-line no-unused-vars
+  const _cmdPkgVersion = useCommandPackageWarming(errors);
   const warnings = useMemo(() => {
     if (showBoxWarnings) return allWarnings;
     return allWarnings.filter((/** @type {any} */ w) => !/^(Overfull|Underfull)\s+\\[hv]box/.test(w.text));
