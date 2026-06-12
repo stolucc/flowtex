@@ -48,6 +48,88 @@ const COMMAND_PACKAGES = {
 };
 
 /**
+ * Lookup: environment name -> the canonical package that provides it.
+ * Same shape as COMMAND_PACKAGES (null = built-in, no fix needed;
+ * space-separated values = ambiguous, suggestion only).
+ *
+ * @type {Record<string, string | null>}
+ */
+const ENVIRONMENT_PACKAGES = {
+  // Built-ins: typo, not a missing package.
+  itemize: null,
+  enumerate: null,
+  description: null,
+  verbatim: null,
+  quote: null,
+  quotation: null,
+  center: null,
+  flushleft: null,
+  flushright: null,
+  abstract: null,
+  table: null,
+  tabular: null,
+  figure: null,
+  'figure*': null,
+  'table*': null,
+
+  // amsmath
+  align: 'amsmath',
+  'align*': 'amsmath',
+  gather: 'amsmath',
+  'gather*': 'amsmath',
+  multline: 'amsmath',
+  'multline*': 'amsmath',
+  equation: 'amsmath',
+  'equation*': 'amsmath',
+  cases: 'amsmath',
+  split: 'amsmath',
+  aligned: 'amsmath',
+  gathered: 'amsmath',
+
+  // amsthm
+  proof: 'amsthm',
+
+  // Source listings
+  lstlisting: 'listings',
+  minted: 'minted',
+  verbatimwrite: 'fancyvrb',
+
+  // Floats / figures
+  subfigure: 'subcaption',
+  subtable: 'subcaption',
+  wrapfigure: 'wrapfig',
+  sidewaystable: 'rotating',
+  sidewaysfigure: 'rotating',
+
+  // Graphics / drawing
+  tikzpicture: 'tikz',
+  pgfpicture: 'pgf',
+  axis: 'pgfplots',
+  semilogxaxis: 'pgfplots',
+  semilogyaxis: 'pgfplots',
+  loglogaxis: 'pgfplots',
+
+  // Algorithms
+  algorithm: 'algorithm',
+  algorithmic: 'algorithmicx',
+  algorithm2e: 'algorithm2e',
+
+  // Tables
+  longtable: 'longtable',
+  tabularx: 'tabularx',
+  tabulary: 'tabulary',
+  threeparttable: 'threeparttable',
+
+  // Math display environments common in inproc/article styles
+  IEEEeqnarray: 'IEEEtrantools',
+
+  // Frame / poster / slides (beamer is a documentclass not a package;
+  // omitted on purpose).
+  frame: null,
+  block: null,
+};
+
+/**
  * Return a fix descriptor when we can offer a one-click fix for the
  * "Undefined command" error.
  *
@@ -59,6 +141,25 @@ function buildUndefinedCommandFix(m) {
   const pkg = COMMAND_PACKAGES[cmd];
   // Skip null entries (built-in commands) and ambiguous suggestions
   // (the "url or hyperref" pattern) -- those need human judgement.
+  if (!pkg || /\s/.test(pkg)) return null;
+  return {
+    kind: 'add-usepackage',
+    package: pkg,
+    label: `Add \\usepackage{${pkg}} to preamble`,
+  };
+}
+
+/**
+ * Same shape as buildUndefinedCommandFix, but for "Environment X
+ * undefined" errors. Reuses the add-usepackage kind so the orchestrator
+ * in App.jsx needs no changes.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {{ kind: 'add-usepackage', package: string, label: string } | null}
+ */
+function buildUndefinedEnvironmentFix(m) {
+  const env = m[1];
+  const pkg = ENVIRONMENT_PACKAGES[env];
   if (!pkg || /\s/.test(pkg)) return null;
   return {
     kind: 'add-usepackage',
@@ -132,8 +233,16 @@ const ERROR_RULES = [
   {
     pattern: /Environment (\w+) undefined/i,
     title: 'Unknown environment',
-    suggestion: (/** @type {RegExpMatchArray} */ m) => `The environment "${m[1]}" is not defined. Check spelling or add the package that provides it.`,
+    suggestion: (/** @type {RegExpMatchArray} */ m) => {
+      const env = m[1];
+      const pkg = ENVIRONMENT_PACKAGES[env];
+      if (pkg && !/\s/.test(pkg)) {
+        return `The environment "${env}" requires \\usepackage{${pkg}} in your preamble.`;
+      }
+      return `The environment "${env}" is not defined. Check spelling or add the package that provides it.`;
+    },
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `environment ${m[1]} undefined latex`,
+    fix: buildUndefinedEnvironmentFix,
     tips: ['Check the environment name for typos', 'Add the package that provides this environment'],
   },
 
@@ -181,6 +290,22 @@ const ERROR_RULES = [
   },
 
   // ── File not found ─────────────────────────────────────────
+  // The .sty-specific rule MUST come before the generic "File X not
+  // found" rule because rule iteration uses first-match-wins. With the
+  // order reversed, the .sty rule was unreachable -- a finding caught
+  // by the getErrorHelp test suite.
+  {
+    pattern: /LaTeX Error: File `(.+?)\.sty' not found/i,
+    title: 'Missing package',
+    suggestion: (/** @type {RegExpMatchArray} */ m) =>
+      `The package "${m[1]}" is not installed. Check the package name for typos. If correct, this package may not be available in the current TeX installation.`,
+    searchQuery: (/** @type {RegExpMatchArray} */ m) => `package ${m[1]} not found latex install`,
+    tips: [
+      'Check the package name for typos',
+      'The package may need to be installed in the TeX distribution',
+      'Try an alternative package that provides similar functionality',
+    ],
+  },
   {
     pattern: /File `(.+?)' not found/i,
     title: 'File not found',
@@ -192,18 +317,6 @@ const ERROR_RULES = [
       'File paths are relative to the main .tex file',
       'File names are case-sensitive',
       'Do not include the .tex extension in \\input{} commands',
-    ],
-  },
-  {
-    pattern: /LaTeX Error: File `(.+?)\.sty' not found/i,
-    title: 'Missing package',
-    suggestion: (/** @type {RegExpMatchArray} */ m) =>
-      `The package "${m[1]}" is not installed. Check the package name for typos. If correct, this package may not be available in the current TeX installation.`,
-    searchQuery: (/** @type {RegExpMatchArray} */ m) => `package ${m[1]} not found latex install`,
-    tips: [
-      'Check the package name for typos',
-      'The package may need to be installed in the TeX distribution',
-      'Try an alternative package that provides similar functionality',
     ],
   },
 

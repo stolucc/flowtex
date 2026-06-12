@@ -1,0 +1,167 @@
+import { describe, it, expect } from 'vitest';
+import { getErrorHelp } from '../latexErrorHelp.js';
+
+describe('getErrorHelp', () => {
+  it('returns null for empty / falsy input', () => {
+    expect(getErrorHelp('')).toBeNull();
+    expect(getErrorHelp(null)).toBeNull();
+    expect(getErrorHelp(undefined)).toBeNull();
+  });
+
+  it('returns null when no rule matches', () => {
+    expect(getErrorHelp('Some random message that no rule handles')).toBeNull();
+  });
+
+  it('returned object always has title, suggestion, tips[], searchUrl, fix', () => {
+    const help = getErrorHelp('Missing $ inserted');
+    expect(help).not.toBeNull();
+    if (!help) return;
+    expect(typeof help.title).toBe('string');
+    expect(typeof help.suggestion).toBe('string');
+    expect(Array.isArray(help.tips)).toBe(true);
+    expect(typeof help.searchUrl).toBe('string');
+    // fix is allowed to be null, but the field must be present.
+    expect('fix' in help).toBe(true);
+  });
+
+  it('builds a tex.stackexchange search URL (not a verbatim string)', () => {
+    const help = getErrorHelp('Missing $ inserted');
+    expect(help?.searchUrl).toMatch(/^https:\/\/tex\.stackexchange\.com\/search\?q=/);
+  });
+});
+
+// ─── Undefined command (the headline fix) ─────────────────────────────
+
+describe('getErrorHelp — Undefined command fix descriptors', () => {
+  it('offers add-usepackage{xcolor} for \\textcolor', () => {
+    // The regex is single-line (`.` doesn't match newlines). The LaTeX
+    // log parser strips the "! " prefix and emits the command name on
+    // the same line as the error in the lookahead pass; the real
+    // PdfViewer calls getErrorHelp on that single line.
+    const help = getErrorHelp('Undefined control sequence \\textcolor');
+    expect(help?.fix).toEqual({
+      kind: 'add-usepackage',
+      package: 'xcolor',
+      label: 'Add \\usepackage{xcolor} to preamble',
+    });
+  });
+
+  it('offers add-usepackage{graphicx} for \\includegraphics', () => {
+    const help = getErrorHelp('! Undefined control sequence \\includegraphics');
+    expect(help?.fix?.package).toBe('graphicx');
+  });
+
+  it('offers add-usepackage{booktabs} for \\toprule / \\midrule / \\bottomrule', () => {
+    expect(getErrorHelp('Undefined control sequence \\toprule')?.fix?.package).toBe('booktabs');
+    expect(getErrorHelp('Undefined control sequence \\midrule')?.fix?.package).toBe('booktabs');
+    expect(getErrorHelp('Undefined control sequence \\bottomrule')?.fix?.package).toBe('booktabs');
+  });
+
+  it('does NOT offer a fix for built-in commands the user has a typo on (e.g. \\textbf)', () => {
+    // textbf maps to `null` in the lookup -- the command exists in
+    // every standard class, so an undefined-command error means a
+    // typo. Suggestion is still shown; no fix button.
+    const help = getErrorHelp('Undefined control sequence \\textbf');
+    expect(help).not.toBeNull();
+    expect(help?.fix).toBeNull();
+  });
+
+  it('does NOT offer a fix when the suggestion is ambiguous (\\url could be url OR hyperref)', () => {
+    const help = getErrorHelp('Undefined control sequence \\url');
+    expect(help).not.toBeNull();
+    // Suggestion text mentions both options; no single-package fix.
+    expect(help?.fix).toBeNull();
+  });
+
+  it('does NOT offer a fix for an unknown command (no entry in the lookup)', () => {
+    const help = getErrorHelp('Undefined control sequence \\customcommand');
+    expect(help).not.toBeNull();
+    expect(help?.fix).toBeNull();
+  });
+
+  it('falls back to the no-context rule when the message has no \\command capture', () => {
+    // Older logs (or hand-typed test inputs) sometimes lose the
+    // command-after-backslash context. The catch-all rule kicks in.
+    const help = getErrorHelp('Undefined control sequence.');
+    expect(help).not.toBeNull();
+    expect(help?.title).toBe('Undefined command');
+    expect(help?.fix).toBeNull();
+  });
+});
+
+// ─── Undefined environment (the new fix) ──────────────────────────────
+
+describe('getErrorHelp — Unknown environment fix descriptors', () => {
+  it('offers add-usepackage{amsmath} for \\begin{align}', () => {
+    const help = getErrorHelp('Environment align undefined.');
+    expect(help?.fix).toEqual({
+      kind: 'add-usepackage',
+      package: 'amsmath',
+      label: 'Add \\usepackage{amsmath} to preamble',
+    });
+  });
+
+  it('offers add-usepackage{tikz} for \\begin{tikzpicture}', () => {
+    expect(getErrorHelp('Environment tikzpicture undefined.')?.fix?.package).toBe('tikz');
+  });
+
+  it('offers add-usepackage{listings} for \\begin{lstlisting}', () => {
+    expect(getErrorHelp('Environment lstlisting undefined.')?.fix?.package).toBe('listings');
+  });
+
+  it('offers add-usepackage{algorithm} for \\begin{algorithm}', () => {
+    expect(getErrorHelp('Environment algorithm undefined.')?.fix?.package).toBe('algorithm');
+  });
+
+  it('offers add-usepackage{subcaption} for \\begin{subfigure}', () => {
+    expect(getErrorHelp('Environment subfigure undefined.')?.fix?.package).toBe('subcaption');
+  });
+
+  it('does NOT offer a fix for built-in environments (typo, not a missing package)', () => {
+    // itemize / enumerate / center / abstract are all base LaTeX --
+    // an "undefined" error here means a typo.
+    expect(getErrorHelp('Environment itemize undefined.')?.fix).toBeNull();
+    expect(getErrorHelp('Environment center undefined.')?.fix).toBeNull();
+    expect(getErrorHelp('Environment abstract undefined.')?.fix).toBeNull();
+  });
+
+  it('does NOT offer a fix for an unknown environment name', () => {
+    const help = getErrorHelp('Environment frobozz undefined.');
+    expect(help).not.toBeNull();
+    expect(help?.fix).toBeNull();
+  });
+
+  it('mentions the required package in the suggestion text when known', () => {
+    const help = getErrorHelp('Environment align undefined.');
+    expect(help?.suggestion).toMatch(/\\usepackage\{amsmath\}/);
+  });
+
+  it('falls back to the generic suggestion when the environment is unknown', () => {
+    const help = getErrorHelp('Environment frobozz undefined.');
+    expect(help?.suggestion).toMatch(/Check spelling/);
+  });
+});
+
+// ─── A handful of other rules — pin that getErrorHelp dispatches ───────
+
+describe('getErrorHelp — other rules dispatch correctly', () => {
+  it('Missing $ inserted -> Math mode required', () => {
+    expect(getErrorHelp('! Missing $ inserted.')?.title).toBe('Math mode required');
+  });
+
+  it('Missing package (.sty not found) -> Missing package', () => {
+    expect(getErrorHelp("LaTeX Error: File `foo.sty' not found.")?.title).toBe('Missing package');
+  });
+
+  it('Undefined citation -> Undefined citation', () => {
+    expect(getErrorHelp("Citation `smith2020' on page 1 undefined")?.title).toBe('Undefined citation');
+  });
+
+  it('Undefined reference -> Undefined reference', () => {
+    expect(getErrorHelp("Reference `fig:foo' on page 1 undefined")?.title).toBe('Undefined reference');
+  });
+
+  it('Overfull hbox -> Content too wide', () => {
+    expect(getErrorHelp('Overfull \\hbox (12.34pt too wide) in paragraph at lines 100--105')?.title).toBe('Content too wide');
+  });
+});
