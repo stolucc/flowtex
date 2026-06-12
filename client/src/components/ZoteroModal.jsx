@@ -90,7 +90,7 @@ function extractBibKeys(bibtex) {
  * Modal for connecting to Zotero, browsing collections, and importing references as BibTeX.
  * @param {any} props
  */
-export default function ZoteroModal({ onClose, onInsert, bibFileExists, existingBibKeys }) {
+export default function ZoteroModal({ onClose, onInsert, bibFileExists, existingBibKeys, initialSearch }) {
   const [status, setStatus] = useState(/** @type {any} */ (null));
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -102,8 +102,8 @@ export default function ZoteroModal({ onClose, onInsert, bibFileExists, existing
   const [items, setItems] = useState(/** @type {any[]} */ ([]));
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState(/** @type {string} */ (initialSearch || ''));
+  const [searchInput, setSearchInput] = useState(/** @type {string} */ (initialSearch || ''));
   const [selectedKeys, setSelectedKeys] = useState(new Set());
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);

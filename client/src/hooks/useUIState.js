@@ -34,6 +34,10 @@ export default function useUIState() {
   const [showGitHubSync, setShowGitHubSync] = useState(false);
   const [showBibEnrich, setShowBibEnrich] = useState(false);
   const [showZotero, setShowZotero] = useState(false);
+  // Pre-fill the Zotero modal's search box when opened from a quick-fix
+  // (e.g. "Citation `smith2020' undefined" -> open Zotero pre-filtered
+  // by smith2020). Reset to '' on every modal close.
+  const [zoteroInitialSearch, setZoteroInitialSearch] = useState('');
   const [showCompareFiles, setShowCompareFiles] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyEditedFileIds, setHistoryEditedFileIds] = useState(/** @type {any[]} */ ([]));
@@ -106,6 +110,8 @@ export default function useUIState() {
     setShowBibEnrich,
     showZotero,
     setShowZotero,
+    zoteroInitialSearch,
+    setZoteroInitialSearch,
     showCompareFiles,
     setShowCompareFiles,
     showHistory,

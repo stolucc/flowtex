@@ -276,6 +276,86 @@ export function buildEnvRename(content, endIndex, endLength, newName) {
   };
 }
 
+// ─── Citation fixes (open .bib / open Zotero) ─────────────────────────
+
+/**
+ * Find the "preferred" .bib file in the project. Strategy:
+ *   1. If multiple .bib files exist, pick the one referenced from the
+ *      main file via \addbibresource or \bibliography (caller passes
+ *      mainContent so we can grep).
+ *   2. Otherwise pick the first .bib file found.
+ *
+ * Returns null when no .bib file is in the project.
+ *
+ * @param {Array<{ path: string, content?: string }>} projectFiles
+ * @param {string} [mainContent] - the main file's content (optional)
+ * @returns {{ path: string } | null}
+ */
+export function findBibFile(projectFiles, mainContent) {
+  const bibs = projectFiles.filter((f) => f?.path?.endsWith?.('.bib'));
+  if (bibs.length === 0) return null;
+  if (bibs.length === 1) return { path: bibs[0].path };
+  if (!mainContent) return { path: bibs[0].path };
+  // Look for the bib file's basename in \addbibresource{X} or
+  // \bibliography{X}. Either form: basename with or without `.bib`.
+  for (const bib of bibs) {
+    const { base } = splitPath(bib.path);
+    const stem = base.replace(/\.bib$/, '');
+    const safe = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(
+      `\\\\(?:addbibresource|bibliography)\\{[^}]*${safe}(?:\\.bib)?[^}]*\\}`,
+    );
+    if (re.test(mainContent)) return { path: bib.path };
+  }
+  return { path: bibs[0].path };
+}
+
+/**
+ * Build a skeleton BibTeX entry for an unknown citation key. The
+ * skeleton uses @article (the most-common entry type); the user
+ * fills in the fields. Each field is on its own line for clean
+ * editing.
+ *
+ * @param {string} citationKey
+ */
+export function buildBibSkeleton(citationKey) {
+  return [
+    `@article{${citationKey},`,
+    `  author  = {},`,
+    `  title   = {},`,
+    `  journal = {},`,
+    `  year    = {},`,
+    `}`,
+  ].join('\n');
+}
+
+/**
+ * Append a skeleton entry to a .bib file's content. Inserts a leading
+ * blank line so the new entry is visually separated from whatever was
+ * there before, and ensures the result ends with exactly one trailing
+ * newline.
+ *
+ * Returns the new content + the byte range of the inserted text so the
+ * caller can scroll to it.
+ *
+ * @param {string} bibContent
+ * @param {string} citationKey
+ */
+export function appendCitationSkeleton(bibContent, citationKey) {
+  const skeleton = buildBibSkeleton(citationKey);
+  // Normalise the existing content: trim trailing whitespace so we
+  // control the separator between old content and the new entry.
+  const stripped = bibContent.replace(/\s*$/, '');
+  const sep = stripped.length === 0 ? '' : '\n\n';
+  const insertAt = stripped.length + sep.length;
+  const newContent = stripped + sep + skeleton + '\n';
+  return {
+    newContent,
+    insertAt,
+    insertLength: skeleton.length,
+  };
+}
+
 // ─── Graphics path / image extension fixes ────────────────────────────
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.pdf', '.eps', '.svg', '.gif', '.bmp'];

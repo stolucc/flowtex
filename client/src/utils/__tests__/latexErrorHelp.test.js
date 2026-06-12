@@ -207,6 +207,35 @@ describe('getErrorHelp — Mismatched environment fix (rename-env-end)', () => {
   });
 });
 
+// ─── Citation fixes (Batch C) ─────────────────────────────────────────
+
+describe('getErrorHelp — citation fix descriptors (multi-fix)', () => {
+  it('returns an ARRAY of two fix descriptors for an undefined citation', () => {
+    const help = getErrorHelp("Citation `smith2020' on page 1 undefined on input line 5.");
+    expect(Array.isArray(help?.fix)).toBe(true);
+    if (!help?.fix || !Array.isArray(help.fix)) return;
+    expect(help.fix).toHaveLength(2);
+    expect(help.fix[0]).toEqual({
+      kind: 'open-bib-with-skeleton',
+      citationKey: 'smith2020',
+      label: 'Add "smith2020" skeleton to .bib',
+    });
+    expect(help.fix[1]).toEqual({
+      kind: 'open-zotero-for-key',
+      citationKey: 'smith2020',
+      label: 'Search Zotero for "smith2020"',
+    });
+  });
+
+  it('captures arXiv-style citation keys with colons and dots', () => {
+    const help = getErrorHelp("Citation `arxiv:2402.12345' on page 1 undefined");
+    if (!help?.fix || !Array.isArray(help.fix)) {
+      throw new Error('expected array of fixes');
+    }
+    expect(help.fix[0].citationKey).toBe('arxiv:2402.12345');
+  });
+});
+
 // ─── Image / graphicspath fixes (Batch B) ─────────────────────────────
 
 describe('getErrorHelp — add-graphicspath descriptor', () => {

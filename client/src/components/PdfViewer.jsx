@@ -182,35 +182,44 @@ function LogItem({ className, onClick, tag, file, line, message, help, onShowHel
         {file && <span className="pdf-log-file">{file}</span>}
         {line && <span className="pdf-log-line">line {line}</span>}
         <span className="pdf-log-message">{message}</span>
-        {help?.fix && onApplyFix && (
-          <button
-            className="pdf-log-fix-btn"
-            onClick={(/** @type {any} */ e) => {
-              e.stopPropagation();
-              // Enrich the fix payload with the error's line so
-              // line-sensitive fix kinds (e.g. swap-image-ext, which
-              // needs to find the \includegraphics token near the
-              // error site) don't have to be looked up separately.
-              onApplyFix({ ...help.fix, line });
-            }}
-            title={help.fix.label}
-          >
-            {/* Wrench icon -- one-click fix CTA. */}
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {/* One button per fix descriptor. A rule may return an array of
+            fixes (e.g. citation undefined -> add-to-bib OR search-zotero);
+            we normalise single-or-array and render each. The error's
+            `line` is enriched into every payload because line-sensitive
+            fix kinds (e.g. swap-image-ext, rename-env-end) need it and
+            line-insensitive fixes harmlessly ignore it. */}
+        {help?.fix && onApplyFix && (() => {
+          const fixes = Array.isArray(help.fix) ? help.fix : [help.fix];
+          return fixes.map((/** @type {any} */ f, /** @type {number} */ idx) => (
+            <button
+              key={`fix-${idx}`}
+              className="pdf-log-fix-btn"
+              onClick={(/** @type {any} */ e) => {
+                e.stopPropagation();
+                onApplyFix({ ...f, line });
+              }}
+              title={f.label}
             >
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-            </svg>
-            <span className="pdf-log-fix-btn-label">Fix</span>
-          </button>
-        )}
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+              </svg>
+              <span className="pdf-log-fix-btn-label">
+                {/* Short labels: "Fix" for the single-fix case, the rule's
+                    declared label (e.g. "Add to .bib") for multi-fix. */}
+                {fixes.length === 1 ? 'Fix' : f.label.replace(/^(Add|Search|Open|Swap|Change|Remove)\s+/i, '$1 ')}
+              </span>
+            </button>
+          ));
+        })()}
         {help && (
           <button
             className="pdf-log-help-btn"

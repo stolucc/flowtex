@@ -266,7 +266,8 @@ export default function ModalContainer({
       {ui.showZotero && (
         <Suspense fallback={null}>
           <ZoteroModal
-            onClose={() => ui.setShowZotero(false)}
+            onClose={() => { ui.setShowZotero(false); ui.setZoteroInitialSearch?.(''); }}
+            initialSearch={ui.zoteroInitialSearch || ''}
             bibFileExists={files.some((/** @type {any} */ f) => f.path.endsWith('.bib'))}
             existingBibKeys={(() => {
               const re = /@\w+\s*\{\s*([\w:.@/+-]+)/g;

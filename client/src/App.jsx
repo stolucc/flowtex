@@ -43,6 +43,8 @@ import {
   applyAddGraphicspath,
   applySwapImageExtension,
   findGraphicspathCandidate,
+  findBibFile,
+  appendCitationSkeleton,
 } from './utils/latexQuickFixes.js';
 
 import { useAuth, AuthProvider } from './contexts/AuthContext.jsx';
@@ -1760,6 +1762,62 @@ function AppInner() {
                       result.insertAt + result.insertLength,
                     );
                   });
+                  return;
+                }
+
+                if (fix.kind === 'open-bib-with-skeleton' && fix.citationKey) {
+                  // Find a .bib file in the project. Prefer one
+                  // referenced from main.tex.
+                  const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
+                  const mainContent =
+                    activeFile?.id === mainFile?.id
+                      ? (editorRef.current?.getContent() ?? mainFile?.content ?? '')
+                      : (mainFile?.content ?? '');
+                  const bibHit = findBibFile(files, mainContent);
+                  if (!bibHit) {
+                    showAlert(
+                      `No .bib file found in this project. Create one (e.g. references.bib) and reference it with \\addbibresource{references.bib}.`,
+                      { title: 'No .bib file' },
+                    );
+                    return;
+                  }
+                  const bibFile = files.find((/** @type {any} */ f) => f.path === bibHit.path);
+                  if (!bibFile) {
+                    showAlert(
+                      `Couldn't locate the .bib file (${bibHit.path}).`,
+                      { title: 'Apply fix failed' },
+                    );
+                    return;
+                  }
+                  withEditor(bibFile, (bibContent) => {
+                    const result = appendCitationSkeleton(bibContent, fix.citationKey);
+                    // The skeleton is always inserted (no "already
+                    // present" case -- the citation key was reported
+                    // undefined, so we're sure it's not already there).
+                    const snippet = result.newContent.slice(
+                      result.insertAt,
+                      result.insertAt + result.insertLength,
+                    );
+                    // Replace the WHOLE file content: the helper may
+                    // also have stripped trailing whitespace. To keep
+                    // the undo step single, we dispatch a replaceRange
+                    // spanning the entire doc.
+                    const docLen = bibContent.length;
+                    editorRef.current?.replaceRange(0, docLen, result.newContent);
+                    setTimeout(
+                      () => editorRef.current?.goToPosition(result.insertAt + result.insertLength),
+                      50,
+                    );
+                    void snippet;
+                  });
+                  return;
+                }
+
+                if (fix.kind === 'open-zotero-for-key' && fix.citationKey) {
+                  // Set the search hint, then open the modal. The
+                  // modal reads ui.zoteroInitialSearch on mount.
+                  ui.setZoteroInitialSearch(fix.citationKey);
+                  ui.setShowZotero(true);
                   return;
                 }
 

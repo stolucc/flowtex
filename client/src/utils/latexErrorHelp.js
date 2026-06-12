@@ -378,6 +378,36 @@ function buildSwapImageExtensionFix(m) {
   };
 }
 
+/**
+ * Build two fix descriptors for a citation-undefined error: one to
+ * append a skeleton entry to the project's .bib file, and one to
+ * open the Zotero modal pre-filtered by the missing key. The LogItem
+ * UI renders one button per descriptor; the orchestrator skips
+ * silently when the underlying resource isn't available (no .bib in
+ * the project for the first, Zotero not configured for the second).
+ *
+ * Returning an ARRAY here is the first use of the multi-fix shape;
+ * LogItem normalises single-or-array via Array.isArray check.
+ *
+ * @param {RegExpMatchArray} m
+ * @returns {Array<{ kind: string, citationKey: string, label: string }>}
+ */
+function buildCitationFix(m) {
+  const key = m[1];
+  return [
+    {
+      kind: 'open-bib-with-skeleton',
+      citationKey: key,
+      label: `Add "${key}" skeleton to .bib`,
+    },
+    {
+      kind: 'open-zotero-for-key',
+      citationKey: key,
+      label: `Search Zotero for "${key}"`,
+    },
+  ];
+}
+
 const ERROR_RULES = [
   // ── Missing packages / commands ────────────────────────────
   {
@@ -540,6 +570,7 @@ const ERROR_RULES = [
     suggestion: (/** @type {RegExpMatchArray} */ m) =>
       `The citation key "${m[1]}" was not found in your .bib file. Check spelling, ensure the .bib file is included with \\bibliography{} or \\addbibresource{}, and recompile twice.`,
     searchQuery: (/** @type {RegExpMatchArray} */ m) => `citation ${m[1]} undefined latex bibtex`,
+    fix: buildCitationFix,
     tips: [
       'Check the citation key in your .bib file for exact spelling',
       'Make sure \\bibliography{file} or \\addbibresource{file.bib} is present',
@@ -910,9 +941,14 @@ const ERROR_RULES = [
 /**
  * Match an error message against known LaTeX error patterns and return help info.
  *
- * The returned `fix` field, when present, is a descriptor the UI can
- * surface as a one-click "Apply fix" button. See latexQuickFixes.js
- * for the executor.
+ * The returned `fix` field can be:
+ *   - null, when the rule has no fix
+ *   - a single fix descriptor object, when there's exactly one fix
+ *   - an array of fix descriptors, when an error has multiple
+ *     plausible fixes (e.g. citation undefined -> add to .bib OR
+ *     search Zotero).
+ * LogItem normalises via Array.isArray and renders one button per
+ * descriptor.
  *
  * @param {string} message - Raw error or lint message
  * @returns {{
@@ -921,7 +957,7 @@ const ERROR_RULES = [
  *   tips: string[],
  *   example: string|null,
  *   searchUrl: string,
- *   fix: { kind: string, package?: string, label: string } | null
+ *   fix: { kind: string, [k: string]: any } | Array<{ kind: string, [k: string]: any }> | null
  * } | null}
  */
 export function getErrorHelp(message) {

@@ -18,6 +18,9 @@ import {
   findIncludegraphicsAtLine,
   buildIncludegraphicsRename,
   applySwapImageExtension,
+  findBibFile,
+  buildBibSkeleton,
+  appendCitationSkeleton,
 } from '../latexQuickFixes.js';
 
 describe('findInsertionPointForPackage', () => {
@@ -617,5 +620,108 @@ describe('applySwapImageExtension', () => {
     expect(r.changed).toBe(true);
     if (!r.changed) return;
     expect(r.insertedText).toContain('figs/diagram.pdf');
+  });
+});
+
+// ─── Citation fixes (Batch C) ─────────────────────────────────────────
+
+describe('findBibFile', () => {
+  it('returns the single .bib file when there is exactly one', () => {
+    const files = [{ path: 'main.tex' }, { path: 'refs.bib' }];
+    expect(findBibFile(files)).toEqual({ path: 'refs.bib' });
+  });
+
+  it('returns null when no .bib file is in the project', () => {
+    expect(findBibFile([{ path: 'main.tex' }])).toBeNull();
+  });
+
+  it('returns the bib file referenced by \\addbibresource in main', () => {
+    const files = [
+      { path: 'main.tex' },
+      { path: 'old.bib' },
+      { path: 'refs.bib' },
+    ];
+    const main = '\\documentclass{article}\n\\addbibresource{refs.bib}\n\\begin{document}';
+    expect(findBibFile(files, main)).toEqual({ path: 'refs.bib' });
+  });
+
+  it('returns the bib file referenced by \\bibliography{} (no .bib extension)', () => {
+    const files = [
+      { path: 'main.tex' },
+      { path: 'unrelated.bib' },
+      { path: 'mybib.bib' },
+    ];
+    const main = '\\bibliography{mybib}';
+    expect(findBibFile(files, main)).toEqual({ path: 'mybib.bib' });
+  });
+
+  it('falls back to the first .bib file when main does not reference any', () => {
+    const files = [
+      { path: 'main.tex' },
+      { path: 'a.bib' },
+      { path: 'b.bib' },
+    ];
+    const main = '\\documentclass{article}\n';
+    expect(findBibFile(files, main)).toEqual({ path: 'a.bib' });
+  });
+
+  it('handles nested-path .bib files', () => {
+    const files = [{ path: 'main.tex' }, { path: 'bib/refs.bib' }];
+    const main = '\\addbibresource{bib/refs.bib}';
+    expect(findBibFile(files, main)).toEqual({ path: 'bib/refs.bib' });
+  });
+});
+
+describe('buildBibSkeleton', () => {
+  it('produces a multi-line @article skeleton using the given key', () => {
+    const out = buildBibSkeleton('smith2020');
+    expect(out).toContain('@article{smith2020,');
+    expect(out).toContain('author  = {},');
+    expect(out).toContain('title   = {},');
+    expect(out).toContain('journal = {},');
+    expect(out).toContain('year    = {},');
+    expect(out.endsWith('}')).toBe(true);
+  });
+
+  it('escapes nothing -- the key is taken verbatim (LaTeX accepts any non-space)', () => {
+    // Defensive: keys can contain colons, dots, slashes (e.g.
+    // arXiv:2402.12345). The skeleton must not mangle them.
+    const out = buildBibSkeleton('arxiv:2402.12345');
+    expect(out).toContain('@article{arxiv:2402.12345,');
+  });
+});
+
+describe('appendCitationSkeleton', () => {
+  it('appends the skeleton with a blank-line separator and trailing newline', () => {
+    const existing = '@book{foo, title = {Foo}}';
+    const r = appendCitationSkeleton(existing, 'bar2021');
+    // Two newlines (blank line) between old and new content.
+    expect(r.newContent).toContain('}\n\n@article{bar2021,');
+    expect(r.newContent.endsWith('\n')).toBe(true);
+  });
+
+  it('handles an empty .bib file (no leading blank line in that case)', () => {
+    const r = appendCitationSkeleton('', 'foo');
+    expect(r.newContent.startsWith('@article{foo,')).toBe(true);
+    expect(r.newContent.endsWith('\n')).toBe(true);
+    expect(r.insertAt).toBe(0);
+  });
+
+  it('strips arbitrary trailing whitespace from the existing content before appending', () => {
+    // Existing file ends with three blank lines; the helper should
+    // normalise to a single separator instead of stacking newlines.
+    const existing = '@misc{x, note = {}}\n\n\n\n';
+    const r = appendCitationSkeleton(existing, 'y');
+    // After stripping trailing whitespace + adding the separator,
+    // exactly two newlines should sit between old `}` and `@article`.
+    expect(r.newContent.split('@article')[0]).toMatch(/\}\n\n$/);
+  });
+
+  it('insertAt points at the start of the inserted skeleton', () => {
+    const existing = '@book{a, title={A}}';
+    const r = appendCitationSkeleton(existing, 'b');
+    expect(r.newContent.slice(r.insertAt, r.insertAt + r.insertLength)).toBe(
+      buildBibSkeleton('b'),
+    );
   });
 });
