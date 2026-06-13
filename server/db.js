@@ -390,6 +390,21 @@ async function initSchema() {
     -- (e.g. 'cluster') should not require a migration to deploy.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS compile_location TEXT DEFAULT NULL;
 
+    -- Per-project at-rest encryption (opt-in; default off). When
+    -- encrypted is TRUE, files.content (+ history) holds
+    -- base64(IV||ciphertext||tag) instead of plaintext, and
+    -- encryption_meta carries everything needed to unwrap the DEK:
+    --   v, salt(base64), kdfParams{type,memoryCost,timeCost,parallelism},
+    --   wrappedDekPassphrase(base64), wrappedDekRecovery(base64),
+    --   passphraseHint(string|null).
+    -- The DEK itself is NEVER stored -- only the two wraps. Losing both
+    -- passphrase and recovery code = unrecoverable, by design.
+    -- encryption_migration_state supports resuming a crashed
+    -- bulk-encrypt (NULL = none in progress).
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS encrypted BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS encryption_meta JSONB DEFAULT NULL;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS encryption_migration_state JSONB DEFAULT NULL;
+
     CREATE TABLE IF NOT EXISTS files (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
