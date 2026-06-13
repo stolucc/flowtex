@@ -21,6 +21,7 @@ import {
 import latexDiff from '../utils/latexDiff.js';
 import { stripPendingDeletions, wrapPendingChangesAsMacros, injectTcMacros } from '../utils/tcMarks.js';
 import { stripPaths, safeMsg } from '../middleware/errorHandler.js';
+import { decryptRowsForRead } from '../services/projectContentCrypto.js';
 import path from 'path';
 import logger from '../logger.js';
 
@@ -191,6 +192,9 @@ router.post('/:projectId', async (req, res) => {
       'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
+    // Decrypt content for encrypted projects (423 if locked). No-op
+    // for plaintext projects.
+    await decryptRowsForRead(projectId, rawFiles);
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
@@ -275,6 +279,7 @@ router.get('/:projectId/compile-stream', async (req, res) => {
       'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
+    await decryptRowsForRead(projectId, rawFiles);
     const project = await db.get('SELECT main_file, tex_distribution, compiler FROM projects WHERE id = $1', [
       projectId,
     ]);
@@ -610,11 +615,16 @@ router.get('/:projectId/diff-stream', async (req, res) => {
       if (!clientDisconnected) res.end();
       return;
     }
+    // Decrypt the two compared files (encrypted projects). The pair is
+    // decrypted alongside the full file set below; do them here too so
+    // latexdiff sees plaintext.
+    await decryptRowsForRead(projectId, [oldFile, newFile]);
 
     const rawFiles = await db.all(
       'SELECT path, content, is_binary, binary_sha256, tc_marks FROM files WHERE project_id = $1',
       [projectId],
     );
+    await decryptRowsForRead(projectId, rawFiles);
     // Strip pending del ranges before sending to LaTeX (M2 model — the
     // doc keeps strikethrough chars; the compiler must see "Final" view).
     const files = rawFiles.map((/** @type {any} */ f) =>

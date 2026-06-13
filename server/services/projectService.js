@@ -43,6 +43,10 @@ import {
   assertFileCountUnderLimit,
   assertBlobBytesUnderLimitForProject,
 } from './quotas.js';
+import {
+  decryptRowsForRead,
+  encryptContentForStorage,
+} from './projectContentCrypto.js';
 
 const MAX_ZIP_ENTRIES = 500;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
@@ -1690,6 +1694,10 @@ export async function getProjectFiles(projectId) {
       ORDER BY path`,
     [projectId],
   );
+  // Per-project encryption: decrypt content rows when the project is
+  // encrypted (and unlocked). No-op for plaintext projects. Throws
+  // ProjectLockedError (status 423) when encrypted but locked.
+  await decryptRowsForRead(projectId, rows);
   // YJS-MIGRATION phase 5: resolve tc_mark anchors against the live
   // Y.Doc so the client sees CRDT-aware from / to instead of values
   // that may have drifted under concurrent edits since the row was
@@ -2026,15 +2034,24 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
     // re-seeds the Y.Doc from the latest text. Without this, a
     // refresh / non-yjs save would silently revert when a yjs client
     // re-connected and applied the stale persisted Y.Doc state.
+    // Encrypt content for storage when the project is encrypted
+    // (throws ProjectLockedError if encrypted-but-locked). Plaintext
+    // projects pass through unchanged. Done inside the tx so the
+    // encrypted-flag read is consistent with the write.
+    const storedContent = await encryptContentForStorage(
+      /** @type {string} */ (file.project_id),
+      /** @type {string} */ (content),
+      tx,
+    );
     if (marksJson !== null) {
       await tx.run(
         'UPDATE files SET content = $1, tc_marks = $2::jsonb, content_yjs = NULL, updated_at = NOW() WHERE id = $3',
-        [content, marksJson, file.id],
+        [storedContent, marksJson, file.id],
       );
     } else {
       await tx.run(
         'UPDATE files SET content = $1, content_yjs = NULL, updated_at = NOW() WHERE id = $2',
-        [content, file.id],
+        [storedContent, file.id],
       );
     }
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
