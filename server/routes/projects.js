@@ -16,6 +16,7 @@ import * as projectService from '../services/projectService.js';
 import * as encryptionService from '../services/encryptionService.js';
 import { isProjectUnlocked } from '../services/projectKeyCache.js';
 import { decryptRowsForRead } from '../services/projectContentCrypto.js';
+import { wipeCompileArtifacts } from '../compiler.js';
 import { statBlob, readBlobStream } from '../services/blobPersistor.js';
 import { loadFileBytes } from '../services/fileBytes.js';
 import { sendError } from '../middleware/errorHandler.js';
@@ -595,11 +596,19 @@ router.post('/:id/unlock', async (req, res) => {
   }
 });
 
-/** POST /api/projects/:id/lock -- Release one unlock reference (member). */
+/** POST /api/projects/:id/lock -- Release one unlock reference (member).
+ *  When the last reference drops (project fully locked), wipe the
+ *  cleartext compile artifacts left on disk by the last compile. */
 router.post('/:id/lock', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
-  encryptionService.lock(req.params.id);
-  res.json({ ok: true });
+  const fullyLocked = encryptionService.lock(req.params.id);
+  if (fullyLocked) {
+    // best-effort; don't block the response on disk IO
+    wipeCompileArtifacts(req.params.id).catch((err) =>
+      logger.warn({ err, projectId: req.params.id }, 'lock: artifact wipe failed'),
+    );
+  }
+  res.json({ ok: true, fullyLocked });
 });
 
 /** POST /api/projects/:id/rotate-passphrase -- Rotate passphrase (owner).
@@ -751,7 +760,14 @@ router.get('/files/:fileId/raw', async (req, res) => {
 /** GET /api/projects/:id/files -- List all files in a project. */
 router.get('/:id/files', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
-  res.json(await projectService.getProjectFiles(req.params.id));
+  try {
+    res.json(await projectService.getProjectFiles(req.params.id));
+  } catch (err) {
+    // ProjectLockedError carries status 423; sendError maps it so the
+    // client's api.js fires `project:locked` → unlock modal. Without
+    // this try/catch the async rejection would hang the request.
+    sendError(res, err);
+  }
 });
 
 /** POST /api/projects/:id/files -- Create a new text file in the project. */

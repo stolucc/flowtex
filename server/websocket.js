@@ -8,6 +8,7 @@ import signature from 'cookie-signature';
 import logger from './logger.js';
 import db from './db.js';
 import { UUID_RE, isProjectMember } from './middleware/auth.js';
+import { isProjectUnlocked } from './services/projectKeyCache.js';
 import { recordMentions } from './utils/mentions.js';
 import {
   acquireRoom as yjsAcquireRoom,
@@ -315,6 +316,18 @@ async function handleJoin(ws, msg, state) {
   ]);
   if (!member) {
     ws.send(JSON.stringify({ type: 'error', error: 'No access' }));
+    ws.close();
+    return;
+  }
+
+  // Gotcha #2: an encrypted-but-locked project must not stream content
+  // (changes / yjs deltas) over the socket. Membership alone isn't
+  // enough — require an unlocked DEK. The client's HTTP getProjectFiles
+  // already 423s and pops the unlock modal; refusing the WS join keeps
+  // the realtime channel consistent with that.
+  const encRow = await db.get('SELECT encrypted FROM projects WHERE id = $1', [state.projectId]);
+  if (encRow?.encrypted && !isProjectUnlocked(state.projectId)) {
+    ws.send(JSON.stringify({ type: 'error', error: 'locked', code: 423 }));
     ws.close();
     return;
   }

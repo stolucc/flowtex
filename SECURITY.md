@@ -462,6 +462,84 @@ The first-run setup flow explicitly mints the CSRF token + cookie after the boot
 
 `POST /api/projects/:id/copy` accepts `{ includeMembers: bool }`. With `includeMembers = true`, every non-caller member of the source is added to the new project at their original role. **This path requires editor or owner of the source** — a viewer can still clone the project for themselves but cannot rebroadcast it. Every member-addition through copy is audit-logged as `project_member_added_via_copy` so an admin can trace who pulled which user into which clone.
 
+## Per-project encryption (opt-in)
+
+A project owner can encrypt a project's text content at rest. Default
+is **off**; plaintext projects are unaffected.
+
+**What it protects:** database dumps, stolen backups, SQL-injection
+that exfiltrates `files.content`, and cloud-provider snapshot leaks.
+With encryption on, `files.content`, `file_versions.content`, and the
+gzipped `project_snapshots.data` hold `base64(IV||ciphertext||tag)`
+(AES-256-GCM) instead of plaintext.
+
+**What it does NOT protect:** a compromised server (host RCE) or a
+malicious operator. During and briefly after a compile, cleartext
+`.tex`/`.pdf`/`.aux`/… exist in `server/projects/<id>/` (inherent to
+"the server runs pdflatex"), and an unlocked project's DEK lives in
+server memory. Marketing/UX must say "protects the database, not the
+running filesystem." Helper-side (local) compile sidesteps this — the
+source never reaches the server.
+
+**Key hierarchy:**
+
+- **DEK** — 32 random bytes per project, encrypts content directly
+  (AES-256-GCM).
+- **KEK** — Argon2id(secret, per-project salt, tunable `kdfParams`),
+  wraps the DEK.
+- The DEK is wrapped **twice** — once under a passphrase KEK, once
+  under a one-time recovery-code KEK — so either secret unlocks it.
+  The DEK itself is never stored. **Lose both passphrase and recovery
+  code → the data is unrecoverable. There is no operator backdoor**
+  (by design; a backdoor would defeat the threat model).
+
+**Crypto module:** `server/utils/projectCrypto.js` (primitives, unit-
+tested for round-trip, wrong-secret rejection, GCM-tamper rejection).
+Distinct from `server/utils/crypto.js` (TOTP/GitHub-token key) — a
+fresh per-project salt, never the shared one.
+
+**Unlocked-key lifecycle:** `server/services/projectKeyCache.js` —
+process-local, refcounted, **zeroed on drop**, volatile across
+restarts. A restart drops every DEK; every encrypted-project route
+then returns **423 Locked** and the client re-prompts. Rate-limited
+unlock attempts (10 / 5 min per project+user) guard against passphrase
+guessing.
+
+**Access gating (all enforced server-side):**
+
+- `getProjectFiles`, `updateFileContent`, the three compile readers,
+  the diff route, and `/zip` decrypt on read / encrypt on write and
+  throw `ProjectLockedError` (423) when locked.
+- `GET /api/compile/:id/pdf` has an explicit unlock check — the
+  rendered PDF is derived from decrypted source, so a member must
+  unlock to fetch it (membership alone is insufficient).
+- The WebSocket `join` handler refuses an encrypted-but-locked project
+  (`error: locked, code 423`) — realtime content (changes / Y.js
+  deltas) is not streamed until unlocked.
+- The history diff endpoint decrypts snapshot content for display.
+
+**Y.js interaction:** the `content_yjs` CRDT column is a *plaintext*
+copy of the document. For encrypted projects Y.js is **force-disabled**
+client-side (`isYjsSyncEnabled({ encrypted: true })` → false), the
+project uses the legacy `changes` relay, and `enableEncryption` nulls
+every `content_yjs` so no plaintext CRDT survives in the DB.
+
+**Lock + artifact wipe:** `POST /api/projects/:id/lock` drops a DEK
+reference; when the last reference goes, `wipeCompileArtifacts` removes
+the cleartext source + generated outputs + rendered PDF from the
+project's on-disk dir (the blob store is left intact). An in-flight
+compile can still leak briefly — accepted.
+
+**Passphrase rotation** (`POST /:id/rotate-passphrase`) re-wraps the
+DEK under a fresh salt and **mints a new recovery code** (the old code
+can't be re-derived from its wrap). Requires the current passphrase or
+recovery code.
+
+**GitHub sync conflict:** pushing to GitHub means pushing cleartext
+(the point of git). Not yet auto-refused for encrypted projects —
+tracked as a follow-up; until then operators should treat a GitHub
+mirror of an encrypted project as unencrypted.
+
 ## Binary file storage
 
 Binary uploads (figures, PDFs, fonts, etc.) live on disk in a

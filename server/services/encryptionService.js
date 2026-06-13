@@ -113,7 +113,15 @@ export async function enableEncryption(projectId, passphrase, opts = {}) {
     );
     for (const f of files) {
       if (typeof f.content !== 'string' || f.content.length === 0) continue;
-      await tx.run('UPDATE files SET content = $1 WHERE id = $2', [encryptFileContent(f.content, dek), f.id]);
+      // Encrypt content AND null any persisted Y.js CRDT state: that
+      // binary holds a PLAINTEXT copy of the document and would defeat
+      // at-rest encryption. Encrypted projects use the legacy changes
+      // relay (yjs is force-disabled client-side), so content_yjs stays
+      // NULL going forward.
+      await tx.run(
+        'UPDATE files SET content = $1, content_yjs = NULL WHERE id = $2',
+        [encryptFileContent(f.content, dek), f.id],
+      );
     }
 
     const versions = await tx.all(

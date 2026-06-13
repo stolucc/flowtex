@@ -659,12 +659,22 @@ export default function ProjectSettingsModal({
                     </button>
                   </div>
                 )}
-                {isOwner && project?.encrypted && (
+                {project?.encrypted && (
                   <div className="settings-row settings-encryption-row">
                     <div>
                       <strong>Encryption</strong>
                       <p className="settings-hint">This project is encrypted. 🔒</p>
                     </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        onClose?.();
+                        window.dispatchEvent(new Event('flowtex:lock-project'));
+                      }}
+                    >
+                      Lock now
+                    </button>
                   </div>
                 )}
               </>

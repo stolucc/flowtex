@@ -26,9 +26,11 @@ import { createYjsBinding, isYjsSyncEnabled } from '../utils/yjsBinding.js';
  * @param {string} originId        per-tab origin tag (shared with the
  *                                 `changes` flow so a single tab can
  *                                 still filter all its own echoes)
+ * @param {boolean} [encrypted]    when true, force Y.js OFF (encrypted
+ *                                 projects use the legacy relay)
  */
-export default function useYjsSync(file, sendWs, originId) {
-  const enabled = useMemo(() => isYjsSyncEnabled(), []);
+export default function useYjsSync(file, sendWs, originId, encrypted = false) {
+  const enabled = useMemo(() => isYjsSyncEnabled({ encrypted }), [encrypted]);
   // Holding the binding in state (not a ref) so the consumer
   // re-renders once the extension is available — Editor.jsx needs
   // to know to re-init CodeMirror with the new extension.

@@ -290,7 +290,7 @@ function AppInner() {
   // Y.js binding for the active file. The hook is a no-op (returns
   // enabled=false, extension=null) when the flag is off, so the
   // legacy `changes` flow runs unchanged on default builds.
-  const yjs = useYjsSync(activeFile, sendWsMessage, wsOriginId);
+  const yjs = useYjsSync(activeFile, sendWsMessage, wsOriginId, !!project?.encrypted);
   const editorExtraExtensions = useMemo(
     () => (yjs.enabled && yjs.extension ? [yjs.extension] : []),
     [yjs.enabled, yjs.extension],
@@ -472,11 +472,22 @@ function AppInner() {
     const onEnable = () => {
       if (projectRef.current) setShowEnableEncryptModal(true);
     };
+    const onLockNow = async () => {
+      const p = projectRef.current;
+      if (!p) return;
+      try { await post(`/api/projects/${p.id}/lock`); } catch { /* ignore */ }
+      // Drop in-memory plaintext + force the unlock prompt for any
+      // further access.
+      setFiles([]);
+      setShowUnlockModal(true);
+    };
     window.addEventListener('project:locked', onLocked);
     window.addEventListener('flowtex:enable-encryption', onEnable);
+    window.addEventListener('flowtex:lock-project', onLockNow);
     return () => {
       window.removeEventListener('project:locked', onLocked);
       window.removeEventListener('flowtex:enable-encryption', onEnable);
+      window.removeEventListener('flowtex:lock-project', onLockNow);
     };
   }, []);
 

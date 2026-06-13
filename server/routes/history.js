@@ -5,6 +5,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import db from '../db.js';
 import { isProjectMember } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
+import { decryptContentForRead } from '../services/projectContentCrypto.js';
 
 const router = Router();
 
@@ -156,9 +157,18 @@ router.get('/snapshot/:snapshotId/file/:fileId', async (req, res) => {
   // showing two empty text columns and a misleading "no changes"
   // diff. Pre-F1 snapshots don't carry binary_sha256 at all and
   // surface as undefined here -- the client treats absent as text.
+  // Snapshot content is ciphertext for encrypted projects. Decrypt for
+  // display (throws 423 if the project is locked — client re-prompts).
+  // Binary rows carry empty content; decryptContentForRead no-ops on
+  // empty strings.
+  const pid = snap.meta.project_id;
+  const [currentContent, previousContent] = await Promise.all([
+    decryptContentForRead(pid, curFile?.content || ''),
+    decryptContentForRead(pid, prevFile?.content || ''),
+  ]);
   res.json({
-    currentContent: curFile?.content || '',
-    previousContent: prevFile?.content || '',
+    currentContent: currentContent || '',
+    previousContent: previousContent || '',
     currentIsBinary: !!curFile?.is_binary,
     previousIsBinary: !!prevFile?.is_binary,
     currentBinarySha256: curFile?.binary_sha256 || null,

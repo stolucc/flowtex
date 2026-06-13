@@ -1056,6 +1056,41 @@ function getFileExt(filePath) {
 }
 
 /**
+ * Wipe on-disk compile artifacts (generated files + rendered PDFs) for
+ * a project. Used when an encrypted project is locked: the cleartext
+ * .tex synced to disk during the last compile, plus the .pdf/.aux/.log
+ * derivatives, must not linger after the DEK is dropped. Leaves the
+ * _blobs/ store and any non-generated source alone (those are managed
+ * elsewhere); best-effort, never throws.
+ *
+ * @param {string} projectId
+ */
+export async function wipeCompileArtifacts(projectId) {
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  let entries;
+  try {
+    entries = await fsp.readdir(projectDir);
+  } catch {
+    return; // dir doesn't exist — nothing to wipe
+  }
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (entry === '_blobs') return; // never touch the blob store
+      const ext = getFileExt(entry);
+      const isGenerated = GENERATED_EXTS.has(ext) || ext === '.pdf' || /\.synctex\(busy\)$/i.test(entry);
+      // Also wipe the synced cleartext source (.tex / .bib / .sty etc.)
+      // — for an encrypted project these are the at-rest leak. Keep the
+      // directory itself.
+      const isSource = /\.(tex|bib|sty|cls|cls|bst|tikz|def|clo)$/i.test(entry);
+      if (!isGenerated && !isSource) return;
+      try {
+        await fsp.rm(path.join(projectDir, entry), { force: true, recursive: true });
+      } catch { /* best-effort */ }
+    }),
+  );
+}
+
+/**
  * Write project files to disk, skipping unchanged files and generated artifacts.
  * @param {string} projectId
  * @param {Array<{path: string, content?: string, is_binary?: boolean, binary_sha256?: string | null}>} files

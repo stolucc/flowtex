@@ -47,7 +47,13 @@ const FLAG_URL_PARAM = 'yjs';
  *   '0' / 'false' -> disabled
  *   anything else (incl. unset, '1', 'true') -> enabled
  */
-export function isYjsSyncEnabled() {
+/** @param {{ encrypted?: boolean }} [opts] */
+export function isYjsSyncEnabled(opts = {}) {
+  // Encrypted projects use the legacy `changes` relay, not Y.js: the
+  // Y.Doc CRDT state (content_yjs) is a plaintext copy of the document
+  // and would defeat at-rest encryption, and seeding a Y.Doc from the
+  // now-ciphertext files.content would corrupt the editor. Hard off.
+  if (opts && opts.encrypted) return false;
   try {
     if (typeof window !== 'undefined' && window.location?.search) {
       const params = new URLSearchParams(window.location.search);
