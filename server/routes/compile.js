@@ -22,6 +22,7 @@ import latexDiff from '../utils/latexDiff.js';
 import { stripPendingDeletions, wrapPendingChangesAsMacros, injectTcMacros } from '../utils/tcMarks.js';
 import { stripPaths, safeMsg } from '../middleware/errorHandler.js';
 import { decryptRowsForRead } from '../services/projectContentCrypto.js';
+import { isProjectUnlocked } from '../services/projectKeyCache.js';
 import path from 'path';
 import logger from '../logger.js';
 
@@ -337,6 +338,14 @@ router.post('/:projectId/stop', async (req, res) => {
 router.get('/:projectId/pdf', async (req, res) => {
   const { projectId } = req.params;
   if (!(await requireMembership(projectId, req.session.userId, res))) return;
+
+  // Gotcha #3: the rendered PDF is derived from the (decrypted) source.
+  // A member could otherwise fetch it without ever unlocking. Require
+  // an unlocked DEK for encrypted projects.
+  const encRow = await db.get('SELECT encrypted FROM projects WHERE id = $1', [projectId]);
+  if (encRow?.encrypted && !isProjectUnlocked(projectId)) {
+    return res.status(423).json({ error: 'Project is locked' });
+  }
 
   const project = await db.get('SELECT name, main_file FROM projects WHERE id = $1', [projectId]);
   const baseName = (project?.main_file || 'main.tex').replace(/\.tex$/, '');

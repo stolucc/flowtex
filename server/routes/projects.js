@@ -13,6 +13,9 @@ import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
 import { sendProjectInvitationEmail, sendUnregisteredInvitationEmail } from '../utils/email.js';
 import * as projectService from '../services/projectService.js';
+import * as encryptionService from '../services/encryptionService.js';
+import { isProjectUnlocked } from '../services/projectKeyCache.js';
+import { decryptRowsForRead } from '../services/projectContentCrypto.js';
 import { statBlob, readBlobStream } from '../services/blobPersistor.js';
 import { loadFileBytes } from '../services/fileBytes.js';
 import { sendError } from '../middleware/errorHandler.js';
@@ -532,6 +535,107 @@ router.delete('/:id/members/:userId', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Per-project encryption ───────────────────────────────────────────
+//
+// Simple in-process rate limiter for unlock attempts (passphrase
+// guessing guard). Keyed by project+user; 10 attempts / 5 min.
+const UNLOCK_ATTEMPTS = new Map();
+const UNLOCK_WINDOW_MS = 5 * 60 * 1000;
+const UNLOCK_MAX = 10;
+/** @param {string} key */
+function unlockRateOk(key) {
+  const now = Date.now();
+  const arr = (UNLOCK_ATTEMPTS.get(key) || []).filter((/** @type {number} */ t) => now - t < UNLOCK_WINDOW_MS);
+  if (arr.length >= UNLOCK_MAX) {
+    UNLOCK_ATTEMPTS.set(key, arr);
+    return false;
+  }
+  arr.push(now);
+  UNLOCK_ATTEMPTS.set(key, arr);
+  return true;
+}
+
+/** POST /api/projects/:id/encrypt -- Enable encryption (owner only).
+ *  Body: { passphrase, passphraseHint? }. Returns { recoveryCode } once. */
+router.post('/:id/encrypt', async (req, res) => {
+  if (!(await requireOwner(req, res))) return;
+  try {
+    const { passphrase, passphraseHint } = req.body || {};
+    const { recoveryCode } = await encryptionService.enableEncryption(
+      req.params.id,
+      passphrase,
+      { passphraseHint: passphraseHint ?? null },
+    );
+    await auditLog(req.session.userId, 'project_encryption_enabled', {
+      targetType: 'project',
+      targetId: req.params.id,
+      ip: req.ip,
+    });
+    res.json({ ok: true, recoveryCode });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** POST /api/projects/:id/unlock -- Unlock for this session (member).
+ *  Body: { secret } (passphrase OR recovery code). */
+router.post('/:id/unlock', async (req, res) => {
+  if (!(await requireMembership(req, res))) return;
+  const key = `${req.params.id}:${req.session.userId}`;
+  if (!unlockRateOk(key)) {
+    return res.status(429).json({ error: 'Too many unlock attempts. Try again in a few minutes.' });
+  }
+  try {
+    const { secret } = req.body || {};
+    const result = await encryptionService.unlockWithSecret(req.params.id, secret);
+    if (!result.ok) return res.status(401).json({ error: 'Incorrect passphrase or recovery code' });
+    res.json({ ok: true, viaRecovery: !!result.viaRecovery });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** POST /api/projects/:id/lock -- Release one unlock reference (member). */
+router.post('/:id/lock', async (req, res) => {
+  if (!(await requireMembership(req, res))) return;
+  encryptionService.lock(req.params.id);
+  res.json({ ok: true });
+});
+
+/** POST /api/projects/:id/rotate-passphrase -- Rotate passphrase (owner).
+ *  Body: { currentSecret, newPassphrase }. Returns a NEW { recoveryCode }. */
+router.post('/:id/rotate-passphrase', async (req, res) => {
+  if (!(await requireOwner(req, res))) return;
+  const key = `${req.params.id}:${req.session.userId}:rotate`;
+  if (!unlockRateOk(key)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  }
+  try {
+    const { currentSecret, newPassphrase } = req.body || {};
+    const { recoveryCode } = await encryptionService.rotatePassphrase(req.params.id, currentSecret, newPassphrase);
+    await auditLog(req.session.userId, 'project_passphrase_rotated', {
+      targetType: 'project',
+      targetId: req.params.id,
+      ip: req.ip,
+    });
+    res.json({ ok: true, recoveryCode });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** GET /api/projects/:id/encryption -- Status: { encrypted, unlocked, passphraseHint } (member). */
+router.get('/:id/encryption', async (req, res) => {
+  if (!(await requireMembership(req, res))) return;
+  const row = await db.get('SELECT encrypted, encryption_meta FROM projects WHERE id = $1', [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Project not found' });
+  res.json({
+    encrypted: !!row.encrypted,
+    unlocked: row.encrypted ? isProjectUnlocked(req.params.id) : true,
+    passphraseHint: row.encrypted ? (row.encryption_meta?.passphraseHint ?? null) : null,
+  });
+});
+
 /** GET /api/projects/:id/zip -- Download all project files as a ZIP archive. */
 router.get('/:id/zip', async (req, res) => {
   if (!(await requireMembership(req, res))) return;
@@ -541,6 +645,9 @@ router.get('/:id/zip', async (req, res) => {
     'SELECT path, content, is_binary, binary_sha256 FROM files WHERE project_id = $1',
     [req.params.id],
   );
+  // Decrypt text content for an encrypted (unlocked) project; 423 if
+  // locked. No-op for plaintext projects.
+  await decryptRowsForRead(req.params.id, files);
   const zipName = (project.name || 'project').replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
