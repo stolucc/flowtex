@@ -1426,18 +1426,7 @@ function AppInner() {
                   Connection lost — reconnecting. Edits stay local until it&apos;s back.
                 </div>
               )}
-              {activeGenFile ? (
-                <div className="generated-file-viewer">
-                  <div className="editor-header">
-                    <span className="editor-header-filename">{stripJobSuffix(activeGenFile.name)}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>generated file (read-only)</span>
-                    <button className="editor-header-btn" onClick={() => setActiveGenFile(null)} title="Close">
-                      <CloseIcon />
-                    </button>
-                  </div>
-                  <pre className="generated-file-content">{activeGenFile.content}</pre>
-                </div>
-              ) : activeFile?.is_binary ? (
+              {activeFile?.is_binary ? (
                 <Suspense fallback={null}>
                   <BinaryPreview file={activeFile} />
                 </Suspense>
@@ -1661,6 +1650,25 @@ function AppInner() {
                     onRejectAll={handleRejectAllChanges}
                   />
                 </>
+              )}
+              {/* Generated-file viewer (compile .log/.aux/etc). Rendered
+                  as an OVERLAY on top of the editor rather than replacing
+                  it — unmounting the editor to show a read-only log was
+                  destroying its in-memory document (esp. under Y.js,
+                  where the remounted editor re-inits empty), so closing
+                  the log left a blank editor. Overlaying keeps the
+                  editor mounted underneath. */}
+              {activeGenFile && (
+                <div className="generated-file-viewer generated-file-overlay">
+                  <div className="editor-header">
+                    <span className="editor-header-filename">{stripJobSuffix(activeGenFile.name)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>generated file (read-only)</span>
+                    <button className="editor-header-btn" onClick={() => setActiveGenFile(null)} title="Close">
+                      <CloseIcon />
+                    </button>
+                  </div>
+                  <pre className="generated-file-content">{activeGenFile.content}</pre>
+                </div>
               )}
             </div>
             {ui.layoutMode !== 'editor' && (

@@ -1422,6 +1422,16 @@ html {
   min-height: 0;
 }
 
+/* Overlay variant: covers the editor area (which stays mounted
+   underneath) so viewing a generated file doesn't destroy the live
+   editor document. The parent editor wrapper is position:relative. */
+.generated-file-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--bg-primary);
+}
+
 .generated-file-content {
   flex: 1;
   overflow: auto;
@@ -2737,6 +2747,9 @@ html {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  /* Anchor for .generated-file-overlay (read-only gen-file viewer that
+     covers the editor without unmounting it). */
+  position: relative;
 }
 
 .editor-header {
