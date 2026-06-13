@@ -231,6 +231,9 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
         // outcome to a server compile, so don't bounce — just surface.
         setCompileLog(result.error || 'Local compile failed');
         setConsoleOutput((prev) => prev + (result.log || '') + '\n' + (result.error || ''));
+        // Drop any stale PDF from a prior good build (same reasoning
+        // as the server done-handler failure branch).
+        setPdfUrl(null);
         setCompiling(false);
         return;
       }
@@ -279,6 +282,12 @@ export default function useCompilation(project, activeFile, handleSave, editorRe
             } else {
               setPdfUrlSmart(pdfUrlForMode);
             }
+          } else {
+            // Compile failed (e.g. "No output PDF file produced!"). Any
+            // PDF still showing is from a PRIOR good build and is now
+            // stale — drop it so the viewer shows the error state, not
+            // a document that no longer matches the source.
+            setPdfUrl(null);
           }
           evtSource.close();
           compileSourceRef.current = null;

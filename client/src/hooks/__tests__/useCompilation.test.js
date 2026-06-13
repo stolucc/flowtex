@@ -181,6 +181,37 @@ describe('useCompilation', () => {
     expect(result.current.compiling).toBe(false);
   });
 
+  it('clears a previously-good pdfUrl when a later compile fails (no stale PDF)', async () => {
+    const { result } = renderHook(() => useCompilation(project, activeFile, handleSave, editorRef));
+
+    // First compile succeeds -> pdfUrl set.
+    let p1;
+    act(() => { p1 = result.current.handleCompile(); });
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    act(() => {
+      MockEventSource.instances[0].listeners.done({
+        data: JSON.stringify({ success: true, log: 'ok' }),
+      });
+    });
+    await act(async () => { await p1; });
+    expect(result.current.pdfUrl).toMatch(/\/api\/compile\/p1\/pdf/);
+
+    // Second compile fails ("No output PDF file produced!") -> the
+    // stale PDF must be dropped.
+    let p2;
+    act(() => { p2 = result.current.handleCompile(); });
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+    act(() => {
+      MockEventSource.instances[1].listeners.done({
+        data: JSON.stringify({ success: false, log: '! LaTeX Error: ...\nNo output PDF file produced!' }),
+      });
+    });
+    await act(async () => { await p2; });
+
+    expect(result.current.pdfUrl).toBeNull();
+    expect(result.current.compileLog).toContain('No output PDF file produced!');
+  });
+
   it('handleCompile error sets compileLog to error message', async () => {
     const { result } = renderHook(() => useCompilation(project, activeFile, handleSave, editorRef));
 
