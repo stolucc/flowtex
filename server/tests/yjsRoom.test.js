@@ -115,6 +115,51 @@ describe('applyUpdate + encodeStateAsUpdate', () => {
   });
 });
 
+describe('data-loss guards', () => {
+  it('reseeds from content when persisted content_yjs decodes to EMPTY but content has text', async () => {
+    // Simulate a file damaged by a pre-guard empty snapshot: content_yjs
+    // is a real (non-zero) buffer that encodes an EMPTY Y.Doc, while the
+    // content column still holds the original text.
+    const emptyDoc = new Y.Doc();
+    const emptyBytes = Y.encodeStateAsUpdateV2(emptyDoc); // non-zero buffer, empty text
+    db.get.mockResolvedValueOnce({ content_yjs: Buffer.from(emptyBytes), content: '\\section{Recovered}' });
+
+    const room = await acquireRoom(P, F);
+    expect(room.ydoc.getText('content').toString()).toBe('\\section{Recovered}');
+    // Reseeded → dirty so the recovered text gets persisted back.
+    expect(room.dirty).toBe(true);
+  });
+
+  it('persistSnapshot REFUSES to overwrite non-empty content with an empty Y.Doc', async () => {
+    // Seed a room from content, then empty it (simulating a transient
+    // blank editor emitting a delete-all update), then let the snapshot
+    // debounce fire. The destructive UPDATE must NOT run.
+    db.get.mockResolvedValueOnce({ content_yjs: null, content: 'important text' });
+    await acquireRoom(P, F);
+    // Empty the room's Y.Doc.
+    const room = _peekRoom(P, F);
+    room.ydoc.getText('content').delete(0, room.ydoc.getText('content').length);
+    room.dirty = true;
+    // The guard re-reads current content to decide.
+    db.get.mockResolvedValueOnce({ content: 'important text' });
+
+    db.run.mockClear();
+    // scheduleSnapshot was armed by the delete? It wasn't (we mutated
+    // directly), so arm + fire the debounce manually.
+    room.snapshotTimer = null;
+    // Re-trigger via applyUpdate path would re-arm; simplest: advance
+    // timers after re-scheduling through a no-op update.
+    applyUpdate(P, F, Y.encodeStateAsUpdateV2(new Y.Doc())); // keeps it empty, re-arms timer + dirty
+    await vi.advanceTimersByTimeAsync(2500);
+
+    // No UPDATE wrote an empty content over the stored text.
+    const destructive = db.run.mock.calls.find(
+      ([sql, params]) => /UPDATE files SET content_yjs/.test(sql) && params[1] === '',
+    );
+    expect(destructive).toBeUndefined();
+  });
+});
+
 describe('releaseRoom snapshot semantics', () => {
   it('decrements refCount and only tears down on the last release', async () => {
     db.get.mockResolvedValueOnce({ content_yjs: null, content: '' });

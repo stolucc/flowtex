@@ -133,11 +133,25 @@ export async function acquireRoom(projectId, fileId) {
       [fileId, projectId],
     );
     if (!row) return null;
+    let loadedFromYjs = false;
     if (row.content_yjs && row.content_yjs.length > 0) {
       Y.applyUpdateV2(ydoc, new Uint8Array(row.content_yjs), 'persist-load');
-    } else if (typeof row.content === 'string' && row.content.length > 0) {
-      // First-ever acquisition: insert the saved plain text into the
-      // Y.Doc and mark dirty so the next snapshot writes content_yjs.
+      loadedFromYjs = true;
+    }
+    // Seed from plain `content` when there's no persisted Y.Doc OR when
+    // the persisted Y.Doc decodes to EMPTY but `content` still holds
+    // text. The latter recovers files damaged by a pre-guard empty
+    // snapshot (a transient blank editor that wrote an empty Y.Doc):
+    // content_yjs is a non-zero buffer encoding nothing, so without
+    // this the room would serve empty and the editor would stay blank.
+    const yjsEmpty = ydoc.getText('content').length === 0;
+    if (yjsEmpty && typeof row.content === 'string' && row.content.length > 0) {
+      if (loadedFromYjs) {
+        logger.warn(
+          { projectId, fileId },
+          'yjsRoom: persisted Y.Doc was empty but content column has text — reseeding from content (recovering prior blank)',
+        );
+      }
       const ytext = ydoc.getText('content');
       ydoc.transact(() => {
         ytext.insert(0, row.content);
@@ -296,6 +310,32 @@ async function persistSnapshot(room) {
   // Both columns end up consistent; the plain-text column lags the
   // Y.Doc by at most SNAPSHOT_DEBOUNCE_MS.
   const text = room.ydoc.getText('content').toString();
+
+  // Data-loss guard: refuse to overwrite a non-empty stored file with
+  // an EMPTY Y.Doc. A transient blank editor (e.g. a remount that
+  // re-seeds empty, or a client whose binding diffed against an empty
+  // doc and emitted a delete-all update) would otherwise wipe both
+  // columns and the content would be unrecoverable except via
+  // project_snapshots. A genuine "select-all + delete" is rare and the
+  // user can retype; silently losing a whole file is far worse. Skip
+  // the write and log loudly so it's visible.
+  if (text.length === 0) {
+    const cur = await db.get(
+      'SELECT content FROM files WHERE id = $1 AND project_id = $2',
+      [room.fileId, room.projectId],
+    );
+    if (cur && typeof cur.content === 'string' && cur.content.length > 0) {
+      logger.warn(
+        { projectId: room.projectId, fileId: room.fileId, storedLen: cur.content.length },
+        'yjsRoom: refusing to persist EMPTY Y.Doc over non-empty content (suspected transient blank); keeping stored content',
+      );
+      // Leave dirty=false so we don't spin retrying; the next real edit
+      // re-marks dirty and a legitimate non-empty state will persist.
+      room.dirty = false;
+      return;
+    }
+  }
+
   await db.run(
     'UPDATE files SET content_yjs = $1, content = $2, updated_at = NOW() WHERE id = $3 AND project_id = $4',
     [Buffer.from(bytes), text, room.fileId, room.projectId],
