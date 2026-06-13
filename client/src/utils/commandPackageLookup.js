@@ -145,9 +145,11 @@ export function parseLlmAnswer(raw) {
     .toLowerCase();
   if (!trimmed) return null;
   if (['unknown', 'none', 'n/a', 'na', 'null', 'no', 'undefined', '(none)'].includes(trimmed)) return null;
-  // Package names: ASCII letters, digits, hyphen. Anything else is
-  // suspicious LLM output (markdown, prose).
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(trimmed)) return null;
+  // Package names: must start with an ASCII letter; rest is letters,
+  // digits, hyphen. Real CTAN names start with a letter -- excluding
+  // leading digits filters out junk LLM output like "0" / "42" without
+  // losing any legitimate package.
+  if (!/^[a-z][a-z0-9-]*$/.test(trimmed)) return null;
   return trimmed;
 }
 

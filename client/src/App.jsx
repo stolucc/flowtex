@@ -1479,7 +1479,13 @@ function AppInner() {
                       // Used by the table builder's ⚠ button when a
                       // required package (booktabs, longtable, etc.)
                       // is missing from the preamble.
-                      if (!pkg) return;
+                      //
+                      // Defensive: gate on a strict CTAN-name shape so
+                      // a future caller that forwards untrusted input
+                      // can't inject a `}` (or worse) into the
+                      // \usepackage{...} brace and write arbitrary
+                      // LaTeX into the user's source.
+                      if (!pkg || !/^[a-zA-Z][a-zA-Z0-9-]*$/.test(pkg)) return;
                       const mainFile = files.find((/** @type {any} */ f) => f.path === mainFilePath);
                       if (!mainFile) {
                         showAlert(
