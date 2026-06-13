@@ -536,9 +536,11 @@ can't be re-derived from its wrap). Requires the current passphrase or
 recovery code.
 
 **GitHub sync conflict:** pushing to GitHub means pushing cleartext
-(the point of git). Not yet auto-refused for encrypted projects —
-tracked as a follow-up; until then operators should treat a GitHub
-mirror of an encrypted project as unencrypted.
+(the point of git). `pushProject` hard-refuses encrypted projects with
+409 — the check sits at the single service-level choke point so it
+covers both the manual push route and any auto-push driver. A future
+explicit per-project opt-in ("I understand my GitHub mirror is
+unencrypted") could relax this.
 
 ## Binary file storage
 

@@ -273,6 +273,20 @@ function sanitizeError(err) {
  *  @param {string} [message]
  */
 export async function pushProject(projectId, userId, message) {
+  // Refuse to push an encrypted project. A push writes the project's
+  // files to GitHub as cleartext (the point of git), which would
+  // silently defeat the at-rest encryption the user opted into. Hard
+  // refusal is the safe default; a future explicit per-project opt-in
+  // ("I understand my GitHub mirror is unencrypted") could relax this.
+  // Choke point covers both the manual route and any auto-push driver.
+  const encRow = await db.get('SELECT encrypted FROM projects WHERE id = $1', [projectId]);
+  if (encRow?.encrypted) {
+    throw Object.assign(
+      new Error('This project is encrypted; pushing to GitHub would store its contents unencrypted. Push is disabled for encrypted projects.'),
+      { status: 409 },
+    );
+  }
+
   const token = await getUserToken(userId);
   if (!token)
     throw Object.assign(new Error('No GitHub token configured. Add one in the GitHub sync settings.'), { status: 400 });
