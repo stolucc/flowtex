@@ -244,6 +244,8 @@
     "client/src/components/ZoteroModal.jsx",
     "client/src/components/admin/SamlConfig.jsx",
     "client/src/components/LatexErrorExplainModal.jsx",
+    "client/src/components/EnableEncryptionModal.jsx",
+    "client/src/components/ProjectUnlockModal.jsx",
     "client/src/utils/latexQuickFixes.js",
     "client/src/utils/fixAckMarks.js",
     "client/src/utils/commandPackageLookup.js",

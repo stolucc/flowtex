@@ -31,6 +31,8 @@ import { ChevronLeftIcon, CloseIcon, FileDocumentIcon, FolderIcon } from './comp
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
 const AccountSettingsModal = lazy(() => import('./components/AccountSettingsModal.jsx'));
+const ProjectUnlockModal = lazy(() => import('./components/ProjectUnlockModal.jsx'));
+const EnableEncryptionModal = lazy(() => import('./components/EnableEncryptionModal.jsx'));
 import { get, post, patch, upload } from './api.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
@@ -149,6 +151,9 @@ function AppInner() {
   const handleCompileRef = useRef(/** @type {(() => void) | null} */ (null));
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
   const [showAccountSettings, setShowAccountSettings] = useState(false);
+  // Per-project encryption UI state.
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showEnableEncryptModal, setShowEnableEncryptModal] = useState(false);
 
   // Once the user is authenticated, prefetch the still-lazy chunks the
   // user is likely to need shortly. Editor and PdfViewer always paint
@@ -180,6 +185,7 @@ function AppInner() {
     files,
     setFiles,
     filesLoaded,
+    reloadFiles,
     activeFile,
     setActiveFile,
     members,
@@ -455,6 +461,23 @@ function AppInner() {
     };
     window.addEventListener('flowtex:settings-changed', handler);
     return () => window.removeEventListener('flowtex:settings-changed', handler);
+  }, []);
+
+  // Encrypted-but-locked: api.js dispatches `project:locked` on any 423.
+  // Pop the unlock modal (only when a project is open).
+  useEffect(() => {
+    const onLocked = () => {
+      if (projectRef.current) setShowUnlockModal(true);
+    };
+    const onEnable = () => {
+      if (projectRef.current) setShowEnableEncryptModal(true);
+    };
+    window.addEventListener('project:locked', onLocked);
+    window.addEventListener('flowtex:enable-encryption', onEnable);
+    return () => {
+      window.removeEventListener('project:locked', onLocked);
+      window.removeEventListener('flowtex:enable-encryption', onEnable);
+    };
   }, []);
 
   // --- Effects that wire hooks together ---
@@ -922,6 +945,28 @@ function AppInner() {
             onClose={() => setShowAccountSettings(false)}
             onUpdate={setUser}
             onAccountDeleted={handleLogoutFull}
+          />
+        </Suspense>
+      )}
+      {showUnlockModal && project && (
+        <Suspense fallback={null}>
+          <ProjectUnlockModal
+            projectId={project.id}
+            onUnlocked={() => {
+              setShowUnlockModal(false);
+              reloadFiles();
+              handleCompileRef.current?.(); // refresh PDF now that we can read
+            }}
+            onCancel={() => { setShowUnlockModal(false); goBack(); }}
+          />
+        </Suspense>
+      )}
+      {showEnableEncryptModal && project && (
+        <Suspense fallback={null}>
+          <EnableEncryptionModal
+            projectId={project.id}
+            onClose={() => setShowEnableEncryptModal(false)}
+            onEnabled={() => reloadFiles()}
           />
         </Suspense>
       )}

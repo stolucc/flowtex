@@ -623,19 +623,51 @@ export default function ProjectSettingsModal({
             <h3 className="settings-content-title">{CATEGORIES.find((/** @type {any} */ c) => c.id === activeCategory)?.label}</h3>
 
             {activeCategory === 'project' && (
-              <ProjectSection
-                project={project}
-                files={files}
-                isOwner={isOwner}
-                name={name}
-                setName={setName}
-                mainFile={mainFile}
-                setMainFile={setMainFile}
-                snapshotInterval={snapshotInterval}
-                setSnapshotInterval={setSnapshotInterval}
-                groupFilesByType={groupFilesByType}
-                setGroupFilesByType={setGroupFilesByType}
-              />
+              <>
+                <ProjectSection
+                  project={project}
+                  files={files}
+                  isOwner={isOwner}
+                  name={name}
+                  setName={setName}
+                  mainFile={mainFile}
+                  setMainFile={setMainFile}
+                  snapshotInterval={snapshotInterval}
+                  setSnapshotInterval={setSnapshotInterval}
+                  groupFilesByType={groupFilesByType}
+                  setGroupFilesByType={setGroupFilesByType}
+                />
+                {isOwner && !project?.encrypted && (
+                  <div className="settings-row settings-encryption-row">
+                    <div>
+                      <strong>Encryption</strong>
+                      <p className="settings-hint">
+                        Encrypt this project&apos;s file contents at rest. Protects DB
+                        dumps / backups. Requires a passphrase; you get a one-time
+                        recovery code.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        onClose?.();
+                        window.dispatchEvent(new Event('flowtex:enable-encryption'));
+                      }}
+                    >
+                      Enable encryption…
+                    </button>
+                  </div>
+                )}
+                {isOwner && project?.encrypted && (
+                  <div className="settings-row settings-encryption-row">
+                    <div>
+                      <strong>Encryption</strong>
+                      <p className="settings-hint">This project is encrypted. 🔒</p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {activeCategory === 'editor' && (

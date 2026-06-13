@@ -29,6 +29,10 @@ export default function useProject(user) {
   // still []. Set false on every project change, true once setFiles
   // runs from the load effect.
   const [filesLoaded, setFilesLoaded] = useState(false);
+  // Bumping this re-runs the files-load effect without changing project
+  // identity — used after unlocking an encrypted project so the now-
+  // decryptable content gets re-fetched.
+  const [filesReloadKey, setFilesReloadKey] = useState(0);
   // Mirror of `files` for handleSave's cross-file baseVersion lookup —
   // keeping the read-only handle in a ref avoids cascading dep updates
   // through handleSave → handleCompile every time the user types.
@@ -158,7 +162,7 @@ export default function useProject(user) {
         }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, filesReloadKey]);
 
   // Load explicit empty folders for the project. Folders that contain files
   // already show up via the file tree's path-derived nodes; this list only
@@ -453,6 +457,7 @@ export default function useProject(user) {
     files,
     setFiles,
     filesLoaded,
+    reloadFiles: () => setFilesReloadKey((k) => k + 1),
     activeFile,
     setActiveFile,
     members,

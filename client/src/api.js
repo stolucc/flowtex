@@ -34,6 +34,12 @@ async function request(path, options = {}) {
     window.dispatchEvent(new Event('auth:expired'));
     throw new Error('Not authenticated');
   }
+  if (res.status === 423) {
+    // Encrypted project, locked. Surface a global event so the app can
+    // pop the unlock modal. The handler reads the current project from
+    // app state; the path is included for diagnostics.
+    window.dispatchEvent(new CustomEvent('project:locked', { detail: { path } }));
+  }
   return res;
 }
 
@@ -80,6 +86,12 @@ export async function upload(path, formData) {
   if (res.status === 401 && !path.startsWith('/api/auth/')) {
     window.dispatchEvent(new Event('auth:expired'));
     throw new Error('Not authenticated');
+  }
+  if (res.status === 423) {
+    // Encrypted project, locked. Surface a global event so the app can
+    // pop the unlock modal. The handler reads the current project from
+    // app state; the path is included for diagnostics.
+    window.dispatchEvent(new CustomEvent('project:locked', { detail: { path } }));
   }
   return res;
 }
