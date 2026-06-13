@@ -515,6 +515,10 @@ main.jsx
                  │    ├─ Zoom controls
                  │    ├─ Error / warning chips (icon + count, click to expand panel)
                  │    ├─ Lint / log panel (toggle)
+                 │    │    ├─ Per-error "Fix" button (one-click quick fixes)
+                 │    │    ├─ "Explain" button (streams helper-LLM explanation)
+                 │    │    └─ Cascade grouping (root + "+N follow-on" toggle)
+                 │    │       + stale fade on edited files
                  │    └─ Console output (toggle)
                  │
                  ├─ ChatPanel (resizable, toggleable, lazy chunk)
@@ -539,6 +543,7 @@ main.jsx
                       ├─ CompareFilesModal
                       ├─ BibEnrichModal (lazy)
                       ├─ ZoteroModal (lazy)
+                      ├─ LatexErrorExplainModal (lazy, floats over PDF)
                       ├─ WordCountModal
                       ├─ MfaSetupModal
                       ├─ Format-warning modal (themed alert replacement)
@@ -587,6 +592,18 @@ Visual mode is a togglable rendering layer over the existing CodeMirror editor �
 The source document is never modified — every visual effect is a decoration on top of the original text. Toggling visual mode off restores the raw `.tex` view immediately. The cite-hover and ref-hover tooltips suppress CM6's own `hoverTooltip` when the position is inside a visual-mode decoration so only the badge's body-mounted popup fires (avoids two competing tooltip systems).
 
 `VisualModeToolbar` (a sibling component overlaid on the editor when visual mode is on) reads the cursor's surrounding LaTeX context via `getCursorStyle` and exposes block / inline formatting controls (bold, italic, headings, lists, quote, citation insertion, color).
+
+### LaTeX error quick-fixes
+
+The PDF panel's diagnostic rows can offer one-click fixes. The pieces:
+
+- **`utils/latexErrorHelp.js`** — `getErrorHelp(message)` matches a compile/lint message against an ordered rule table and returns `{ title, suggestion, tips, searchUrl, fix }`. `fix` is a descriptor (or array of descriptors) the UI renders as a button. The command→package map is a curated static JSON (`data/commandPackages.json`, ~600 entries; `_`-prefixed keys are section comments stripped at load). `getCommandPackage` checks the static map first, then a dynamic map populated at runtime.
+- **`utils/latexQuickFixes.js`** — pure functions that compute the actual edit for each fix kind: `add-usepackage`, `remove-usepackage`, `rename-env-end`, `add-graphicspath`, `swap-image-ext`, `open-bib-with-skeleton`, plus the cascade-grouping (`groupCascadeErrors`) and stale-fade (`isErrorStale`) helpers and the AI-explain prompt builder. No React, no CodeMirror — trivially unit-testable.
+- **`utils/commandPackageLookup.js`** — resolves a command not in the static map: localStorage cache → paired-helper LLM (`/llm/complete`, answer parsed defensively). Caches hits (and misses) with a 30-day TTL.
+- **`hooks/useCommandPackageWarming.js`** — for each undefined-command error in the current log not already known, fires a background lookup and merges the result into the dynamic map so a Fix button appears on the next render.
+- **`utils/fixAckMarks.js`** — CodeMirror extension: after a fix dispatches an edit, the inserted range gets a glow decoration + a ✓ gutter marker (the acknowledgement). Cleared by clicking the ✓ or by the next compile.
+
+The orchestration (find main file, switch to it if needed, dispatch the edit, mark the ack) lives in `App.jsx`'s `onApplyQuickFix` handler. The same `onAddPackage` primitive is reused by the table builder's "⚠ → add package" button.
 
 ---
 

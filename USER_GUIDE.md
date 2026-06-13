@@ -122,6 +122,23 @@ Visual mode is purely visual — toggling it off restores the exact same source.
 - **Inverse sync** (PDF to editor): Double-click a location in the PDF — jumps the editor to the corresponding source line
 - **Errors / warnings**: Two icon chips at the top of the PDF panel — a red ⊗ and an amber ▲ — show the live count from the LaTeX log plus the linter. Click either to expand a panel listing each diagnostic with a clickable file/line reference. The icons turn muted when there are zero, and red/amber when there's something to look at.
 - **Console**: Toggle to see full compilation output
+- **Empty pane on failure**: If a compile fails outright ("No output PDF file produced!"), the viewer clears rather than leaving a stale PDF from the last good build — so what you see always matches the last successful compile.
+
+#### One-click fixes
+
+When an error has a known remedy, the diagnostic row shows a **Fix** button. Click it and FlowTex applies the change to your source (and highlights the edited line with a green glow + a ✓ in the gutter; click the ✓ to dismiss, or just recompile). Covered cases include:
+
+- **Undefined command / environment** (e.g. `\textcolor`, `\begin{align}`) → adds the required `\usepackage{...}` to your preamble. Coverage spans ~600 common commands plus a fallback that asks your paired helper's local LLM for anything not in the built-in map.
+- **Package not installed** (`File 'x.sty' not found`) → offers to remove the `\usepackage{x}` line so the document compiles without it.
+- **Mismatched environment** (`\begin{itemize}…\end{enumerate}`) → renames the `\end{...}` to match the `\begin`.
+- **Missing image** → adds a `\graphicspath{...}` when the file is found in another folder, or swaps the extension (e.g. `.svg`→`.pdf`) when a usable sibling exists.
+- **Undefined citation** → adds a skeleton entry to your `.bib`, or opens the Zotero importer pre-filtered to the missing key.
+
+#### Other panel conveniences
+
+- **Explain with AI**: For errors with no built-in fix, an **Explain** button (when your helper LLM is available) opens a floating panel that streams a plain-language cause + suggested fix.
+- **Cascade collapse**: A single mistake often produces a long tail of follow-on errors. The panel groups them — you see the root error and a "+N follow-on errors" toggle.
+- **Stale fade**: After you edit a file, its existing error rows fade (their line numbers are likely out of date) until you recompile.
 
 ### Comments Sidebar (Far Right)
 

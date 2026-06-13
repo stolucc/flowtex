@@ -30,9 +30,19 @@ client/src/
     latexParser.js — LaTeX AST parser (tables, environments)
     spellcheck.js  — Client-side spellcheck with Hunspell dictionaries
     latexLint.js   — LaTeX linting
+    latexErrorHelp.js — Maps compile/lint errors → help + one-click fix
+                        descriptors. command→package map in
+                        data/commandPackages.json (static, curated)
+    latexQuickFixes.js — Pure edit-computing functions for each fix kind
+                         (add/remove usepackage, graphicspath, image-ext
+                         swap, env rename, bib skeleton) + cascade group +
+                         stale-fade helpers
+    commandPackageLookup.js — Resolve unknown command→package: cache →
+                              helper LLM. Used by useCommandPackageWarming
+    fixAckMarks.js — CM extension: glow + ✓ gutter on a just-applied fix
     llmTasks.js    — Catalog of right-click LLM tasks (label/hint/needsTargetWords)
     helperBridge.js — Browser ↔ helper HTTP/SSE client (compile, /llm/status,
-                      streamLlmComplete, pair)
+                      streamLlmComplete, pair, clearHelperToken)
   styles/app.css   — All styles (CSS custom properties for theming)
 
 server/
@@ -75,6 +85,8 @@ scripts/
 - CSS uses custom properties defined in `:root` — use `var(--bg-primary)`, `var(--bg-surface)`, `var(--accent)`, etc.
 - Per-user resource caps (`services/quotas.js`): projects-per-user, files-per-project, blob-bytes-per-user. Caps are admin-tunable via Settings tab; runtime resolves the live value on every assertion. Caller pattern: pass `tx` into the assertion so the per-user / per-project advisory lock holds for the whole check + insert.
 - `PROJECTS_DIR` constant lives in `server/paths.js` (NOT `compiler.js`) to avoid a circular import via `blobStore.js`. Other modules import from `paths.js` directly; `compiler.js` re-exports it for back-compat.
+- LaTeX error quick-fixes: `getErrorHelp` (latexErrorHelp.js) returns a `fix` descriptor; PdfViewer renders a "Fix" button; `App.jsx`'s `onApplyQuickFix` dispatches the edit via the editor ref and marks an ack glow (`fixAckMarks.js`). Adding a fix kind = a `fix:` builder on a rule + a dispatch case in the handler. Command→package map is `client/src/data/commandPackages.json` (curated static; LLM fallback for misses).
+- Compile failure clears `pdfUrl` (useCompilation.js, both server + local paths) so a stale PDF from a prior good build never shows next to a "No output PDF file produced!" error.
 
 ## Building & Running
 

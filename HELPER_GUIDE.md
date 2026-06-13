@@ -53,6 +53,10 @@ Pairing tells your browser which helper to talk to and exchanges a bearer token.
 
 > The code is valid for 60 seconds and can be entered five times before the window closes (brute-force guard). If you miss the window, generate a new one.
 
+### Disconnect
+
+Click the **Helper** indicator in the editor toolbar to open its popover. When paired, it has a **Disconnect** action that drops the bearer token from this browser. The indicator flips back to "running but not paired" (or "not detected" if the helper isn't reachable), and the popover then shows the **Pair** / **Install** actions again so you can reconnect. Disconnect is per-browser and local-only — it doesn't stop the helper process.
+
 ---
 
 ## 3 · Use local compile

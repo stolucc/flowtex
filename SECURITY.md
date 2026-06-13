@@ -678,6 +678,22 @@ The path is `browser → helper (loopback) → Ollama (loopback) → helper
 → browser`. The FlowTex server is never in the LLM path — it neither
 proxies nor sees the selected text.
 
+Two additional features route through the same `custom` task and so
+inherit every boundary above:
+
+- **"Explain with AI"** on an unfixable compile error sends the error
+  text plus a small source-context snippet (±4 lines around the error)
+  to the helper LLM. Same loopback-only / server-never-sees-it
+  guarantee as the writing assistant.
+- **command→package lookup** sends just a bare command name (e.g.
+  `cref`) when a Fix-button candidate isn't in the static
+  `commandPackages.json` map. The reply is parsed defensively
+  (`parseLlmAnswer`: first token, lowercased, must match
+  `^[a-z][a-z0-9-]*$`, `unknown`/`none` → no result) so a hallucinated
+  or injected answer can't become anything but a plausible package
+  name — and that name is itself re-validated before it's written into
+  `\usepackage{...}`.
+
 ## Helper (Windows-specific hardening)
 
 The Go standard library's `os.Chmod(path, 0o600)` is a partial no-op
