@@ -75,8 +75,8 @@ function parseMeta(meta) {
  * @returns {Promise<{ recoveryCode: string }>}
  */
 export async function enableEncryption(projectId, passphrase, opts = {}) {
-  if (typeof passphrase !== 'string' || passphrase.length < 8) {
-    throw Object.assign(new Error('Passphrase must be at least 8 characters'), { status: 400 });
+  if (typeof passphrase !== 'string' || passphrase.length < 12) {
+    throw Object.assign(new Error('Passphrase must be at least 12 characters'), { status: 400 });
   }
   const proj = await db.get('SELECT encrypted FROM projects WHERE id = $1', [projectId]);
   if (!proj) throw Object.assign(new Error('Project not found'), { status: 404 });
@@ -238,8 +238,8 @@ export function lock(projectId) {
  * @param {string} newPassphrase
  */
 export async function rotatePassphrase(projectId, currentSecret, newPassphrase) {
-  if (typeof newPassphrase !== 'string' || newPassphrase.length < 8) {
-    throw Object.assign(new Error('Passphrase must be at least 8 characters'), { status: 400 });
+  if (typeof newPassphrase !== 'string' || newPassphrase.length < 12) {
+    throw Object.assign(new Error('Passphrase must be at least 12 characters'), { status: 400 });
   }
   const proj = await db.get('SELECT encrypted, encryption_meta FROM projects WHERE id = $1', [projectId]);
   if (!proj) throw Object.assign(new Error('Project not found'), { status: 404 });

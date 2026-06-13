@@ -19,7 +19,7 @@ describe('EnableEncryptionModal', () => {
     render(<EnableEncryptionModal projectId="p1" onClose={() => {}} />);
     fillEntry('short', 'short');
     fireEvent.click(screen.getByRole('button', { name: /enable encryption/i }));
-    await waitFor(() => expect(screen.getByText(/at least 8 characters/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/at least 12 characters/i)).toBeTruthy());
     expect(post).not.toHaveBeenCalled();
   });
 

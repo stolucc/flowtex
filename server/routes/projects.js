@@ -553,6 +553,16 @@ function unlockRateOk(key) {
   }
   arr.push(now);
   UNLOCK_ATTEMPTS.set(key, arr);
+  // Opportunistic prune: drop other buckets that have fully aged out so
+  // the Map doesn't grow unbounded with one entry per project+user ever
+  // seen. Cheap — only walks when this caller is active.
+  if (UNLOCK_ATTEMPTS.size > 256) {
+    for (const [k, stamps] of UNLOCK_ATTEMPTS) {
+      if (stamps.every((/** @type {number} */ t) => now - t >= UNLOCK_WINDOW_MS)) {
+        UNLOCK_ATTEMPTS.delete(k);
+      }
+    }
+  }
   return true;
 }
 

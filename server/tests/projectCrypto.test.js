@@ -226,3 +226,60 @@ describe('end-to-end: enable-encryption flow simulation', () => {
     expect(decryptFileContent(encrypted, dekFromRec)).toBe('\\documentclass{article}');
   });
 });
+
+// Each validation guard is two clauses joined by `||`. Test each clause
+// in isolation so a mutant that drops one (or flips the comparison)
+// can't hide behind the other still firing. These pin the
+// security-relevant guards: a too-short key or ciphertext must always
+// be rejected.
+describe('input-validation guards (per-clause)', () => {
+  const KEK = () => Buffer.alloc(32, 1);
+
+  it('deriveKEK: rejects non-string secret AND empty-string secret distinctly', async () => {
+    await expect(deriveKEK(/** @type {any} */ (123), generateSalt(), FAST_KDF)).rejects.toThrow();
+    await expect(deriveKEK('', generateSalt(), FAST_KDF)).rejects.toThrow();
+  });
+
+  it('deriveKEK: rejects non-buffer salt AND empty-buffer salt distinctly', async () => {
+    await expect(deriveKEK('x', /** @type {any} */ ('notbuf'), FAST_KDF)).rejects.toThrow();
+    await expect(deriveKEK('x', Buffer.alloc(0), FAST_KDF)).rejects.toThrow();
+  });
+
+  it('wrapDEK: rejects non-buffer dek AND wrong-length dek distinctly', () => {
+    expect(() => wrapDEK(/** @type {any} */ ('notbuf'), KEK())).toThrow();
+    expect(() => wrapDEK(Buffer.alloc(31), KEK())).toThrow();
+    expect(() => wrapDEK(Buffer.alloc(33), KEK())).toThrow();
+  });
+
+  it('wrapDEK: rejects non-buffer kek AND wrong-length kek distinctly', () => {
+    expect(() => wrapDEK(generateDEK(), /** @type {any} */ ('notbuf'))).toThrow();
+    expect(() => wrapDEK(generateDEK(), Buffer.alloc(31))).toThrow();
+  });
+
+  it('unwrapDEK: rejects non-string wrapped AND empty-string wrapped distinctly', () => {
+    expect(() => unwrapDEK(/** @type {any} */ (123), KEK())).toThrow();
+    expect(() => unwrapDEK('', KEK())).toThrow();
+  });
+
+  it('gcmDecrypt path: a ciphertext shorter than IV+tag is rejected (too short)', () => {
+    // 27 bytes < 12 (IV) + 16 (tag) = 28 minimum. Must throw, not
+    // read out of bounds.
+    const tooShort = Buffer.alloc(27).toString('base64');
+    expect(() => unwrapDEK(tooShort, KEK())).toThrow();
+    expect(() => decryptFileContent(tooShort, KEK())).toThrow();
+  });
+
+  it('gcmDecrypt path: exactly IV+tag with empty ciphertext still validates the tag', () => {
+    // 28 bytes (12 IV + 16 tag, zero ciphertext) is length-valid but
+    // the tag won't verify under a random key → throws.
+    const minLen = Buffer.alloc(28).toString('base64');
+    expect(() => unwrapDEK(minLen, KEK())).toThrow();
+  });
+
+  it('buffersEqual: false on non-buffer args AND on length mismatch distinctly', () => {
+    expect(buffersEqual(/** @type {any} */ ('a'), Buffer.alloc(1))).toBe(false);
+    expect(buffersEqual(Buffer.alloc(1), /** @type {any} */ ('b'))).toBe(false);
+    expect(buffersEqual(Buffer.alloc(1), Buffer.alloc(2))).toBe(false);
+    expect(buffersEqual(Buffer.from([5]), Buffer.from([5]))).toBe(true);
+  });
+});

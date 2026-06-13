@@ -27,7 +27,7 @@ export default function EnableEncryptionModal({ projectId, onClose, onEnabled })
   const submit = async (/** @type {React.FormEvent} */ e) => {
     e.preventDefault();
     setError('');
-    if (passphrase.length < 8) { setError('Passphrase must be at least 8 characters.'); return; }
+    if (passphrase.length < 12) { setError('Passphrase must be at least 12 characters.'); return; }
     if (passphrase !== confirm) { setError('Passphrases do not match.'); return; }
     setBusy(true);
     try {

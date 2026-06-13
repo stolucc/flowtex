@@ -37,15 +37,15 @@ describe('enableEncryption', () => {
 
   it('auto-unlocks for the enabling session (getProjectFiles returns plaintext)', async () => {
     await seedFile(project.id, 'main.tex', 'hello world');
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
     expect(isProjectUnlocked(project.id)).toBe(true);
     const files = await getProjectFiles(project.id);
     expect(files.find((f) => f.path === 'main.tex').content).toBe('hello world');
   });
 
   it('refuses to double-encrypt', async () => {
-    await enc.enableEncryption(project.id, 'pass1234');
-    await expect(enc.enableEncryption(project.id, 'pass1234')).rejects.toMatchObject({ status: 409 });
+    await enc.enableEncryption(project.id, 'passphrase123');
+    await expect(enc.enableEncryption(project.id, 'passphrase123')).rejects.toMatchObject({ status: 409 });
   });
 
   it('rejects a too-short passphrase', async () => {
@@ -56,7 +56,7 @@ describe('enableEncryption', () => {
 describe('lock / unlock', () => {
   it('locked project: getProjectFiles throws 423', async () => {
     await seedFile(project.id, 'main.tex', 'secret');
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
     // Drop the auto-unlock from enable.
     lockProject(project.id);
     expect(isProjectUnlocked(project.id)).toBe(false);
@@ -65,10 +65,10 @@ describe('lock / unlock', () => {
 
   it('unlock with correct passphrase restores reads', async () => {
     await seedFile(project.id, 'main.tex', 'secret body');
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
     lockProject(project.id);
 
-    const r = await enc.unlockWithSecret(project.id, 'pass1234');
+    const r = await enc.unlockWithSecret(project.id, 'passphrase123');
     expect(r.ok).toBe(true);
     const files = await getProjectFiles(project.id);
     expect(files.find((f) => f.path === 'main.tex').content).toBe('secret body');
@@ -76,7 +76,7 @@ describe('lock / unlock', () => {
 
   it('unlock with the recovery code works (viaRecovery=true)', async () => {
     await seedFile(project.id, 'main.tex', 'recover me');
-    const { recoveryCode } = await enc.enableEncryption(project.id, 'pass1234');
+    const { recoveryCode } = await enc.enableEncryption(project.id, 'passphrase123');
     lockProject(project.id);
 
     const r = await enc.unlockWithSecret(project.id, recoveryCode);
@@ -87,7 +87,7 @@ describe('lock / unlock', () => {
   });
 
   it('unlock with a wrong secret fails', async () => {
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
     lockProject(project.id);
     const r = await enc.unlockWithSecret(project.id, 'wrong passphrase');
     expect(r.ok).toBe(false);
@@ -98,7 +98,7 @@ describe('lock / unlock', () => {
 describe('saveFile under encryption', () => {
   it('a save while unlocked stores ciphertext and reads back as plaintext', async () => {
     const file = await seedFile(project.id, 'main.tex', 'original');
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
 
     await updateFileContent(file.id, 'edited content', owner.id, undefined, undefined);
 
@@ -111,7 +111,7 @@ describe('saveFile under encryption', () => {
 
   it('a save while locked throws 423 (no plaintext written)', async () => {
     const file = await seedFile(project.id, 'main.tex', 'original');
-    await enc.enableEncryption(project.id, 'pass1234');
+    await enc.enableEncryption(project.id, 'passphrase123');
     lockProject(project.id);
     await expect(
       updateFileContent(file.id, 'should not persist', owner.id, undefined, undefined),
@@ -122,16 +122,16 @@ describe('saveFile under encryption', () => {
 describe('rotatePassphrase', () => {
   it('rotates to a new passphrase + new recovery code; old passphrase stops working', async () => {
     await seedFile(project.id, 'main.tex', 'rotate test');
-    await enc.enableEncryption(project.id, 'oldpass12');
+    await enc.enableEncryption(project.id, 'oldpassphrase1');
 
-    const { recoveryCode: newRecovery } = await enc.rotatePassphrase(project.id, 'oldpass12', 'newpass34');
+    const { recoveryCode: newRecovery } = await enc.rotatePassphrase(project.id, 'oldpassphrase1', 'newpassphrase1');
     expect(newRecovery).toBeTruthy();
 
     clearAllProjectKeys();
     // Old passphrase no longer unlocks.
-    expect((await enc.unlockWithSecret(project.id, 'oldpass12')).ok).toBe(false);
+    expect((await enc.unlockWithSecret(project.id, 'oldpassphrase1')).ok).toBe(false);
     // New passphrase does.
-    expect((await enc.unlockWithSecret(project.id, 'newpass34')).ok).toBe(true);
+    expect((await enc.unlockWithSecret(project.id, 'newpassphrase1')).ok).toBe(true);
 
     clearAllProjectKeys();
     // New recovery code does too.
@@ -139,7 +139,7 @@ describe('rotatePassphrase', () => {
   });
 
   it('rejects rotation with a wrong current secret', async () => {
-    await enc.enableEncryption(project.id, 'oldpass12');
-    await expect(enc.rotatePassphrase(project.id, 'wrongpass', 'newpass34')).rejects.toMatchObject({ status: 401 });
+    await enc.enableEncryption(project.id, 'oldpassphrase1');
+    await expect(enc.rotatePassphrase(project.id, 'wrongpass', 'newpassphrase1')).rejects.toMatchObject({ status: 401 });
   });
 });

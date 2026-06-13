@@ -20,7 +20,10 @@
     "services/yjsRoomSelector.js",
     "services/readinessCheck.js",
     "services/metrics.js",
-    "services/yjsLocks.js"
+    "services/yjsLocks.js",
+    "utils/projectCrypto.js",
+    "services/projectKeyCache.js",
+    "services/projectContentCrypto.js"
   ],
   "vitest": {
     "configFile": "vitest.mutation.config.js"

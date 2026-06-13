@@ -41,6 +41,22 @@ describe('isYjsSyncEnabled (post-phase-6 default = ON)', () => {
     expect(() => isYjsSyncEnabled()).not.toThrow();
     expect(isYjsSyncEnabled()).toBe(true);
   });
+
+  it('is FORCED OFF for encrypted projects (content_yjs would be plaintext)', () => {
+    // Even with everything else pointing to ON, an encrypted project
+    // must not use Y.js — the CRDT column is plaintext and seeding from
+    // ciphertext content would corrupt the editor.
+    expect(isYjsSyncEnabled({ encrypted: true })).toBe(false);
+  });
+
+  it('encrypted=false leaves the normal ON default intact', () => {
+    expect(isYjsSyncEnabled({ encrypted: false })).toBe(true);
+  });
+
+  it('encrypted flag overrides even an explicit ?yjs=1 enable', () => {
+    globalThis.window.location = /** @type {any} */ ({ search: '?yjs=1' });
+    expect(isYjsSyncEnabled({ encrypted: true })).toBe(false);
+  });
 });
 
 describe('createYjsBinding base64 round-trip', () => {
