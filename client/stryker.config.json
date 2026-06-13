@@ -24,7 +24,10 @@
     "src/utils/mimeType.js",
     "src/utils/latexLogParser.js",
     "src/utils/latexOutline.js",
-    "src/utils/latexFigureGenerator.js"
+    "src/utils/latexFigureGenerator.js",
+    "src/utils/latexQuickFixes.js",
+    "src/utils/latexErrorHelp.js",
+    "src/utils/commandPackageLookup.js"
   ],
   "vitest": {
     "configFile": "vitest.mutation.config.js"

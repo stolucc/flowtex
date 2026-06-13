@@ -210,3 +210,99 @@ describe('lookupCommandPackage (orchestrator)', () => {
     expect(streamLlmComplete).not.toHaveBeenCalled();
   });
 });
+
+const STORAGE_KEY = 'flowtex-cmdpkg';
+const DAY = 24 * 60 * 60 * 1000;
+
+describe('localStorage cache load (loadCache)', () => {
+  it('reads a pre-existing localStorage blob into the cache on first read', () => {
+    const now = Date.now();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      cref: { package: 'cleveref', source: 'index', ts: now },
+    }));
+    _resetForTesting(); // force lazy reload on next readCache
+    const r = readCache('cref');
+    expect(r?.package).toBe('cleveref');
+  });
+
+  it('drops entries older than the 30-day TTL', () => {
+    const stale = Date.now() - (31 * DAY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      old: { package: 'x', source: 'index', ts: stale },
+      fresh: { package: 'y', source: 'index', ts: Date.now() },
+    }));
+    _resetForTesting();
+    expect(readCache('old')).toBeNull();
+    expect(readCache('fresh')?.package).toBe('y');
+  });
+
+  it('survives a corrupt (non-JSON) localStorage blob without throwing', () => {
+    localStorage.setItem(STORAGE_KEY, '{not valid json');
+    _resetForTesting();
+    expect(() => readCache('anything')).not.toThrow();
+    expect(readCache('anything')).toBeNull();
+  });
+
+  it('ignores a non-object JSON blob', () => {
+    localStorage.setItem(STORAGE_KEY, '"a string, not an object"');
+    _resetForTesting();
+    expect(readCache('anything')).toBeNull();
+  });
+
+  it('skips malformed per-entry values (missing ts, non-object)', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      noTs: { package: 'x', source: 'index' }, // no ts -> skipped
+      notObj: 'whoops',                          // non-object -> skipped
+      good: { package: 'z', source: 'index', ts: Date.now() },
+    }));
+    _resetForTesting();
+    expect(readCache('noTs')).toBeNull();
+    expect(readCache('notObj')).toBeNull();
+    expect(readCache('good')?.package).toBe('z');
+  });
+
+  it('defaults missing package/source fields when loading', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      partial: { ts: Date.now() }, // no package, no source
+    }));
+    _resetForTesting();
+    const r = readCache('partial');
+    expect(r).not.toBeNull();
+    expect(r?.package).toBeNull();
+  });
+});
+
+describe('localStorage writeback (debounced)', () => {
+  it('flushes cached entries to localStorage after the debounce window', () => {
+    vi.useFakeTimers();
+    try {
+      _resetForTesting();
+      localStorage.removeItem(STORAGE_KEY);
+      cacheLookup('newcmd', { package: 'newpkg', source: 'llm' });
+      // Not written synchronously (debounced 250ms).
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+      vi.advanceTimersByTime(300);
+      const blob = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      expect(blob.newcmd?.package).toBe('newpkg');
+      expect(blob.newcmd?.source).toBe('llm');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces multiple rapid writes into a single flush', () => {
+    vi.useFakeTimers();
+    try {
+      _resetForTesting();
+      localStorage.removeItem(STORAGE_KEY);
+      cacheLookup('a', { package: 'pa', source: 'index' });
+      cacheLookup('b', { package: 'pb', source: 'index' });
+      cacheLookup('c', { package: 'pc', source: 'index' });
+      vi.advanceTimersByTime(300);
+      const blob = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      expect(Object.keys(blob).sort()).toEqual(['a', 'b', 'c']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

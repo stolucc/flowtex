@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { getErrorHelp } from '../latexErrorHelp.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  getErrorHelp,
+  getCommandPackage,
+  setDynamicCommandPackages,
+  getDynamicCommandPackages,
+} from '../latexErrorHelp.js';
 
 describe('getErrorHelp', () => {
   it('returns null for empty / falsy input', () => {
@@ -318,5 +323,78 @@ describe('getErrorHelp — other rules dispatch correctly', () => {
 
   it('Overfull hbox -> Content too wide', () => {
     expect(getErrorHelp('Overfull \\hbox (12.34pt too wide) in paragraph at lines 100--105')?.title).toBe('Content too wide');
+  });
+});
+
+describe('getCommandPackage (static + dynamic dispatch)', () => {
+  afterEach(() => setDynamicCommandPackages(new Map()));
+
+  it('resolves a command from the static JSON map', () => {
+    expect(getCommandPackage('textcolor')).toBe('xcolor');
+    expect(getCommandPackage('hl')).toBe('soul');
+  });
+
+  it('returns null for a built-in (typo, not a missing package)', () => {
+    expect(getCommandPackage('section')).toBeNull();
+    expect(getCommandPackage('textbf')).toBeNull();
+  });
+
+  it('returns undefined for an unknown command (caller should kick off a lookup)', () => {
+    expect(getCommandPackage('totallymadeup')).toBeUndefined();
+  });
+
+  it('falls through to the dynamic map when the static map has no entry', () => {
+    setDynamicCommandPackages(new Map([['obscurecmd', 'obscurepkg']]));
+    expect(getCommandPackage('obscurecmd')).toBe('obscurepkg');
+  });
+
+  it('static map takes precedence over the dynamic map (no shadowing)', () => {
+    // Even if the dynamic map disagrees, a known static entry wins.
+    setDynamicCommandPackages(new Map([['textcolor', 'WRONG']]));
+    expect(getCommandPackage('textcolor')).toBe('xcolor');
+  });
+
+  it('dynamic map can carry a null (built-in) verdict', () => {
+    setDynamicCommandPackages(new Map([['dyncmd', null]]));
+    expect(getCommandPackage('dyncmd')).toBeNull();
+  });
+
+  it('getDynamicCommandPackages round-trips the set map', () => {
+    const m = new Map([['a', 'pkga']]);
+    setDynamicCommandPackages(m);
+    expect(getDynamicCommandPackages().get('a')).toBe('pkga');
+  });
+});
+
+describe('JSON key-filter (section markers / placeholders excluded)', () => {
+  it('does not expose underscore-prefixed section markers as commands', () => {
+    // `_amsmath`, `_xcolor`, etc. are comment keys in the JSON. They
+    // must never resolve as real commands.
+    expect(getCommandPackage('_amsmath')).toBeUndefined();
+    expect(getCommandPackage('_xcolor')).toBeUndefined();
+  });
+
+  it('does not expose _dup / _cmd / _kernel placeholder keys', () => {
+    expect(getCommandPackage('boldsymbol_dup')).toBeUndefined();
+    expect(getCommandPackage('_underscore_cmd')).toBeUndefined();
+    expect(getCommandPackage('boldsymbol_kernel')).toBeUndefined();
+  });
+
+  it('still resolves real commands that sit next to the markers', () => {
+    // sanity: the filter didn't nuke legitimate entries.
+    expect(getCommandPackage('binom')).toBe('amsmath');
+  });
+});
+
+describe('Undefined-command suggestion text branch', () => {
+  it('names the required package when known', () => {
+    const help = getErrorHelp('Undefined control sequence \\textcolor');
+    expect(help?.suggestion).toContain('\\usepackage{xcolor}');
+  });
+
+  it('falls back to generic text for an unknown command', () => {
+    const help = getErrorHelp('Undefined control sequence \\zzzznotacommand');
+    expect(help?.suggestion).toMatch(/not defined|Check for typos/i);
+    expect(help?.suggestion).not.toContain('\\usepackage{undefined}');
   });
 });
