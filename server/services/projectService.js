@@ -1946,7 +1946,67 @@ export async function createFile(projectId, filePath, content) {
   return { id, project_id: projectId, path: filePath, content: content || '' };
 }
 
+/** Create a project history snapshot if the configured interval has
+ *  elapsed since the last one. Shared by the content-write and the
+ *  Y.js marks-only save paths so version history keeps ticking
+ *  regardless of which path persisted the edit. Runs inside the
+ *  caller's transaction. Returns true if a snapshot was created.
+ *  @param {any} tx
+ *  @param {string} projectId
+ *  @param {string | null} authorId
+ *  @param {string} authorName
+ */
+async function createHistorySnapshotIfDue(tx, projectId, authorId, authorName) {
+  const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [projectId]);
+  const intervalSec = proj?.snapshot_interval_sec || 30;
+  const latestSnap = await tx.get(
+    'SELECT id, created_at FROM project_snapshots WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1',
+    [projectId],
+  );
+  const elapsed = latestSnap ? (Date.now() - new Date(latestSnap.created_at).getTime()) / 1000 : Infinity;
+  if (elapsed < intervalSec) return false;
+  const allFiles = await tx.all(
+    // Capture binary_sha256/size/mime so restore can reconstruct
+    // file rows that pass the F4 CHECK constraint and the /raw
+    // read invariant. Pre-F1 this dropped the bytes silently;
+    // post-F1 the on-disk blobs are kept alive by
+    // snapshot_blob_refs until the snapshot itself goes away.
+    'SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime FROM files WHERE project_id = $1 ORDER BY path',
+    [projectId],
+  );
+  const snapshotId = uuid();
+  const payload = JSON.stringify({ files: allFiles });
+  const compressed = gzipSync(Buffer.from(payload, 'utf8'));
+  await tx.run(
+    'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name) VALUES ($1, $2, $3, $4, $5)',
+    [snapshotId, projectId, compressed, authorId, authorName],
+  );
+  // Record one (snapshot_id, sha256) per UNIQUE binary blob this
+  // snapshot references. The AFTER INSERT trigger bumps
+  // project_blobs.ref_count atomically.
+  const uniqueBinaries = new Set(
+    allFiles
+      .filter((/** @type {any} */ f) => f.is_binary && f.binary_sha256)
+      .map((/** @type {{ binary_sha256: string }} */ f) => f.binary_sha256),
+  );
+  for (const sha of uniqueBinaries) {
+    await tx.run(
+      'INSERT INTO snapshot_blob_refs (snapshot_id, project_id, sha256) VALUES ($1, $2, $3)',
+      [snapshotId, projectId, sha],
+    );
+  }
+  return true;
+}
+
 /** Save file content (+ optional tcMarks sidecar) and create a snapshot if due.
+ *
+ *  When `content` is undefined the caller is a Y.js-managed editor: the
+ *  Y.Doc and its server-side snapshot (services/yjsRoom.js) are the
+ *  content source of truth, so this only persists the tc_marks sidecar
+ *  and MUST NOT touch `content` / `content_yjs` (nulling it would desync
+ *  live collaborators and trip the optimistic-version 409 storm). See
+ *  the marks-only branch below.
+ *
  *  @param {string} fileId
  *  @param {string | undefined} content
  *  @param {string | undefined} userId
@@ -1956,6 +2016,46 @@ export async function createFile(projectId, filePath, content) {
 export async function updateFileContent(fileId, content, userId, tcMarks, baseVersion) {
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
+
+  // ── Y.js marks-only save path ──────────────────────────────────────
+  // content === undefined => the doc text is owned by the Y.Doc room and
+  // its snapshot. Persist tc_marks only; never write content/content_yjs
+  // and never run the version-conflict check (the CRDT owns ordering).
+  if (content === undefined || content === null) {
+    const noMarks = !Array.isArray(tcMarks);
+    let marksToPersist = tcMarks;
+    if (!noMarks && tcMarks.length > 0) {
+      const room = peekRoom(file.project_id, file.id);
+      if (room && room.ydoc) {
+        marksToPersist = captureTcMarkAnchors(room.ydoc.getText('content'), tcMarks);
+      }
+    }
+    const marksJson = noMarks ? null : JSON.stringify(marksToPersist);
+    const marksUnchanged = marksJson === null || marksJson === JSON.stringify(file.tc_marks ?? []);
+
+    const user = userId ? await db.get('SELECT id, name FROM users WHERE id = $1', [userId]) : null;
+    const authorId = user?.id || null;
+    const authorName = user?.name || 'Unknown';
+    let newSnapshot = false;
+
+    await db.transaction(async (tx) => {
+      if (!marksUnchanged) {
+        await tx.run(
+          'UPDATE files SET tc_marks = $1::jsonb, updated_at = NOW() WHERE id = $2',
+          [marksJson, file.id],
+        );
+        await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
+      }
+      // History keeps ticking on the Y.js cadence even when marks didn't
+      // change (text changes are already persisted to files.content by the
+      // Y.Doc snapshot, so the captured rows reflect the latest edit).
+      newSnapshot = await createHistorySnapshotIfDue(tx, file.project_id, authorId, authorName);
+    });
+
+    const after = await db.get('SELECT updated_at FROM files WHERE id = $1', [file.id]);
+    const version = after?.updated_at instanceof Date ? after.updated_at.toISOString() : String(after?.updated_at);
+    return { ok: true, newSnapshot, projectId: file.project_id, authorName, version };
+  }
 
   // V2-3 conflict guard: caller may pass baseVersion = the file's
   // updated_at when it was loaded. If that doesn't match the current
@@ -2056,46 +2156,7 @@ export async function updateFileContent(fileId, content, userId, tcMarks, baseVe
     }
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [file.project_id]);
 
-    const proj = await tx.get('SELECT snapshot_interval_sec FROM projects WHERE id = $1', [file.project_id]);
-    const intervalSec = proj?.snapshot_interval_sec || 30;
-    const latestSnap = await tx.get(
-      'SELECT id, created_at FROM project_snapshots WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1',
-      [file.project_id],
-    );
-    const elapsed = latestSnap ? (Date.now() - new Date(latestSnap.created_at).getTime()) / 1000 : Infinity;
-    if (elapsed >= intervalSec) {
-      const allFiles = await tx.all(
-        // Capture binary_sha256/size/mime so restore can reconstruct
-        // file rows that pass the F4 CHECK constraint and the /raw
-        // read invariant. Pre-F1 this dropped the bytes silently;
-        // post-F1 the on-disk blobs are kept alive by
-        // snapshot_blob_refs until the snapshot itself goes away.
-        'SELECT id, path, content, is_binary, binary_sha256, binary_size, binary_mime FROM files WHERE project_id = $1 ORDER BY path',
-        [file.project_id],
-      );
-      const snapshotId = uuid();
-      const payload = JSON.stringify({ files: allFiles });
-      const compressed = gzipSync(Buffer.from(payload, 'utf8'));
-      await tx.run(
-        'INSERT INTO project_snapshots (id, project_id, data, author_id, author_name) VALUES ($1, $2, $3, $4, $5)',
-        [snapshotId, file.project_id, compressed, authorId, authorName],
-      );
-      // Record one (snapshot_id, sha256) per UNIQUE binary blob this
-      // snapshot references. The AFTER INSERT trigger bumps
-      // project_blobs.ref_count atomically.
-      const uniqueBinaries = new Set(
-        allFiles
-          .filter((/** @type {any} */ f) => f.is_binary && f.binary_sha256)
-          .map((/** @type {{ binary_sha256: string }} */ f) => f.binary_sha256),
-      );
-      for (const sha of uniqueBinaries) {
-        await tx.run(
-          'INSERT INTO snapshot_blob_refs (snapshot_id, project_id, sha256) VALUES ($1, $2, $3)',
-          [snapshotId, file.project_id, sha],
-        );
-      }
-      newSnapshot = true;
-    }
+    newSnapshot = await createHistorySnapshotIfDue(tx, file.project_id, authorId, authorName);
   });
 
   // Optimistic-UPDATE detected that another writer landed between our

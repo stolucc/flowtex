@@ -235,7 +235,7 @@ export default function useProject(user) {
   // File operations
   const handleSave = useCallback(
     /**
-     * @param {string} content
+     * @param {string | undefined} content  undefined = marks-only save (Y.js owns the text)
      * @param {string} [fileId]
      * @param {any[]} [tcMarks]
      */
@@ -246,6 +246,14 @@ export default function useProject(user) {
       // file switch and save the old file's text to the new file's id.
       const targetId = fileId ?? activeFile?.id;
       if (!targetId) return;
+      // Y.js-managed save: caller passes content === undefined because the
+      // Y.Doc + its server snapshot own the text. We persist only the
+      // tc_marks sidecar; omitting content tells the server not to write
+      // content/content_yjs and not to run the version-conflict check
+      // (which otherwise 409s every keystroke against the Y.Doc snapshot's
+      // version bump). Nothing to persist if there are no marks either.
+      const contentless = content === undefined;
+      if (contentless && !Array.isArray(tcMarks)) return;
       // V2-3: include baseVersion so the server can detect stale saves.
       // Look up the file's current updated_at from the in-memory list —
       // when the caller passes an explicit fileId that's NOT the active
@@ -255,9 +263,12 @@ export default function useProject(user) {
       const target = activeFile?.id === targetId ? activeFile : filesRef.current.find((/** @type {any} */ f) => f.id === targetId);
       const baseVersion = target?.updated_at ?? undefined;
       /** @type {any} */
-      const body = { content };
+      const body = {};
+      if (!contentless) body.content = content;
       if (Array.isArray(tcMarks)) body.tcMarks = tcMarks;
-      if (baseVersion) body.baseVersion = baseVersion;
+      // baseVersion conflict detection only applies to content writes; a
+      // marks-only save never conflicts (the Y.Doc owns content ordering).
+      if (!contentless && baseVersion) body.baseVersion = baseVersion;
       const res = await put(`/api/projects/files/${targetId}`, body);
       if (res.status === 409) {
         // Stale save — somebody else (or a different tab) wrote to this
@@ -278,7 +289,7 @@ export default function useProject(user) {
         f?.id === targetId
           ? {
               ...f,
-              content,
+              ...(contentless ? {} : { content }),
               ...(tcMarks ? { tc_marks: tcMarks } : {}),
               ...(nextVersion ? { updated_at: nextVersion } : {}),
             }
@@ -289,7 +300,7 @@ export default function useProject(user) {
           f.id === targetId
             ? {
                 ...f,
-                content,
+                ...(contentless ? {} : { content }),
                 ...(tcMarks ? { tc_marks: tcMarks } : {}),
                 ...(nextVersion ? { updated_at: nextVersion } : {}),
               }

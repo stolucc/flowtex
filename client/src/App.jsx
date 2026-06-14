@@ -296,6 +296,19 @@ function AppInner() {
     [yjs.enabled, yjs.extension],
   );
 
+  // When Y.js sync is on, the doc text is persisted by the server-side
+  // Y.Doc snapshot (services/yjsRoom.js) — NOT by this HTTP PUT. Sending
+  // content here would null content_yjs and 409 against the snapshot's
+  // version bump on every keystroke, and desync live collaborators. So
+  // drop content and persist only the tc_marks sidecar (which the Y.Doc
+  // snapshot does not carry). handleSave no-ops a marks-only call with
+  // no marks, so plain text edits make no HTTP request at all under Y.js.
+  const handleSaveYjsAware = useCallback(
+    (/** @type {string} */ content, /** @type {string} */ fileId, /** @type {any[]} */ tcMarks) =>
+      yjs.enabled ? handleSave(undefined, fileId, tcMarks) : handleSave(content, fileId, tcMarks),
+    [yjs.enabled, handleSave],
+  );
+
   const {
     mentions: notifMentions,
     unreadCount: notifUnread,
@@ -1476,7 +1489,7 @@ function AppInner() {
                     extraExtensions={editorExtraExtensions}
                     yjsEnabled={yjs.enabled}
                     yjsIsApplyingRemote={yjs.isApplyingRemote}
-                    onSave={handleSave}
+                    onSave={handleSaveYjsAware}
                     onLineChange={setEditorLine}
                     onChanges={(/** @type {any} */ changes, /** @type {any} */ tracked, /** @type {any} */ deletions, /** @type {any} */ tcMarks) => {
                       // Mark this file as "edited since last compile" so

@@ -111,6 +111,41 @@ describe('useProject', () => {
     expect(result.current.files[0].content).toBe('new content');
   });
 
+  it('handleSave with content=undefined (Y.js marks-only) omits content/baseVersion and keeps in-memory text', async () => {
+    put.mockResolvedValue({ json: () => Promise.resolve({}) });
+    const file = { id: 'f1', path: 'main.tex', content: 'canonical', updated_at: '2020-01-01T00:00:00.000Z' };
+    get.mockImplementation((url) => {
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([file]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' }));
+    await waitFor(() => expect(result.current.activeFile).not.toBeNull());
+
+    const marks = [{ id: 'm1', from: 0, to: 3, kind: 'insert' }];
+    await act(async () => { await result.current.handleSave(undefined, 'f1', marks); });
+
+    // No content, no baseVersion — only the tc_marks sidecar.
+    expect(put).toHaveBeenCalledWith('/api/projects/files/f1', { tcMarks: marks });
+    // In-memory content must survive a marks-only save (not wiped to undefined).
+    expect(result.current.activeFile.content).toBe('canonical');
+  });
+
+  it('handleSave with content=undefined and no marks makes NO request (plain Y.js edit)', async () => {
+    put.mockResolvedValue({ json: () => Promise.resolve({}) });
+    const file = { id: 'f1', path: 'main.tex', content: 'canonical' };
+    get.mockImplementation((url) => {
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([file]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' }));
+    await waitFor(() => expect(result.current.activeFile).not.toBeNull());
+
+    await act(async () => { await result.current.handleSave(undefined, 'f1'); });
+    expect(put).not.toHaveBeenCalled();
+  });
+
 it('handleSave honours explicit fileId so a debounced save targets the original file even after the active file changes', async () => {
     // Regression test for a data-loss bug: a 1-second debounced save
     // captured the editor's content but resolved the target file from

@@ -484,6 +484,50 @@ describe('updateFileContent — AA1 optimistic UPDATE conflict guard', () => {
   });
 });
 
+// Y.js-managed save: client sends content === undefined because the
+// Y.Doc + its server snapshot own the text. The HTTP path must persist
+// ONLY tc_marks and must NOT touch content / content_yjs or run the
+// version-conflict check (the old behaviour nulled content_yjs and
+// 409'd against the snapshot's version bump on every keystroke).
+describe('updateFileContent — Y.js marks-only save (content undefined)', () => {
+  it('preserves content + content_yjs and persists tc_marks only', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'canonical text');
+    // Simulate an active Y.Doc room having persisted its CRDT state.
+    await db.run('UPDATE files SET content_yjs = $1 WHERE id = $2', [Buffer.from([1, 2, 3, 4]), file.id]);
+
+    const marks = [{ id: 'm1', from: 0, to: 5, kind: 'insert' }];
+    const out = await updateFileContent(file.id, undefined, owner.id, marks, undefined);
+    expect(out.ok).toBe(true);
+    expect(out.conflict).toBeUndefined();
+
+    const after = await db.get('SELECT content, content_yjs, tc_marks FROM files WHERE id = $1', [file.id]);
+    // Text + CRDT state untouched — the Y.Doc snapshot owns them.
+    expect(after.content).toBe('canonical text');
+    expect(Buffer.isBuffer(after.content_yjs) ? Array.from(after.content_yjs) : after.content_yjs).toEqual([1, 2, 3, 4]);
+    // Marks persisted.
+    expect(after.tc_marks).toEqual(marks);
+  });
+
+  it('never conflicts, even when a stale baseVersion is supplied', async () => {
+    const owner = await seedUser();
+    const project = await seedProject(owner.id);
+    const file = await seedFile(project.id, 'main.tex', 'text');
+    await db.run('UPDATE files SET content_yjs = $1 WHERE id = $2', [Buffer.from([9, 9]), file.id]);
+
+    // A wildly stale baseVersion would 409 a content write; marks-only
+    // saves ignore it entirely.
+    const stale = new Date(0).toISOString();
+    const out = await updateFileContent(file.id, undefined, owner.id, [{ id: 'x', from: 1, to: 2, kind: 'insert' }], stale);
+    expect(out.ok).toBe(true);
+    expect(out.conflict).toBeUndefined();
+
+    const after = await db.get('SELECT content_yjs FROM files WHERE id = $1', [file.id]);
+    expect(Array.from(after.content_yjs)).toEqual([9, 9]);
+  });
+});
+
 // BB2 regression cover: history restore USED to run the "Before restore"
 // snapshot and the apply-target steps in SEPARATE transactions. An
 // autosave that landed between them was NOT in the snapshot AND was
