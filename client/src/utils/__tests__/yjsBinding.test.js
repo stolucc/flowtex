@@ -271,4 +271,39 @@ describe('createYjsBinding phase 2 — fallback seed (editor never stuck blank)'
     vi.advanceTimersByTime(1500);
     expect(b.ytext.toString()).toBe('');
   });
+
+  it('an EMPTY server state does NOT mark hydrated — a later real state still applies', () => {
+    // Guards the `if (ytext.length > 0) hydrated = true` line: an empty
+    // reply must not latch hydrated, or the real state would be ignored.
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'x', sendWs, originId: 'tab-A' });
+    b.applyRemoteState(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(new Y.Doc()))); // empty
+    expect(b.ytext.toString()).toBe('');
+    const server = new Y.Doc();
+    server.getText('content').insert(0, 'real state');
+    b.applyRemoteState(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(server)));
+    expect(b.ytext.toString()).toBe('real state');
+    b.destroy();
+  });
+
+  it('arms NO fallback when initialText is empty (nothing to seed)', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: '', sendWs, originId: 'tab-A' });
+    vi.advanceTimersByTime(1500);
+    expect(b.ytext.toString()).toBe('');
+    b.destroy();
+  });
+
+  it('a delta that fills the doc before the timer cancels the fallback seed (no doubling)', () => {
+    // Guards the `ytext.length > 0` arm of the fallback no-op check.
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'seed text', sendWs, originId: 'tab-A' });
+    const peer = new Y.Doc();
+    peer.getText('content').insert(0, 'live delta');
+    b.applyRemoteUpdate(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(peer)), 'tab-B');
+    expect(b.ytext.toString()).toBe('live delta');
+    vi.advanceTimersByTime(1500); // fallback must NOT append 'seed text'
+    expect(b.ytext.toString()).toBe('live delta');
+    b.destroy();
+  });
 });

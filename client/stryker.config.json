@@ -27,7 +27,8 @@
     "src/utils/latexFigureGenerator.js",
     "src/utils/latexQuickFixes.js",
     "src/utils/latexErrorHelp.js",
-    "src/utils/commandPackageLookup.js"
+    "src/utils/commandPackageLookup.js",
+    "src/utils/saveBody.js"
   ],
   "vitest": {
     "configFile": "vitest.mutation.config.js"
