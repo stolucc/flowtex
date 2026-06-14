@@ -70,33 +70,37 @@ describe('acquireLock', () => {
 });
 
 describe('renewLock', () => {
-  it('re-arms via SET XX with the same consumerId + EX ttl', async () => {
-    const redis = makeRedis({ setResult: 'OK' });
-    const ok = await renewLock(redis, 'worker-1', 'p1', 'f1');
+  it('renews via the Lua CAS script (only if we still own it)', async () => {
+    const redis = makeRedis({ evalResult: 1 });
+    const ok = await renewLock(redis, 'worker-1', 'p1', 'f1', 7);
     expect(ok).toBe(true);
-    const args = redis.set.mock.calls[0];
-    expect(args[0]).toBe('flowtex:yjs:lock:p1:f1');
-    expect(args[1]).toBe('worker-1');
-    // Pin all four SET arguments -- mutation testing surfaced that
-    // 'EX' at args[2] was unpinned (mutation to empty string survived).
-    expect(args[2]).toBe('EX');
-    expect(args[3]).toBe(_testing.DEFAULT_TTL_SEC);
-    expect(args[4]).toBe('XX');
+    const args = redis.eval.mock.calls[0];
+    expect(args[0]).toBe(_testing.RENEW_LUA);
+    expect(args[1]).toBe(1); // numkeys
+    expect(args[2]).toBe('flowtex:yjs:lock:p1:f1');
+    expect(args[3]).toBe('worker-1');
+    expect(args[4]).toBe('7'); // ttl passed as string to EVAL
   });
 
   it('throws when redis client is missing', async () => {
     await expect(renewLock(null, 'w', 'p', 'f')).rejects.toThrow(/redis client is required/);
   });
 
-  it('returns false when the key no longer exists (TTL expired)', async () => {
-    // SET XX returns null if the key isn't present.
-    const redis = makeRedis({ setResult: null });
-    expect(await renewLock(redis, 'worker-1', 'p1', 'f1')).toBe(false);
+  it('returns false when the lock vanished or is held by someone else (CAS returns 0)', async () => {
+    expect(await renewLock(makeRedis({ evalResult: 0 }), 'worker-1', 'p1', 'f1')).toBe(false);
   });
 
-  it('returns false (no throw) when Redis errors', async () => {
-    const redis = makeRedis({ throwOn: 'set' });
-    expect(await renewLock(redis, 'w', 'p', 'f')).toBe(false);
+  it('accepts both numeric and string CAS return shapes', async () => {
+    expect(await renewLock(makeRedis({ evalResult: 1 }), 'w', 'p', 'f')).toBe(true);
+    expect(await renewLock(makeRedis({ evalResult: '1' }), 'w', 'p', 'f')).toBe(true);
+  });
+
+  it('ASSUMES STILL HELD (returns true) on a transient Redis error', async () => {
+    // A blip must NOT make the worker drop + re-acquire the room (that
+    // re-seeds the Y.Doc and can fork live collaborators). The TTL has
+    // many seconds left; the next tick re-checks authoritatively.
+    const redis = makeRedis({ throwOn: 'eval' });
+    expect(await renewLock(redis, 'w', 'p', 'f')).toBe(true);
   });
 });
 
@@ -175,7 +179,12 @@ describe('two-worker contention scenario', () => {
         store.set(key, value);
         return 'OK';
       }),
-      eval: vi.fn(async (_script, _n, key, expected) => {
+      eval: vi.fn(async (script, _n, key, expected) => {
+        // RENEW_LUA: compare-and-SET (re-arm), do NOT delete.
+        if (script === _testing.RENEW_LUA) {
+          return store.get(key) === expected ? 1 : 0;
+        }
+        // RELEASE_LUA: compare-and-DEL.
         if (store.get(key) === expected) {
           store.delete(key);
           return 1;
@@ -203,5 +212,17 @@ describe('two-worker contention scenario', () => {
     await acquireLock(redis, 'worker-A', 'p1', 'f1');
     await releaseLock(redis, 'worker-A', 'p1', 'f1');
     expect(await renewLock(redis, 'worker-A', 'p1', 'f1')).toBe(false);
+  });
+
+  it('renew does NOT clobber another worker who owns the lock', async () => {
+    // The old `SET XX` renew would overwrite worker-A's value with
+    // worker-B's (XX only checks existence). The CAS renew must reject.
+    const redis = makeSharedRedis();
+    await acquireLock(redis, 'worker-A', 'p1', 'f1');
+    expect(await renewLock(redis, 'worker-B', 'p1', 'f1')).toBe(false);
+    // Ownership unchanged — A still holds it.
+    expect(redis._store.get('flowtex:yjs:lock:p1:f1')).toBe('worker-A');
+    // And A can still renew its own lock.
+    expect(await renewLock(redis, 'worker-A', 'p1', 'f1')).toBe(true);
   });
 });

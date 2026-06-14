@@ -33,6 +33,33 @@ import { backfillCommentAnchors, backfillTcMarkAnchors } from './yjsAnchors.js';
 import { recordYjsApply, setYjsRoomsActive, recordYjsSnapshotBytes } from './metrics.js';
 import { withSpan } from '../tracing.js';
 
+// Deterministic seed client-id. Seeding a Y.Doc from plain text must
+// produce a BYTE-IDENTICAL base wherever it happens — this worker, a
+// re-acquire after a lost lock, a fresh worker after restart, and the
+// client-side fallback in client/src/utils/yjsBinding.js. If each seed
+// used Y.Doc's random clientID, two seeds of the same text would be
+// incompatible CRDT states and a delta from one could not integrate on
+// the other (split-brain: edits "arrive" but never appear). Pinning the
+// SEED to a fixed clientID makes every seed of the same text converge.
+// Live edits still use each client's own random clientID — only the
+// seed is fixed. MUST match SEED_CLIENT_ID in client/src/utils/yjsBinding.js.
+const SEED_CLIENT_ID = 1;
+
+/**
+ * Apply a deterministic seed of `text` into `ydoc`. Same text in =>
+ * same bytes out, regardless of which process seeds.
+ * @param {Y.Doc} ydoc
+ * @param {string} text
+ */
+function applyDeterministicSeed(ydoc, text) {
+  const seed = new Y.Doc();
+  seed.clientID = SEED_CLIENT_ID;
+  seed.getText('content').insert(0, text);
+  const update = Y.encodeStateAsUpdateV2(seed);
+  seed.destroy();
+  Y.applyUpdateV2(ydoc, update, 'persist-seed');
+}
+
 const SNAPSHOT_DEBOUNCE_MS = 2000;
 // Defensive ceiling on the BYTEA we persist. A pathological Y.Doc
 // history shouldn't crash the persistence path; if we ever exceed
@@ -67,6 +94,7 @@ const keyFor = (projectId, fileId) => `${projectId}:${fileId}`;
 
 /** For tests / observability. */
 export function _peekRoomCount() { return rooms.size; }
+export const _testing = { SEED_CLIENT_ID, applyDeterministicSeed };
 /**
  * @param {string} projectId
  * @param {string} fileId
@@ -152,10 +180,7 @@ export async function acquireRoom(projectId, fileId) {
           'yjsRoom: persisted Y.Doc was empty but content column has text — reseeding from content (recovering prior blank)',
         );
       }
-      const ytext = ydoc.getText('content');
-      ydoc.transact(() => {
-        ytext.insert(0, row.content);
-      }, 'persist-seed');
+      applyDeterministicSeed(ydoc, row.content);
       dirty = true;
     }
   } catch (err) {

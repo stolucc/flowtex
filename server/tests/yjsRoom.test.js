@@ -17,6 +17,7 @@ import {
   _peekRoomCount,
   _peekRoom,
   _clearRooms,
+  _testing,
 } from '../services/yjsRoom.js';
 
 beforeEach(() => {
@@ -112,6 +113,41 @@ describe('applyUpdate + encodeStateAsUpdate', () => {
     applyUpdate(P, F, new Uint8Array([1, 2, 3]));
     expect(_peekRoomCount()).toBe(0);
     expect(encodeStateAsUpdate(P, F)).toBeNull();
+  });
+});
+
+describe('deterministic seed (split-brain fix)', () => {
+  it('seeds a room from content with a byte-identical base across re-creations', async () => {
+    // A room re-acquired after a lost lock / worker restart must produce
+    // the SAME canonical state for the same content, or late joiners and
+    // existing clients end up on incompatible bases and stop converging.
+    db.get.mockResolvedValue({ content_yjs: null, content: '\\documentclass{article}' });
+
+    await acquireRoom(P, F);
+    const stateA = encodeStateAsUpdate(P, F);
+    _clearRooms();
+
+    await acquireRoom(P, F);
+    const stateB = encodeStateAsUpdate(P, F);
+
+    expect(stateA).not.toBeNull();
+    expect(Array.from(stateA)).toEqual(Array.from(stateB));
+  });
+
+  it('matches the client fallback seed byte-for-byte (fixed clientID)', () => {
+    // The server seed and the client fallback (yjsBinding.js) must agree,
+    // so a tab served by the worker and a tab that fell back converge.
+    const serverDoc = new Y.Doc();
+    serverDoc.clientID = 999; // live id differs; only the seed is fixed
+    _testing.applyDeterministicSeed(serverDoc, 'shared text');
+
+    const clientLike = new Y.Doc();
+    clientLike.clientID = 1; // SEED_CLIENT_ID
+    clientLike.getText('content').insert(0, 'shared text');
+
+    expect(Array.from(Y.encodeStateAsUpdateV2(serverDoc)))
+      .toEqual(Array.from(Y.encodeStateAsUpdateV2(clientLike)));
+    expect(_testing.SEED_CLIENT_ID).toBe(1);
   });
 });
 

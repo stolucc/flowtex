@@ -68,6 +68,43 @@ describe('createYjsBinding base64 round-trip', () => {
   });
 });
 
+describe('deterministic seed — independent seeds converge (split-brain fix)', () => {
+  it('two docs seeded from the same text encode to byte-identical state', () => {
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+    // Different live clientIDs (as real tabs have)...
+    a.clientID = 111;
+    b.clientID = 222;
+    __testing.applyDeterministicSeed(a, '\\section{Hi}', 'seed');
+    __testing.applyDeterministicSeed(b, '\\section{Hi}', 'seed');
+    const sa = Y.encodeStateAsUpdateV2(a);
+    const sb = Y.encodeStateAsUpdateV2(b);
+    expect(Array.from(sa)).toEqual(Array.from(sb));
+  });
+
+  it('a delta from one independently-seeded binding integrates on the other (no split-brain)', () => {
+    // Simulates the deployed bug: server state never arrived, so BOTH
+    // tabs fell back to a local seed. With the old random-clientID seed
+    // the bases differed and deltas could not integrate. With the
+    // deterministic seed they converge.
+    const a = createYjsBinding({ fileId: 'f1', initialText: 'hello', sendWs: vi.fn(), originId: 'tab-A', sync: 'phase1' });
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'hello', sendWs: vi.fn(), originId: 'tab-B', sync: 'phase1' });
+
+    // Tab A types ' world' at the end; capture the broadcast delta.
+    let sent = null;
+    a.ydoc.on('updateV2', (u) => { sent = __testing.bytesToBase64(u); });
+    a.ytext.insert(5, ' world');
+    expect(sent).not.toBeNull();
+
+    // Tab B applies A's delta — it must integrate, not get dropped as pending.
+    b.applyRemoteUpdate(sent, 'tab-A');
+    expect(b.ytext.toString()).toBe('hello world');
+
+    a.destroy();
+    b.destroy();
+  });
+});
+
 describe('createYjsBinding sync semantics (phase 1 fallback)', () => {
   it('seeds the Y.Text from initialText without broadcasting', () => {
     const sendWs = vi.fn();

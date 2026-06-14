@@ -37,6 +37,33 @@ const FLAG_URL_PARAM = 'yjs';
 // that a broken one isn't a visible blank-editor stall.
 const FALLBACK_SEED_MS = 1500;
 
+// Deterministic seed client-id. A Y.Doc seeded from plain text must
+// produce a BYTE-IDENTICAL base everywhere it happens (this fallback,
+// the server room in server/services/yjsRoom.js, a worker re-acquire,
+// etc). With Y.Doc's random clientID, two seeds of the same text are
+// incompatible CRDT states, so a delta from one tab can't integrate on
+// another that seeded independently — edits "arrive" (WS) but never
+// appear (split-brain). Pinning the SEED to a fixed clientID makes all
+// seeds of the same text converge; live edits still use each tab's own
+// random clientID. MUST match SEED_CLIENT_ID in server/services/yjsRoom.js.
+const SEED_CLIENT_ID = 1;
+
+/**
+ * Apply a deterministic seed of `text` into `ydoc` under `origin`.
+ * Same text in => same bytes out, regardless of which peer seeds.
+ * @param {import('yjs').Doc} ydoc
+ * @param {string} text
+ * @param {symbol} origin
+ */
+function applyDeterministicSeed(ydoc, text, origin) {
+  const seed = new Y.Doc();
+  seed.clientID = SEED_CLIENT_ID;
+  seed.getText('content').insert(0, text);
+  const update = Y.encodeStateAsUpdateV2(seed);
+  seed.destroy();
+  Y.applyUpdateV2(ydoc, update, origin);
+}
+
 /**
  * Returns true iff Y.js sync is enabled in this browser.
  *
@@ -127,12 +154,8 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
     sync === 'phase1' &&
     typeof initialText === 'string' &&
     initialText.length > 0;
-  if (wantsLocalSeed) {
-    ydoc.transact(() => {
-      if (ytext.length === 0) {
-        ytext.insert(0, initialText);
-      }
-    }, SEED_ORIGIN);
+  if (wantsLocalSeed && ytext.length === 0) {
+    applyDeterministicSeed(ydoc, initialText, SEED_ORIGIN);
   }
 
   // Tag local edits with a per-binding origin object so we can tell
@@ -221,9 +244,10 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
     if (typeof initialText === 'string' && initialText.length > 0) {
       fallbackTimer = setTimeout(() => {
         if (hydrated || ytext.length > 0) { hydrated = true; return; }
-        ydoc.transact(() => {
-          ytext.insert(0, initialText);
-        }, SEED_ORIGIN); // SEED_ORIGIN updates are not rebroadcast
+        // Deterministic seed so two tabs that both fall back (server
+        // state never arrived) converge: identical bytes => a delta from
+        // one integrates on the other. SEED_ORIGIN updates aren't rebroadcast.
+        applyDeterministicSeed(ydoc, initialText, SEED_ORIGIN);
         hydrated = true;
       }, FALLBACK_SEED_MS);
     }
@@ -269,4 +293,4 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
-export const __testing = { bytesToBase64, base64ToBytes };
+export const __testing = { bytesToBase64, base64ToBytes, SEED_CLIENT_ID, applyDeterministicSeed };

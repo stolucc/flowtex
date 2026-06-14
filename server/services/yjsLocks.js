@@ -18,19 +18,16 @@
 //   Key       flowtex:yjs:lock:<projectId>:<fileId>
 //   Value     <consumerId>            (the lock-holder's identity)
 //   Acquire   SET key consumerId NX EX <ttlSec>
-//   Renew     SET key consumerId XX EX <ttlSec> (idempotent re-arm)
+//   Renew     EVAL ... (Lua compare-and-SET: re-arm only if we own it)
 //   Release   EVAL ... (Lua compare-and-DEL)
 //
-// Release is a Lua script (atomic CAS) so a worker that lost the
-// lock and then dies long enough for the lock to expire and be
-// re-acquired by another worker can't unlink the new owner's key on
-// its slow path back.
-//
-// Renewal is a "double-take" SET XX so the lock-holder rejects
-// stale TTL races: if our key was already deleted (e.g. the worker
-// went unresponsive long enough for TTL to expire), the XX rejects
-// and we know we lost ownership without ever DELing someone else's
-// lock.
+// Release and renew are both Lua compare-and-set scripts so they act
+// only on a lock THIS worker still owns. A plain `SET ... XX` for
+// renewal was a bug: XX checks key existence, not ownership, so it
+// would happily overwrite (steal) another worker's lock value and
+// re-arm its TTL -- the opposite of the intended "reject if not ours".
+
+import logger from '../logger.js';
 
 const LOCK_PREFIX = 'flowtex:yjs:lock';
 const DEFAULT_TTL_SEC = 30;
@@ -42,6 +39,20 @@ const DEFAULT_TTL_SEC = 30;
 const RELEASE_LUA = `
 if redis.call('get', KEYS[1]) == ARGV[1] then
   return redis.call('del', KEYS[1])
+else
+  return 0
+end
+`;
+
+// Lua: re-arm the TTL ONLY if we still own the lock (value matches).
+// Returns 1 on successful renew, 0 if the lock vanished (TTL expired)
+// or is held by someone else. Atomic compare-and-set so we never
+// clobber another worker's lock value -- a plain `SET ... XX` would
+// overwrite the holder's id because XX checks existence, not ownership.
+const RENEW_LUA = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+  return 1
 else
   return 0
 end
@@ -101,10 +112,17 @@ export async function acquireLock(redis, consumerId, projectId, fileId, ttlSec =
 export async function renewLock(redis, consumerId, projectId, fileId, ttlSec = DEFAULT_TTL_SEC) {
   if (!redis) throw new Error('yjsLocks.renewLock: redis client is required');
   try {
-    const r = await redis.set(lockKey(projectId, fileId), consumerId, 'EX', ttlSec, 'XX');
-    return r === 'OK';
-  } catch {
-    return false;
+    const r = await redis.eval(RENEW_LUA, 1, lockKey(projectId, fileId), consumerId, String(ttlSec));
+    return r === 1 || r === '1';
+  } catch (err) {
+    // A transient Redis error (blip, brief disconnect) is NOT proof we
+    // lost the lock -- the TTL almost certainly still has many seconds
+    // left (renew interval << TTL). Returning false here would make the
+    // worker needlessly DROP and re-acquire the room, which re-seeds its
+    // Y.Doc and can fork live collaborators. Assume we still hold it;
+    // the next renewal tick re-checks authoritatively.
+    logger.warn({ err, projectId, fileId }, 'yjsLocks.renewLock: transient error, assuming still held');
+    return true;
   }
 }
 
@@ -147,4 +165,4 @@ export async function peekLock(redis, projectId, fileId) {
   }
 }
 
-export const _testing = { LOCK_PREFIX, DEFAULT_TTL_SEC, RELEASE_LUA };
+export const _testing = { LOCK_PREFIX, DEFAULT_TTL_SEC, RELEASE_LUA, RENEW_LUA };
