@@ -30,6 +30,13 @@ import { yCollab } from 'y-codemirror.next';
 const FLAG_STORAGE_KEY = 'flowtex-yjs-sync';
 const FLAG_URL_PARAM = 'yjs';
 
+// Phase-2 grace period: if the server's `yjs-state` reply hasn't
+// hydrated the Y.Doc within this window, fall back to seeding from the
+// file's plain text so the editor is never stuck blank. Long enough
+// that a healthy round-trip (tens of ms) always wins; short enough
+// that a broken one isn't a visible blank-editor stall.
+const FALLBACK_SEED_MS = 1500;
+
 /**
  * Returns true iff Y.js sync is enabled in this browser.
  *
@@ -164,6 +171,13 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   let isApplyingRemoteCount = 0;
   const isApplyingRemote = () => isApplyingRemoteCount > 0;
 
+  // "Hydrated" = the Y.Doc has its content, whether from the server's
+  // canonical state or from the local fallback seed below. Once true,
+  // the OTHER path no-ops so we never double-insert the same text. The
+  // server seeds its room from the same files.content, so whichever
+  // source wins, the text is identical.
+  let hydrated = false;
+
   const applyRemoteUpdate = (/** @type {string} */ updateB64, /** @type {string} */ fromOriginId = '') => {
     if (typeof updateB64 !== 'string') return;
     if (fromOriginId && fromOriginId === originId) return; // self-echo
@@ -178,26 +192,45 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
   };
 
   // Apply the server's encodeStateAsUpdateV2 payload sent in reply to
-  // yjs-request-state. Same mechanism as applyRemoteUpdate (Y.js
-  // states ARE updates) but conceptually the "bring me up to date"
-  // hook rather than the per-keystroke one.
-  const applyRemoteState = (/** @type {string} */ stateB64) => applyRemoteUpdate(stateB64, '');
+  // yjs-request-state. If the local fallback already seeded the doc,
+  // ignore the (same-content) server state to avoid doubling.
+  const applyRemoteState = (/** @type {string} */ stateB64) => {
+    if (hydrated) return;
+    applyRemoteUpdate(stateB64, '');
+    if (ytext.length > 0) hydrated = true;
+  };
 
   // yCollab wires the Y.Text to a CodeMirror EditorView. Awareness is
   // optional (cursors of other users); phase 1 leaves it null because
   // FlowTex already has its own cursor-broadcast path.
   const extension = yCollab(ytext, /* awareness */ null);
 
+  let fallbackTimer = null;
   // Phase 2: ask the server for the canonical state immediately.
   // The server replies with `yjs-state` which the hook routes to
-  // applyRemoteState. Until that response arrives the Y.Doc is empty
-  // and the editor briefly shows no content -- the round-trip is
-  // typically tens of ms over loopback / local LAN.
+  // applyRemoteState. Until that response arrives the Y.Doc is empty.
+  //
+  // Resilience: if that reply never comes (stale/unreachable Y.js
+  // worker in cluster mode, dropped WS frame, etc.) the editor would
+  // sit BLANK forever even though the file's text is right here in
+  // initialText. After a short grace period, if the doc is still
+  // empty, seed it locally so the user always sees their content.
+  // hydrated-gating means a late server state won't double it.
   if (sync === 'phase2') {
     sendWs?.({ type: 'yjs-request-state', fileId });
+    if (typeof initialText === 'string' && initialText.length > 0) {
+      fallbackTimer = setTimeout(() => {
+        if (hydrated || ytext.length > 0) { hydrated = true; return; }
+        ydoc.transact(() => {
+          ytext.insert(0, initialText);
+        }, SEED_ORIGIN); // SEED_ORIGIN updates are not rebroadcast
+        hydrated = true;
+      }, FALLBACK_SEED_MS);
+    }
   }
 
   const destroy = () => {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
     ydoc.off('updateV2', updateHandler);
     ydoc.destroy();
   };

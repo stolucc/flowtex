@@ -175,3 +175,63 @@ describe('createYjsBinding sync semantics (phase 2 — server-canonical)', () =>
     b.destroy();
   });
 });
+
+describe('createYjsBinding phase 2 — fallback seed (editor never stuck blank)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('seeds from initialText if no yjs-state arrives within the grace window', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'fallback content', sendWs, originId: 'tab-A' });
+    // Still blank right after creation (waiting on the server).
+    expect(b.ytext.toString()).toBe('');
+    vi.advanceTimersByTime(1500);
+    // Grace window elapsed with no state → local seed shows content.
+    expect(b.ytext.toString()).toBe('fallback content');
+    b.destroy();
+  });
+
+  it('does NOT broadcast the fallback seed (server already has the same text)', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'fallback content', sendWs, originId: 'tab-A' });
+    sendWs.mockClear(); // drop the initial yjs-request-state
+    vi.advanceTimersByTime(1500);
+    const broadcasts = sendWs.mock.calls.map((c) => c[0]).filter((m) => m.type === 'yjs-update');
+    expect(broadcasts).toHaveLength(0);
+    b.destroy();
+  });
+
+  it('a server state that arrives in time wins and cancels the fallback', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'fallback content', sendWs, originId: 'tab-A' });
+    const server = new Y.Doc();
+    server.getText('content').insert(0, 'server canonical');
+    b.applyRemoteState(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(server)));
+    expect(b.ytext.toString()).toBe('server canonical');
+    // Fallback must NOT append on top after the window passes (no doubling).
+    vi.advanceTimersByTime(1500);
+    expect(b.ytext.toString()).toBe('server canonical');
+    b.destroy();
+  });
+
+  it('a server state that arrives LATE is ignored once the fallback seeded (no doubling)', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'fallback content', sendWs, originId: 'tab-A' });
+    vi.advanceTimersByTime(1500); // fallback seeds first
+    expect(b.ytext.toString()).toBe('fallback content');
+    // Same-content server state shows up late — must not duplicate text.
+    const server = new Y.Doc();
+    server.getText('content').insert(0, 'fallback content');
+    b.applyRemoteState(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(server)));
+    expect(b.ytext.toString()).toBe('fallback content');
+    b.destroy();
+  });
+
+  it('destroy clears the pending fallback timer (no seed after teardown)', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'fallback content', sendWs, originId: 'tab-A' });
+    b.destroy();
+    vi.advanceTimersByTime(1500);
+    expect(b.ytext.toString()).toBe('');
+  });
+});
