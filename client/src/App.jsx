@@ -291,9 +291,15 @@ function AppInner() {
   // enabled=false, extension=null) when the flag is off, so the
   // legacy `changes` flow runs unchanged on default builds.
   const yjs = useYjsSync(activeFile, sendWsMessage, wsOriginId, !!project?.encrypted);
+  // Hold the yCollab extension back until the binding has resolved its
+  // canonical content (yjs.hydrated). The editor mounts immediately from
+  // file.content (no flicker); once hydrated, attaching the extension runs
+  // Editor's reconcile-in-same-transaction so the doc matches the Y.Text
+  // without a duplicate insert. Attaching before hydration would let
+  // yCollab insert the canonical state ON TOP of file.content (doubling).
   const editorExtraExtensions = useMemo(
-    () => (yjs.enabled && yjs.extension ? [yjs.extension] : []),
-    [yjs.enabled, yjs.extension],
+    () => (yjs.enabled && yjs.hydrated && yjs.extension ? [yjs.extension] : []),
+    [yjs.enabled, yjs.hydrated, yjs.extension],
   );
 
   // When Y.js sync is on, the doc text is persisted by the server-side
@@ -1489,6 +1495,7 @@ function AppInner() {
                     extraExtensions={editorExtraExtensions}
                     yjsEnabled={yjs.enabled}
                     yjsIsApplyingRemote={yjs.isApplyingRemote}
+                    yjsGetText={yjs.getText}
                     onSave={handleSaveYjsAware}
                     onLineChange={setEditorLine}
                     onChanges={(/** @type {any} */ changes, /** @type {any} */ tracked, /** @type {any} */ deletions, /** @type {any} */ tcMarks) => {

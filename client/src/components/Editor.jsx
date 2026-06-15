@@ -185,6 +185,10 @@ const Editor = forwardRef(function Editor(
     // every project opens with the WHOLE file flagged as tracked-
     // change inserts. Wired into the TC filter's shouldSkip below.
     yjsIsApplyingRemote = null,
+    // Returns the binding's current Y.Text as a string (or null when no
+    // binding). Used by the extraExtensions effect to reconcile the doc to
+    // the canonical Y.Text when yCollab attaches.
+    yjsGetText = null,
   },
   ref,
 ) {
@@ -225,6 +229,11 @@ const Editor = forwardRef(function Editor(
   // the LATEST function reference at call time.
   const yjsIsApplyingRemoteRef = useRef(yjsIsApplyingRemote);
   yjsIsApplyingRemoteRef.current = yjsIsApplyingRemote;
+  // Stable ref to yjsGetText so the extraExtensions splice effect reads the
+  // latest binding without taking it as a dependency (which would re-run the
+  // splice on every render).
+  const yjsGetTextRef = useRef(yjsGetText);
+  yjsGetTextRef.current = yjsGetText;
   // Track current file id so any deferred operations pin to the file the user is
   // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
@@ -917,10 +926,14 @@ const Editor = forwardRef(function Editor(
     extraExtCompartment.current = new Compartment();
 
     const state = EditorState.create({
-      // Empty when Y.Doc sync is on so the y-codemirror binding's
-      // insert-from-yjs-state doesn't duplicate file.content. The
-      // Y.Doc populates the editor once yjs-state arrives over the WS.
-      doc: yjsEnabled ? '' : (file.content || ''),
+      // Mount from file.content (already loaded over HTTP) so the full
+      // document is present and measured at creation — no blank flicker and
+      // no stuck height map. Under Y.js the yCollab extension is held back
+      // until the binding hydrates (App gates editorExtraExtensions on
+      // yjs.hydrated); when it then attaches, the extraExtensions effect
+      // reconciles the doc to the canonical Y.Text in the SAME transaction,
+      // so there's no duplicate insert.
+      doc: file.content || '',
       extensions: [
         // Equivalent of `basicSetup` without `closeBrackets()` and its
         // keymap — auto-pairing { → {} or ' → '' interferes with LaTeX
@@ -1938,10 +1951,32 @@ const Editor = forwardRef(function Editor(
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    view.dispatch({
-      effects: extraExtCompartment.current.reconfigure(extraExtensions || []),
-    });
-  }, [extraExtensions]);
+    const exts = extraExtensions || [];
+    /** @type {any} */
+    const spec = { effects: extraExtCompartment.current.reconfigure(exts) };
+    // The editor mounted from file.content; yCollab is attached here once
+    // the binding has hydrated (App gates this on yjs.hydrated). Reconcile
+    // the doc to the canonical Y.Text IN THE SAME transaction that adds the
+    // plugin: the plugin is constructed after the change, so it sees
+    // doc === ytext (no duplicate insert, and its update() never runs for
+    // this tx → nothing pushed back into the Y.Text). Usually file.content
+    // already equals the Y.Text, so this is a no-op; it only rewrites when
+    // the server state is newer. tcMarkSkipAnnotation stops the
+    // tracked-changes filter from flagging the reconcile as user input.
+    let reconciled = false;
+    if (yjsEnabled && exts.length > 0 && typeof yjsGetTextRef.current === 'function') {
+      const ytextStr = yjsGetTextRef.current();
+      if (typeof ytextStr === 'string' && ytextStr !== view.state.doc.toString()) {
+        spec.changes = { from: 0, to: view.state.doc.length, insert: ytextStr };
+        spec.annotations = tcMarkSkipAnnotation.of(true);
+        reconciled = true;
+      }
+    }
+    view.dispatch(spec);
+    // Safety: if the reconcile grew the doc from (near) empty, force a
+    // measure so the height map reflects the new content.
+    if (reconciled) view.requestMeasure();
+  }, [extraExtensions, yjsEnabled]);
 
   useEffect(() => {
     const view = viewRef.current;

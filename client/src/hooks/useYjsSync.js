@@ -35,11 +35,21 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
   // re-renders once the extension is available — Editor.jsx needs
   // to know to re-init CodeMirror with the new extension.
   const [binding, setBinding] = useState(/** @type {any} */ (null));
+  // Flips true once the binding's initial content is resolved (canonical
+  // state applied, a peer update arrived, or the offline-fallback window
+  // elapsed). Editor.jsx waits for this before creating the CodeMirror
+  // view so the view is built WITH the full document — CodeMirror measures
+  // line heights at creation; a doc inserted async into an
+  // already-laid-out empty editor leaves the height map stuck at 1 line
+  // (the file is in the DOM but the viewport renders blank). Resets to
+  // false per file so each file re-waits for its own content.
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!enabled) { setBinding(null); return undefined; }
-    if (!file || !file.id) { setBinding(null); return undefined; }
+    if (!enabled) { setBinding(null); setHydrated(false); return undefined; }
+    if (!file || !file.id) { setBinding(null); setHydrated(false); return undefined; }
 
+    setHydrated(false);
     const b = createYjsBinding({
       fileId: file.id,
       initialText: typeof file.content === 'string' ? file.content : '',
@@ -51,15 +61,28 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
     });
     setBinding(b);
 
+    let hydrateDone = false;
+    const markHydrated = () => { if (!hydrateDone) { hydrateDone = true; setHydrated(true); } };
+    // Already seeded (phase-1 path / pre-populated) — ready immediately.
+    if (b.ytext.length > 0) markHydrated();
+    // Safety net: an empty file never gets a non-empty state and an
+    // offline client gets no server reply at all. Mount anyway once the
+    // fallback-seed window has comfortably passed so the editor never
+    // hangs unmounted.
+    const hydrateTimer = setTimeout(markHydrated, 1800);
+
     const onWsYjsUpdate = (/** @type {any} */ e) => {
       const msg = e?.detail;
       if (!msg || msg.fileId !== file.id) return;
       b.applyRemoteUpdate(msg.update, msg.originId);
+      if (b.ytext.length > 0) markHydrated();
     };
     const onWsYjsState = (/** @type {any} */ e) => {
       const msg = e?.detail;
       if (!msg || msg.fileId !== file.id) return;
       b.applyRemoteState(msg.state);
+      // Server resolved this file's state — mount even if it's empty.
+      markHydrated();
     };
     window.addEventListener('ws:yjs-update', onWsYjsUpdate);
     window.addEventListener('ws:yjs-state', onWsYjsState);
@@ -67,7 +90,9 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
     return () => {
       window.removeEventListener('ws:yjs-update', onWsYjsUpdate);
       window.removeEventListener('ws:yjs-state', onWsYjsState);
+      clearTimeout(hydrateTimer);
       setBinding(null);
+      setHydrated(false);
       b.destroy();
     };
     // file.content is deliberately NOT in the dep list — re-creating
@@ -85,5 +110,15 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
     // a remote-state apply (which would otherwise mark the entire
     // initial document as user-inserted tracked changes).
     isApplyingRemote: binding?.isApplyingRemote ?? null,
+    // Current canonical Y.Text as a string. Editor.jsx uses this to seed
+    // the editor doc in the SAME transaction that splices in the yCollab
+    // extension, so when the Y.Text is already populated (large docs whose
+    // yjs-state applied before the splice) the view matches it. y-codemirror
+    // only observes FUTURE Y.Text changes — it does not backfill an
+    // already-full Y.Text into an empty view, which left big files blank.
+    getText: binding ? () => binding.ytext.toString() : null,
+    // See the [hydrated] state above. Editor.jsx gates view creation on
+    // this so the CodeMirror view is built with the full document.
+    hydrated,
   };
 }
