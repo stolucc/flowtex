@@ -148,6 +148,15 @@ Client                     Server                      PostgreSQL
 
 ### 2. Real-Time Editing Flow
 
+Document text syncs via **Y.js (CRDT)** by default (see `YJS-MIGRATION.md`).
+On open, a client requests the canonical state for the file
+(`yjs-request-state` → `yjs-state`); thereafter each local edit ships a
+`yjs-update` delta that the server applies to the per-file `Y.Doc` room
+(`services/yjsRoom.js`, or the `yjsWorker.js` tier in cluster mode) and
+fans out to room peers. The legacy `changes` (OT) relay remains as a
+fallback (opt out of Y.js per-tab with `?yjs=0`) and still carries
+tracked-changes mark mutations. Cursors keep their own `cursor` frame.
+
 ```text
 User A (Editor)         Server (WebSocket)        User B (Editor)
   │                          │                          │
@@ -160,11 +169,13 @@ User A (Editor)         Server (WebSocket)        User B (Editor)
   │                          │  presence broadcast      │
   │ ◄─────────────────────   │ ─────────────────────►   │
   │                          │                          │
-  │  changes { fileId,       │                          │
-  │    changes, userId }     │                          │
-  │ ─────────────────────►   │                          │
-  │                          │  changes { fileId,       │
-  │                          │    changes, userId }     │
+  │  yjs-request-state {fileId}                          │
+  │ ─────────────────────►   │  yjs-state { fileId,     │
+  │ ◄─────────────────────   │    state } (canonical)   │
+  │                          │                          │
+  │  yjs-update { fileId,    │                          │
+  │    update, originId }    │  apply to Y.Doc room     │
+  │ ─────────────────────►   │  yjs-update { ... }      │
   │                          │ ─────────────────────►   │
   │                          │                          │
   │  cursor { head, anchor } │                          │
@@ -178,7 +189,9 @@ User A (Editor)         Server (WebSocket)        User B (Editor)
 | Direction | Type | Purpose |
 | --- | --- | --- |
 | in / out | `presence`, `join` | Room membership + user list |
-| in / out | `changes` | OT edits, stamped with per-tab `originId` to filter own echoes on reconnect |
+| in / out | `yjs-update` | Y.js (CRDT) document edits — the default sync path. Per-tab `originId` filters own echoes |
+| in → out | `yjs-request-state` / `yjs-state` | Late-joiner state catch-up: client asks for the canonical `Y.Doc` state, server replies with it |
+| in / out | `changes` | Legacy OT relay — fallback when Y.js is off (`?yjs=0`); under Y.js it carries only tracked-changes mark mutations. Per-tab `originId` |
 | in / out | `cursor` | Remote cursor positions (same `originId` filter) |
 | in / out | `comment`, `comment-reply`, `comment-resolve`, `comment-delete`, `comment-edit` | Comment thread events |
 | in | `comment-react`, `reply-react` | Toggle emoji reaction on a comment / reply |
@@ -229,7 +242,7 @@ The IPv6 fallback uses `express-rate-limit`'s `ipKeyGenerator` helper so co-tena
 
 **Bug-report flow.** `POST /api/bug-reports` (Help → Report a bug) accepts `{ description, features[] }`, resolves admin recipients via `SELECT email FROM users WHERE is_admin = TRUE` (falls back to `ADMIN_EMAIL` if empty), sends one email per recipient via `sendBugReportEmail` → `renderEmailLayout`, and writes one `bug_report_submitted` audit row whose `targetId` is `count:N` rather than the raw email list (PII hygiene + column-overflow safety on many-admin deployments).
 
-**File-identity invariant.** Both the OT change broadcaster and the tracked-change pipeline carry an explicit `fileId` end-to-end (capture-time on the editor side, payload field on the wire, `change.fileId` in the server-bound POST). Receivers — `applyRemoteChanges`, `applyRemoteTcDelete`, `useTrackedChanges.doHandleTrackChange`, and the WebSocket `tracked-change` handler — drop or shunt-aside any message whose `fileId` doesn't match the file currently being shown / edited. The same pattern protects the local debounced autosave: `handleSave` accepts an explicit `fileId`, and the editor's tcDelBuffer / tcInsertBuffer carry the file id captured at edit time so a buffer flush after a file switch can never write into the wrong file.
+**File-identity invariant.** Both the edit broadcaster (Y.js `yjs-update`, and the legacy OT `changes` fallback) and the tracked-change pipeline carry an explicit `fileId` end-to-end (capture-time on the editor side, payload field on the wire, `change.fileId` in the server-bound POST). Receivers — `applyRemoteChanges`, `applyRemoteTcDelete`, `useTrackedChanges.doHandleTrackChange`, and the WebSocket `tracked-change` handler — drop or shunt-aside any message whose `fileId` doesn't match the file currently being shown / edited. The same pattern protects the local debounced autosave: `handleSave` accepts an explicit `fileId`, and the editor's tcDelBuffer / tcInsertBuffer carry the file id captured at edit time so a buffer flush after a file switch can never write into the wrong file.
 
 ### Compile sandbox
 

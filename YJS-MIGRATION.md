@@ -83,10 +83,13 @@ Default behaviour is unchanged. The flag defaults OFF.
 - **Drift prevention**: every plain-text write to `files.content`
   also sets `content_yjs = NULL`, so the next yjs read re-seeds from
   the latest text. Applies to:
-  - `services/projectService.saveFile` (the editor save path)
   - `services/projectService` ZIP import + convert-to-binary
   - `routes/history.js` restore-from-snapshot
   - `utils/gitSync.js` GitHub pull
+  - **Not** the interactive editor save path under Y.js — see the
+    post-cutover note below. When Y.js owns a file the HTTP autosave
+    is marks-only and never writes `content` / `content_yjs`; the
+    Y.Doc snapshot keeps both columns current.
 - **Two-way coherence**: the Y.Doc snapshot path now also writes the
   current text view back to `files.content` so non-yjs read paths
   (HTTP file GET, compile, ZIP export, GitHub push, search) stay in
@@ -186,6 +189,50 @@ of how aggressively other users edit the surrounding text.
 - Bump a "minimum-client" version on the server so a very stale
   browser tab can't send `changes` that would produce a divergent
   document by bypassing the CRDT layer.
+
+## Post-cutover production hardening (2026-06)
+
+Four bugs surfaced once Y.js was the default in the flowtex.click
+cluster. All fixed; each shipped with tests.
+
+- **HTTP autosave fought the Y.Doc snapshot** (`fcbc478`). The editor
+  still ran the legacy debounced `PUT /files/:id` alongside Y.js. Every
+  keystroke the Y.Doc snapshot bumped `files.updated_at` and the PUT's
+  `baseVersion` went stale → **409 Conflict** on every save; worse, the
+  PUT set `content_yjs = NULL`, desyncing live collaborators. Fix: under
+  Y.js the autosave is **marks-only** — it omits `content` (and
+  `baseVersion`), persists only the `tc_marks` sidecar, and skips the
+  request entirely when there are no marks. The Y.Doc snapshot is the
+  sole writer of `content` / `content_yjs`. The send/skip decision is a
+  pure `client/src/utils/saveBody.js` (`buildFileSaveBody`); the server
+  branch is `updateFileContent(... content === undefined ...)`.
+
+- **Split-brain from non-deterministic seeds** (`6817dfb`). Edits
+  reached the other tab over the wire but never appeared. Each
+  independent seed of the same text used a random Y.Doc client-id, so
+  the bases were incompatible and a delta couldn't integrate. Fix:
+  seed with a fixed `SEED_CLIENT_ID` (identical in `yjsRoom.js` and
+  `yjsBinding.js`) so all seeds of the same text are byte-identical and
+  converge. See `project_flowtex_yjs_seed_invariant`.
+
+- **Worker lock churn** (`6817dfb`). `renewLock` used `SET XX`, which
+  re-armed/stole another worker's lock and dropped the room on a
+  transient Redis blip (re-seeding the Y.Doc, forking collaborators).
+  Fix: a Lua compare-and-set that renews only a lock we own and treats
+  a transient error as still-held. See YJS-WORKER-SPLIT.md.
+
+- **Large files opened blank** (`5ba2f4c`). The canonical state applied
+  fine, but the editor mounted with an EMPTY doc, CodeMirror measured
+  line heights while empty, and yCollab then filled the doc via an async
+  transaction that CodeMirror never re-measured — the text was in the
+  DOM but the viewport painted blank (only large files; small ones sit
+  near the top). Fix: mount the editor straight from `file.content`
+  (full doc measured at creation, no blank, no flicker), hold the
+  yCollab extension back until the binding hydrates (`useYjsSync` exposes
+  `hydrated`; `App` gates `editorExtraExtensions` on it), then attach
+  yCollab and reconcile the doc to the canonical Y.Text in the SAME
+  transaction (no duplicate insert). See
+  `project_flowtex_yjs_editor_mount`.
 
 ## Risks and decisions
 

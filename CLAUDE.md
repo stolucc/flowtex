@@ -87,6 +87,10 @@ scripts/
 - `PROJECTS_DIR` constant lives in `server/paths.js` (NOT `compiler.js`) to avoid a circular import via `blobStore.js`. Other modules import from `paths.js` directly; `compiler.js` re-exports it for back-compat.
 - LaTeX error quick-fixes: `getErrorHelp` (latexErrorHelp.js) returns a `fix` descriptor; PdfViewer renders a "Fix" button; `App.jsx`'s `onApplyQuickFix` dispatches the edit via the editor ref and marks an ack glow (`fixAckMarks.js`). Adding a fix kind = a `fix:` builder on a rule + a dispatch case in the handler. Command→package map is `client/src/data/commandPackages.json` (curated static; LLM fallback for misses).
 - Compile failure clears `pdfUrl` (useCompilation.js, both server + local paths) so a stale PDF from a prior good build never shows next to a "No output PDF file produced!" error.
+- Real-time editing is **Y.js (CRDT)** by default (`isYjsSyncEnabled`; opt out per-tab with `?yjs=0` or `localStorage flowtex-yjs-sync=0`). Per-file `Y.Doc` rooms live server-side (`services/yjsRoom.js`, or the `yjsWorker.js` tier in cluster mode); persisted to `files.content_yjs` (CRDT state) + `files.content` (plain text, kept in sync by the snapshot). Hard-won invariants (all in `YJS-MIGRATION.md`):
+  - **Seeding is deterministic**: a Y.Doc seeded from plain text uses a fixed `SEED_CLIENT_ID` (= 1, identical in `yjsRoom.js` and `client/src/utils/yjsBinding.js`) so independent seeds of the same text are byte-identical and converge. Never seed with the default random client-id.
+  - **The editor mounts from `file.content`, not empty**, then holds the yCollab extension back until the binding hydrates (`useYjsSync` exposes `hydrated`; `App` gates `editorExtraExtensions` on it) and reconciles to the Y.Text in the same transaction. Mounting empty + filling async leaves CodeMirror's height map stuck → large files render blank.
+  - **Under Y.js the HTTP autosave is marks-only** — it never writes `content` / `content_yjs` (that would 409 against the snapshot and desync peers). Decision logic: `client/src/utils/saveBody.js`.
 
 ## Building & Running
 

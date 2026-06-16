@@ -79,9 +79,18 @@ defaults OFF; phase 1 ships the wiring as latent code.
   `flowtex:yjs:updates` Stream so each entry is delivered to
   exactly one worker (`XREADGROUP` + `XACK`).
 - **Per-room Redis lock** `flowtex:yjs:lock:<projectId>:<fileId>`,
-  acquired via `SET NX EX 30`, renewed every 10 s via `SET XX`,
-  released via Lua compare-and-DEL so a slow worker never unlinks
-  the new owner's key.
+  acquired via `SET NX EX 30`, renewed every 10 s via a Lua
+  **compare-and-set** (renew the TTL only if the value is still our
+  consumerId), released via a Lua compare-and-DEL so a slow worker
+  never unlinks the new owner's key.
+  - Renewal was originally `SET XX`, which was a bug: `XX` checks only
+    that the key exists, not who owns it, so it would re-arm (and
+    silently steal) another worker's lock. It also returned false on a
+    transient Redis blip, making the worker needlessly drop and
+    re-acquire the room — which re-seeds the Y.Doc and forked live
+    collaborators. The Lua CAS renews only a lock we own and treats a
+    transient error as "still held" (the TTL has many seconds left;
+    the next tick re-checks). Fixed 2026-06-15.
 - **Lock-contention behaviour**: if a worker receives an entry for
   a room it doesn't own and can't acquire the lock, it deliberately
   *doesn't* `XACK`. The entry stays in the consumer group's PEL
@@ -90,8 +99,9 @@ defaults OFF; phase 1 ships the wiring as latent code.
 - **Graceful shutdown**: SIGTERM / SIGINT releases every held lock
   (Lua CAS, never unlinks anyone else's), `releaseRoom` flushes
   snapshots to PG, then exit 0.
-- **Tests** (24 cases): lock-key shape, SET NX semantics, SET XX
-  renewal, Lua CAS rejecting cross-worker releases, two-worker
+- **Tests**: lock-key shape, SET NX semantics, Lua CAS renewal
+  (renews only if owner, no cross-worker clobber, true-on-transient-
+  error), Lua CAS rejecting cross-worker releases, two-worker
   contention scenario, fail-soft on Redis errors, lock-aware
   dispatch in the worker, releaseLock on file-missing, release
   entry is lockless, unknown-type as poison pill.

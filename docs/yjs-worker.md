@@ -144,8 +144,10 @@ is a stuck PG snapshot under DB load.
 ### Worker crashes mid-apply
 
 `Restart=always` brings it back in `RestartSec=3` seconds.
-Locks the dead worker held have a TTL (60 s default) and either
-expire or are reclaimed by `XAUTOCLAIM` from another worker.
+Locks the dead worker held have a TTL (`LOCK_TTL_SEC`, 30 s) and
+either expire or are reclaimed by `XAUTOCLAIM` from another worker.
+Live workers renew their held locks every 10 s via a Lua
+compare-and-set (only if still the owner).
 
 Clients see a brief pause (worst case ~60 s) where their edits
 queue locally. On reconnect, the queue replays into the stream.
@@ -199,6 +201,16 @@ incident.
 - If you do see this on an older deploy: pull the latest main,
   the guard will catch the misconfiguration at boot rather than
   letting it corrupt data.
+- **Deterministic seeding** (added 2026-06-15): a Y.Doc seeded
+  from plain text uses a fixed `SEED_CLIENT_ID` (`= 1`, identical
+  in `services/yjsRoom.js` and `client/src/utils/yjsBinding.js`)
+  rather than a random client-id. Two seeds of the same text are
+  then byte-identical, so even a worker re-acquiring a room, a
+  worker restart, or a client falling back offline all converge
+  instead of producing duplicate concurrent inserts. This is a
+  second line of defense — the boot guard is still the primary
+  one. Live edits keep using each peer's own random client-id;
+  only the seed is pinned. See `project_flowtex_yjs_seed_invariant`.
 
 **How to detect it after the fact** (in case you have a stale
 deploy that pre-dates the guard):
