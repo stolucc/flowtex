@@ -808,6 +808,16 @@ router.post('/:id/upload-file', upload.single('file'), async (req, res) => {
 router.put('/files/:fileId', async (req, res) => {
   const { content, tcMarks, baseVersion } = req.body;
   if (content && content.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 10MB)' });
+  // Bound the tracked-changes sidecar. Under Y.js the autosave is
+  // marks-only, so tcMarks is the primary write path — an authenticated
+  // editor could otherwise persist an unbounded jsonb blob (storage
+  // abuse). `content` is capped above; mirror that for tcMarks. Checked
+  // before the DB access lookup so a bad payload is cheap to reject.
+  if (tcMarks !== undefined) {
+    if (!Array.isArray(tcMarks)) return res.status(400).json({ error: 'tcMarks must be an array' });
+    if (tcMarks.length > 50000) return res.status(400).json({ error: 'Too many tracked-change marks (max 50000)' });
+    if (JSON.stringify(tcMarks).length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Tracked-change marks too large (max 2MB)' });
+  }
   const access = /** @type {any} */ (await projectService.getFileWithAccess(req.params.fileId, req.session.userId, { edit: true }));
   if (access.error) return res.status(access.status).json({ error: access.error });
   const result = await projectService.updateFileContent(req.params.fileId, content, req.session.userId, tcMarks, baseVersion);
