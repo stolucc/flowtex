@@ -199,6 +199,7 @@ function AppInner() {
     selectProject,
     goBack: projectGoBack,
     handleSave,
+    setLocalContent,
     handleCreateFile,
     handleDeleteFile,
     handleRenameFile,
@@ -310,9 +311,17 @@ function AppInner() {
   // snapshot does not carry). handleSave no-ops a marks-only call with
   // no marks, so plain text edits make no HTTP request at all under Y.js.
   const handleSaveYjsAware = useCallback(
-    (/** @type {string} */ content, /** @type {string} */ fileId, /** @type {any[]} */ tcMarks) =>
-      yjs.enabled ? handleSave(undefined, fileId, tcMarks) : handleSave(content, fileId, tcMarks),
-    [yjs.enabled, handleSave],
+    (/** @type {string} */ content, /** @type {string} */ fileId, /** @type {any[]} */ tcMarks) => {
+      if (!yjs.enabled) return handleSave(content, fileId, tcMarks);
+      // Keep the in-memory copy current (mount-on-switch reads it, as does
+      // client-side search) even though the text isn't sent to the server
+      // here — the Y.Doc snapshot persists it. Without this the editor
+      // briefly flashes the stale load-time text before the Y.Text
+      // reconcile on every file switch.
+      if (typeof content === 'string' && fileId) setLocalContent(fileId, content);
+      return handleSave(undefined, fileId, tcMarks);
+    },
+    [yjs.enabled, handleSave, setLocalContent],
   );
 
   const {

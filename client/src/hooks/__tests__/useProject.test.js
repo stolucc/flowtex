@@ -111,6 +111,42 @@ describe('useProject', () => {
     expect(result.current.files[0].content).toBe('new content');
   });
 
+  it('setLocalContent updates in-memory content with NO server write (Y.js mount-freshness)', async () => {
+    const file = { id: 'f1', path: 'main.tex', content: 'load-time text' };
+    get.mockImplementation((url) => {
+      if (url.includes('/files')) return Promise.resolve({ ok: true, json: () => Promise.resolve([file]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' }));
+    await waitFor(() => expect(result.current.activeFile).not.toBeNull());
+
+    act(() => { result.current.setLocalContent('f1', 'canonical Y.Text'); });
+
+    // Both the active file and the files array reflect the new text...
+    expect(result.current.activeFile.content).toBe('canonical Y.Text');
+    expect(result.current.files[0].content).toBe('canonical Y.Text');
+    // ...but nothing was sent to the server (the Y.Doc snapshot owns persistence).
+    expect(put).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('setLocalContent ignores a non-string content or missing id', async () => {
+    const file = { id: 'f1', path: 'main.tex', content: 'keep me' };
+    get.mockImplementation((url) =>
+      url.includes('/files')
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve([file]) })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
+    );
+    const { result } = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+    act(() => result.current.selectProject({ id: 'p1', name: 'T', main_file: 'main.tex' }));
+    await waitFor(() => expect(result.current.activeFile).not.toBeNull());
+
+    act(() => { result.current.setLocalContent('f1', /** @type {any} */ (undefined)); });
+    act(() => { result.current.setLocalContent('', 'x'); });
+    expect(result.current.activeFile.content).toBe('keep me');
+  });
+
   it('handleSave with content=undefined (Y.js marks-only) omits content/baseVersion and keeps in-memory text', async () => {
     put.mockResolvedValue({ json: () => Promise.resolve({}) });
     const file = { id: 'f1', path: 'main.tex', content: 'canonical', updated_at: '2020-01-01T00:00:00.000Z' };

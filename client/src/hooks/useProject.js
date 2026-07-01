@@ -302,6 +302,22 @@ export default function useProject(user) {
     [activeFile],
   );
 
+  // Update a file's in-memory `content` WITHOUT a server write. Under Y.js
+  // the HTTP autosave is marks-only, so `files[].content` would otherwise
+  // stay frozen at its project-load value while the real text lives in the
+  // Y.Doc. That stale copy is what the editor mounts from on a file switch
+  // (a brief flash of old text before the Y.Text reconcile) and what
+  // client-side global search reads. The editor calls this (debounced + on
+  // file-switch flush) so the in-memory copy tracks the canonical text.
+  const setLocalContent = useCallback(
+    (/** @type {string} */ fileId, /** @type {string} */ content) => {
+      if (!fileId || typeof content !== 'string') return;
+      setActiveFile((/** @type {any} */ f) => (f?.id === fileId ? { ...f, content } : f));
+      setFiles((fs) => fs.map((/** @type {any} */ f) => (f.id === fileId ? { ...f, content } : f)));
+    },
+    [setActiveFile, setFiles],
+  );
+
   const handleCreateFile = useCallback(
     async (/** @type {string} */ filePath, /** @type {string} */ content) => {
       if (!project) return;
@@ -473,6 +489,7 @@ export default function useProject(user) {
     selectProject,
     goBack,
     handleSave,
+    setLocalContent,
     handleCreateFile,
     handleDeleteFile,
     handleRenameFile,
