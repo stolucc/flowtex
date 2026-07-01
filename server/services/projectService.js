@@ -2456,7 +2456,7 @@ export async function getProjectMembers(projectId, { includeEmail = false } = {}
   );
   if (includeEmail) return rows;
   return rows.map((/** @type {{ email: string }} */ row) => {
-    const { email, ...rest } = row;
+    const { email: _email, ...rest } = row; // strip email from the response
     return rest;
   });
 }

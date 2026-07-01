@@ -43,6 +43,8 @@ describe('generateRecoveryCode / normalizeRecoveryCode', () => {
   it('produces a grouped uppercase code from the Crockford alphabet', () => {
     const code = generateRecoveryCode();
     // 32 base32 chars grouped in 4s → 8 groups separated by 7 hyphens.
+    // Fixed-length ({4}, {7}), hyphen-anchored — no backtracking (false positive).
+    // eslint-disable-next-line security/detect-unsafe-regex
     expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){7}$/);
   });
 

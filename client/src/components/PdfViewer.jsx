@@ -555,7 +555,7 @@ const PdfViewer = forwardRef(function PdfViewer(
   // Warm the dynamic command-package map for any undefined-command
   // errors NOT in the static lookup. As lookups resolve, the version
   // bumps and the JSX below re-renders with fresh Fix buttons.
-  // eslint-disable-next-line no-unused-vars
+   
   const _cmdPkgVersion = useCommandPackageWarming(errors);
   const warnings = useMemo(() => {
     if (showBoxWarnings) return allWarnings;

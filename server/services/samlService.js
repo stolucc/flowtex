@@ -587,6 +587,11 @@ function normaliseEmailDomains(domains) {
   return domains
     .filter((/** @type {unknown} */ d) => typeof d === 'string')
     .map((/** @type {string} */ d) => d.trim().toLowerCase())
+    // Not ReDoS-prone despite the plugin heuristic: every quantifier is
+    // bounded ({0,61}) and each repeated group is anchored by a literal
+    // '.', so there's no ambiguous overlap to backtrack on. Input is
+    // admin-set SAML config, not arbitrary user data.
+    // eslint-disable-next-line security/detect-unsafe-regex
     .filter((/** @type {string} */ d) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d))
     // Dedupe.
     .filter((/** @type {string} */ d, /** @type {number} */ i, /** @type {string[]} */ arr) => arr.indexOf(d) === i);

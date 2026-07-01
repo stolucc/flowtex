@@ -21,6 +21,8 @@ describe('enableEncryption', () => {
     const file = await seedFile(project.id, 'main.tex', '\\documentclass{article}');
     const { recoveryCode } = await enc.enableEncryption(project.id, 'correct horse battery');
 
+    // Fixed-length ({4}, {7}), hyphen-anchored — no backtracking (false positive).
+    // eslint-disable-next-line security/detect-unsafe-regex
     expect(recoveryCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){7}$/);
 
     // Raw DB row is now ciphertext, not the plaintext.

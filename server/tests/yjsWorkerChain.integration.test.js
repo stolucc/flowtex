@@ -90,7 +90,7 @@ describe.skipIf(!RUN)('YJS worker chain (live Redis)', () => {
     if (dbInfo && !/db=15|database=15/.test(dbInfo) && !REDIS_URL.endsWith('/15')) {
       // Don't crash -- the user may have explicitly overridden to a
       // safe namespace. Just log a warning.
-      // eslint-disable-next-line no-console
+       
       console.warn(`REDIS integration: REDIS_URL=${REDIS_URL} -- ensure this is a test-safe namespace`);
     }
     await redis.flushdb();

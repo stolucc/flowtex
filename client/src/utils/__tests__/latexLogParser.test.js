@@ -111,7 +111,7 @@ LaTeX Warning: Reference \`fig:foo' on page 1 undefined on input line 23.
   });
 
   it('extracts an input-line number from a warning into warning.line', () => {
-    const log = `LaTeX Warning: Reference \`x\' on page 1 undefined on input line 23.`;
+    const log = `LaTeX Warning: Reference \`x' on page 1 undefined on input line 23.`;
     const { warnings } = parseLog(log);
     expect(warnings[0].line).toBe(23);
   });
