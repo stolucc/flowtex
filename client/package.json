@@ -2,6 +2,9 @@
   "name": "flowtex-client",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "vite",
     "prebuild": "node scripts/build-docs.mjs",

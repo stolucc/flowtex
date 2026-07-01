@@ -2,6 +2,9 @@
   "name": "flowtex-server",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "test": "DISABLE_HIBP_CHECK=1 vitest run",
     "test:watch": "DISABLE_HIBP_CHECK=1 vitest",
