@@ -108,9 +108,16 @@ fi
 PREV_HEAD=$(as_app_user "git rev-parse HEAD")
 PREV_SHA=$(as_app_user "git rev-parse --short HEAD")
 
-# Check we're not on a dirty working tree (would block ff merge).
-if ! as_app_user "git diff-index --quiet HEAD --"; then
-  die "Working tree is dirty. As $APP_USER: cd $APP_DIR && git status — commit, stash, or reset before deploying."
+# Check we're not on a dirty working tree (tracked modifications would
+# block the fast-forward merge / reset). Use `git status --porcelain`,
+# NOT `git diff-index --quiet HEAD`: diff-index compares against a stale
+# stat cache, so `npm ci` and the client build — which touch file mtimes
+# without changing content — make it report a false "dirty" while
+# `git status` (which refreshes the cache) shows the tree clean. That
+# mismatch was blocking every deploy. --untracked-files=no ignores
+# gitignored build output; we only care about tracked changes here.
+if [ -n "$(as_app_user "git status --porcelain --untracked-files=no")" ]; then
+  die "Working tree has tracked local changes. As $APP_USER: cd $APP_DIR && git status — commit, stash, or reset before deploying."
 fi
 
 # ── 2. Detect what changed ──────────────────────────────────────────
