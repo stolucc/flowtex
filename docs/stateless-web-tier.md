@@ -226,7 +226,19 @@ DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com \
 Sizing: `INSTANCE_COUNT ≈ nproc − 1` (leave a core for
 Postgres/Redis/worker/Caddy). Re-running with a new value is safe and
 idempotent — `.env` secrets are never rotated. `update-vps.sh` already
-discovers and restarts the whole `flowtex*` set on deploy.
+discovers and restarts the whole `flowtex*` set on deploy, so **routine
+code updates use `update-vps.sh` and need no `INSTANCE_COUNT`**.
+
+The count is **sticky**: it's persisted to `.env` as
+`FLOWTEX_INSTANCE_COUNT`, so a bare `sudo bash provision-vps.sh` re-run
+keeps the same number of instances. Pass it explicitly only to change it
+— and note `sudo` strips inherited env, so the var must come **after**
+`sudo`:
+
+```bash
+sudo INSTANCE_COUNT=6 bash scripts/provision-vps.sh   # ✓ reaches the script
+INSTANCE_COUNT=6 sudo bash scripts/provision-vps.sh   # ✗ stripped → defaults to 1
+```
 
 **This is single-host only** — all instances share the local FS blob
 store and one Postgres/Redis. For **multiple hosts** (HA against a host

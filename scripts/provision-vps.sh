@@ -29,6 +29,10 @@
 #                (leave headroom for Postgres/Redis/worker/Caddy). > 1
 #                auto-enables Redis + cluster mode + the Y.Doc worker and
 #                generates flowtex-2..N units + a Caddy upstream list.
+#                STICKY: persisted to .env as FLOWTEX_INSTANCE_COUNT, so a
+#                later bare re-run keeps the same count. Pass it explicitly
+#                (sudo INSTANCE_COUNT=N bash ...) to change it. NB: sudo
+#                strips inherited env — the var must come AFTER `sudo`.
 #   WITH_REDIS   install + wire Redis     (default: 0 — forced on when
 #                INSTANCE_COUNT > 1)
 #   WITH_DOCX    install LibreOffice/IM + Microsoft core fonts (default: 1)
@@ -110,6 +114,14 @@ SMTP_FROM="${SMTP_FROM:-FlowTex <noreply@${DOMAIN}>}"
 # Redis, the Y.Doc worker, and Caddy). > 1 REQUIRES cluster mode (Redis
 # pub/sub fan-out + the Y.Doc worker) or the instances split-brain, so we
 # force Redis on here and wire the cluster env + worker below.
+# Sticky: an explicit INSTANCE_COUNT wins; otherwise read the value last
+# persisted to .env (below); otherwise default to 1. This stops a bare
+# re-run (`sudo bash provision-vps.sh`, no var) from silently scaling the
+# cluster back to 1 and deleting the extra instance units.
+if [ -z "${INSTANCE_COUNT:-}" ] && [ -f "$__EXISTING_ENV" ]; then
+  INSTANCE_COUNT="$(grep -m1 '^FLOWTEX_INSTANCE_COUNT=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2-)"
+  [ -n "$INSTANCE_COUNT" ] && log "Reusing INSTANCE_COUNT=$INSTANCE_COUNT from existing $__EXISTING_ENV"
+fi
 INSTANCE_COUNT="${INSTANCE_COUNT:-1}"
 case "$INSTANCE_COUNT" in ''|*[!0-9]*) die "INSTANCE_COUNT must be a positive integer (got '$INSTANCE_COUNT')";; esac
 [ "$INSTANCE_COUNT" -ge 1 ] || die "INSTANCE_COUNT must be >= 1"
@@ -387,6 +399,10 @@ ENV
   chown "$APP_USER:$APP_USER" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
+
+# Persist the resolved instance count so a later bare re-run reads it
+# back (see the sticky-resolution block above) instead of defaulting to 1.
+ensure_env_var FLOWTEX_INSTANCE_COUNT "$INSTANCE_COUNT"
 
 # Multi-instance needs the cluster wiring present regardless of whether
 # .env was just generated or reused (the guard above leaves an existing
