@@ -201,6 +201,41 @@ Run the provisioner on each web host you add. The first run
 generates a `.env`; subsequent runs leave it alone, so you can
 safely re-provision an existing host without rotating secrets.
 
+### Single-host scaling: `INSTANCE_COUNT`
+
+For **multiple web processes on one host** (the common case — Node
+is single-threaded, so N processes use N cores), set `INSTANCE_COUNT`
+when provisioning:
+
+```bash
+DOMAIN=flowtex.example.com ADMIN_EMAIL=you@example.com \
+  INSTANCE_COUNT=4 bash scripts/provision-vps.sh
+```
+
+`INSTANCE_COUNT > 1` is a single knob that:
+
+- generates `flowtex-2.service … flowtex-N.service` (ports 3002…),
+- forces Redis on and wires the cluster env into `.env`
+  (`FLOWTEX_INSTANCE_MODE=cluster`, `REDIS_URL`, `FLOWTEX_YJS_WORKER=enabled`),
+- enables + starts the Y.Doc worker (required, or the web tier
+  refuses to boot — see the boot guards above),
+- builds the Caddy upstream list (`reverse_proxy localhost:3001 …`
+  with `lb_policy least_conn`),
+- removes orphan `flowtex-N` units when you re-run with a lower count.
+
+Sizing: `INSTANCE_COUNT ≈ nproc − 1` (leave a core for
+Postgres/Redis/worker/Caddy). Re-running with a new value is safe and
+idempotent — `.env` secrets are never rotated. `update-vps.sh` already
+discovers and restarts the whole `flowtex*` set on deploy.
+
+**This is single-host only** — all instances share the local FS blob
+store and one Postgres/Redis. For **multiple hosts** (HA against a host
+failure, scale past one machine) you additionally need: a shared blob
+backend (`FLOWTEX_BLOB_BACKEND=s3` + `@aws-sdk/*` installed), Postgres
+and Redis reachable from every host, and an **external** load balancer
+(the per-host Caddy only proxies `localhost`). Those pieces exist but
+are not automated by the provisioner.
+
 ## Acceptance checklist
 
 Before declaring a multi-instance deployment ready:

@@ -24,7 +24,13 @@
 #   BRANCH       branch to deploy         (default: main)
 #   APP_DIR      install location         (default: /opt/flowtex)
 #   APP_USER     service account          (default: flowtex)
-#   WITH_REDIS   install + wire Redis     (default: 0 — only for multi-instance)
+#   INSTANCE_COUNT  number of web processes behind Caddy (default: 1).
+#                Node is single-threaded, so set this to ~cores minus 1-2
+#                (leave headroom for Postgres/Redis/worker/Caddy). > 1
+#                auto-enables Redis + cluster mode + the Y.Doc worker and
+#                generates flowtex-2..N units + a Caddy upstream list.
+#   WITH_REDIS   install + wire Redis     (default: 0 — forced on when
+#                INSTANCE_COUNT > 1)
 #   WITH_DOCX    install LibreOffice/IM + Microsoft core fonts (default: 1)
 #                — image conversion + Arial/Times/Courier for DOCX docs.
 #   WITH_DOCKER  install Docker + build the compile-sandbox image (default: 0)
@@ -97,6 +103,34 @@ SMTP_SECURE="${SMTP_SECURE:-false}"
 SMTP_USER="${SMTP_USER:-}"
 SMTP_PASS="${SMTP_PASS:-}"
 SMTP_FROM="${SMTP_FROM:-FlowTex <noreply@${DOMAIN}>}"
+
+# ── Multi-instance load balancing ─────────────────────────────────────
+# INSTANCE_COUNT web processes behind Caddy (round-robin). Node is
+# single-threaded, so N processes ~= N cores (leave 1-2 for Postgres,
+# Redis, the Y.Doc worker, and Caddy). > 1 REQUIRES cluster mode (Redis
+# pub/sub fan-out + the Y.Doc worker) or the instances split-brain, so we
+# force Redis on here and wire the cluster env + worker below.
+INSTANCE_COUNT="${INSTANCE_COUNT:-1}"
+case "$INSTANCE_COUNT" in ''|*[!0-9]*) die "INSTANCE_COUNT must be a positive integer (got '$INSTANCE_COUNT')";; esac
+[ "$INSTANCE_COUNT" -ge 1 ] || die "INSTANCE_COUNT must be >= 1"
+if [ "$INSTANCE_COUNT" -gt 1 ]; then
+  WITH_REDIS=1
+  log "Multi-instance: $INSTANCE_COUNT web processes -> forcing Redis + cluster mode + Y.Doc worker"
+fi
+
+# Idempotently set KEY=VALUE in .env (updates a live or commented line,
+# else appends). Used to wire cluster vars on re-runs where the .env
+# guard leaves an existing file untouched.
+ensure_env_var() {
+  local key="$1" val="$2" file="${ENV_FILE:-$APP_DIR/.env}"
+  if grep -qE "^${key}=" "$file" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+  elif grep -qE "^# *${key}=" "$file" 2>/dev/null; then
+    sed -i "s|^# *${key}=.*|${key}=${val}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$file"
+  fi
+}
 
 log "Provisioning FlowTex on $DOMAIN (Ubuntu $VERSION_ID, user: $APP_USER, dir: $APP_DIR)"
 
@@ -354,6 +388,17 @@ ENV
   chmod 600 "$ENV_FILE"
 fi
 
+# Multi-instance needs the cluster wiring present regardless of whether
+# .env was just generated or reused (the guard above leaves an existing
+# file untouched). Idempotent so re-running with a higher INSTANCE_COUNT
+# just works.
+if [ "$INSTANCE_COUNT" -gt 1 ]; then
+  ensure_env_var REDIS_URL "redis://localhost:6379"
+  ensure_env_var FLOWTEX_INSTANCE_MODE "cluster"
+  ensure_env_var FLOWTEX_YJS_WORKER "enabled"
+  log "Wired cluster env into $ENV_FILE (REDIS_URL, FLOWTEX_INSTANCE_MODE=cluster, FLOWTEX_YJS_WORKER=enabled)"
+fi
+
 # ── Install deps + build the client ─────────────────────────────────────
 log "Installing dependencies and building the client (as $APP_USER)"
 sudo -u "$APP_USER" bash -euo pipefail <<BUILD
@@ -441,6 +486,59 @@ UNIT
 systemctl daemon-reload
 systemctl enable flowtex
 
+# Extra web instances for load balancing (INSTANCE_COUNT > 1). Each is a
+# copy of flowtex.service with a PORT override (3002, 3003, …) so Caddy
+# can round-robin across them. They share the same .env (cluster mode +
+# Redis fan-out), so the Y.Doc worker owns rooms and no instance holds
+# in-process state. update-vps.sh discovers and restarts the whole set.
+for i in $(seq 2 "$INSTANCE_COUNT"); do
+  port=$((3000 + i))
+  log "Installing systemd service: flowtex-$i.service (PORT=$port)"
+  cat > /etc/systemd/system/flowtex-$i.service <<UNIT_N
+[Unit]
+Description=FlowTex collaborative LaTeX editor (instance $i)
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=$APP_USER
+Group=$APP_USER
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+# Environment= is applied after EnvironmentFile=, so this PORT wins over
+# the .env PORT=3001 and each instance binds its own port.
+Environment=PORT=$port
+ExecStart=/usr/bin/node $APP_DIR/server/index.js
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$APP_DIR/projects $APP_DIR/git-repos $APP_DIR/server/logs
+
+[Install]
+WantedBy=multi-user.target
+UNIT_N
+  systemctl enable "flowtex-$i"
+done
+# Scale-down: drop orphan instance units above the current count so a
+# re-run with a lower INSTANCE_COUNT doesn't leave stray web processes
+# (Caddy stops routing to them below, but the processes would linger).
+for unit in /etc/systemd/system/flowtex-[0-9]*.service; do
+  [ -e "$unit" ] || continue
+  n=$(basename "$unit" .service | sed 's/flowtex-//')
+  case "$n" in ''|*[!0-9]*) continue;; esac
+  if [ "$n" -gt "$INSTANCE_COUNT" ]; then
+    log "Removing orphan instance unit flowtex-$n (INSTANCE_COUNT=$INSTANCE_COUNT)"
+    systemctl disable --now "flowtex-$n" 2>/dev/null || true
+    rm -f "$unit"
+  fi
+done
+systemctl daemon-reload
+
 # ── flowtex-yjs-worker.service (optional, multi-instance only) ─────────
 # Runs the dedicated Y.Doc room worker as its own systemd service so
 # the web tier can be stateless (rooms live in the worker, web tier
@@ -494,8 +592,12 @@ ReadWritePaths=$APP_DIR/server/logs
 WantedBy=multi-user.target
 WORKER_UNIT
 systemctl daemon-reload
-# Deliberately NOT enabled -- multi-instance is opt-in. See
-# docs/yjs-worker.md.
+# Enabled automatically for multi-instance (cluster mode requires the
+# worker or the web tier refuses to boot). Single-instance leaves it
+# off -- opt-in. See docs/yjs-worker.md.
+if [ "$INSTANCE_COUNT" -gt 1 ]; then
+  systemctl enable flowtex-yjs-worker
+fi
 
 # ── Caddy ───────────────────────────────────────────────────────────────
 # Serve the apex domain and (when DNS allows) redirect the www subdomain
@@ -513,9 +615,17 @@ else
   WWW_BLOCK=""
   log "Configuring Caddy for $DOMAIN only (www.$DOMAIN has no DNS record — add a CNAME/A and re-run to enable the redirect)"
 fi
+# Caddy upstream list: one localhost:PORT per web instance. least_conn
+# spreads new (incl. long-lived WS) connections more evenly than the
+# default round-robin. Redis pub/sub fans WS broadcasts across instances,
+# so no sticky sessions are needed.
+CADDY_UPSTREAMS=""
+for i in $(seq 1 "$INSTANCE_COUNT"); do CADDY_UPSTREAMS="$CADDY_UPSTREAMS localhost:$((3000 + i))"; done
 cat > /etc/caddy/Caddyfile <<CADDY
 $DOMAIN {
-	reverse_proxy localhost:3001
+	reverse_proxy$CADDY_UPSTREAMS {
+		lb_policy least_conn
+	}
 	encode zstd gzip
 	# TLS policy. Caddy 2 defaults to 1.2+1.3 already; making it
 	# explicit here so the policy survives a future Caddy default
@@ -535,8 +645,13 @@ ufw allow 443/tcp
 ufw --force enable
 
 # ── Start ───────────────────────────────────────────────────────────────
-log "Starting services"
-systemctl restart flowtex
+log "Starting services ($INSTANCE_COUNT web instance(s))"
+# Y.Doc worker first, then every web instance, then Caddy.
+[ "$INSTANCE_COUNT" -gt 1 ] && systemctl restart flowtex-yjs-worker
+for i in $(seq 1 "$INSTANCE_COUNT"); do
+  unit=$([ "$i" -eq 1 ] && echo flowtex || echo "flowtex-$i")
+  systemctl restart "$unit"
+done
 systemctl restart caddy
 
 # Give the app a moment, then health-check it locally.
