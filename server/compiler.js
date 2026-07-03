@@ -1,6 +1,6 @@
 // @ts-check
 import { execFile, execFileSync } from 'child_process';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -14,6 +14,7 @@ import {
   runDockerCompile,
 } from './services/dockerCompileSandbox.js';
 import { withSpan } from './tracing.js';
+import { acquireCompileSlot, releaseCompileSlot } from './services/compileSemaphore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { PROJECTS_DIR } from './paths.js';
@@ -230,7 +231,9 @@ export function detectTexDistributions() {
 // Track active compilations so they can be stopped
 /** @type {Map<string, { child: import('child_process').ChildProcess | null, timeout?: ReturnType<typeof setTimeout>, exitPromise: Promise<unknown> }>} */
 const activeCompilations = new Map();
-const MAX_CONCURRENT_COMPILES = parseInt(process.env.MAX_CONCURRENT_COMPILES || '10', 10);
+// Compile concurrency is now enforced per-BOX (shared across web
+// instances on a host) by services/compileSemaphore.js, which reads
+// MAX_CONCURRENT_COMPILES itself.
 
 // Compilation metrics
 /** @type {{
@@ -591,29 +594,29 @@ async function _doCompile(
     await new Promise((r) => setTimeout(r, 200));
   }
 
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+
+  // Validate mainFile path BEFORE reserving a compile slot so a bad path
+  // or missing file doesn't consume the per-box budget.
+  const texFile = safePath(projectDir, mainFile);
+  if (!fs.existsSync(projectDir)) {
+    fs.mkdirSync(projectDir, { recursive: true });
+  }
+  if (!fs.existsSync(texFile)) {
+    throw new Error(`File not found: ${mainFile}`);
+  }
+
+  // Per-box compile concurrency gate: all web instances on this host
+  // share one budget (MAX_CONCURRENT_COMPILES) via Redis, keyed by host
+  // id — different hosts stay independent. Single-instance boxes fall
+  // back to an in-process counter. Released at every exit path below; a
+  // missed release self-heals via the semaphore's TTL prune.
+  const compileSlotId = randomUUID();
+  if (!(await acquireCompileSlot(compileSlotId))) {
+    throw new Error('Server busy — too many concurrent compilations. Please try again in a moment.');
+  }
+
   return new Promise((resolve, reject) => {
-    if (compileMetrics.active >= MAX_CONCURRENT_COMPILES) {
-      return reject(new Error('Server busy — too many concurrent compilations. Please try again in a moment.'));
-    }
-
-    const projectDir = path.join(PROJECTS_DIR, projectId);
-
-    // Validate mainFile path
-    let texFile;
-    try {
-      texFile = safePath(projectDir, mainFile);
-    } catch (err) {
-      return reject(err);
-    }
-
-    if (!fs.existsSync(projectDir)) {
-      fs.mkdirSync(projectDir, { recursive: true });
-    }
-
-    if (!fs.existsSync(texFile)) {
-      return reject(new Error(`File not found: ${mainFile}`));
-    }
-
     // Use a per-user jobname so concurrent compilations produce separate
     // intermediate files (main_ab12cd34.aux, .log, .pdf, etc.)
     const baseName = mainFile.replace(/\.tex$/, '');
@@ -645,6 +648,7 @@ async function _doCompile(
         callbackFired = true;
         activeCompilations.delete(projectId);
         compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+        void releaseCompileSlot(compileSlotId);
         resolveExit();
         reject(new Error('Compilation timed out (safety fallback)'));
       }
@@ -709,6 +713,7 @@ async function _doCompile(
           clearTimeout(safetyTimer);
           activeCompilations.delete(projectId);
           compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+          void releaseCompileSlot(compileSlotId);
           const duration = Date.now() - compileStartTime;
           resolveExit();
         const pdfName = jobName + '.pdf';
@@ -824,6 +829,7 @@ async function _doCompile(
         callbackFired = true;
         clearTimeout(safetyTimer);
         compileMetrics.active = Math.max(0, compileMetrics.active - 1);
+        void releaseCompileSlot(compileSlotId);
         resolveExit();
         const msg = spawnErr instanceof Error ? spawnErr.message : 'Failed to start compiler';
         return reject(new Error(msg));
