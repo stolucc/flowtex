@@ -490,6 +490,12 @@ const Editor = forwardRef(function Editor(
   const [figureBuilder, setFigureBuilder] = useState(/** @type {any} */ (null));
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const tableBuilderRef = useRef(/** @type {any} */ (null));
+  // Where the table will be inserted, captured when the builder opens and
+  // MAPPED through every doc edit while it's open. Reading the live cursor
+  // at insert time is wrong: adding a required package (the ⚠ button) edits
+  // the preamble and moves the caret there, so a new table would land in
+  // the preamble. Mapping keeps the range pinned to the original spot.
+  const tableInsertRangeRef = useRef(/** @type {{from:number,to:number}|null} */ (null));
   const figureBuilderRef = useRef(/** @type {any} */ (null));
   tableBuilderRef.current = tableBuilder;
   figureBuilderRef.current = figureBuilder;
@@ -1221,6 +1227,17 @@ const Editor = forwardRef(function Editor(
 
           if (update.docChanged) {
 
+            // Keep the pending table-insert range pinned through edits made
+            // while the builder is open (e.g. adding a required package to
+            // the preamble via the ⚠ button shifts everything after it).
+            if (tableInsertRangeRef.current) {
+              const r = tableInsertRangeRef.current;
+              tableInsertRangeRef.current = {
+                from: update.changes.mapPos(r.from, -1),
+                to: update.changes.mapPos(r.to, 1),
+              };
+            }
+
             // Hide comment button if doc changed
             setCommentBtn(null);
 
@@ -1305,6 +1322,7 @@ const Editor = forwardRef(function Editor(
                   if (prev && (parsed.from !== prev.replaceFrom || parsed.to !== prev.replaceTo)) {
                     const doc = view.state.doc.toString();
                     const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
+                    tableInsertRangeRef.current = { from: parsed.from, to: parsed.to };
                     setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
                   }
                 }
@@ -1777,8 +1795,11 @@ const Editor = forwardRef(function Editor(
       const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
       const parsed = findTableAtCursor(v, projectFilesRef.current);
       if (parsed) {
+        tableInsertRangeRef.current = { from: parsed.from, to: parsed.to };
         setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
       } else {
+        const sel = v.state.selection.main;
+        tableInsertRangeRef.current = { from: sel.from, to: sel.to };
         setTableBuilder({ multiColumn });
       }
     };
@@ -2054,12 +2075,21 @@ const Editor = forwardRef(function Editor(
   }, [cursorInHl]);
 
   // Insert a generated table from the table builder (replaces existing range if editing).
+  // Drop the pinned insert range whenever the builder closes.
+  useEffect(() => {
+    if (!tableBuilder) tableInsertRangeRef.current = null;
+  }, [tableBuilder]);
+
   const handleTableBuilderInsert = useCallback((/** @type {any} */ table) => {
     const view = viewRef.current;
     if (!view || !tableBuilder) return;
-    const from = tableBuilder.replaceFrom != null ? tableBuilder.replaceFrom : view.state.selection.main.from;
-    const to = tableBuilder.replaceTo != null ? tableBuilder.replaceTo : view.state.selection.main.to;
-    view.dispatch({ changes: { from, to, insert: table } });
+    // Use the range captured at open + mapped through edits (immune to the
+    // caret moving when a package was added to the preamble). Fall back to
+    // the live selection only if the ref was somehow lost.
+    const range = tableInsertRangeRef.current;
+    const from = range ? range.from : (tableBuilder.replaceFrom != null ? tableBuilder.replaceFrom : view.state.selection.main.from);
+    const to = range ? range.to : (tableBuilder.replaceTo != null ? tableBuilder.replaceTo : view.state.selection.main.to);
+    view.dispatch({ changes: { from, to, insert: table }, selection: { anchor: from + table.length } });
     view.focus();
   }, [tableBuilder]);
 

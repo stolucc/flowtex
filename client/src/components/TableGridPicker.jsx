@@ -553,6 +553,10 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
             { needed: zebra, pkg: 'xcolor', display: '[table]{xcolor}' },
             { needed: env === 'tabularx', pkg: 'tabularx', display: '{tabularx}' },
             { needed: env === 'longtable', pkg: 'longtable', display: '{longtable}' },
+            // Row-spanning merged cells emit \multirow (needs the package).
+            // Column-only spans emit \multicolumn, which is core LaTeX — no
+            // package, so it is intentionally not flagged.
+            { needed: (merges || []).some((/** @type {any} */ m) => m.rowSpan > 1), pkg: 'multirow', display: '{multirow}' },
           ].filter((r) => r.needed);
           if (reqs.length === 0) return null;
           return (
