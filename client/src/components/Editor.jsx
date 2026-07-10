@@ -1322,7 +1322,6 @@ const Editor = forwardRef(function Editor(
                   if (prev && (parsed.from !== prev.replaceFrom || parsed.to !== prev.replaceTo)) {
                     const doc = view.state.doc.toString();
                     const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
-                    tableInsertRangeRef.current = { from: parsed.from, to: parsed.to };
                     setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
                   }
                 }
@@ -1795,11 +1794,8 @@ const Editor = forwardRef(function Editor(
       const multiColumn = /\\documentclass\[[^\]]*twocolumn/.test(doc) || /\\begin\{multicols\}/.test(doc);
       const parsed = findTableAtCursor(v, projectFilesRef.current);
       if (parsed) {
-        tableInsertRangeRef.current = { from: parsed.from, to: parsed.to };
         setTableBuilder({ initial: parsed, replaceFrom: parsed.from, replaceTo: parsed.to, multiColumn });
       } else {
-        const sel = v.state.selection.main;
-        tableInsertRangeRef.current = { from: sel.from, to: sel.to };
         setTableBuilder({ multiColumn });
       }
     };
@@ -2075,9 +2071,22 @@ const Editor = forwardRef(function Editor(
   }, [cursorInHl]);
 
   // Insert a generated table from the table builder (replaces existing range if editing).
-  // Drop the pinned insert range whenever the builder closes.
+  // Capture (and pin) where the table will be inserted, from ANY entry
+  // point (header button, gutter event, cursor-reparse). Existing table →
+  // its parsed range; new table → the caret, captured once. The range is
+  // then mapped through edits (the docChanged handler) so adding a package
+  // to the preamble via the ⚠ button doesn't move where the table lands.
+  // Cleared on close.
   useEffect(() => {
-    if (!tableBuilder) tableInsertRangeRef.current = null;
+    if (!tableBuilder) { tableInsertRangeRef.current = null; return; }
+    const v = viewRef.current;
+    if (!v) return;
+    if (tableBuilder.replaceFrom != null) {
+      tableInsertRangeRef.current = { from: tableBuilder.replaceFrom, to: tableBuilder.replaceTo };
+    } else if (!tableInsertRangeRef.current) {
+      const sel = v.state.selection.main;
+      tableInsertRangeRef.current = { from: sel.from, to: sel.to };
+    }
   }, [tableBuilder]);
 
   const handleTableBuilderInsert = useCallback((/** @type {any} */ table) => {
