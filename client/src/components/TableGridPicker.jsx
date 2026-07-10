@@ -567,15 +567,15 @@ function TableGridPicker({ onInsert, onClose, onDelete, initial, multiColumn, de
                 // wired an onAddPackage callback, render the warn icon
                 // as a clickable [Add] action. Otherwise, plain icon.
                 const icon = present
-                  ? <span className="pkg-ok" title="Included in preamble">☑</span>
+                  ? <span className="pkg-ok" title={`The “${r.pkg}” package is already in your preamble.`}>☑</span>
                   : (onAddPackage
                       ? <button
                           type="button"
                           className="pkg-warn pkg-warn-btn"
-                          title={`Add \\usepackage{${r.pkg}} to preamble`}
+                          title={`This table needs the “${r.pkg}” package, which isn’t in your preamble. Click to add \\usepackage${r.display} for you — it’s added to the preamble and marked in the editor so you can review it.`}
                           onClick={() => onAddPackage(r.pkg)}
                         >⚠</button>
-                      : <span className="pkg-warn" title="Not in preamble">⚠</span>);
+                      : <span className="pkg-warn" title={`This table needs \\usepackage${r.display}, which isn’t in your preamble. Add it manually to compile.`}>⚠</span>);
                 return (
                   <span key={i}>
                     {icon}Requires <code>{`\\usepackage${r.display}`}</code>
