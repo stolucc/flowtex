@@ -315,7 +315,7 @@ export async function convertDocxToLatex(buffer, options = {}) {
     if (signal?.aborted) throw new Error('Import cancelled');
     const relPath = entry.entryName.replace('word/', '');
     const data = entry.getData();
-    const ext = relPath.split('.').pop().toLowerCase();
+    const ext = (relPath.split('.').pop() || '').toLowerCase();
     const fileName = relPath.split('/').pop();
     mediaIdx++;
     if (ext === 'svg') {

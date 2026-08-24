@@ -619,7 +619,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     if (!url) return;
     let cancelled = false;
     pdfjsLib
-      .getDocument(url)
+      .getDocument({ url })
       .promise.then((/** @type {any} */ pdf) => {
         if (!cancelled) pdfDocRef.current = pdf;
       })
@@ -743,7 +743,7 @@ const PdfViewer = forwardRef(function PdfViewer(
     const layoutPages = async () => {
       try {
         let pdf = pdfDocRef.current;
-        if (!pdf) pdf = await pdfjsLib.getDocument(url).promise;
+        if (!pdf) pdf = await pdfjsLib.getDocument({ url }).promise;
         if (cancelled) return;
         pdfDocRef.current = pdf;
         setNumPages(pdf.numPages);
