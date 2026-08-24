@@ -134,6 +134,8 @@ export function isYjsSyncEnabled(opts = {}) {
  *   applyRemoteUpdate: (updateB64: string, fromOriginId?: string) => void,
  *   applyRemoteState: (stateB64: string) => void,
  *   isApplyingRemote: () => boolean,
+ *   syncLocalText: (text: string) => void,
+ *   getFullStateBase64: () => string,
  *   destroy: () => void,
  *   LOCAL_ORIGIN: symbol,
  * }}
@@ -259,10 +261,41 @@ export function createYjsBinding({ fileId, initialText, sendWs, originId, sync =
     ydoc.destroy();
   };
 
+  // Replace ytext's content with `text`, tagged as a normal local edit
+  // (LOCAL_ORIGIN) so it flows through updateHandler -> sendWs exactly
+  // like a keystroke would. Used by Editor.jsx's hydrate-time reconcile
+  // to PRESERVE local edits typed before yCollab attached (e.g. during a
+  // slow/racing initial WS connect) instead of discarding them: the old
+  // behaviour blindly overwrote the CodeMirror doc with the canonical
+  // Y.Text, silently destroying anything the user had already typed.
+  // A no-op if `text` already matches (avoids a pointless empty diff).
+  const syncLocalText = (/** @type {string} */ text) => {
+    if (typeof text !== 'string' || text === ytext.toString()) return;
+    ydoc.transact(() => {
+      ytext.delete(0, ytext.length);
+      ytext.insert(0, text);
+    }, LOCAL_ORIGIN);
+  };
+
+  // Full current Y.Doc state, base64-encoded — for re-pushing local
+  // state to the server on WS reconnect (see useYjsSync's ws:connected
+  // listener). sendWs silently drops frames sent while the socket is
+  // down (no queue/retry), so a local edit made during a disconnect
+  // window — including one just written by syncLocalText above — can
+  // otherwise be stuck client-side forever even after the socket comes
+  // back up. Y.js updates are idempotent/commutative (same mechanism
+  // the server already uses to answer yjs-request-state), so resending
+  // the whole state on every reconnect is safe: applying it again where
+  // the server already matches is a no-op, and where the client is
+  // ahead the server picks up exactly the missing part.
+  const getFullStateBase64 = () => bytesToBase64(Y.encodeStateAsUpdateV2(ydoc));
+
   return {
     ydoc, ytext, extension,
     applyRemoteUpdate, applyRemoteState,
     isApplyingRemote,
+    syncLocalText,
+    getFullStateBase64,
     destroy,
     LOCAL_ORIGIN,
   };

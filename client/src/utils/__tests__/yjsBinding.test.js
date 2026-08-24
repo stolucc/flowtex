@@ -307,3 +307,69 @@ describe('createYjsBinding phase 2 — fallback seed (editor never stuck blank)'
     b.destroy();
   });
 });
+
+// Regression: a WS-connect race in CI let the client type a marker into
+// the plain CodeMirror doc before yCollab attached; when hydration
+// finally completed, Editor.jsx's old reconcile blindly overwrote the
+// doc with the (older) canonical Y.Text, silently destroying the typed
+// text (confirmed live — visible in the DOM immediately, gone 4s later,
+// never reached the DB). The fix: Editor.jsx now calls syncLocalText to
+// push local-only edits INTO the Y.Doc instead of discarding them.
+describe('createYjsBinding — syncLocalText (preserve local edits on reconcile)', () => {
+  it('replaces ytext content and sends it as a normal local-origin update', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: '', sendWs, originId: 'tab-A' });
+    b.applyRemoteState(__testing.bytesToBase64(Y.encodeStateAsUpdateV2(new Y.Doc()))); // hydrate empty
+    sendWs.mockClear();
+
+    b.syncLocalText('typed before hydration');
+    expect(b.ytext.toString()).toBe('typed before hydration');
+    const sent = sendWs.mock.calls.map((c) => c[0]).find((m) => m.type === 'yjs-update');
+    expect(sent).toBeDefined();
+    expect(sent.originId).toBe('tab-A');
+
+    // And it actually decodes back to the same text — not just "some update".
+    const decoded = new Y.Doc();
+    Y.applyUpdateV2(decoded, __testing.base64ToBytes(sent.update));
+    expect(decoded.getText('content').toString()).toBe('typed before hydration');
+    b.destroy();
+  });
+
+  it('replaces existing content (not append) when ytext is already non-empty', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'seed text', sendWs, originId: 'tab-A', sync: 'phase1' });
+    b.syncLocalText('seed text PLUS more');
+    expect(b.ytext.toString()).toBe('seed text PLUS more');
+    b.destroy();
+  });
+
+  it('is a no-op (no send) when the text already matches', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'same', sendWs, originId: 'tab-A', sync: 'phase1' });
+    sendWs.mockClear();
+    b.syncLocalText('same');
+    expect(sendWs).not.toHaveBeenCalled();
+    b.destroy();
+  });
+});
+
+describe('createYjsBinding — getFullStateBase64 (reconnect resync)', () => {
+  it('returns the current Y.Doc state, decodable to the same text', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: 'hello world', sendWs, originId: 'tab-A', sync: 'phase1' });
+    const decoded = new Y.Doc();
+    Y.applyUpdateV2(decoded, __testing.base64ToBytes(b.getFullStateBase64()));
+    expect(decoded.getText('content').toString()).toBe('hello world');
+    b.destroy();
+  });
+
+  it('re-encoding after a further edit reflects the latest state', () => {
+    const sendWs = vi.fn();
+    const b = createYjsBinding({ fileId: 'f1', initialText: '', sendWs, originId: 'tab-A', sync: 'phase1' });
+    b.ytext.insert(0, 'abc');
+    const decoded = new Y.Doc();
+    Y.applyUpdateV2(decoded, __testing.base64ToBytes(b.getFullStateBase64()));
+    expect(decoded.getText('content').toString()).toBe('abc');
+    b.destroy();
+  });
+});

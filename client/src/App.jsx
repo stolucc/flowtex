@@ -1505,6 +1505,7 @@ function AppInner() {
                     yjsEnabled={yjs.enabled}
                     yjsIsApplyingRemote={yjs.isApplyingRemote}
                     yjsGetText={yjs.getText}
+                    yjsSyncLocalText={yjs.syncLocalText}
                     onSave={handleSaveYjsAware}
                     onLineChange={setEditorLine}
                     onChanges={(/** @type {any} */ changes, /** @type {any} */ tracked, /** @type {any} */ deletions, /** @type {any} */ tcMarks) => {

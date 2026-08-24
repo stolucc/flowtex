@@ -87,9 +87,36 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
     window.addEventListener('ws:yjs-update', onWsYjsUpdate);
     window.addEventListener('ws:yjs-state', onWsYjsState);
 
+    // sendWs silently drops frames sent while the socket is down (no
+    // queue/retry — see useWebSocket's sendWsMessage). So any local edit
+    // made during a disconnect window (initial connect race, network
+    // blip, laptop sleep) can get stuck client-side forever even after
+    // the socket reconnects: the yjs-update it generated was dropped at
+    // send time and nothing re-sends it. On every RECONNECT, re-push the
+    // full current Y.Doc state so the server catches up with whatever
+    // this client has, regardless of what was missed while offline.
+    // Idempotent/safe: applying a state the server already has is a
+    // no-op (same CRDT property yjs-request-state's reply already
+    // relies on in the other direction).
+    //
+    // Gate on `hydrateDone`, not "is this the first ws:connected event
+    // we've seen": the WS connects once per session at the App level,
+    // almost always BEFORE this per-file effect exists to observe it, so
+    // counting events here would treat this file's first (and only)
+    // observed connect as "initial" even when it's really a reconnect.
+    // Once hydrateDone is true, by definition any further ws:connected
+    // is a reconnect — the initial handshake, done via yjs-request-state
+    // above, already happened.
+    const onWsConnected = () => {
+      if (!hydrateDone) return;
+      sendWs?.({ type: 'yjs-update', fileId: file.id, update: b.getFullStateBase64(), originId });
+    };
+    window.addEventListener('ws:connected', onWsConnected);
+
     return () => {
       window.removeEventListener('ws:yjs-update', onWsYjsUpdate);
       window.removeEventListener('ws:yjs-state', onWsYjsState);
+      window.removeEventListener('ws:connected', onWsConnected);
       clearTimeout(hydrateTimer);
       setBinding(null);
       setHydrated(false);
@@ -117,6 +144,13 @@ export default function useYjsSync(file, sendWs, originId, encrypted = false) {
     // only observes FUTURE Y.Text changes — it does not backfill an
     // already-full Y.Text into an empty view, which left big files blank.
     getText: binding ? () => binding.ytext.toString() : null,
+    // Replace the Y.Text's content with `text`, as a normal local edit
+    // (propagates over WS once connected). Editor.jsx's hydrate-time
+    // reconcile calls this — instead of overwriting the CodeMirror doc
+    // with the canonical Y.Text — whenever the doc has diverged from
+    // what it was mounted with, so edits typed before yCollab attached
+    // are preserved rather than silently discarded.
+    syncLocalText: binding ? binding.syncLocalText : null,
     // See the [hydrated] state above. Editor.jsx gates view creation on
     // this so the CodeMirror view is built with the full document.
     hydrated,

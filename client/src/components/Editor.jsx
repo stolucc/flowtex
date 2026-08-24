@@ -189,6 +189,10 @@ const Editor = forwardRef(function Editor(
     // binding). Used by the extraExtensions effect to reconcile the doc to
     // the canonical Y.Text when yCollab attaches.
     yjsGetText = null,
+    // Pushes local text into the Y.Doc as a normal edit (or null when no
+    // binding). Used by the same reconcile when the doc has diverged from
+    // what it was mounted with — see the reconcile effect for why.
+    yjsSyncLocalText = null,
   },
   ref,
 ) {
@@ -234,6 +238,14 @@ const Editor = forwardRef(function Editor(
   // splice on every render).
   const yjsGetTextRef = useRef(yjsGetText);
   yjsGetTextRef.current = yjsGetText;
+  const yjsSyncLocalTextRef = useRef(yjsSyncLocalText);
+  yjsSyncLocalTextRef.current = yjsSyncLocalText;
+  // The doc text at mount time (what the editor was created from — see
+  // `doc: file.content || ''` below). Captured so the reconcile effect can
+  // tell "the user typed something before yCollab attached" (doc has
+  // diverged from this) apart from "nothing happened locally, the doc
+  // still matches file.content" (safe to always take the canonical text).
+  const mountedDocTextRef = useRef(/** @type {string} */ (''));
   // Track current file id so any deferred operations pin to the file the user is
   // actually editing — saves and other operations must not leak edits across files.
   const fileIdRef = useRef(file?.id ?? null);
@@ -930,6 +942,7 @@ const Editor = forwardRef(function Editor(
     visualModeCompartment.current = new Compartment();
     tcInlineCompartment.current = new Compartment();
     extraExtCompartment.current = new Compartment();
+    mountedDocTextRef.current = file.content || '';
 
     const state = EditorState.create({
       // Mount from file.content (already loaded over HTTP) so the full
@@ -1972,21 +1985,46 @@ const Editor = forwardRef(function Editor(
     /** @type {any} */
     const spec = { effects: extraExtCompartment.current.reconfigure(exts) };
     // The editor mounted from file.content; yCollab is attached here once
-    // the binding has hydrated (App gates this on yjs.hydrated). Reconcile
-    // the doc to the canonical Y.Text IN THE SAME transaction that adds the
-    // plugin: the plugin is constructed after the change, so it sees
-    // doc === ytext (no duplicate insert, and its update() never runs for
-    // this tx → nothing pushed back into the Y.Text). Usually file.content
-    // already equals the Y.Text, so this is a no-op; it only rewrites when
-    // the server state is newer. tcMarkSkipAnnotation stops the
-    // tracked-changes filter from flagging the reconcile as user input.
+    // the binding has hydrated (App gates this on yjs.hydrated). Usually
+    // file.content already equals the Y.Text, so there's nothing to do.
+    // When they differ, WHICH side wins depends on whether the user typed
+    // anything locally before yCollab attached (e.g. a slow/racing WS
+    // connect delays hydration past the first keystroke):
+    //
+    //   - doc still matches what we mounted with (mountedDocTextRef) ->
+    //     no local edits happened; safe to always take the canonical
+    //     Y.Text (handles a large file whose fuller state simply hadn't
+    //     arrived yet at mount time — the ORIGINAL reason this reconcile
+    //     exists). Applied IN THE SAME transaction that adds the plugin:
+    //     the plugin is constructed after the change, so it sees
+    //     doc === ytext (no duplicate insert, nothing pushed back).
+    //
+    //   - doc has DIVERGED from what we mounted with -> the user typed
+    //     something before yCollab was attached, so it exists ONLY in
+    //     this plain CodeMirror doc, untracked by any CRDT. The old code
+    //     unconditionally overwrote the doc with the canonical Y.Text
+    //     here, silently destroying those keystrokes (confirmed live:
+    //     e2e/smoke.spec.js, CI-only WS-connect race — typed text visible
+    //     in the DOM immediately, gone 4s later, never in the DB). Do the
+    //     reverse instead: push the doc's current text into the Y.Doc
+    //     (yjsSyncLocalText) so it becomes the new canonical state AND
+    //     propagates once the connection is actually up. Leave the DOM
+    //     untouched — the user's local doc is already exactly right.
+    //
+    // tcMarkSkipAnnotation stops the tracked-changes filter from flagging
+    // the canonical-wins branch's rewrite as user input.
     let reconciled = false;
     if (yjsEnabled && exts.length > 0 && typeof yjsGetTextRef.current === 'function') {
       const ytextStr = yjsGetTextRef.current();
-      if (typeof ytextStr === 'string' && ytextStr !== view.state.doc.toString()) {
-        spec.changes = { from: 0, to: view.state.doc.length, insert: ytextStr };
-        spec.annotations = tcMarkSkipAnnotation.of(true);
-        reconciled = true;
+      const currentDoc = view.state.doc.toString();
+      if (typeof ytextStr === 'string' && ytextStr !== currentDoc) {
+        if (currentDoc === mountedDocTextRef.current) {
+          spec.changes = { from: 0, to: view.state.doc.length, insert: ytextStr };
+          spec.annotations = tcMarkSkipAnnotation.of(true);
+          reconciled = true;
+        } else if (typeof yjsSyncLocalTextRef.current === 'function') {
+          yjsSyncLocalTextRef.current(currentDoc);
+        }
       }
     }
     view.dispatch(spec);
