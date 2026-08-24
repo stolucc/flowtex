@@ -266,8 +266,8 @@ test('forgot-password: unknown email returns ok (no enumeration leak)', async ()
 
 test('reset-password: full flow — old password no longer works, new one does, sessions invalidated', async () => {
   const email = `e2e-email-reset-${Date.now()}@test.local`;
-  const oldPassword = 'OldStrong1';
-  const newPassword = 'NewStrong2';
+  const oldPassword = 'OldStrong123';
+  const newPassword = 'NewStrong123';
 
   // Register, verify, log in (so we have an active session to invalidate later).
   await api('POST', '/api/auth/register', { body: { email, name: 'Reset Flow', password: oldPassword } });
@@ -311,7 +311,7 @@ test('reset-password: replay of an already-used token → 400', async () => {
   const userId = await registerAndGetUserId(email);
   await pool.query('UPDATE users SET email_verified = TRUE WHERE id = $1', [userId]);
   const token = await insertResetToken(userId);
-  const password = 'FirstReset1';
+  const password = 'FirstReset123';
 
   const first = await api('POST', '/api/auth/reset-password', { body: { token, password } });
   expect(first.status).toBe(200);

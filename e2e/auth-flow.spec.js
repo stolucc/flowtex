@@ -102,7 +102,7 @@ test('register: happy path returns needsVerification + persists user', async () 
   const stamp = Date.now();
   const email = `e2e-auth-register-${stamp}@test.local`;
   const r = await api('POST', '/api/auth/register', {
-    body: { email, name: 'Reg Happy', password: 'ValidPass1' },
+    body: { email, name: 'Reg Happy', password: 'ValidPass123' },
   });
   expect(r.status, r.text).toBe(200);
   const body = r.json();
@@ -118,12 +118,12 @@ test('register: happy path returns needsVerification + persists user', async () 
 test('register: duplicate email returns same shape (no enumeration leak)', async () => {
   const email = `e2e-auth-dup-${Date.now()}@test.local`;
   // First call creates the user.
-  await api('POST', '/api/auth/register', { body: { email, name: 'Dup', password: 'ValidPass1' } });
+  await api('POST', '/api/auth/register', { body: { email, name: 'Dup', password: 'ValidPass123' } });
   // Second call with the same email must look identical to the first — same
   // status, same response shape — so an attacker can't tell which emails are
   // already registered. The hardened registerUser() returns alreadyExisted=true
   // internally and the route maps it to the standard needsVerification:true.
-  const r = await api('POST', '/api/auth/register', { body: { email, name: 'Dup2', password: 'OtherPass1' } });
+  const r = await api('POST', '/api/auth/register', { body: { email, name: 'Dup2', password: 'OtherPass123' } });
   expect(r.status).toBe(200);
   const body = r.json();
   expect(body.needsVerification).toBe(true);
@@ -135,7 +135,7 @@ test('register: duplicate email returns same shape (no enumeration leak)', async
 
 test('register: invalid email format → 400', async () => {
   const r = await api('POST', '/api/auth/register', {
-    body: { email: 'not-an-email', name: 'Bad', password: 'ValidPass1' },
+    body: { email: 'not-an-email', name: 'Bad', password: 'ValidPass123' },
   });
   expect(r.status).toBe(400);
 });
