@@ -1309,7 +1309,10 @@ html {
 
 .outline-panel-empty {
   padding: 10px 12px;
-  color: var(--text-muted);
+  /* WCAG 2 AA contrast — text-muted (#6c7086) failed at 12px against the
+     dark bg (3.35:1, incl. the <code> hint text inside); text-secondary
+     (#a6adc8) clears 4.5:1. Same fix as file-tree-category-label above. */
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
 }

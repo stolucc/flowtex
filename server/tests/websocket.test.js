@@ -59,6 +59,7 @@ const {
   getRoom,
   WS_RATE_WINDOW,
   WS_RATE_MAX,
+  isExemptFromGenericRateLimit,
 } = _testing;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1258,5 +1259,30 @@ describe('rate limiting constants', () => {
 
   it('WS_RATE_MAX is 30', async () => {
     expect(WS_RATE_MAX).toBe(30);
+  });
+});
+
+// Regression: WS_RATE_MAX=30/1000ms was silently dropping yjs-update
+// frames partway through a normal fast-typing burst (confirmed live via
+// e2e/smoke.spec.js and e2e/reconnect.spec.js — the client believed
+// every keystroke was sent, but the server dropped frames past the 30th
+// in the window with no error, so the persisted document was silently
+// missing characters the user could see on their own screen). yjs-update
+// has its own dedicated, more generous token bucket (takeYjsUpdateToken)
+// and must be exempt from this generic counter so the two limiters don't
+// compound into a stricter effective cap than either was designed for.
+describe('isExemptFromGenericRateLimit', () => {
+  it('exempts yjs-update (has its own takeYjsUpdateToken bucket)', () => {
+    expect(isExemptFromGenericRateLimit('yjs-update')).toBe(true);
+  });
+
+  it('does NOT exempt other message types (cursor, chat, changes, comment-react, join, ...)', () => {
+    for (const type of ['cursor', 'chat', 'changes', 'comment-react', 'reply-react', 'chat-react', 'typing', 'join']) {
+      expect(isExemptFromGenericRateLimit(type)).toBe(false);
+    }
+  });
+
+  it('does not exempt an unknown/future type (fail closed — new types get the generic limit by default)', () => {
+    expect(isExemptFromGenericRateLimit('some-future-message-type')).toBe(false);
   });
 });

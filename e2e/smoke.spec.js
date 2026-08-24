@@ -51,9 +51,10 @@ test('seeded session → open project → edit → server has new content', asyn
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
   await page.keyboard.type(`\n${marker}\n`, { delay: 12 });
 
-  // 5. Wait past the 1s debounced save in Editor.jsx, then verify DB has it.
-  // Bumped from 2s → 4s for CI runners, which are noticeably slower than the
-  // dev machine; the headless click+type sequence can take longer to land.
+  // 5. Wait past the Y.Doc room's debounced snapshot (services/yjsRoom.js,
+  // SNAPSHOT_DEBOUNCE_MS=2s — under Y.js this, not the HTTP autosave, is
+  // what persists files.content), then verify DB has it. Bumped from 2s →
+  // 4s for CI runners, which are noticeably slower than the dev machine.
   await page.waitForTimeout(4000);
   const r = await pgPool.query('SELECT content FROM files WHERE id = $1', [project.fileId]);
   expect(r.rows[0].content).toContain(marker);

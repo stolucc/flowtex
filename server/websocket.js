@@ -958,6 +958,26 @@ function isAllowedWriteRole(type, role) {
   return COMMENTER_WS_ROLES.has(role);
 }
 
+// Message types exempt from the generic per-connection rate limit
+// (WS_RATE_MAX per WS_RATE_WINDOW, applied in handleMessage below).
+// `yjs-update` already has its own dedicated, more generous token
+// bucket (takeYjsUpdateToken — 200 burst / 20 per sec sustained,
+// tuned specifically for keystroke-rate traffic; see its comment).
+// Applying BOTH limiters to the same message type means the stricter
+// one wins even though each was reasoned about independently.
+// Confirmed live: WS_RATE_MAX=30/1000ms was silently dropping
+// yjs-update frames partway through a fast (or even moderate, once
+// cursor/join traffic shares the same window) typing burst — the
+// client believed every keystroke was sent, but the dropped frames
+// never reached the server, so the persisted document was silently
+// missing characters the user could see on their own screen. No
+// error surfaced anywhere.
+const RATE_LIMIT_EXEMPT_TYPES = new Set(['yjs-update']);
+/** @param {string} type */
+function isExemptFromGenericRateLimit(type) {
+  return RATE_LIMIT_EXEMPT_TYPES.has(type);
+}
+
 /** Predicate: should this client be disconnected by a "disconnect every
  *  session except `keepSessionId`" sweep?
  *
@@ -1410,15 +1430,6 @@ export function initWebSocket(server, app, sessionSecret) {
 
     /** @param {import('ws').RawData} raw */
     async function handleMessage(raw) {
-      // Rate limiting
-      const now = Date.now();
-      if (now - wsRateStart > WS_RATE_WINDOW) {
-        wsRateCount = 0;
-        wsRateStart = now;
-      }
-      wsRateCount++;
-      if (wsRateCount > WS_RATE_MAX) return;
-
       if (/** @type {Buffer} */ (raw).length > 256 * 1024) return;
 
       let msg;
@@ -1430,6 +1441,20 @@ export function initWebSocket(server, app, sessionSecret) {
 
       // Basic message schema validation
       if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
+
+      // Generic per-connection rate limit for message types that don't
+      // have their own dedicated limiter (cursor, chat, comment-react,
+      // ...) — see isExemptFromGenericRateLimit's comment for why
+      // yjs-update is excluded.
+      if (!isExemptFromGenericRateLimit(msg.type)) {
+        const now = Date.now();
+        if (now - wsRateStart > WS_RATE_WINDOW) {
+          wsRateCount = 0;
+          wsRateStart = now;
+        }
+        wsRateCount++;
+        if (wsRateCount > WS_RATE_MAX) return;
+      }
 
       // A handler throwing (e.g. a transient DB error inside isFileInProject)
       // must not escape as an unhandled rejection — contain it per-message so
@@ -1509,6 +1534,7 @@ export const _testing = process.env.NODE_ENV === 'test' ? {
   handleChanges,
   handleYjsUpdate,
   handleYjsRequestState,
+  isExemptFromGenericRateLimit,
   ensureRoomSubscribed,
   releaseYjsRoomsForState,
   handleCursor,
