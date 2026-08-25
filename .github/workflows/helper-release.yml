@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: '1.27'
           cache-dependency-path: helper/go.sum
 
       # Each matrix entry's runs-on matches its goos (darwin builds on
