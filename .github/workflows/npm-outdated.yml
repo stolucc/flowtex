@@ -93,9 +93,16 @@ jobs:
 
       - name: Open or update issue
         uses: actions/github-script@v7
+        env:
+          # Passed via env, not interpolated into the script's JS source
+          # (`${{ steps.report.outputs.body }}` inside a template literal):
+          # the report contains markdown code-spans like `@some/pkg`, and
+          # those backticks would terminate the template literal early and
+          # break the JS syntax. process.env sidesteps that entirely.
+          REPORT_BODY: ${{ steps.report.outputs.body }}
         with:
           script: |
-            const body = `${{ steps.report.outputs.body }}`;
+            const body = process.env.REPORT_BODY;
             const title = 'Weekly: dependency major-version drift';
             const empty = body.trim() === 'EMPTY';
             const { data: issues } = await github.rest.issues.listForRepo({
