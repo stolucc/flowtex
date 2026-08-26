@@ -75,12 +75,20 @@ jobs:
             } else {
               body += "\n\n_Triage: bump each dep individually; run tests + lint before merging. CVE risk of a major-behind dep is roughly the same as the average CVE rate of its ecosystem, so this is preventive, not urgent._";
             }
-            fs.writeFileSync("report.md", body);
+            fs.writeFileSync("report.md", body + "\n");
           '
+          # A random per-run delimiter (not the literal "EOF") so the
+          # closing marker can never collide with report content, and a
+          # guaranteed trailing newline on the file (above) so `cat`'s
+          # output ends its own line before the delimiter is echoed --
+          # without that newline, the delimiter gets glued onto the
+          # report's last line and the runner can't find it, which is
+          # exactly what broke this workflow (2026-08-26).
+          delimiter="EOF_$(openssl rand -hex 8)"
           {
-            echo "body<<EOF"
+            echo "body<<$delimiter"
             cat report.md
-            echo "EOF"
+            echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
 
       - name: Open or update issue
