@@ -151,6 +151,17 @@ function AppInner() {
   const handleCompileRef = useRef(/** @type {(() => void) | null} */ (null));
   const [showAdmin, setShowAdmin] = useState(window.location.pathname === '/admin');
   const [showAccountSettings, setShowAccountSettings] = useState(false);
+  // Returning from linking Google in Settings (server redirects to
+  // /?google=linked or /?google_error=<code>): reopen Settings on the
+  // Google tab, which reads + strips the param and shows the result.
+  const [accountSettingsTab, setAccountSettingsTab] = useState(/** @type {string | undefined} */ (undefined));
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') === 'linked' || params.has('google_error')) {
+      setAccountSettingsTab('google');
+      setShowAccountSettings(true);
+    }
+  }, []);
   // Per-project encryption UI state.
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [showEnableEncryptModal, setShowEnableEncryptModal] = useState(false);
@@ -981,7 +992,11 @@ function AppInner() {
         <Suspense fallback={null}>
           <AccountSettingsModal
             user={user}
-            onClose={() => setShowAccountSettings(false)}
+            initialTab={accountSettingsTab}
+            onClose={() => {
+              setShowAccountSettings(false);
+              setAccountSettingsTab(undefined);
+            }}
             onUpdate={setUser}
             onAccountDeleted={handleLogoutFull}
           />

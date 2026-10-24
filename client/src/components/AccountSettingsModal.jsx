@@ -8,6 +8,7 @@ import {
 import { detectPlatform, helperAssetName, helperDownloadURL, helperDmgURL, helperReleasesURL } from '../utils/platformDetect.js';
 import { useHelperStatusContext } from '../contexts/HelperStatusContext.jsx';
 import HelperStatusBadge from './HelperStatusBadge.jsx';
+import { GoogleAccountSection } from './GoogleSignIn.jsx';
 
 /** Helper-install guide for the "not detected" state. Detects the
  *  users platform and offers a one-click download to the matching
@@ -677,6 +678,9 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
           <button className={`settings-tab ${tab === 'password' ? 'active' : ''}`} onClick={() => setTab('password')}>
             Password
           </button>
+          <button className={`settings-tab ${tab === 'google' ? 'active' : ''}`} onClick={() => setTab('google')}>
+            Google
+          </button>
           <button className={`settings-tab ${tab === 'github' ? 'active' : ''}`} onClick={() => setTab('github')}>
             GitHub
           </button>
@@ -867,6 +871,12 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                 {pwLoading ? 'Changing...' : 'Change Password'}
               </button>
             </form>
+          </div>
+        )}
+
+        {tab === 'google' && (
+          <div className="settings-section">
+            <GoogleAccountSection user={user} onUpdate={onUpdate} />
           </div>
         )}
 

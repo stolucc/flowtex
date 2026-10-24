@@ -5728,6 +5728,48 @@ html {
   cursor: not-allowed;
 }
 
+/* "Continue with Google": neutral outlined button with the G mark, per
+   Google's sign-in branding guidance (no recolouring of the logo). */
+.auth-google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.auth-google-button:hover {
+  background: var(--bg-hover);
+}
+
+.auth-or-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.auth-or-divider span {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-google-note {
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 8px 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .auth-error {
   color: var(--red);
   font-size: 13px;

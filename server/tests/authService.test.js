@@ -323,6 +323,8 @@ describe('getCurrentUser', () => {
       totp_enabled: true,
       is_admin: false,
       compile_location: 'server',
+      google_linked: true,
+      has_password: false,
     });
 
     const result = await getCurrentUser('u1');
@@ -333,6 +335,8 @@ describe('getCurrentUser', () => {
       totpEnabled: true,
       isAdmin: false,
       compileLocation: 'server',
+      googleLinked: true,
+      hasPassword: false,
       // serverFeatures.localCompile reflects FEATURE_LOCAL_COMPILE env var
       // at the moment of the call. Default off; this test does not set it.
       serverFeatures: { localCompile: false },

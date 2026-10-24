@@ -1,6 +1,13 @@
 // @ts-check
 import React, { useState, useEffect } from 'react';
 import { post, get } from '../api.js';
+import {
+  GoogleSignInButton,
+  GoogleLinkInterstitial,
+  GoogleMfaInterstitial,
+  googleErrorMessage,
+  useGoogleAvailable,
+} from './GoogleSignIn.jsx';
 
 /**
  * Authentication page handling login, registration, email verification, password reset, and 2FA.
@@ -26,7 +33,18 @@ export default function AuthPage({ onAuth }) {
   // We detect that path here and render the interstitial.
   const isSamlConfirmPath = typeof window !== 'undefined'
     && window.location.pathname === '/login/confirm-saml-link';
-  const initialMode = resetToken
+  // Google sign-in interstitials (server/routes/googleAuth.js redirects
+  // here after the Google round-trip).
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const googleInterstitial = pathname === '/login/link-google'
+    ? 'google-link'
+    : pathname === '/login/google-mfa'
+      ? 'google-mfa'
+      : null;
+  const googleError = urlParams.get('google_error');
+  const initialMode = googleInterstitial
+    ? googleInterstitial
+    : resetToken
     ? 'reset'
     : verifyToken
       ? 'verifying'
@@ -45,7 +63,7 @@ export default function AuthPage({ onAuth }) {
   const [totpCode, setTotpCode] = useState('');
   const [mfaRequired, setMfaRequired] = useState(false);
   const [trustDevice, setTrustDevice] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => googleErrorMessage(googleError));
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
@@ -69,6 +87,17 @@ export default function AuthPage({ onAuth }) {
   // Set to true while POSTing to /confirm-link or /cancel-link so the
   // buttons disable and don't double-submit.
   const [samlConfirmBusy, setSamlConfirmBusy] = useState(false);
+  const googleAvailable = useGoogleAvailable();
+
+  // ?google_error=<code> was turned into the initial error message
+  // above; strip it so a refresh doesn't show it again.
+  useEffect(() => {
+    if (!googleError) return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete('google_error');
+    const qs = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+  }, [googleError]);
 
   // Handle email verification token from URL
   useEffect(() => {
@@ -378,6 +407,10 @@ export default function AuthPage({ onAuth }) {
               )}
             </div>
           </>
+        ) : mode === 'google-link' ? (
+          <GoogleLinkInterstitial />
+        ) : mode === 'google-mfa' ? (
+          <GoogleMfaInterstitial />
         ) : mode === 'verifying' ? (
           <p className="auth-subtitle">Verifying your email...</p>
         ) : mode === 'saml-confirm-link' ? (
@@ -603,6 +636,14 @@ export default function AuthPage({ onAuth }) {
             )}
             {mode === 'register' && inviteInfo?.error && (
               <div className="auth-error" style={{ marginBottom: 12 }}>{inviteInfo.error}</div>
+            )}
+            {googleAvailable && (
+              <>
+                <GoogleSignInButton label={mode === 'register' ? 'Sign up with Google' : 'Continue with Google'} />
+                <div className="auth-or-divider" aria-hidden="true">
+                  <span />or<span />
+                </div>
+              </>
             )}
             <form onSubmit={handleSubmit} className="auth-form">
               {mode === 'register' && (

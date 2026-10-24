@@ -39,6 +39,7 @@ import compileRouter from './routes/compile.js';
 import commentsRouter from './routes/comments.js';
 import authRouter from './routes/auth.js';
 import samlRouter from './routes/saml.js';
+import googleAuthRouter from './routes/googleAuth.js';
 import helperRouter from './routes/helper.js';
 import historyRouter from './routes/history.js';
 import githubRouter from './routes/github.js';
@@ -289,6 +290,11 @@ const CSRF_EXEMPT_PATHS = Object.freeze([
   // Origin-equality check downstream.
   '/api/auth/saml/confirm-link',
   '/api/auth/saml/cancel-link',
+  // Google sign-in interstitials: same shape as the SAML pair above --
+  // the session holds a pending link / MFA step but no userId yet.
+  '/api/auth/google/confirm-link',
+  '/api/auth/google/mfa',
+  '/api/auth/google/cancel',
 ]);
 // Boot-time assertion so a typo or wrong addition fails loudly at startup
 // rather than quietly weakening protection in production.
@@ -487,6 +493,24 @@ app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/auth/resend-verification', authLimiter);
+// Google sign-in: the password / TOTP steps share the login bucket; the
+// redirect legs get their own looser bucket (one sign-in = 2 requests,
+// and a user retrying the account chooser shouldn't hit the 20 cap).
+const googleRedirectLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => skipRateLimit,
+});
+app.use('/api/auth/google/confirm-link', authLimiter);
+app.use('/api/auth/google/mfa', authLimiter);
+app.use('/api/auth/google/link-start', authLimiter);
+app.use('/api/auth/google/unlink', authLimiter);
+app.use('/api/auth/google/login', googleRedirectLimiter);
+app.use('/api/auth/google/callback', googleRedirectLimiter);
+app.use('/api/auth/google', googleAuthRouter);
 app.use('/api/auth', authRouter);
 // SAML routes need application/x-www-form-urlencoded for the ACS / SLS
 // POST bodies (SAML's POST binding is form-encoded, not JSON). Scope

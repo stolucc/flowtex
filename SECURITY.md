@@ -397,6 +397,8 @@ salt in `settings`, restart, re-enroll.
 | Compile (per user) | `30/min` | session.userId | Cross-project compile spam from one account |
 | Comment create (`POST /api/comments/:fileId`) | `60/min` | session.userId (IP fallback via `ipKeyGenerator`) | Each create can fan out @-mention rows, an assignee row, a WS push to every collaborator, and a slot in the next 5-minute digest email — the generic limiter would let one author spray 200/min of bell rows at a victim |
 | Bug report (`POST /api/bug-reports`) | `5/hour` | session.userId (IP fallback) | Authenticated user could otherwise spray every admin inbox via the Help → Report a bug modal |
+| Google sign-in password / TOTP steps (`/api/auth/google/{confirm-link,mfa,link-start,unlink}`) | shares the Auth bucket | IP | Same brute-force surface as the login form; the password checks also go through the login lockout |
+| Google sign-in redirects (`/api/auth/google/{login,callback}`) | `60/15min` | IP | One sign-in costs two requests; looser than Auth so retrying the account chooser doesn't lock a user out |
 
 All buckets honour `DISABLE_RATE_LIMIT=1` only when `NODE_ENV !== 'production'`. The IPv6 fallback uses `express-rate-limit`'s `ipKeyGenerator` helper so two callers behind the same `/64` don't share a bucket (otherwise one tenant could silence a neighbour). The comment-create and bug-report limiters key by `session.userId` first and only fall back to IP for the rare unauthenticated edge case.
 
@@ -412,6 +414,31 @@ Two independent counters, both over a 15-minute sliding window:
 | `failed(ip)` | 30 | one source IP across any account | Credential-stuffing / spraying — one IP hammering many accounts |
 
 Both reset on a successful login for the same `email`. Both require `req.ip` to be the real client IP, which depends on `app.set('trust proxy', 1)` (already in place) plus Caddy being the only public-facing entry. If you ever expose port 3001 directly, `X-Forwarded-For` becomes attacker-controlled and the lockout becomes spoofable — keep the FlowTex Node process bound behind the proxy.
+
+## Google sign-in
+
+Optional; enabled when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set. Code: `server/routes/googleAuth.js`, `server/services/googleAuthService.js`.
+
+**Protocol.** OpenID Connect authorization-code flow with PKCE (S256), `state` and `nonce`, via `openid-client`. The ID token's signature (Google JWKS), `iss`, `aud`, `exp` and `nonce` are checked by the library; FlowTex additionally requires `email_verified === true`. `state`, `nonce` and the PKCE verifier live only in the server-side session, are single-use (consumed by the callback whether it succeeds or not) and expire after 10 minutes. `returnTo` is restricted to same-origin relative paths.
+
+**Identity.** Accounts are keyed by Google's `sub` (`users.google_sub`, unique), not by email: a Google user who changes their Gmail address still lands on the same FlowTex account, and a recycled address never inherits someone else's account.
+
+**Account matching** (first sign-in with a given `sub`):
+
+| Existing account with that email | Result |
+| --- | --- |
+| none | New account: email verified, no password (forgot-password can set one later) |
+| verified, local password | **Not linked automatically.** Interstitial asks for that account's FlowTex password (through the normal login lockout) and its TOTP code if 2FA is on; only then is `google_sub` set |
+| unverified | Treated as a squat (no one proved the mailbox, it cannot sign in). Google proves the mailbox, so the Google user claims it: password hash, TOTP, outstanding verification and reset tokens are wiped |
+| SAML-linked | Refused, so an organisation's SSO cannot be bypassed with a personal Google account |
+| already linked to a different `sub` | Refused |
+| soft-deleted | Refused |
+
+**2FA.** Google sign-in replaces only the password step. A user with FlowTex TOTP enabled is not signed in at the callback; a pending-MFA state is parked in the session and `/api/auth/google/mfa` requires the code (same `verifyTotpWithLockout` and trusted-device cookie as password login).
+
+**Linking from Settings** requires the current password first (`/link-start`), because a stolen session alone must not be able to add a permanent new way into the account. The callback also checks the signed-in user is still the one who started the link. **Unlinking** requires the password and is refused for accounts without one (it would lock the user out).
+
+**Session.** The session is regenerated, and a fresh CSRF token issued, at the moment a user is actually signed in; all pre-auth Google state is dropped with it. The three anonymous POSTs (`confirm-link`, `mfa`, `cancel`) are on `CSRF_EXEMPT_PATHS` and so get the Origin-equality check, same as the SAML confirm-link pair.
 
 ## Email change notification
 

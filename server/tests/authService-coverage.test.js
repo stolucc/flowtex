@@ -162,7 +162,10 @@ describe('getCurrentUser SQL', () => {
     });
     await getCurrentUser('u');
     const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toContain('SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users');
+    expect(sql).toContain('SELECT id, email, name, totp_enabled, is_admin, compile_location,');
+    // Never select the secrets themselves -- only whether they exist.
+    expect(sql).toContain('google_sub IS NOT NULL AS google_linked');
+    expect(sql).toContain('password_hash IS NOT NULL AS has_password');
     expect(params).toEqual(['u']);
   });
 });

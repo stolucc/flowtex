@@ -265,6 +265,11 @@ SMTP_FROM=FlowTex &lt;noreply@example.com&gt;
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 
+<span class="comment"># Google sign-in (optional &mdash; adds &ldquo;Continue with Google&rdquo;)</span>
+<span class="comment"># OAuth client type &ldquo;Web application&rdquo;; redirect URI &lt;APP_URL&gt;/api/auth/google/callback</span>
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
 <span class="comment"># Redis (only needed if you run >1 FlowTex instance behind a load balancer)</span>
 <span class="comment"># Single-instance deployments handle ~1500 concurrent users without it.</span>
 <span class="comment"># See §3.1 in this guide for production hardening (bind, auth, no-persist).</span>

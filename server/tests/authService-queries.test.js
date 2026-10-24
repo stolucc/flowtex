@@ -306,11 +306,13 @@ describe('authenticateUser queries', () => {
 });
 
 describe('getCurrentUser queries', () => {
-  it('SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1', async () => {
+  it('SELECT profile cols + sign-in method flags FROM users WHERE id = $1', async () => {
     db.get.mockResolvedValueOnce({ id: 'u', email: 'e', name: 'n', totp_enabled: false, is_admin: false });
     await getCurrentUser('u');
     const [sql, params] = db.get.mock.calls[0];
-    expect(sql).toBe('SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1');
+    expect(sql.replace(/\s+/g, ' ').trim()).toBe(
+      'SELECT id, email, name, totp_enabled, is_admin, compile_location, google_sub IS NOT NULL AS google_linked, password_hash IS NOT NULL AS has_password FROM users WHERE id = $1',
+    );
     expect(params).toEqual(['u']);
   });
 });

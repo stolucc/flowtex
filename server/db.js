@@ -319,6 +319,19 @@ async function initSchema() {
       ON users(saml_idp_id, saml_name_id)
       WHERE saml_name_id IS NOT NULL;
 
+    -- Google sign-in (OIDC). google_sub is Google's stable per-account
+    -- subject identifier -- NOT the email, which a Google user can
+    -- change. Lookups on sign-in go by sub first; email is only used to
+    -- find a link candidate. A user may have both a password and a
+    -- google_sub (both sign-in methods stay valid). Google-created
+    -- accounts start with password_hash NULL; forgot-password lets them
+    -- set one later. auth_method stays 'password' (= local account);
+    -- 'saml' accounts are refused Google sign-in.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_unique
+      ON users(google_sub)
+      WHERE google_sub IS NOT NULL;
+
     -- Single-row table holding the FlowTex SP's signing keypair. Used
     -- to sign AuthnRequests we send to IdPs and to publish in our SP
     -- metadata XML. Private key is encrypted via utils/crypto.js's

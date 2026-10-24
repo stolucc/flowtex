@@ -40,6 +40,7 @@
     "multer": "^2.2.0",
     "node-pg-migrate": "^8.0.4",
     "nodemailer": "^10.2.1",
+    "openid-client": "^6.8.8",
     "otpauth": "^9.5.0",
     "pg": "^8.20.0",
     "pino": "^10.3.1",

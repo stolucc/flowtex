@@ -679,7 +679,10 @@ export async function checkTrustedDevice(userId, trustCookie) {
 /** @param {string | undefined} userId */
 export async function getCurrentUser(userId) {
   const user = await db.get(
-    'SELECT id, email, name, totp_enabled, is_admin, compile_location FROM users WHERE id = $1',
+    `SELECT id, email, name, totp_enabled, is_admin, compile_location,
+            google_sub IS NOT NULL AS google_linked,
+            password_hash IS NOT NULL AS has_password
+       FROM users WHERE id = $1`,
     [userId],
   );
   if (!user) return null;
@@ -702,6 +705,11 @@ export async function getCurrentUser(userId) {
     // the column default 'server' here. New clients hide the UI when
     // serverFeatures.localCompile is false.
     compileLocation: user.compile_location || 'server',
+    // Sign-in methods, for the Settings > Google tab: whether a Google
+    // account is linked, and whether a password exists (Google-created
+    // accounts have none until they use forgot-password).
+    googleLinked: !!user.google_linked,
+    hasPassword: !!user.has_password,
     serverFeatures,
   };
 }

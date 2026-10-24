@@ -47,8 +47,8 @@ declare module 'express-session' {
     userName?: string;
     /** Double-submit CSRF token, paired with the csrf-token cookie. */
     csrfToken?: string;
-    /** How the user authenticated: 'password' (default) or 'saml'. */
-    authMethod?: 'password' | 'saml';
+    /** How the user authenticated: 'password' (default), 'saml' or 'google'. */
+    authMethod?: 'password' | 'saml' | 'google';
     /** When authMethod=='saml', which IdP authenticated them. */
     samlIdpId?: string;
     /** When authMethod=='saml', the IdP's canonical user identifier. */
@@ -77,6 +77,35 @@ declare module 'express-session' {
       existingName: string;
       relayState: string;
       /** Date.now() + 10*60*1000 at the time the link was registered. */
+      expiresAt: number;
+    };
+    /** Google OIDC in-flight request: state / nonce / PKCE verifier,
+     *  checked and consumed by /api/auth/google/callback. */
+    googleOAuth?: {
+      mode: 'login' | 'link';
+      /** mode=='link': the signed-in user who started the link. */
+      userId?: string;
+      state: string;
+      nonce: string;
+      codeVerifier: string;
+      returnTo: string;
+      expiresAt: number;
+    };
+    /** Google sign-in matched an existing password account; waiting
+     *  for its password (+TOTP) on /api/auth/google/confirm-link. */
+    pendingGoogleLink?: {
+      userId: string;
+      sub: string;
+      email: string;
+      existingName: string;
+      returnTo: string;
+      expiresAt: number;
+    };
+    /** Google sign-in succeeded for a TOTP user; waiting for the code
+     *  on /api/auth/google/mfa. */
+    pendingGoogleMfa?: {
+      userId: string;
+      returnTo: string;
       expiresAt: number;
     };
   }

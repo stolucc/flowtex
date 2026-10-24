@@ -361,6 +361,12 @@ ${SMTP_ENV_BLOCK}
 # ── GitHub OAuth (optional — enables repo sync) ───────────────────────
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
+
+# ── Google sign-in (optional — "Continue with Google") ───────────────
+# OAuth client type "Web application"; redirect URI:
+#   https://${DOMAIN}/api/auth/google/callback
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
 $([ "$WITH_REDIS" = "1" ] && echo "REDIS_URL=redis://localhost:6379" || echo "# REDIS_URL=redis://localhost:6379")
 
 # ── Multi-instance mode (cluster) ─────────────────────────────────────
@@ -716,6 +722,7 @@ Next steps:
      first-run wizard creates the admin account.
   $EMAIL_STEP
   3. Optional: GitHub OAuth for repo sync — set GITHUB_CLIENT_ID/SECRET in .env.
+     Optional: Google sign-in — set GOOGLE_CLIENT_ID/SECRET in .env.
   4. Schedule backups: $APP_DIR/scripts/backup.sh (see docs/installation.html §4.5).
 
 Upgrades later:  re-run this script (it pulls $BRANCH, rebuilds, restarts).
