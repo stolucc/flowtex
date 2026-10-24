@@ -2,6 +2,8 @@ module github.com/stolucc/flowtex/helper
 
 go 1.27.0
 
+toolchain go1.27.3
+
 // Single-binary helper for FlowTex local compilation. See README.md.
 //
 // External deps are limited to a tray library for the menu-bar UI on

@@ -1,5 +1,5 @@
 // @ts-check
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -417,3 +417,8 @@ export async function pullFromGitHub(projectId, token, repo, branch) {
     }
   });
 }
+
+// Test-only exports for internal helpers — only populated in NODE_ENV=test.
+export const _testing = process.env.NODE_ENV === 'test'
+  ? { configureRemote, clearRemoteAuth }
+  : undefined;

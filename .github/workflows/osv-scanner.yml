@@ -29,7 +29,7 @@ permissions:
 jobs:
   scan-scheduled:
     if: github.event_name == 'push' || github.event_name == 'schedule'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.0.2
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.0
     with:
       # Fail the job on any vulnerability the scanner flags (default level).
       # We rely on npm audit's `--audit-level=high` in ci.yml for the more
@@ -41,7 +41,7 @@ jobs:
 
   scan-pr:
     if: github.event_name == 'pull_request'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.0.2
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.0
     with:
       scan-args: |-
         --recursive
