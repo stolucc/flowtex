@@ -48,7 +48,7 @@ import {
   encryptContentForStorage,
 } from './projectContentCrypto.js';
 
-const MAX_ZIP_ENTRIES = 500;
+const MAX_ZIP_ENTRIES = 2000;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
 const MAX_ZIP_RATIO = 100; // reject if decompressed/compressed > 100x

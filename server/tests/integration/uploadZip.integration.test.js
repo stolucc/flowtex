@@ -93,4 +93,21 @@ describe('uploadZipToProject', () => {
     await uploadZipToProject(p.id, zip.toBuffer(), { preservePaths: true });
     expect(await pathsOf(p.id)).toEqual(['ok/a.txt']);
   });
+
+  it('accepts up to 2000 entries and rejects 2001 before touching the DB', async () => {
+    const p = await seed();
+    const many = (n) => {
+      const zip = new AdmZip();
+      for (let i = 0; i < n; i++) zip.addFile(`bulk/f${i}.txt`, Buffer.from('x'));
+      return zip.toBuffer();
+    };
+    await expect(uploadZipToProject(p.id, many(2001), { preservePaths: true })).rejects.toThrow(
+      'ZIP contains too many files (2001, max 2000)',
+    );
+    expect(await pathsOf(p.id)).toEqual([]);
+    // 600 (> the old 500 cap) now goes through.
+    const res = await uploadZipToProject(p.id, many(600), { preservePaths: true });
+    expect(res.created).toBe(600);
+  });
 });
+

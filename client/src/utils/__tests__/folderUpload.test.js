@@ -117,7 +117,7 @@ describe('checkLimits', () => {
 
   it('rejects too many files and too many bytes, with the reason', () => {
     const lots = Array.from({ length: MAX_FOLDER_FILES + 1 }, (_, i) => item(`f${i}`, 1));
-    expect(checkLimits(lots).error).toMatch(/limit is 500/);
+    expect(checkLimits(lots).error).toMatch(/limit is 2000/);
     const heavy = Array.from({ length: 6 }, (_, i) => item(`f${i}`, 9 * 1024 * 1024));
     expect(checkLimits(heavy).error).toMatch(/54 MB.*limit is 50 MB/);
   });
@@ -194,6 +194,6 @@ describe('runFolderUpload', () => {
     const big = Array.from({ length: MAX_FOLDER_FILES + 1 }, (_, i) => `f/${i}.png`);
     await runFolderUpload({ ...d, items: items(big) });
     expect(d.upload).not.toHaveBeenCalled();
-    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/limit is 500/), expect.anything());
+    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/limit is 2000/), expect.anything());
   });
 });

@@ -8,7 +8,7 @@
 
 // Mirrors server/services/projectService.js + routes/projects.js. Checked
 // client-side only to give a clear message up front; the server enforces.
-export const MAX_FOLDER_FILES = 500;
+export const MAX_FOLDER_FILES = 2000;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 50 * 1024 * 1024;
 
