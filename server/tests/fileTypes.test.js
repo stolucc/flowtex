@@ -42,3 +42,26 @@ describe('BINARY_EXTS', () => {
     }
   });
 });
+
+import { looksBinary, isBinaryContent } from '../utils/fileTypes.js';
+
+describe('looksBinary / isBinaryContent', () => {
+  it('flags a NUL byte in the first 8000 bytes', () => {
+    expect(looksBinary(Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x10]))).toBe(true); // RIFF....WEBP
+    expect(looksBinary(Buffer.from('\\documentclass{article}\n', 'utf8'))).toBe(false);
+    expect(looksBinary(Buffer.from('héllo — ünïcode ✓', 'utf8'))).toBe(false);
+    expect(looksBinary(Buffer.alloc(0))).toBe(false);
+  });
+
+  it('only scans the first 8000 bytes (cheap on big text files)', () => {
+    const late = Buffer.concat([Buffer.alloc(8000, 0x61), Buffer.from([0])]);
+    expect(looksBinary(late)).toBe(false);
+  });
+
+  it('binary by extension OR by content', () => {
+    expect(isBinaryContent('.png', Buffer.from('text-looking'))).toBe(true);
+    expect(isBinaryContent('.webp', Buffer.from([0x52, 0x00]))).toBe(true);
+    expect(isBinaryContent('.heic', Buffer.from([0x00, 0x00, 0x00, 0x18]))).toBe(true);
+    expect(isBinaryContent('.tex', Buffer.from('plain'))).toBe(false);
+  });
+});

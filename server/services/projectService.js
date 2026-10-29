@@ -30,7 +30,7 @@ import AdmZip from 'adm-zip';
 import db from '../db.js';
 import logger from '../logger.js';
 import { isProjectMember, invalidateMembership } from '../middleware/auth.js';
-import { BINARY_EXTS } from '../utils/fileTypes.js';
+import { isBinaryContent } from '../utils/fileTypes.js';
 import { convertDocxToLatex, prettifyLatex } from '../utils/docxToLatex.js';
 import { PROJECTS_DIR } from '../paths.js';
 import { isUniqueViolation } from '../utils/dbErrors.js';
@@ -52,6 +52,24 @@ const MAX_ZIP_ENTRIES = 2000;
 const MAX_ZIP_ENTRY_SIZE = 10 * 1024 * 1024;
 const MAX_ZIP_TOTAL_SIZE = 200 * 1024 * 1024;
 const MAX_ZIP_RATIO = 100; // reject if decompressed/compressed > 100x
+
+/** A ZIP validation failure the user should see verbatim (status 400).
+ *  Anything without a status is treated as internal by the routes and
+ *  replaced with a generic message, so driver / library errors never
+ *  reach the client.
+ *  @param {string} message */
+function zipError(message) {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+/** @param {Buffer} buffer */
+function openZip(buffer) {
+  try {
+    return new AdmZip(buffer);
+  } catch {
+    throw zipError('Not a valid ZIP file.');
+  }
+}
 
 /** Check that a file path is safe (no traversal, no null bytes, no absolute paths).
  *  @param {unknown} filePath
@@ -282,19 +300,19 @@ export async function createProjectFromTemplate(userId, templateId, name) {
  *  @param {string[] | undefined} tagIds
  */
 export async function createTemplateFromZip(userId, buffer, originalName, description, category, tagIds) {
-  const zip = new AdmZip(buffer);
+  const zip = openZip(buffer);
   const entries = zip.getEntries();
   const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
 
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
-    throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
+    throw zipError(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
   const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
-    throw new Error('ZIP decompressed size too large');
+    throw zipError('ZIP decompressed size too large');
   }
   if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
-    throw new Error('ZIP compression ratio too high (possible zip bomb)');
+    throw zipError('ZIP compression ratio too high (possible zip bomb)');
   }
 
   const templateName = (originalName || 'Untitled Template').replace(/\.zip$/i, '');
@@ -317,8 +335,8 @@ export async function createTemplateFromZip(userId, buffer, originalName, descri
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
       const ext = entryPath.substring(entryPath.lastIndexOf('.')).toLowerCase();
-      const isBinary = BINARY_EXTS.has(ext);
       const rawData = entry.getData();
+      const isBinary = isBinaryContent(ext, rawData);
       actualTotal += rawData.length;
       if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
       const content = isBinary ? rawData.toString('base64') : rawData.toString('utf8');
@@ -568,21 +586,21 @@ Hello from FlowTex!
  *  @param {string | undefined} originalName
  */
 export async function createProjectFromZip(userId, buffer, originalName) {
-  const zip = new AdmZip(buffer);
+  const zip = openZip(buffer);
   const entries = zip.getEntries();
 
   const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
-    throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
+    throw zipError(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
   const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
-    throw new Error(
+    throw zipError(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
     );
   }
   if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
-    throw new Error('ZIP compression ratio too high (possible zip bomb)');
+    throw zipError('ZIP compression ratio too high (possible zip bomb)');
   }
 
   const projectName = (originalName || 'Uploaded Project').replace(/\.zip$/i, '');
@@ -608,8 +626,8 @@ export async function createProjectFromZip(userId, buffer, originalName) {
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
       const ext = entryPath.substring(entryPath.lastIndexOf('.')).toLowerCase();
-      const isBinary = BINARY_EXTS.has(ext);
       const rawData = entry.getData();
+      const isBinary = isBinaryContent(ext, rawData);
       actualTotal += rawData.length;
       if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
 
@@ -738,7 +756,7 @@ export async function createProjectFromDocx(userId, buffer, originalName, option
       const filePath = mf.path; // e.g. "media/image1.png"
       if (!isValidFilePath(filePath)) continue;
       const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
-      const isBinary = BINARY_EXTS.has(ext);
+      const isBinary = isBinaryContent(ext, mf.data);
       if (isBinary) {
         if (deniedBinaryExtension(filePath)) continue;
         try {
@@ -1313,23 +1331,23 @@ function extractAndReplaceBibliography(tex) {
  *  @param {{ preservePaths?: boolean }} [opts]
  */
 export async function uploadZipToProject(projectId, buffer, { preservePaths = false } = {}) {
-  const zip = new AdmZip(buffer);
+  const zip = openZip(buffer);
   const entries = zip.getEntries();
   /** @type {Array<{ id: string, path: string, updated: boolean }>} */
   const created = [];
 
   const fileEntries = entries.filter((/** @type {any} */ e) => !e.isDirectory);
   if (fileEntries.length > MAX_ZIP_ENTRIES) {
-    throw new Error(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
+    throw zipError(`ZIP contains too many files (${fileEntries.length}, max ${MAX_ZIP_ENTRIES})`);
   }
   const totalDecompressed = fileEntries.reduce((/** @type {number} */ sum, /** @type {any} */ e) => sum + (e.header.size || 0), 0);
   if (totalDecompressed > MAX_ZIP_TOTAL_SIZE) {
-    throw new Error(
+    throw zipError(
       `ZIP decompressed size too large (${Math.round(totalDecompressed / 1024 / 1024)}MB, max ${MAX_ZIP_TOTAL_SIZE / 1024 / 1024}MB)`,
     );
   }
   if (buffer.length > 0 && totalDecompressed / buffer.length > MAX_ZIP_RATIO) {
-    throw new Error('ZIP compression ratio too high (possible zip bomb)');
+    throw zipError('ZIP compression ratio too high (possible zip bomb)');
   }
 
   await db.transaction(async (tx) => {
@@ -1342,8 +1360,8 @@ export async function uploadZipToProject(projectId, buffer, { preservePaths = fa
       if (entry.header.size > MAX_ZIP_ENTRY_SIZE) continue;
 
       const ext = entryPath.substring(entryPath.lastIndexOf('.')).toLowerCase();
-      const isBinary = BINARY_EXTS.has(ext);
       const rawData = entry.getData();
+      const isBinary = isBinaryContent(ext, rawData);
       actualTotal += rawData.length;
       if (rawData.length > MAX_ZIP_ENTRY_SIZE || actualTotal > MAX_ZIP_TOTAL_SIZE) continue;
 
@@ -1920,6 +1938,19 @@ export async function decrementBlobRefcount(tx, projectId, blobSha256) {
 const FILE_PATH_TAKEN = () =>
   Object.assign(new Error('A file with that name already exists'), { status: 409 });
 
+/** Postgres TEXT cannot hold NUL (0x00). Text that contains one is a
+ *  binary file sent down the text path (e.g. a .webp read as text);
+ *  reject it with a clear 400 instead of the raw driver error.
+ *  @param {unknown} content */
+function assertStorableText(content) {
+  if (typeof content === 'string' && content.includes('\u0000')) {
+    throw Object.assign(
+      new Error('This file contains binary data and cannot be stored as text. Upload it as a file instead.'),
+      { status: 400 },
+    );
+  }
+}
+
 /** Create a new text file in a project (fails if the path already exists).
  *  @param {string} projectId
  *  @param {string} filePath
@@ -1928,6 +1959,7 @@ const FILE_PATH_TAKEN = () =>
 export async function createFile(projectId, filePath, content) {
   if (!isValidFilePath(filePath)) throw new Error('Invalid file path');
   if (content && content.length > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
+  assertStorableText(content);
   const existing = await db.get('SELECT id FROM files WHERE project_id = $1 AND path = $2', [projectId, filePath]);
   if (existing) throw FILE_PATH_TAKEN();
   const id = uuid();
@@ -2019,6 +2051,7 @@ async function createHistorySnapshotIfDue(tx, projectId, authorId, authorName) {
  *  @param {string | Date | undefined} baseVersion
  */
 export async function updateFileContent(fileId, content, userId, tcMarks, baseVersion) {
+  assertStorableText(content);
   const file = await db.get('SELECT * FROM files WHERE id = $1', [fileId]);
   if (!file) throw new Error('File not found');
 

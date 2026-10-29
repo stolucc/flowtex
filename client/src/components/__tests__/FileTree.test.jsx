@@ -246,3 +246,28 @@ describe('FileTree — dropping folders from the OS', () => {
     expect(row.className).toContain('file-tree-drop-target');
   });
 });
+
+// A dropped binary with an unlisted extension (.webp, .heic, ...) used to
+// be read as text; its NUL bytes then failed in Postgres with
+// "invalid byte sequence for encoding UTF8: 0x00".
+describe('FileTree — dropped files are sniffed for binary content', () => {
+  const drop = (file) => ({ types: ['Files'], items: [], files: [file] });
+  const root = () => screen.getByLabelText('Project files');
+
+  it('unknown extension + NUL bytes → binary upload, not text', async () => {
+    const onUploadBinary = vi.fn();
+    const { props } = renderFileTree({ onUploadBinary });
+    const webp = new File([new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])], 'photo.webp');
+    fireEvent.drop(root(), { dataTransfer: drop(webp) });
+    await vi.waitFor(() => expect(onUploadBinary).toHaveBeenCalledWith(webp, 'photo.webp'));
+    expect(props.onCreate).not.toHaveBeenCalled();
+  });
+
+  it('unknown extension + plain text → created as a text file', async () => {
+    const onUploadBinary = vi.fn();
+    const { props } = renderFileTree({ onUploadBinary });
+    fireEvent.drop(root(), { dataTransfer: drop(new File(['\\newcommand{\\x}{y}'], 'macros.sty')) });
+    await vi.waitFor(() => expect(props.onCreate).toHaveBeenCalledWith('macros.sty', '\\newcommand{\\x}{y}'));
+    expect(onUploadBinary).not.toHaveBeenCalled();
+  });
+});

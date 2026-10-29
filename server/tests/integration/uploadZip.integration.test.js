@@ -8,7 +8,12 @@ import AdmZip from 'adm-zip';
 import { seedUser, seedProject, seedFile } from './setup.js';
 import db from '../../db.js';
 import { PROJECTS_DIR } from '../../paths.js';
-import { uploadZipToProject } from '../../services/projectService.js';
+import {
+  uploadZipToProject,
+  createProjectFromZip,
+  createFile,
+  updateFileContent,
+} from '../../services/projectService.js';
 
 /** @param {Record<string, string | Buffer>} entries */
 function zipOf(entries) {
@@ -111,3 +116,45 @@ describe('uploadZipToProject', () => {
   });
 });
 
+
+// "invalid byte sequence for encoding UTF8: 0x00": a binary file whose
+// extension isn't in BINARY_EXTS used to be inserted as TEXT.
+describe('binary content with an unknown extension', () => {
+  const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]);
+
+  it('uploadZipToProject stores it as a blob instead of failing', async () => {
+    const p = await seed();
+    await uploadZipToProject(p.id, zipOf({ 'img/photo.webp': webp, 'img/scan.heic': Buffer.from([0, 0, 0, 24, 1]) }), { preservePaths: true });
+    const rows = await db.all('SELECT path, is_binary, content, binary_sha256 FROM files WHERE project_id = $1 ORDER BY path', [p.id]);
+    expect(rows.map((r) => [r.path, r.is_binary])).toEqual([['img/photo.webp', true], ['img/scan.heic', true]]);
+    expect(rows[0].binary_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('createProjectFromZip stores it as a blob too', async () => {
+    const user = await seedUser();
+    const proj = await createProjectFromZip(user.id, zipOf({ 'main.tex': 'x', 'fig.webp': webp }), 'p.zip');
+    createdProjects.push(proj.id);
+    const row = await db.get('SELECT is_binary FROM files WHERE project_id = $1 AND path = $2', [proj.id, 'fig.webp']);
+    expect(row.is_binary).toBe(true);
+  });
+
+  it('text create / save refuse NUL with a clear 400 (not a driver error)', async () => {
+    const p = await seed();
+    await expect(createFile(p.id, 'bad.dat', 'a\u0000b')).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/binary data/),
+    });
+    const f = await seedFile(p.id, 'ok.txt', 'fine');
+    await expect(updateFileContent(f.id, 'x\u0000y', 'nobody')).rejects.toMatchObject({ status: 400 });
+    const row = await db.get('SELECT content FROM files WHERE id = $1', [f.id]);
+    expect(row.content).toBe('fine');
+  });
+
+  it('a non-ZIP upload gets a clean 400', async () => {
+    const p = await seed();
+    await expect(uploadZipToProject(p.id, Buffer.from('not a zip at all'))).rejects.toMatchObject({
+      status: 400,
+      message: 'Not a valid ZIP file.',
+    });
+  });
+});

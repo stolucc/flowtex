@@ -462,7 +462,11 @@ function AppInner() {
       formData.append('path', fileName);
       try {
         const res = await upload(`/api/projects/${project.id}/upload-file`, formData);
-        if (!res.ok) return;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showAlert(err.error || `Could not upload "${fileName}".`, { title: 'Upload' });
+          return;
+        }
         const result = await res.json();
         if (result.updated) {
           setFiles((fs) =>
@@ -476,7 +480,7 @@ function AppInner() {
         console.error('Binary upload failed:', err);
       }
     },
-    [project, handleCompile, setFiles],
+    [project, handleCompile, setFiles, showAlert],
   );
 
   /** Upload a whole folder (from drag-and-drop or File → Upload Folder) as

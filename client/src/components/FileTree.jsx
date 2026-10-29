@@ -519,7 +519,16 @@ export default function FileTree({
       const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
       if (binaryExts.includes(ext) && !file.type.startsWith('text/')) {
         onUploadBinary?.(file, file.name);
-      } else {
+        return;
+      }
+      // Unknown extension: sniff the content. A NUL byte means binary
+      // (.webp, .heic, .tif, data files...); reading it as text would
+      // send NULs to the server, which Postgres TEXT can't store.
+      file.slice(0, 8000).arrayBuffer().then((/** @type {ArrayBuffer} */ head) => {
+        if (new Uint8Array(head).includes(0)) {
+          onUploadBinary?.(file, file.name);
+          return;
+        }
         const reader = new FileReader();
         reader.onload = () => {
           if (existing) {
@@ -529,9 +538,12 @@ export default function FileTree({
           }
         };
         reader.readAsText(file);
-      }
+      }, (/** @type {unknown} */ err) => {
+        console.error('Reading dropped file failed:', err);
+        showAlert(`Could not read "${file.name}".`, { title: 'Upload' });
+      });
     },
-    [onCreate, onOverwrite, onUploadBinary],
+    [onCreate, onOverwrite, onUploadBinary, showAlert],
   );
 
   /** @type {React.MutableRefObject<Array<{ file: any, existing: any }>>} */

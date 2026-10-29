@@ -19,7 +19,7 @@ import { decryptRowsForRead } from '../services/projectContentCrypto.js';
 import { wipeCompileArtifacts } from '../compiler.js';
 import { statBlob, readBlobStream } from '../services/blobPersistor.js';
 import { loadFileBytes } from '../services/fileBytes.js';
-import { sendError } from '../middleware/errorHandler.js';
+import { sendError, errInfo } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { resolveUsedFiles } from '../../shared/texDeps.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
@@ -27,6 +27,19 @@ import { isLocalCompileEnabled } from '../utils/featureFlags.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const router = Router();
+
+/** Error response for the ZIP import routes. Intended validation errors
+ *  (status set: bad ZIP, too many files, quota) are shown as-is; anything
+ *  else is internal (e.g. a Postgres error) and gets a generic message --
+ *  these routes used to echo err.message, leaking raw driver errors.
+ *  @param {import('express').Response} res
+ *  @param {unknown} err
+ *  @param {string} fallback */
+function zipFailure(res, err, fallback) {
+  const e = errInfo(err);
+  if (e.status && e.status < 500) return res.status(e.status).json({ error: e.message });
+  res.status(500).json({ error: fallback });
+}
 
 /** Verify the current user is a member of the project in req.params.id. Returns the member or null. */
 /**
@@ -168,8 +181,7 @@ router.post('/templates/upload', requireAdmin, upload.single('file'), async (req
     res.json(tmpl);
   } catch (err) {
     logger.error({ err }, 'Template upload error');
-    const msg = err instanceof Error ? err.message : 'Failed to upload template';
-    res.status(400).json({ error: msg });
+    zipFailure(res, err, 'Failed to upload template');
   }
 });
 
@@ -215,8 +227,7 @@ router.post('/from-zip', upload.single('file'), async (req, res) => {
     res.json(await projectService.createProjectFromZip(req.session.userId, req.file.buffer, req.file.originalname));
   } catch (err) {
     logger.error({ err }, 'ZIP project creation error');
-    const msg = err instanceof Error ? err.message : 'Failed to create project from ZIP file';
-    res.status(400).json({ error: msg });
+    zipFailure(res, err, 'Failed to create project from ZIP file');
   }
 });
 
@@ -710,8 +721,7 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
     res.json({ ok: true, files: result.files, created: result.created });
   } catch (err) {
     logger.error({ err }, 'ZIP upload error');
-    const msg = err instanceof Error ? err.message : 'Failed to extract ZIP file';
-    res.status(400).json({ error: msg });
+    zipFailure(res, err, 'Failed to extract ZIP file');
   }
 });
 
