@@ -88,11 +88,11 @@ die()  { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 # the originals back so the run unblocks cleanly.
 __EXISTING_ENV="${APP_DIR}/.env"
 if [ -z "${DOMAIN:-}" ] && [ -f "$__EXISTING_ENV" ]; then
-  DOMAIN="$(grep -m1 '^APP_URL=' "$__EXISTING_ENV" 2>/dev/null | sed -E 's|^APP_URL=https?://||')"
+  DOMAIN="$(grep -m1 '^APP_URL=' "$__EXISTING_ENV" 2>/dev/null | sed -E 's|^APP_URL=https?://||' || true)"
   [ -n "$DOMAIN" ] && log "Reusing DOMAIN=$DOMAIN from existing $__EXISTING_ENV"
 fi
 if [ -z "${ADMIN_EMAIL:-}" ] && [ -f "$__EXISTING_ENV" ]; then
-  ADMIN_EMAIL="$(grep -m1 '^ADMIN_EMAIL=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2-)"
+  ADMIN_EMAIL="$(grep -m1 '^ADMIN_EMAIL=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2- || true)"
   [ -n "$ADMIN_EMAIL" ] && log "Reusing ADMIN_EMAIL from existing $__EXISTING_ENV"
 fi
 : "${DOMAIN:?Set DOMAIN=your.domain — Caddy needs it for the TLS cert (or re-run on an existing install which has it baked in)}"
@@ -119,8 +119,26 @@ SMTP_FROM="${SMTP_FROM:-FlowTex <noreply@${DOMAIN}>}"
 # re-run (`sudo bash provision-vps.sh`, no var) from silently scaling the
 # cluster back to 1 and deleting the extra instance units.
 if [ -z "${INSTANCE_COUNT:-}" ] && [ -f "$__EXISTING_ENV" ]; then
-  INSTANCE_COUNT="$(grep -m1 '^FLOWTEX_INSTANCE_COUNT=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2-)"
+  # `|| true`: under set -e + pipefail a missing key would otherwise end
+  # the script silently right here.
+  INSTANCE_COUNT="$(grep -m1 '^FLOWTEX_INSTANCE_COUNT=' "$__EXISTING_ENV" 2>/dev/null | cut -d= -f2- || true)"
   [ -n "$INSTANCE_COUNT" ] && log "Reusing INSTANCE_COUNT=$INSTANCE_COUNT from existing $__EXISTING_ENV"
+fi
+# Installs scaled before the count was persisted have flowtex-2..N units but
+# no FLOWTEX_INSTANCE_COUNT. Defaulting to 1 there would disable and delete
+# the extra instances below, so take the count from the highest unit number.
+if [ -z "${INSTANCE_COUNT:-}" ]; then
+  __max=1
+  for __unit in "${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"/flowtex-[0-9]*.service; do
+    [ -e "$__unit" ] || continue
+    __n="$(basename "$__unit" .service)"; __n="${__n#flowtex-}"
+    case "$__n" in ''|*[!0-9]*) continue;; esac
+    if [ "$__n" -gt "$__max" ]; then __max="$__n"; fi
+  done
+  if [ "$__max" -gt 1 ]; then
+    INSTANCE_COUNT="$__max"
+    log "Detected INSTANCE_COUNT=$INSTANCE_COUNT from existing flowtex-N units (not yet in .env)"
+  fi
 fi
 INSTANCE_COUNT="${INSTANCE_COUNT:-1}"
 case "$INSTANCE_COUNT" in ''|*[!0-9]*) die "INSTANCE_COUNT must be a positive integer (got '$INSTANCE_COUNT')";; esac
