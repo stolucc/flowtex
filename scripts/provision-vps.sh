@@ -643,6 +643,11 @@ fi
 # so no sticky sessions are needed.
 CADDY_UPSTREAMS=""
 for i in $(seq 1 "$INSTANCE_COUNT"); do CADDY_UPSTREAMS="$CADDY_UPSTREAMS localhost:$((3000 + i))"; done
+# Other apps on this host keep their own site blocks in /etc/caddy/conf.d/
+# (e.g. PLS Studio's pls-studio.caddy). This file is regenerated on every
+# run, so the import line is what keeps those sites alive across FlowTex
+# re-provisions. An empty directory is fine (Caddy only logs a warning).
+mkdir -p /etc/caddy/conf.d
 cat > /etc/caddy/Caddyfile <<CADDY
 $DOMAIN {
 	reverse_proxy$CADDY_UPSTREAMS {
@@ -656,6 +661,8 @@ $DOMAIN {
 		protocols tls1.2 tls1.3
 	}
 }$WWW_BLOCK
+
+import /etc/caddy/conf.d/*.caddy
 CADDY
 systemctl enable caddy
 
