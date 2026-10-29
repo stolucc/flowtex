@@ -186,3 +186,63 @@ describe('FileTree — empty folders in group-by-type view', () => {
     expect(screen.getByText('data.xyz')).toBeTruthy();
   });
 });
+
+// Dropping a FOLDER from the OS used to read it as one fake zero-byte file
+// and silently do nothing. Now the tree is walked and handed to
+// onUploadFolder with relative paths; drops onto a folder row land in it.
+describe('FileTree — dropping folders from the OS', () => {
+  const fileEntry = (name) => {
+    const file = new File(['x'], name);
+    return { name, isFile: true, isDirectory: false, file: (ok) => ok(file) };
+  };
+  const dirEntry = (name, children) => ({
+    name,
+    isFile: false,
+    isDirectory: true,
+    createReader() {
+      let done = false;
+      return { readEntries: (ok) => { ok(done ? [] : children); done = true; } };
+    },
+  });
+  const osDrop = (entries) => ({
+    types: ['Files'],
+    items: entries.map((e) => ({ kind: 'file', webkitGetAsEntry: () => e })),
+    files: entries.filter((e) => e.isFile).map((e) => new File(['x'], e.name)),
+  });
+  const root = () => screen.getByLabelText('Project files');
+
+  it('folder dropped on the panel → onUploadFolder with relative paths', async () => {
+    const onUploadFolder = vi.fn();
+    const { props } = renderFileTree({ onUploadFolder });
+    fireEvent.drop(root(), { dataTransfer: osDrop([dirEntry('images', [fileEntry('a.png'), dirEntry('sub', [fileEntry('b.png')])])]) });
+    await vi.waitFor(() => expect(onUploadFolder).toHaveBeenCalled());
+    expect(onUploadFolder.mock.calls[0][0].map((i) => i.path)).toEqual(['images/a.png', 'images/sub/b.png']);
+    expect(props.onCreate).not.toHaveBeenCalled();
+  });
+
+  it('drop onto a folder row uploads INTO that folder', async () => {
+    const onUploadFolder = vi.fn();
+    renderFileTree({ onUploadFolder });
+    const row = screen.getByText('images').closest('.file-tree-folder');
+    fireEvent.drop(row, { dataTransfer: osDrop([dirEntry('new', [fileEntry('c.png')]), fileEntry('d.png')]) });
+    await vi.waitFor(() => expect(onUploadFolder).toHaveBeenCalled());
+    expect(onUploadFolder.mock.calls[0][0].map((i) => i.path)).toEqual(['images/new/c.png', 'images/d.png']);
+  });
+
+  it('plain files dropped on the panel keep the per-file flow', async () => {
+    const onUploadFolder = vi.fn();
+    const onUploadBinary = vi.fn();
+    renderFileTree({ onUploadFolder, onUploadBinary });
+    fireEvent.drop(root(), { dataTransfer: osDrop([fileEntry('pic.png')]) });
+    await vi.waitFor(() => expect(onUploadBinary).toHaveBeenCalled());
+    expect(onUploadBinary.mock.calls[0][1]).toBe('pic.png');
+    expect(onUploadFolder).not.toHaveBeenCalled();
+  });
+
+  it('highlights a folder row while OS files are dragged over it', () => {
+    renderFileTree({ onUploadFolder: vi.fn() });
+    const row = screen.getByText('images').closest('.file-tree-folder');
+    fireEvent.dragOver(row, { dataTransfer: { types: ['Files'], dropEffect: 'none' } });
+    expect(row.className).toContain('file-tree-drop-target');
+  });
+});

@@ -702,7 +702,11 @@ router.post('/:id/upload-zip', upload.single('file'), async (req, res) => {
   if (!(await requireEditor(req, res))) return;
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
-    const result = await projectService.uploadZipToProject(req.params.id, req.file.buffer);
+    // preservePaths=1: folder upload from the file tree -- keep the
+    // folder structure exactly as sent (no common-prefix stripping).
+    const result = await projectService.uploadZipToProject(req.params.id, req.file.buffer, {
+      preservePaths: req.body?.preservePaths === '1',
+    });
     res.json({ ok: true, files: result.files, created: result.created });
   } catch (err) {
     logger.error({ err }, 'ZIP upload error');

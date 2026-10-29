@@ -5,6 +5,7 @@ import useClickOutside from '../hooks/useClickOutside.js';
 import { CloseIcon, FolderIcon } from './Icons.jsx';
 import { getSetting, setSetting } from '../utils/settings.js';
 import { useAlert } from '../contexts/AlertContext.jsx';
+import { snapshotDropEntries, collectEntries, itemsFromFileList } from '../utils/folderUpload.js';
 
 /**
  * Builds a nested directory tree structure from a flat file list and empty folder paths.
@@ -142,6 +143,7 @@ export default function FileTree({
   onUploadBinary,
   emptyFolders: emptyFoldersProp,
   onCreateFolder,
+  onUploadFolder,
 }) {
   const { alert: showAlert } = useAlert();
   const [groupByType, setGroupByType] = useState(() => {
@@ -241,8 +243,36 @@ export default function FileTree({
     dragSourceRef.current = null;
     setDropTargetPath(null);
   };
+  const isOsFileDrag = (/** @type {any} */ e) =>
+    !!onUploadFolder && Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  /** Upload whatever was dropped from the OS into `targetFolder`
+   *  ('' = project root) as one folder upload. */
+  const uploadDropInto = (/** @type {any} */ e, /** @type {string} */ targetFolder) => {
+    // Snapshot synchronously: the browser clears the item list after the event.
+    const { entries } = snapshotDropEntries(e.dataTransfer);
+    const fallbackFiles = Array.from(e.dataTransfer?.files || []);
+    (async () => {
+      const items = entries.length
+        ? await collectEntries(entries, targetFolder)
+        : itemsFromFileList(fallbackFiles.map((f) => /** @type {any} */ (f)), targetFolder);
+      if (items.length) onUploadFolder?.(items);
+    })().catch((err) => {
+      console.error('Reading dropped folder failed:', err);
+      showAlert('Could not read the dropped folder.', { title: 'Upload folder' });
+    });
+  };
+
   const onFolderDragOver = (/** @type {string} */ folderPath) => (/** @type {any} */ e) => {
-    if (!isInternalDrag(e)) return; // let OS-file overlay logic handle it
+    if (!isInternalDrag(e)) {
+      // Files/folders from the OS: drop INTO this folder.
+      if (!isOsFileDrag(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropTargetPath(folderPath);
+      return;
+    }
     const src = dragSourceRef.current;
     if (!canDropOn(src, folderPath)) return;
     e.preventDefault();
@@ -257,7 +287,16 @@ export default function FileTree({
     // clear on dragend / drop / root-dragover.
   };
   const onFolderDrop = (/** @type {string} */ folderPath) => (/** @type {any} */ e) => {
-    if (!isInternalDrag(e)) return;
+    if (!isInternalDrag(e)) {
+      if (!isOsFileDrag(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDragging(false);
+      dragCounter.current = 0;
+      setDropTargetPath(null);
+      uploadDropInto(e, folderPath);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const src = internalSourcePayload(e);
@@ -434,12 +473,19 @@ export default function FileTree({
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
-    if (dragCounter.current === 0) setDragging(false);
+    if (dragCounter.current === 0) {
+      setDragging(false);
+      // An OS drag that left the panel must not leave a folder highlighted.
+      if (!isInternalDrag(e)) setDropTargetPath(null);
+    }
   }, []);
 
   const handleDragOver = useCallback((/** @type {any} */ e) => {
     e.preventDefault();
     e.stopPropagation();
+    // OS drag not over a folder row (rows stop propagation): target is
+    // the project root, so drop any folder highlight.
+    if (!isInternalDrag(e)) setDropTargetPath((/** @type {any} */ cur) => (cur == null ? cur : null));
     // Internal move: if no folder under the cursor claimed it, the root
     // container is the implicit drop zone (= move to top level).
     if (isInternalDrag(e)) {
@@ -520,6 +566,14 @@ export default function FileTree({
         return;
       }
 
+      // A folder anywhere in the drop: upload the whole structure in one
+      // request. Plain files keep the per-file flow (with its overwrite
+      // prompt per file).
+      if (onUploadFolder && snapshotDropEntries(e.dataTransfer).hasDirectory) {
+        uploadDropInto(e, '');
+        return;
+      }
+
       const droppedFiles = Array.from(e.dataTransfer.files);
       pendingDrops.current = droppedFiles.map((/** @type {any} */ file) => ({
         file,
@@ -528,7 +582,7 @@ export default function FileTree({
       processNextDrop();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files, processNextDrop, onRename, onRenameFolder],
+    [files, processNextDrop, onRename, onRenameFolder, onUploadFolder],
   );
 
   const fileGroups = groupByType ? categorizeFiles(files) : null;

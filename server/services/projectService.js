@@ -1304,10 +1304,15 @@ function extractAndReplaceBibliography(tex) {
 }
 
 /** Upload a ZIP file into an existing project, merging with existing files.
+ *  By default a single shared top-level directory is stripped (a project
+ *  zipped as "my-paper/..." lands at the root). `preservePaths` turns that
+ *  off: the client uses it for folder uploads, where "images/a.png" must
+ *  stay in images/.
  *  @param {string} projectId
  *  @param {Buffer} buffer
+ *  @param {{ preservePaths?: boolean }} [opts]
  */
-export async function uploadZipToProject(projectId, buffer) {
+export async function uploadZipToProject(projectId, buffer, { preservePaths = false } = {}) {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
   /** @type {Array<{ id: string, path: string, updated: boolean }>} */
@@ -1389,7 +1394,7 @@ export async function uploadZipToProject(projectId, buffer) {
     await tx.run('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
   });
 
-  await stripCommonPrefix(created);
+  if (!preservePaths) await stripCommonPrefix(created);
   const files = await db.all('SELECT * FROM files WHERE project_id = $1 ORDER BY path', [projectId]);
   return { files, created: created.length };
 }

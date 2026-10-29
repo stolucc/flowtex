@@ -187,3 +187,29 @@ describe('Toolbar', () => {
     expect(container.querySelector('.toolbar-user-menu-trigger')).toBeNull();
   });
 });
+
+describe('Toolbar — Upload Folder', () => {
+  it('is hidden when no onUploadFolder handler is wired', () => {
+    renderToolbar();
+    fireEvent.click(screen.getByText('Project'));
+    expect(screen.queryByText('Upload Folder…')).toBeNull();
+  });
+
+  it('opens a directory picker and passes relative paths to onUploadFolder', () => {
+    const onUploadFolder = vi.fn();
+    renderToolbar({ onUploadFolder });
+    fireEvent.click(screen.getByText('Project'));
+    expect(screen.getByText('Upload Folder…')).toBeTruthy();
+
+    const input = screen.getByTestId('folder-upload-input');
+    expect(input.hasAttribute('webkitdirectory')).toBe(true);
+    const mk = (rel) => {
+      const f = new File(['x'], rel.split('/').pop());
+      Object.defineProperty(f, 'webkitRelativePath', { value: rel });
+      return f;
+    };
+    fireEvent.change(input, { target: { files: [mk('pics/a.png'), mk('pics/.DS_Store'), mk('pics/s/b.png')] } });
+    expect(onUploadFolder).toHaveBeenCalledTimes(1);
+    expect(onUploadFolder.mock.calls[0][0].map((i) => i.path)).toEqual(['pics/a.png', 'pics/s/b.png']);
+  });
+});

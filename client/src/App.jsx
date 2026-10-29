@@ -34,6 +34,7 @@ const AccountSettingsModal = lazy(() => import('./components/AccountSettingsModa
 const ProjectUnlockModal = lazy(() => import('./components/ProjectUnlockModal.jsx'));
 const EnableEncryptionModal = lazy(() => import('./components/EnableEncryptionModal.jsx'));
 import { get, post, patch, upload } from './api.js';
+import { runFolderUpload } from './utils/folderUpload.js';
 import prettyBib from './utils/prettyBib.js';
 import { LANGUAGES, getLanguage, setLanguage } from './utils/spellcheck.js';
 import { getSetting, setSetting } from './utils/settings.js';
@@ -476,6 +477,29 @@ function AppInner() {
       }
     },
     [project, handleCompile, setFiles],
+  );
+
+  /** Upload a whole folder (from drag-and-drop or File → Upload Folder) as
+   *  one ZIP with its paths preserved. Flow lives in utils/folderUpload.js. */
+  const handleUploadFolder = useCallback(
+    async (/** @type {import('./utils/folderUpload.js').FolderItem[]} */ items) => {
+      if (!project) return;
+      try {
+        const newFiles = await runFolderUpload({
+          items,
+          projectId: project.id,
+          existingPaths: files.map((/** @type {any} */ f) => f.path),
+          upload,
+          alert: showAlert,
+          confirm: showConfirm,
+        });
+        if (newFiles) setFiles(newFiles);
+      } catch (err) {
+        console.error('Folder upload failed:', err);
+        showAlert('Folder upload failed. Please try again.', { title: 'Upload folder' });
+      }
+    },
+    [project, files, setFiles, showAlert, showConfirm],
   );
 
   useEffect(() => {
@@ -936,6 +960,7 @@ function AppInner() {
             setLanguage(code);
             setSpellLangState(code);
           }}
+          onUploadFolder={handleUploadFolder}
           onUploadZip={async (/** @type {any} */ file) => {
             if (!project) return;
             const formData = new FormData();
@@ -1104,6 +1129,7 @@ function AppInner() {
                     onCreate={handleCreateFile}
                     onOverwrite={handleOverwriteFile}
                     onUploadBinary={handleUploadBinary}
+                    onUploadFolder={handleUploadFolder}
                     onDelete={handleDeleteFile}
                     onRename={handleRenameFile}
                     onRenameFolder={handleRenameFolder}

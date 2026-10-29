@@ -20,6 +20,7 @@
     "@codemirror/view": "^6.34.0",
     "@vitejs/plugin-react": "^6.0.1",
     "codemirror": "^6.0.1",
+    "fflate": "^0.8.3",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

@@ -4,6 +4,7 @@ import Avatar from './Avatar.jsx';
 import useClickOutside from '../hooks/useClickOutside.js';
 import HelperStatusIndicator from './HelperStatusIndicator.jsx';
 import { HomeIcon } from './Icons.jsx';
+import { itemsFromFileList } from '../utils/folderUpload.js';
 
 /** Avatar-triggered user menu in the editor toolbar: opens to Account
  *  settings + Sign out. Replaces the standalone log-out icon so the user
@@ -179,6 +180,7 @@ export default function Toolbar({
   onSearch,
   onHistory,
   onUploadZip,
+  onUploadFolder,
   onGitHubSync,
   onInsert,
   onSymbolPicker,
@@ -219,6 +221,7 @@ export default function Toolbar({
   notificationsSlot,
 }) {
   const zipInputRef = useRef(/** @type {any} */ (null));
+  const folderInputRef = useRef(/** @type {any} */ (null));
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(projectName);
   const inputRef = useRef(/** @type {any} */ (null));
@@ -254,6 +257,7 @@ export default function Toolbar({
     { label: 'New Folder', action: onNewFolder },
     { label: 'separator' },
     { label: 'Upload ZIP', action: () => zipInputRef.current?.click() },
+    ...(onUploadFolder ? [{ label: 'Upload Folder…', action: () => folderInputRef.current?.click() }] : []),
     {
       label: 'Download as ZIP',
       action: () => {
@@ -582,6 +586,20 @@ export default function Toolbar({
         onChange={(/** @type {any} */ e) => {
           const file = e.target.files?.[0];
           if (file) onUploadZip?.(file);
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        // Directory picker: each File carries webkitRelativePath.
+        {...{ webkitdirectory: '', directory: '' }}
+        multiple
+        style={{ display: 'none' }}
+        data-testid="folder-upload-input"
+        onChange={(/** @type {any} */ e) => {
+          const items = itemsFromFileList(e.target.files || []);
+          if (items.length) onUploadFolder?.(items);
           e.target.value = '';
         }}
       />
