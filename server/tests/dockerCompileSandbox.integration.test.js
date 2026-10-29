@@ -44,7 +44,7 @@ describe.skipIf(!RUN_INTEGRATION)('Docker compile sandbox (live)', () => {
     // time out.
     try {
       execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'pipe' });
-    } catch (err) {
+    } catch {
       throw new Error(
         'Docker daemon not reachable. Start Docker Desktop / OrbStack ' +
         'before running this suite.',

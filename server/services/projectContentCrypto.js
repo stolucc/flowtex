@@ -14,7 +14,7 @@
 
 import db from '../db.js';
 import { encryptFileContent, decryptFileContent } from '../utils/projectCrypto.js';
-import { getProjectDEK, isProjectUnlocked } from './projectKeyCache.js';
+import { getProjectDEK } from './projectKeyCache.js';
 
 /** Error thrown when an encrypted project is accessed without an
  *  unlocked DEK. Routes map `.status` to HTTP 423 (Locked). */
@@ -112,5 +112,3 @@ export async function decryptContentForRead(projectId, content, tx) {
   if (!ctx.encrypted) return content;
   return decryptFileContent(content, /** @type {Buffer} */ (ctx.dek));
 }
-
-export { isProjectUnlocked };

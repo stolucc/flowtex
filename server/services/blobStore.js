@@ -25,7 +25,6 @@ import { createReadStream } from 'node:fs';
 import { constants as fsConstants } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
 import path from 'node:path';
 import { PROJECTS_DIR } from '../paths.js';
 
@@ -79,7 +78,7 @@ async function ensureDirs(projectId, shardPrefix) {
  * upload — we don't need two copies.
  *
  * @param {string} projectId
- * @param {Readable} stream  Source byte stream (e.g. multer file, req body).
+ * @param {import('node:stream').Readable} stream  Source byte stream (e.g. multer file, req body).
  * @param {{ maxBytes?: number }} [opts]
  * @returns {Promise<{ sha256: string, size: number, deduped: boolean }>}
  */

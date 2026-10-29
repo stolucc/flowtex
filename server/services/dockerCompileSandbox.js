@@ -47,7 +47,6 @@
 // the argv list we pass.
 
 import { spawn } from 'node:child_process';
-import path from 'node:path';
 import logger from '../logger.js';
 
 const PROJECTS_DIR_RE = /^[/\w.-]+$/;

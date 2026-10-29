@@ -23,7 +23,6 @@ import {
 import {
   unlockProject as cacheUnlock,
   lockProject as cacheLock,
-  forceLockProject,
   getProjectDEK,
 } from './projectKeyCache.js';
 
@@ -283,5 +282,3 @@ export async function rotatePassphrase(projectId, currentSecret, newPassphrase) 
   logger.info({ projectId }, 'project passphrase rotated');
   return { recoveryCode: newRecovery };
 }
-
-export { forceLockProject };

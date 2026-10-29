@@ -24,7 +24,7 @@ export const addFixAckEffect = StateEffect.define();
  * StateEffect: drop one acknowledgement range (the one containing pos).
  * @type {import('@codemirror/state').StateEffectType<{ pos: number }>}
  */
-export const clearFixAckAtEffect = StateEffect.define();
+const clearFixAckAtEffect = StateEffect.define();
 
 /**
  * StateEffect: drop ALL acknowledgement ranges (called on fresh compile).

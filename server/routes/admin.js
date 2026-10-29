@@ -17,6 +17,7 @@ import { auditLog } from '../utils/audit.js';
 import logger from '../logger.js';
 import { sendError } from '../middleware/errorHandler.js';
 import validateBody from '../middleware/validateBody.js';
+import { routeParam } from '../utils/routeParam.js';
 
 const router = Router();
 
@@ -406,7 +407,7 @@ router.get('/users/:id/activity', async (req, res) => {
  *  the user row. Refuses self-delete via this route (admins must use the
  *  self-delete flow). */
 router.delete('/users/:userId', validateBody(adminPasswordSchema), async (req, res) => {
-  const userId = req.params.userId;
+  const userId = routeParam(req, 'userId');
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
     const deleted = await adminDeleteUser(req.session.userId, req.body?.password, userId);
@@ -456,7 +457,7 @@ router.get('/users/deleted', async (req, res) => {
  *  second factor (same as the delete route). The user must sign in again
  *  (their session was killed at soft-delete). Sends a notification email. */
 router.post('/users/:userId/restore', validateBody(adminPasswordSchema), async (req, res) => {
-  const userId = req.params.userId;
+  const userId = routeParam(req, 'userId');
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   try {
     const restored = await adminRestoreUser(req.session.userId, req.body?.password, userId);
@@ -489,7 +490,7 @@ router.post('/users/:userId/restore', validateBody(adminPasswordSchema), async (
  *  + update in a single transaction) so two simultaneous demotions can't
  *  race past each other and leave the system orphaned. */
 router.patch('/users/:userId/admin', validateBody(toggleAdminSchema), async (req, res) => {
-  const userId = req.params.userId;
+  const userId = routeParam(req, 'userId');
   if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
   if (typeof req.body?.isAdmin !== 'boolean') {
     return res.status(400).json({ error: 'isAdmin must be a boolean' });

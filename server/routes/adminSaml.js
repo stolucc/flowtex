@@ -8,6 +8,7 @@ import { z } from 'zod';
 import logger from '../logger.js';
 import { auditLog } from '../utils/audit.js';
 import validateBody from '../middleware/validateBody.js';
+import { routeParam } from '../utils/routeParam.js';
 import * as samlService from '../services/samlService.js';
 
 const router = Router();
@@ -164,13 +165,14 @@ router.post('/idps', validateBody(createIdPSchema), async (req, res) => {
 });
 
 router.patch('/idps/:id', validateBody(updateIdPSchema), async (req, res) => {
-  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid id.' });
+  const id = routeParam(req, 'id');
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid id.' });
   try {
-    const updated = await samlService.updateIdP(req.params.id, req.body);
+    const updated = await samlService.updateIdP(id, req.body);
     await auditLog(req.session.userId, 'saml_idp_update', {
       ip: req.ip,
       detail: {
-        idpId: req.params.id,
+        idpId: id,
         patch: Object.keys(req.body),
       },
     }).catch(() => {});
@@ -179,7 +181,7 @@ router.patch('/idps/:id', validateBody(updateIdPSchema), async (req, res) => {
     const e = /** @type {{ status?: number, message?: string }} */ (err && typeof err === 'object' ? err : {});
     const status = e.status || 500;
     if (status >= 500) {
-      logger.error({ err, idpId: req.params.id }, 'admin/saml/idps update failed');
+      logger.error({ err, idpId: id }, 'admin/saml/idps update failed');
       return res.status(500).json({ error: 'Failed to update IdP.' });
     }
     res.status(status).json({ error: e.message });

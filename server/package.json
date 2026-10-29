@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@node-saml/node-saml": "^5.1.0",
-    "@node-saml/passport-saml": "^5.1.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
@@ -30,7 +29,6 @@
     "cookie-parser": "^1.4.7",
     "cookie-signature": "^1.2.2",
     "cors": "^2.8.5",
-    "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
     "express-session": "^1.19.0",
@@ -38,7 +36,6 @@
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
     "multer": "^2.2.0",
-    "node-pg-migrate": "^8.0.4",
     "nodemailer": "^10.2.1",
     "openid-client": "^6.8.8",
     "otpauth": "^9.5.0",
@@ -51,7 +48,6 @@
     "simple-git": "^4.0.2",
     "uuid": "^14.0.0",
     "ws": "^8.21.0",
-    "y-protocols": "^1.0.7",
     "yjs": "^13.6.31",
     "zod": "^4.4.3"
   },

@@ -88,7 +88,7 @@ export function parseFlsInputs(flsContent, projectDir) {
  *  link planted inside the project dir can't leak hashes of arbitrary
  *  filesystem files into the manifest. */
 /** @param {string} absPath */
-export async function hashFile(absPath) {
+async function hashFile(absPath) {
   let stat;
   try {
     stat = await fsp.lstat(absPath);
@@ -150,7 +150,7 @@ export async function buildManifest(projectDir, relativePaths, env = null) {
  * @param {string} projectDir
  * @param {string} jobName
  */
-export function manifestPath(projectDir, jobName) {
+function manifestPath(projectDir, jobName) {
   return path.join(projectDir, `${jobName}${MANIFEST_SUFFIX}`);
 }
 

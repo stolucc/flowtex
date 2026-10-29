@@ -21,8 +21,6 @@ vi.mock('ioredis', () => ({
   },
 }));
 
-import { initWebSocket } from '../websocket.js';
-
 const PROD_ENV_KEYS = ['FLOWTEX_INSTANCE_MODE', 'REDIS_URL', 'FLOWTEX_YJS_WORKER'];
 const saved = {};
 beforeEach(() => {

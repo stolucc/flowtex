@@ -2453,4 +2453,4 @@ export function findMatchingBrace(text, openPos, respectEscapes = true) {
   return -1;
 }
 
-export { VERBATIM_ENVS, MATH_ENVS, ALIGN_ENVS, TABLE_ENVS, NON_PROSE_COMMANDS, PROSE_COMMANDS, MACRO_DEF_COMMANDS };
+export { TABLE_ENVS };

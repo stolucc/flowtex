@@ -23,6 +23,7 @@ import { sendError, errInfo } from '../middleware/errorHandler.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { resolveUsedFiles } from '../../shared/texDeps.js';
 import { isLocalCompileEnabled } from '../utils/featureFlags.js';
+import { routeParam } from '../utils/routeParam.js';
 // TEMPLATES no longer imported here — all templates are in the DB
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -47,7 +48,7 @@ function zipFailure(res, err, fallback) {
  * @param {import('express').Response} res
  */
 async function requireMembership(req, res) {
-  const member = await projectService.checkMembership(req.params.id, req.session.userId);
+  const member = await projectService.checkMembership(routeParam(req, 'id'), req.session.userId);
   if (!member) {
     res.status(403).json({ error: 'No access to this project' });
     return null;
@@ -61,7 +62,7 @@ async function requireMembership(req, res) {
  * @param {import('express').Response} res
  */
 async function requireEditor(req, res) {
-  const result = await projectService.checkEditor(req.params.id, req.session.userId);
+  const result = await projectService.checkEditor(routeParam(req, 'id'), req.session.userId);
   if (result.error) {
     res.status(result.status).json({ error: result.error });
     return null;
@@ -75,7 +76,7 @@ async function requireEditor(req, res) {
  * @param {import('express').Response} res
  */
 async function requireOwner(req, res) {
-  const result = await projectService.checkOwnership(req.params.id, req.session.userId);
+  const result = await projectService.checkOwnership(routeParam(req, 'id'), req.session.userId);
   if (result.error) {
     res.status(result.status).json({ error: result.error });
     return null;
@@ -115,7 +116,7 @@ router.post('/template-tags', requireAdmin, async (req, res) => {
 /** PUT /api/projects/template-tags/:tagId -- Update a template tag (admin only). */
 router.put('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
-    const tag = await projectService.updateTemplateTag(req.params.tagId, req.body.name, req.body.color);
+    const tag = await projectService.updateTemplateTag(routeParam(req, 'tagId'), req.body.name, req.body.color);
     res.json(tag);
   } catch (err) {
     sendError(res, err);
@@ -125,7 +126,7 @@ router.put('/template-tags/:tagId', requireAdmin, async (req, res) => {
 /** DELETE /api/projects/template-tags/:tagId -- Delete a template tag (admin only). */
 router.delete('/template-tags/:tagId', requireAdmin, async (req, res) => {
   try {
-    await projectService.deleteTemplateTag(req.params.tagId);
+    await projectService.deleteTemplateTag(routeParam(req, 'tagId'));
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
@@ -210,7 +211,7 @@ router.put('/templates/:templateId/tags', requireAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Invalid tag ID' });
       }
     }
-    await projectService.setTemplateTags(req.params.templateId, tagIds);
+    await projectService.setTemplateTags(routeParam(req, 'templateId'), tagIds);
     const tags = tagIds.length
       ? await db.all('SELECT id, name, color FROM template_tags WHERE id = ANY($1)', [tagIds])
       : [];

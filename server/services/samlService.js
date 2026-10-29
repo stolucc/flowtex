@@ -324,27 +324,6 @@ export async function getIdP(id) {
 }
 
 /**
- * Look up an IdP by email domain. Domain compared case-insensitively
- * (RFC 5321 §2.4: domain part of an email is case-insensitive).
- *
- * Returns the first enabled IdP whose allowed_email_domains contains
- * the requested domain. The domain-uniqueness invariant in createIdP
- * means there's at most one match.
- */
-/** @param {string} domain */
-export async function getIdPByDomain(domain) {
-  if (typeof domain !== 'string' || domain.length === 0) return null;
-  const lower = domain.toLowerCase();
-  return db.get(
-    `SELECT * FROM saml_idp_config
-       WHERE enabled = TRUE
-         AND $1 = ANY(allowed_email_domains)
-       LIMIT 1`,
-    [lower],
-  );
-}
-
-/**
  * Create a new IdP config. Enforces:
  *   - entityID is unique (UNIQUE constraint).
  *   - allowed_email_domains don't collide with any OTHER enabled IdP

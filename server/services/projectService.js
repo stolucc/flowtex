@@ -135,7 +135,6 @@ export async function checkMembership(projectId, userId) {
 // value) defaults to the most restrictive posture instead of silently
 // gaining write access. Mirrors the client's isReadOnlyForUser pattern.
 const EDITOR_ROLES = new Set(['owner', 'editor']);
-const COMMENTER_OR_BETTER_ROLES = new Set(['owner', 'editor', 'commenter']);
 
 /** Verify a user has editor (or owner) access; returns {member} or {error, status}.
  *  @param {string} projectId
@@ -146,23 +145,6 @@ export async function checkEditor(projectId, userId) {
   if (!member) return { error: 'No access to this project', status: 403 };
   if (!EDITOR_ROLES.has(member.role)) {
     return { error: 'Only editors can modify this project', status: 403 };
-  }
-  return { member };
-}
-
-/** Verify a user has commenter-or-better access; returns {member} or {error, status}.
- *  Commenter sits between viewer and editor: read + post/reply/react/edit-own/
- *  delete-own comments, but no file content changes. Used by the comment
- *  routes so a project can grant feedback access without exposing files. */
-/**
- * @param {string} projectId
- * @param {string | undefined} userId
- */
-export async function checkCommenter(projectId, userId) {
-  const member = await isProjectMember(projectId, userId);
-  if (!member) return { error: 'No access to this project', status: 403 };
-  if (!COMMENTER_OR_BETTER_ROLES.has(member.role)) {
-    return { error: 'Viewers cannot comment on this project', status: 403 };
   }
   return { member };
 }

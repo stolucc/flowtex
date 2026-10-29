@@ -1,6 +1,5 @@
 // Integration: per-project encryption end-to-end against real PG.
 import { describe, it, expect, beforeEach } from 'vitest';
-import { v4 as uuid } from 'uuid';
 import db from '../../db.js';
 import { seedUser, seedProject, seedFile } from './setup.js';
 import * as enc from '../../services/encryptionService.js';
