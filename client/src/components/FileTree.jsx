@@ -793,10 +793,14 @@ export default function FileTree({
       <div className="file-tree-list">
         {groupByType && fileGroups
           ? [...FILE_CATEGORIES, { key: 'other', label: 'Other' }].map((/** @type {any} */ cat) => {
-              const groupFiles = fileGroups[cat.key];
-              if (!groupFiles || groupFiles.length === 0) return null;
+              const groupFiles = fileGroups[cat.key] || [];
+              // Empty folders live under "Other". Keep that section even
+              // when no file falls into it, or a freshly created folder in
+              // a .tex/.bib/images-only project would never render.
+              const catFolders = cat.key === 'other' ? emptyFolders : [];
+              if (groupFiles.length === 0 && catFolders.length === 0) return null;
               const collapsed = !!collapsedCategories[cat.key];
-              const catTree = buildTree(groupFiles, cat.key === 'other' ? emptyFolders : []);
+              const catTree = buildTree(groupFiles, catFolders);
               return (
                 <React.Fragment key={cat.key}>
                   <div

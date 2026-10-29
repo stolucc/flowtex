@@ -13,8 +13,9 @@ vi.mock('../../api.js', () => ({
 // useProject now calls useAlert() — stub it out for unit tests so
 // renderHook doesn't need an AlertProvider wrapper. The hook just
 // surfaces error messages via this; tests don't assert on the dialog.
+const alertMock = vi.hoisted(() => vi.fn());
 vi.mock('../../contexts/AlertContext.jsx', () => ({
-  useAlert: () => ({ alert: vi.fn(), confirm: vi.fn() }),
+  useAlert: () => ({ alert: alertMock, confirm: vi.fn() }),
 }));
 
 import { get, post, put, patch, del } from '../../api.js';
@@ -405,5 +406,37 @@ it('handleSave honours explicit fileId so a debounced save targets the original 
     expect(result.current.files[0].id).toBe('f1');
     // Should have switched away from deleted file
     expect(result.current.activeFile.id).toBe('f1');
+  });
+
+  describe('handleCreateFolder', () => {
+    const openProject = async () => {
+      const hook = renderHook(() => useProject({ id: 'u1', name: 'User' }));
+      act(() => {
+        hook.result.current.selectProject({ id: 'p1', name: 'Test' });
+      });
+      await waitFor(() => expect(hook.result.current.project?.id).toBe('p1'));
+      return hook;
+    };
+
+    it('adds the server-normalised path to emptyFolders on success', async () => {
+      const { result } = await openProject();
+      post.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ path: 'chapters' }) });
+      await act(async () => {
+        await result.current.handleCreateFolder(' /chapters/ ');
+      });
+      expect(post).toHaveBeenCalledWith('/api/projects/p1/folders', { path: '/chapters/' });
+      expect(result.current.emptyFolders).toContain('chapters');
+      expect(alertMock).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the server error instead of failing silently', async () => {
+      const { result } = await openProject();
+      post.mockResolvedValueOnce({ ok: false, status: 400, json: () => Promise.resolve({ error: 'Invalid folder path' }) });
+      await act(async () => {
+        await result.current.handleCreateFolder('../evil');
+      });
+      expect(alertMock).toHaveBeenCalledWith('Invalid folder path', { title: 'New folder' });
+      expect(result.current.emptyFolders).not.toContain('../evil');
+    });
   });
 });

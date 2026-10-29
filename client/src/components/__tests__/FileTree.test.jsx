@@ -155,3 +155,34 @@ describe('FileTree', () => {
     expect(screen.queryByText('fig1.png')).toBeNull();
   });
 });
+
+// Regression: with group-by-type ON (the default), empty folders were only
+// attached to the "Other" category, and that category is skipped when it
+// has no files -- so in a typical project (.tex/.bib/images only) a newly
+// created folder was saved server-side but never rendered.
+describe('FileTree — empty folders in group-by-type view', () => {
+  it('shows an empty folder even when no file falls into "Other"', () => {
+    renderFileTree({ groupByType: true, emptyFolders: ['chapters'] });
+    expect(screen.getByText('chapters')).toBeTruthy();
+  });
+
+  it('shows nested empty folders', () => {
+    renderFileTree({ groupByType: true, emptyFolders: ['notes/drafts'] });
+    expect(screen.getByText('notes')).toBeTruthy();
+  });
+
+  it('does not render a stray "Other" section when there are no empty folders', () => {
+    renderFileTree({ groupByType: true, emptyFolders: [] });
+    expect(screen.queryByText('Other')).toBeNull();
+  });
+
+  it('still shows empty folders alongside real "Other" files', () => {
+    renderFileTree({
+      groupByType: true,
+      files: [makeFile('1', 'main.tex'), makeFile('9', 'data.xyz')],
+      emptyFolders: ['chapters'],
+    });
+    expect(screen.getByText('chapters')).toBeTruthy();
+    expect(screen.getByText('data.xyz')).toBeTruthy();
+  });
+});

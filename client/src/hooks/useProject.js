@@ -439,12 +439,18 @@ export default function useProject(user) {
       const trimmed = (folderPath || '').trim();
       if (!trimmed) return;
       const res = await post(`/api/projects/${project.id}/folders`, { path: trimmed });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Used to return silently, so a rejected name (or no edit rights)
+        // looked exactly like "the folder didn't appear".
+        const err = await res.json().catch(() => ({}));
+        showAlert(err.error || 'Could not create the folder', { title: 'New folder' });
+        return;
+      }
       const data = await res.json().catch(() => ({ path: trimmed }));
       const stored = data.path || trimmed;
       setEmptyFolders((prev) => (prev.includes(stored) ? prev : [...prev, stored]));
     },
-    [project],
+    [project, showAlert],
   );
 
   const handleSetMainFile = useCallback(
