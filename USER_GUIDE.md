@@ -329,13 +329,14 @@ By default every compile runs on the FlowTex server. If the server has `FEATURE_
 1. **Account Settings → Compile** — the panel walks you through it. Click **Download FlowTex Helper.dmg (arm64 or amd64)**.
 2. Open the `.dmg`, drag **FlowTex Helper** to **Applications**.
 3. Right-click → **Open** the first time so Gatekeeper asks (the binary is ad-hoc signed but not notarised).
-4. Look for the **fTx** label in the menu bar — it's the helper. Click → **Generate pairing code**: a native dialog shows a 6-digit code AND copies it to the clipboard.
-5. Back in Account Settings → Compile, paste the code.
+4. Look for the **fTx** label in the menu bar — it's the helper. Click → **Pair with FlowTex**: this opens a 60-second pairing window.
+5. Back in Account Settings → Compile, click **Pair**. No code to type: the helper verifies the browser runs as your macOS user. (A fallback code is shown for remote-desktop or shared-machine cases; **Use a code instead** takes it.)
 
 That's it. The badge turns green ("Paired. TeX Live YYYY") and your subsequent compiles run on your laptop.
 
 The menu bar also has:
 
+- **Generate pairing code** — the code-based fallback (remote desktop, another OS account).
 - **Open FlowTex pairing page** — opens `flowtex.click` in your browser.
 - **About FlowTex Helper** — shows the helper's version and build SHA so you know what's running.
 - **Default TeX Live** — if you have multiple `/usr/local/texlive/YYYY` installs, pick which year is the default for compiles that don't pin a year.
@@ -359,7 +360,7 @@ The same one-liner from the in-app instructions installs the headless binary on 
 curl -sSL https://github.com/stolucc/flowtex/releases/latest/download/install.sh | bash
 ```
 
-Then run `flowtex-helper` and follow the same pair flow. The install script verifies the GitHub Release's SHA256SUMS before installing; if the checksum file is unreachable it refuses to proceed (override with `FLOWTEX_HELPER_SKIP_CHECKSUM=1`).
+Then run `flowtex-helper`, click **Pair** in Account Settings → Compile, and run `flowtex-helper pair` in a second terminal. The helper checks via `/proc/net/tcp` that the browser connection belongs to your user, so there is no code to type. The install script verifies the GitHub Release's SHA256SUMS before installing; if the checksum file is unreachable it refuses to proceed (override with `FLOWTEX_HELPER_SKIP_CHECKSUM=1`).
 
 To keep the helper running across reboots, register a `systemd --user` unit — see `helper/README.md`.
 

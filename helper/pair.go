@@ -56,6 +56,11 @@ const maxPairAttempts = 5
 type pairingState struct {
 	Code    string `json:"code"`
 	Expires int64  `json:"expires_unix"`
+	// Codeless marks a window opened by `flowtex-helper pair` or the
+	// tray's "Pair with FlowTex". Inside it, POST /pair with no code
+	// succeeds when the connection comes from the helper's own OS
+	// user (see peer.go). The code still works as a fallback.
+	Codeless bool `json:"codeless,omitempty"`
 }
 
 func pairLockPath() (string, error) {
@@ -69,11 +74,12 @@ func pairLockPath() (string, error) {
 // startPairingWindow is invoked from the `pair` subcommand. Writes a
 // fresh code + expiry to the lock file and returns the code so the CLI
 // can print it.
-func startPairingWindow(_ *config) string {
+func startPairingWindow(_ *config, codeless bool) string {
 	code := generatePairCode()
 	state := pairingState{
-		Code:    code,
-		Expires: time.Now().Add(pairingWindowSeconds * time.Second).Unix(),
+		Code:     code,
+		Expires:  time.Now().Add(pairingWindowSeconds * time.Second).Unix(),
+		Codeless: codeless,
 	}
 	// json.Marshal on a struct of plain string/int64 cannot fail at
 	// runtime, but the linter wants the error path acknowledged.
@@ -99,7 +105,8 @@ type pairStore struct {
 	mu       sync.Mutex
 	code     string
 	until    time.Time
-	attempts int // count of wrong-code submissions inside the current window
+	codeless bool // window also accepts a code-free, same-user /pair
+	attempts int  // count of wrong-code submissions inside the current window
 }
 
 func newPairStore() *pairStore { return &pairStore{} }
@@ -133,6 +140,42 @@ func (p *pairStore) loadFromFile() {
 	}
 	p.code = st.Code
 	p.until = time.Unix(st.Expires, 0)
+	p.codeless = st.Codeless
+}
+
+// codelessOpen reports whether a codeless window is currently active.
+func (p *pairStore) codelessOpen() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.codeless && p.code != "" && time.Now().Before(p.until)
+}
+
+// consumeCodeless closes the active codeless window and returns true.
+// It is the code-free counterpart of consume: the caller must already
+// have established that the peer is the helper's own user. A window
+// opened for code entry only (tray "Generate pairing code") is never
+// consumable this way, and a refusal does not count as a wrong-code
+// attempt because no guess was made.
+func (p *pairStore) consumeCodeless() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.codeless || p.code == "" || time.Now().After(p.until) {
+		return false
+	}
+	p.closeLocked()
+	return true
+}
+
+// closeLocked clears the window and removes the lock file. Caller
+// holds p.mu.
+func (p *pairStore) closeLocked() {
+	p.code = ""
+	p.until = time.Time{}
+	p.codeless = false
+	p.attempts = 0
+	if path, err := pairLockPath(); err == nil {
+		_ = os.Remove(path)
+	}
 }
 
 // consume returns (true) if `code` matches the active window. After
@@ -154,12 +197,7 @@ func (p *pairStore) consume(code string) bool {
 	if ok {
 		// Single-use: clear the window AND the lock file so we don't
 		// honour the same code twice.
-		p.code = ""
-		p.until = time.Time{}
-		p.attempts = 0
-		if path, err := pairLockPath(); err == nil {
-			_ = os.Remove(path)
-		}
+		p.closeLocked()
 		return true
 	}
 	// Wrong code. Bump the attempt counter and, if we've hit the
@@ -167,12 +205,7 @@ func (p *pairStore) consume(code string) bool {
 	// hammering. The user can re-open with another `flowtex-helper pair`.
 	p.attempts++
 	if p.attempts >= maxPairAttempts {
-		p.code = ""
-		p.until = time.Time{}
-		p.attempts = 0
-		if path, err := pairLockPath(); err == nil {
-			_ = os.Remove(path)
-		}
+		p.closeLocked()
 	}
 	return false
 }

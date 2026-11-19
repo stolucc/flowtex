@@ -45,11 +45,14 @@ The installer downloads the helper binary, verifies the SHA256 against the relea
 Pairing tells your browser which helper to talk to and exchanges a bearer token.
 
 1. In FlowTex, open **Account Settings → Compile**.
-1. Generate a pairing code:
-   - **macOS / Windows**: click the **fTx** tray icon → **Generate pairing code**. A native dialog shows the 6-digit code and auto-copies it to the clipboard.
-   - **Linux**: run `flowtex-helper pair` in a terminal — it prints a 6-digit code.
-1. Paste the code into the **Pair helper** input in FlowTex.
+1. In FlowTex, open **Account Settings → Compile** and click **Pair**. FlowTex now waits for the helper.
+1. Open a pairing window on the helper (order does not matter, the window stays open for 60 seconds):
+   - **macOS**: click the **fTx** menu-bar icon → **Pair with FlowTex**.
+   - **Linux**: run `flowtex-helper pair` in a terminal.
+   - **Windows**: click the **fTx** tray icon → **Generate pairing code** and paste the 6-digit code (Windows cannot yet verify the browser's user, so it keeps the code).
 1. The status row flips green: **Paired. TeX Live YYYY**.
+
+No code is typed on macOS and Linux: the helper checks that the TCP connection from your browser belongs to the same OS user that runs the helper (via `lsof` on macOS, `/proc/net/tcp` on Linux). That is the same boundary the bearer token already has, since anything running as you could read the token from `~/.flowtex-helper/config.json`. The window also prints a fallback code for the cases the check cannot vouch for: a browser in a remote desktop session, WSL, or a different OS account on a shared machine. Click **Use a code instead** in FlowTex to enter it.
 
 > The code is valid for 60 seconds and can be entered five times before the window closes (brute-force guard). If you miss the window, generate a new one.
 
@@ -112,7 +115,7 @@ go build -o flowtex-helper
 ```
 
 **Pairing failed / paired but compile says "Helper unavailable".**
-Re-pair: in the helper menu bar, **Generate pairing code**, then paste it again in Account Settings → Compile. Tokens rotate on every pair, so the old browser is implicitly de-authenticated.
+Re-pair: click **Pair** in Account Settings → Compile, then **Pair with FlowTex** in the helper menu (or `flowtex-helper pair`). Tokens rotate on every pair, so the old browser is implicitly de-authenticated.
 
 **LLM dialog says "Ollama is running but no models are installed".**
 Pull at least one model: `ollama pull llama3.2:3b`, then re-open the dialog.

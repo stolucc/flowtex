@@ -374,6 +374,92 @@ export async function pairWithHelper(code) {
   }
 }
 
+/**
+ * Codeless pairing: POST /pair with an empty body. The helper accepts
+ * it only while a window opened by "Pair with FlowTex" (tray) or
+ * `flowtex-helper pair` is active AND the TCP peer is the helper's own
+ * OS user (it checks the kernel socket table). On refusal the helper
+ * answers JSON `{ error, reason }`:
+ *
+ *   no_window      nothing to pair with yet — keep polling
+ *   unsupported    this OS cannot verify the peer — use the code
+ *   peer_mismatch  browser runs as another OS user — use the code
+ *
+ * @returns {Promise<{ ok: boolean, reason?: string, error?: string }>}
+ */
+export async function pairWithHelperCodeless() {
+  try {
+    const res = await fetchTryBoth('/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (!res.ok) {
+      let reason = 'error';
+      let error = `Helper returned ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body && typeof body.reason === 'string') reason = body.reason;
+        if (body && typeof body.error === 'string') error = body.error;
+      } catch { /* legacy helper: plain-text error body */ }
+      return { ok: false, reason, error };
+    }
+    const data = await res.json();
+    if (!data?.token || typeof data.token !== 'string') {
+      return { ok: false, reason: 'error', error: 'Helper returned no token' };
+    }
+    setHelperToken(data.token);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: 'unreachable', error: errInfo(err).message || 'Could not reach helper' };
+  }
+}
+
+/**
+ * Drive codeless pairing until it succeeds, is refused for good, or
+ * times out. "no_window" and "unreachable" are transient (the user
+ * has not clicked the tray item yet / helper restarting), everything
+ * else ends the loop so the UI can fall back to the code field.
+ *
+ * All collaborators are injectable for tests; defaults are the real
+ * bridge call and a setTimeout sleep.
+ *
+ * @param {{
+ *   timeoutMs?: number,
+ *   intervalMs?: number,
+ *   pairFn?: () => Promise<{ ok: boolean, reason?: string, error?: string }>,
+ *   sleep?: (ms: number) => Promise<void>,
+ *   shouldStop?: () => boolean,
+ *   now?: () => number,
+ * }} [opts]
+ * @returns {Promise<{ ok: boolean, reason?: string, error?: string }>}
+ */
+export async function autoPairWithHelper(opts = {}) {
+  const {
+    timeoutMs = 90_000,
+    intervalMs = 2_000,
+    pairFn = pairWithHelperCodeless,
+    sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    shouldStop = () => false,
+    now = () => Date.now(),
+  } = opts;
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    if (shouldStop()) return { ok: false, reason: 'cancelled', error: 'Pairing cancelled' };
+    const result = await pairFn();
+    if (result.ok) return result;
+    if (result.reason !== 'no_window' && result.reason !== 'unreachable') return result;
+    if (now() >= deadline) {
+      return {
+        ok: false,
+        reason: 'timeout',
+        error: 'The helper did not open a pairing window. Click "Pair with FlowTex" in the helper menu (fTx) or run `flowtex-helper pair`, then try again.',
+      };
+    }
+    await sleep(intervalMs);
+  }
+}
+
 // Sticky "the helper is offline" marker shared with useHelperStatus.
 // Persisted to localStorage so a paired-but-not-running helper doesn't
 // produce console errors on every page load — once we've confirmed

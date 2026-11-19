@@ -22,6 +22,10 @@ not notarised). After that, look for the **fTx** label in the menu bar
 — click it to:
 
 - Check pairing status (●  Paired  /  ○  Awaiting pairing).
+- **Pair with FlowTex** — opens a 60-second codeless window. Press
+  **Pair** in FlowTex (Account Settings → Compile) and you are done;
+  the helper verifies the browser runs as your macOS user. The
+  dialog also shows a fallback code.
 - **Generate pairing code** — opens a 60-second window. The code
   pops up in a native dialog AND auto-copies to the clipboard, so
   you can paste straight into FlowTex without retyping. The code
@@ -208,12 +212,20 @@ running:
 ./flowtex-helper pair
 ```
 
-The CLI prints a 6-digit code and the helper opens a 60-second pairing
-window. In FlowTex:
+The helper opens a 60-second pairing window. In FlowTex:
 
-1. **Account Settings → Compile → Pair helper** (tab visible only when
-   the server has `FEATURE_LOCAL_COMPILE=1`).
-2. Paste the 6-digit code.
+1. **Account Settings → Compile → Pair** (tab visible only when the
+   server has `FEATURE_LOCAL_COMPILE=1`). Order does not matter: the
+   browser polls until the window is open.
+
+No code is typed. `POST /pair` with an empty body succeeds only inside
+such a window and only when the TCP peer belongs to the helper's own OS
+user (`peer.go`: `/proc/net/tcp` on Linux, `lsof` on macOS). That is the
+same boundary the bearer token has, since any process running as you
+can read `config.json`. The CLI also prints a 6-digit fallback code for
+peers the check cannot vouch for (remote desktop, WSL, another OS
+account); `flowtex-helper pair --code` opens a code-only window, and
+Windows always uses the code (no peer lookup there yet).
 
 On success the browser stores the bearer token in `localStorage` and
 the helper rotates its token (so any previously-paired browser is
@@ -281,7 +293,8 @@ systemctl --user enable --now flowtex-helper.service
 | Command | What it does |
 | --- | --- |
 | `flowtex-helper`                    | Run the helper (foreground). |
-| `flowtex-helper pair`               | Print a 6-digit code, open a 60-second pairing window. |
+| `flowtex-helper pair`               | Open a 60-second pairing window (one click in FlowTex, same-user check; prints a fallback code). |
+| `flowtex-helper pair --code`        | Open a code-only window: the printed 6-digit code is required. |
 | `flowtex-helper rotate`             | Rotate the bearer token. Invalidates every previously-paired browser. |
 | `flowtex-helper allow-origin <url>` | Add a FlowTex origin to the trust list (for self-hosters on a non-default domain). |
 | `flowtex-helper deny-origin <url>`  | Remove an origin from the trust list. |
@@ -318,7 +331,7 @@ auth + origin allowlist + Host pin enforced on everything except
 | ------ | ---- | ---- | ------- |
 | GET    | /health         | none   | Liveness probe. Returns `{"ok":true}`. |
 | GET    | /version        | bearer | TeX Live year, engines, biber, **plus `distributions_available[]`** — every `/usr/local/texlive/YYYY` install the helper can see, used by FlowTex's TeX Live picker. |
-| POST   | /pair           | code   | Single-use 6-digit handshake → fresh bearer token. Code goes in JSON body `{"code":"NNNNNN"}` (legacy `?code=` query still accepted for backwards-compat). |
+| POST   | /pair           | code   | Single-use handshake → fresh bearer token. Body `{"code":"NNNNNN"}` (legacy `?code=` query still accepted), or `{}` inside a codeless window when the peer is the helper's own OS user; refusals are JSON `{error, reason}` with reason `no_window`, `unsupported` or `peer_mismatch`. |
 | POST   | /compile        | bearer | Run a compile. Body: `compileRequest`. Returns `{success, log, pdf}` (PDF is base64). Body capped at 64 MiB via `http.MaxBytesReader`. Rate-limited: 60/min, burst 3, max 2 concurrent — over-budget returns 429 + Retry-After. |
 | POST   | /cancel/:jobId  | bearer | Abort a running compile. |
 | GET    | /llm/status     | bearer | Probes the local Ollama instance. Returns `{available, baseUrl, models[], defaultModel?, error?}`. Drives the in-editor LLM menu (enabled when `available=true`). |

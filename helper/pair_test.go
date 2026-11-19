@@ -146,3 +146,94 @@ func TestGeneratePairCode_FormatAndRange(t *testing.T) {
 		}
 	}
 }
+
+// ── Codeless window ──────────────────────────────────────────────────
+
+func TestPairStore_CodeOnlyWindow_NotConsumableCodeless(t *testing.T) {
+	p := newPairStore()
+	p.code = "123456"
+	p.until = time.Now().Add(60 * time.Second)
+	if p.codelessOpen() {
+		t.Fatal("code-only window must not report codelessOpen")
+	}
+	if p.consumeCodeless() {
+		t.Fatal("code-only window must not be consumable without a code")
+	}
+	if p.attempts != 0 {
+		t.Fatalf("a refused codeless attempt is not a wrong guess; attempts = %d", p.attempts)
+	}
+	if !p.consume("123456") {
+		t.Fatal("window must still accept its code afterwards")
+	}
+}
+
+func TestPairStore_CodelessWindow_ConsumableOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := newPairStore()
+	p.code = "123456"
+	p.until = time.Now().Add(60 * time.Second)
+	p.codeless = true
+	if !p.codelessOpen() {
+		t.Fatal("codeless window should report open")
+	}
+	if !p.consumeCodeless() {
+		t.Fatal("first codeless consume should succeed")
+	}
+	if p.consumeCodeless() {
+		t.Fatal("second codeless consume must fail (single-use)")
+	}
+	if p.consume("123456") {
+		t.Fatal("code must not work after the window was consumed")
+	}
+	if p.codeless {
+		t.Fatal("closing the window must clear the codeless flag")
+	}
+}
+
+func TestPairStore_CodelessWindow_StillAcceptsCode(t *testing.T) {
+	// The code is the fallback for browsers the peer check cannot
+	// vouch for; a codeless window must honour it too.
+	t.Setenv("HOME", t.TempDir())
+	p := newPairStore()
+	p.code = "123456"
+	p.until = time.Now().Add(60 * time.Second)
+	p.codeless = true
+	if !p.consume("123456") {
+		t.Fatal("codeless window should also accept its code")
+	}
+	if p.codelessOpen() {
+		t.Fatal("window must be closed after the code was used")
+	}
+}
+
+func TestPairStore_CodelessWindow_Expired(t *testing.T) {
+	p := newPairStore()
+	p.code = "123456"
+	p.until = time.Now().Add(-1 * time.Second)
+	p.codeless = true
+	if p.codelessOpen() || p.consumeCodeless() {
+		t.Fatal("expired codeless window must be closed")
+	}
+}
+
+func TestPairingState_CodelessRoundTripsThroughLockFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	code := startPairingWindow(&config{}, true)
+	if len(code) != 6 {
+		t.Fatalf("code = %q", code)
+	}
+	p := newPairStore()
+	p.loadFromFile()
+	if !p.codelessOpen() {
+		t.Fatal("loadFromFile should pick up the codeless flag from the lock file")
+	}
+	// And a code-only window written afterwards replaces it.
+	code2 := startPairingWindow(&config{}, false)
+	p.loadFromFile()
+	if p.codelessOpen() {
+		t.Fatal("code-only window must clear codeless")
+	}
+	if !p.consume(code2) {
+		t.Fatal("new window's code should be accepted")
+	}
+}

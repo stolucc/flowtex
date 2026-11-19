@@ -195,7 +195,9 @@ export default function HelperStatusIndicator({ onOpenSettings, onOpenGuide }) {
               <div className="helper-status-popover-meta">
                 <p>
                   The helper is running on this machine but isn&apos;t paired
-                  with this browser. Pair from Account Settings → Compile.
+                  with this browser. Pair from Account Settings → Compile —
+                  one click there plus &quot;Pair with FlowTex&quot; in the
+                  helper menu, no code to type.
                 </p>
               </div>
               <PopoverActions

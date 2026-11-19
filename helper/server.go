@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,6 +26,10 @@ type server struct {
 	logger *log.Logger
 	pair   *pairStore
 	jobs   *jobRegistry
+	// peerCheck answers whether the TCP peer of a request is the
+	// helper's own OS user. Defaults to peerIsSameUser; tests inject
+	// a stub because httptest connections have no kernel socket entry.
+	peerCheck func(remoteAddr string, serverPort int) (bool, error)
 	// compileLimiter caps both the burst rate AND the peak number of
 	// concurrent compiles. Defense against a stolen-bearer attacker
 	// pinning the user's CPU / filling /tmp with parallel latexmk
@@ -66,6 +71,7 @@ func newServer(cfg *config, logger *log.Logger) (*server, error) {
 		logger:         logger,
 		pair:           newPairStore(),
 		jobs:           newJobRegistry(),
+		peerCheck:      peerIsSameUser,
 		compileLimiter: newCompileLimiter(compileSlots, compileRateBurst, compileRatePerMin),
 		llmLimiter:     newCompileLimiter(llmSlots, llmRateBurst, llmRatePerMin),
 	}
@@ -88,8 +94,8 @@ func newServer(cfg *config, logger *log.Logger) (*server, error) {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       2 * time.Minute,  // big projects -> larger uploads
-		WriteTimeout:      0,                 // 0 = no deadline; compile path can run up to compileTimeout
+		ReadTimeout:       2 * time.Minute, // big projects -> larger uploads
+		WriteTimeout:      0,               // 0 = no deadline; compile path can run up to compileTimeout
 		IdleTimeout:       60 * time.Second,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -190,10 +196,10 @@ func (s *server) handlePair(w http.ResponseWriter, r *http.Request) {
 		code = r.URL.Query().Get("code")
 	}
 	if code == "" {
-		http.Error(w, "code required (POST body {\"code\":\"NNNNNN\"})", http.StatusBadRequest)
-		return
-	}
-	if !s.pair.consume(code) {
+		if !s.pairCodeless(w, r) {
+			return
+		}
+	} else if !s.pair.consume(code) {
 		http.Error(w, "no pairing window open, or wrong code", http.StatusForbidden)
 		return
 	}
@@ -206,6 +212,59 @@ func (s *server) handlePair(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"token": s.cfg.BearerToken})
+}
+
+// pairCodeless handles POST /pair with no code. It succeeds only when
+// (a) a codeless window is open (the user just clicked "Pair with
+// FlowTex" in the tray or ran `flowtex-helper pair`) and (b) the TCP
+// peer is the helper's own OS user. Failures are JSON with a machine-
+// readable `reason` so the browser can keep polling on "no_window"
+// but stop immediately on the others:
+//
+//	no_window      nothing to pair with yet; retry after the user opens a window
+//	unsupported    this OS cannot verify the peer; use the 6-digit code
+//	peer_mismatch  a different OS user is connecting; use the code
+//
+// Returns true when the window was consumed and the caller should
+// issue a token.
+func (s *server) pairCodeless(w http.ResponseWriter, r *http.Request) bool {
+	deny := func(status int, reason, msg string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": msg, "reason": reason})
+	}
+	if !s.pair.codelessOpen() {
+		deny(http.StatusForbidden, "no_window",
+			"no pairing window open; click \"Pair with FlowTex\" in the helper menu or run: flowtex-helper pair")
+		return false
+	}
+	same, err := s.peerCheck(r.RemoteAddr, s.cfg.Port)
+	if err != nil {
+		if errors.Is(err, errPeerCheckUnsupported) {
+			deny(http.StatusForbidden, "unsupported",
+				"codeless pairing is not supported on this OS; enter the pairing code instead")
+			return false
+		}
+		s.logger.Printf("codeless pair: peer check failed for %s: %v", r.RemoteAddr, err)
+		deny(http.StatusForbidden, "unsupported",
+			"could not verify that this browser runs as your user; enter the pairing code instead")
+		return false
+	}
+	if !same {
+		// Another OS user on this machine is knocking while our window
+		// is open. Refuse, keep the window (the legitimate user can
+		// still pair with the code), and make it visible in the log.
+		s.logger.Printf("codeless pair REFUSED: connection from %s belongs to a different OS user", r.RemoteAddr)
+		deny(http.StatusForbidden, "peer_mismatch",
+			"this browser is not running as the user who owns the helper; enter the pairing code instead")
+		return false
+	}
+	if !s.pair.consumeCodeless() {
+		deny(http.StatusForbidden, "no_window", "pairing window closed; open a new one and retry")
+		return false
+	}
+	s.logger.Printf("codeless pair accepted from %s", r.RemoteAddr)
+	return true
 }
 
 // compileMaxBodyBytes caps the JSON payload accepted by /compile. The

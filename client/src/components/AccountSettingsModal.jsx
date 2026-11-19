@@ -1,8 +1,9 @@
 // @ts-check
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { get, post, put, patch, del } from '../api.js';
 import {
   pairWithHelper,
+  autoPairWithHelper,
   clearHelperToken,
 } from '../utils/helperBridge.js';
 import { detectPlatform, helperAssetName, helperDownloadURL, helperDmgURL, helperReleasesURL } from '../utils/platformDetect.js';
@@ -256,7 +257,7 @@ function CommandBlock({ label, command, copyKey, copiedCommand, onCopy }) {
   const isCopied = copiedCommand === copyKey;
   return (
     <div style={{ marginBottom: 8 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      {label && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
         <pre style={{
           flex: 1,
@@ -331,6 +332,14 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
   const [pairError, setPairError] = useState('');
   const [pairLoading, setPairLoading] = useState(false);
   const [showPairInput, setShowPairInput] = useState(false);
+  // Codeless pairing: while true we poll POST /pair (no code) every
+  // 2 s until the user opens a window in the helper (tray "Pair with
+  // FlowTex" or `flowtex-helper pair`). The helper verifies the
+  // browser runs as its own OS user, so no code is typed. A ref is
+  // the cancel flag so unmount / Cancel stops the loop.
+  const [autoPairing, setAutoPairing] = useState(false);
+  const autoPairCancelRef = useRef(false);
+  useEffect(() => () => { autoPairCancelRef.current = true; }, []);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(/** @type {any} */ (null));
 
@@ -367,6 +376,31 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
     } finally {
       setPairLoading(false);
     }
+  };
+
+  const handleAutoPair = async () => {
+    setPairError('');
+    setShowPairInput(false);
+    autoPairCancelRef.current = false;
+    setAutoPairing(true);
+    try {
+      const result = await autoPairWithHelper({ shouldStop: () => autoPairCancelRef.current });
+      if (result.ok) {
+        await probeHelper();
+      } else if (result.reason !== 'cancelled') {
+        setPairError(result.error || 'Pairing failed');
+        // The helper cannot vouch for this browser (other OS user,
+        // unsupported platform) — fall back to the code field.
+        if (result.reason === 'peer_mismatch' || result.reason === 'unsupported') setShowPairInput(true);
+      }
+    } finally {
+      setAutoPairing(false);
+    }
+  };
+
+  const cancelAutoPair = () => {
+    autoPairCancelRef.current = true;
+    setAutoPairing(false);
   };
 
   const handleUnpair = () => {
@@ -991,21 +1025,48 @@ export default function AccountSettingsModal({ user, onClose, onUpdate, onAccoun
                   </button>
                 )}
               </div>
-              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && !showPairInput && (
+              {!helperStatus.loading && !helperStatus.available && helperStatus.error === 'unpaired' && !showPairInput && !autoPairing && (
                 <div style={{ fontSize: 13 }}>
+                  <p style={{ margin: '0 0 8px' }}>
+                    Click <strong>Pair with FlowTex</strong> in the helper menu (<strong>fTx</strong>), or on Linux run:
+                  </p>
                   <CommandBlock
-                    label="In a second terminal, generate a pairing code:"
-                    command="./flowtex-helper pair"
+                    label=""
+                    command="flowtex-helper pair"
                     copyKey="pair"
                     copiedCommand={copiedCommand}
                     onCopy={copyToClipboard}
                   />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={handleAutoPair}
+                      style={{ padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                    >
+                      Pair
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPairInput(true)}
+                      style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Use a code instead
+                    </button>
+                  </div>
+                </div>
+              )}
+              {autoPairing && (
+                <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="helper-status-indicator-dot pulse" style={{ background: 'var(--accent)', flex: 'none' }} />
+                  <span>
+                    Waiting for the helper… click <strong>Pair with FlowTex</strong> in the fTx menu (or run <code>flowtex-helper pair</code>). Order does not matter.
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setShowPairInput(true)}
-                    style={{ marginTop: 4, padding: '6px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                    onClick={cancelAutoPair}
+                    style={{ padding: '4px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
                   >
-                    Got a code — pair now
+                    Cancel
                   </button>
                 </div>
               )}

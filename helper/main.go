@@ -55,7 +55,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "pair":
-			runPair(logger)
+			runPair(logger, os.Args[2:])
 			return
 		case "rotate":
 			runRotate(logger)
@@ -212,7 +212,8 @@ func printHelp() {
 
 Usage:
   flowtex-helper                       run the helper (foreground)
-  flowtex-helper pair                  print a one-time 6-digit pairing code
+  flowtex-helper pair                  open a 60s pairing window (one click in FlowTex)
+  flowtex-helper pair --code           same, but require the printed 6-digit code
   flowtex-helper rotate                rotate the bearer token
   flowtex-helper allow-origin <url>    add a FlowTex origin to the trust list
   flowtex-helper deny-origin <url>     remove an origin from the trust list
@@ -225,9 +226,9 @@ TLS cert:    ~/.flowtex-helper/certs/   (only used when running with --tls).
 
 Once running, pair with a FlowTex browser tab:
   1. In this terminal:        flowtex-helper pair
-  2. Copy the 6-digit code.
-  3. In FlowTex:              Account Settings → Compile → Pair helper.
-  4. Paste the code.
+  2. In FlowTex:              Account Settings → Compile → Pair.
+  The helper checks the browser runs as your OS user, so no code is
+  typed. A fallback code is printed for browsers it cannot vouch for.
 
 Self-hosters on a non-default FlowTex domain need to trust their server
 first:
@@ -288,24 +289,61 @@ func endsWithDirty(s string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
-func runPair(logger *log.Logger) {
+// runPair opens a 60-second pairing window. By default the window is
+// codeless: the FlowTex tab pairs with one click, and the helper
+// verifies that the tab runs as the same OS user (peer.go). The code
+// is still printed as a fallback for browsers the check cannot vouch
+// for (remote desktop, WSL, a different OS user). `--code` opens a
+// code-only window, and on platforms without a peer check that is the
+// only kind there is.
+func runPair(logger *log.Logger, args []string) {
 	cfg, err := loadConfig()
 	if err != nil {
 		logger.Fatalf("load config: %v", err)
 	}
-	code := startPairingWindow(cfg)
+	codeOnly := false
+	for _, a := range args {
+		switch a {
+		case "--code", "-code":
+			codeOnly = true
+		default:
+			logger.Fatalf("pair: unknown argument %q (usage: flowtex-helper pair [--code])", a)
+		}
+	}
+	codeless := !codeOnly && peerCheckSupported
+	code := startPairingWindow(cfg, codeless)
+	if codeless {
+		fmt.Printf(`
+Pairing window open for %d seconds.
+
+In FlowTex, open Account Settings -> Compile (or click the Helper dot in
+the toolbar) and press "Pair". No code needed: the helper checks that
+the browser runs as your user on this machine.
+
+Fallback code (remote desktop, WSL, another OS user): %s
+
+The helper process must already be running. If it is not:
+  flowtex-helper
+
+Config dir: %s
+`, pairingWindowSeconds, code, filepath.Dir(cfg.Path))
+		return
+	}
+	if !codeOnly {
+		fmt.Println("(codeless pairing is not available on this OS; using a code)")
+	}
 	fmt.Printf(`
 Pairing code: %s
-This code is valid for 60 seconds. The helper process must already be
+This code is valid for %d seconds. The helper process must already be
 running in another terminal — the code only registers a *future* token
-swap; the actual swap happens when the browser POSTs /pair?code=%s to
-the running helper.
+swap; the actual swap happens when the browser POSTs the code to
+/pair on the running helper.
 
 If the helper is not running, start it first:
   flowtex-helper
 
 Config dir: %s
-`, code, code, filepath.Dir(cfg.Path))
+`, code, pairingWindowSeconds, filepath.Dir(cfg.Path))
 }
 
 func runRotate(logger *log.Logger) {

@@ -29,7 +29,7 @@ function translateStatusError(raw) {
     );
   }
   if (/Helper not paired/i.test(msg)) {
-    return 'Helper not paired. Open Account Settings → Compile, run `flowtex-helper pair`, and paste the 6-digit code.';
+    return 'Helper not paired. Open Account Settings → Compile and click Pair, then "Pair with FlowTex" in the helper menu (or run `flowtex-helper pair`).';
   }
   return msg || 'Helper unavailable';
 }

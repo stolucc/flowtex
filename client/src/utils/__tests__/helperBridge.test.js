@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   compileLocal,
   pairWithHelper,
+  pairWithHelperCodeless,
+  autoPairWithHelper,
   getHelperToken,
   setHelperToken,
   clearHelperToken,
@@ -185,6 +187,115 @@ describe('pairWithHelper', () => {
     }));
     const result = await pairWithHelper('123456');
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('pairWithHelperCodeless', () => {
+  it('posts an empty JSON body to /pair and stores the token', async () => {
+    let seen = null;
+    mockFetchOnce((url, opts) => {
+      seen = { url, opts };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ token: 'feedbeef'.repeat(8) }),
+      });
+    });
+    const result = await pairWithHelperCodeless();
+    expect(result.ok).toBe(true);
+    expect(seen.url).toMatch(/\/pair$/);
+    expect(seen.opts.method).toBe('POST');
+    expect(seen.opts.body).toBe('{}');
+    expect(getHelperToken()).toBe('feedbeef'.repeat(8));
+  });
+
+  it('passes the helper reason through on a JSON refusal', async () => {
+    mockFetchOnce(() => Promise.resolve({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ error: 'no pairing window open', reason: 'no_window' }),
+    }));
+    const result = await pairWithHelperCodeless();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('no_window');
+    expect(result.error).toMatch(/no pairing window/);
+  });
+
+  it('reports reason=error on a legacy plain-text refusal', async () => {
+    mockFetchOnce(() => Promise.resolve({
+      ok: false,
+      status: 400,
+      json: () => Promise.reject(new SyntaxError('not json')),
+    }));
+    const result = await pairWithHelperCodeless();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('error');
+    expect(result.error).toMatch(/400/);
+  });
+
+  it('reports reason=unreachable when the helper is down', async () => {
+    global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+    const result = await pairWithHelperCodeless();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('unreachable');
+  });
+
+  it('does not store a token when the helper omits it', async () => {
+    mockFetchOnce(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) }));
+    const result = await pairWithHelperCodeless();
+    expect(result.ok).toBe(false);
+    expect(getHelperToken()).toBe('');
+  });
+});
+
+describe('autoPairWithHelper', () => {
+  const noSleep = () => Promise.resolve();
+
+  it('keeps polling through no_window and returns the first success', async () => {
+    const answers = [
+      { ok: false, reason: 'no_window' },
+      { ok: false, reason: 'unreachable' },
+      { ok: false, reason: 'no_window' },
+      { ok: true },
+    ];
+    const pairFn = vi.fn(() => Promise.resolve(answers.shift()));
+    const result = await autoPairWithHelper({ pairFn, sleep: noSleep, timeoutMs: 10_000 });
+    expect(result.ok).toBe(true);
+    expect(pairFn).toHaveBeenCalledTimes(4);
+  });
+
+  it('stops immediately on peer_mismatch / unsupported', async () => {
+    for (const reason of ['peer_mismatch', 'unsupported', 'error']) {
+      const pairFn = vi.fn(() => Promise.resolve({ ok: false, reason, error: 'nope' }));
+      const result = await autoPairWithHelper({ pairFn, sleep: noSleep, timeoutMs: 10_000 });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe(reason);
+      expect(pairFn).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('gives up with reason=timeout once the deadline passes', async () => {
+    let t = 0;
+    const pairFn = vi.fn(() => Promise.resolve({ ok: false, reason: 'no_window' }));
+    const sleep = (ms) => { t += ms; return Promise.resolve(); };
+    const result = await autoPairWithHelper({ pairFn, sleep, now: () => t, timeoutMs: 5_000, intervalMs: 2_000 });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('timeout');
+    expect(result.error).toMatch(/Pair with FlowTex/);
+    // Attempts at t = 0, 2000, 4000 and 6000; the deadline check runs
+    // after each refusal, so the fourth attempt (t = 6000 >= 5000) is
+    // the one that gives up.
+    expect(pairFn).toHaveBeenCalledTimes(4);
+  });
+
+  it('honours shouldStop between attempts', async () => {
+    let calls = 0;
+    const pairFn = vi.fn(() => { calls += 1; return Promise.resolve({ ok: false, reason: 'no_window' }); });
+    const result = await autoPairWithHelper({
+      pairFn, sleep: noSleep, timeoutMs: 10_000, shouldStop: () => calls >= 2,
+    });
+    expect(result.reason).toBe('cancelled');
+    expect(pairFn).toHaveBeenCalledTimes(2);
   });
 });
 

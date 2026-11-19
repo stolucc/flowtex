@@ -93,7 +93,8 @@ func onTrayReady() {
 	llmStatusMI.Disable()
 	systray.AddSeparator()
 
-	pairMI := systray.AddMenuItem("Generate pairing code…", "Print a 6-digit code, valid for 60s")
+	pairNowMI := systray.AddMenuItem("Pair with FlowTex", "Open a 60s window; then press Pair in FlowTex — no code to type")
+	pairMI := systray.AddMenuItem("Generate pairing code…", "Print a 6-digit code, valid for 60s (fallback)")
 	openMI := systray.AddMenuItem("Open FlowTex pairing page", "Opens https://flowtex.click in your browser")
 	aboutMI := systray.AddMenuItem("About FlowTex Helper", "Show version + build SHA")
 
@@ -148,6 +149,8 @@ func onTrayReady() {
 
 	for {
 		select {
+		case <-pairNowMI.ClickedCh:
+			go handlePairNow()
 		case <-pairMI.ClickedCh:
 			go handleGeneratePair()
 		case <-openMI.ClickedCh:
@@ -367,7 +370,7 @@ func handleGeneratePair() {
 		return
 	}
 
-	code := startPairingWindow(cfg)
+	code := startPairingWindow(cfg, false)
 	expiry := time.Now().Add(60 * time.Second)
 
 	tray.mu.Lock()
@@ -393,6 +396,73 @@ func handleGeneratePair() {
 		}
 		tray.mu.Unlock()
 	}()
+}
+
+// handlePairNow opens a codeless window: the user then presses Pair in
+// FlowTex and the helper verifies the browser runs as the same OS user
+// (peer.go). The code is still generated and shown as a fallback for
+// browsers the peer check cannot vouch for. The menu line mirrors the
+// code flow so the user can see the window is open.
+func handlePairNow() {
+	tray.mu.Lock()
+	cfg := tray.cfg
+	tray.mu.Unlock()
+	if cfg == nil {
+		return
+	}
+	if !peerCheckSupported {
+		handleGeneratePair()
+		return
+	}
+
+	code := startPairingWindow(cfg, true)
+	expiry := time.Now().Add(pairingWindowSeconds * time.Second)
+
+	tray.mu.Lock()
+	if tray.pairCodeMI != nil {
+		tray.pairCodeMI.Hide()
+	}
+	tray.pairCodeMI = systray.AddMenuItem(fmt.Sprintf("Pairing open — press Pair in FlowTex (fallback code %s)", code), "")
+	tray.pairCodeMI.Disable()
+	tray.pairExpiry = expiry
+	tray.mu.Unlock()
+
+	showPairNowDialog(code)
+
+	go func() {
+		<-time.After(pairingWindowSeconds * time.Second)
+		tray.mu.Lock()
+		if tray.pairCodeMI != nil && !time.Now().Before(tray.pairExpiry) {
+			tray.pairCodeMI.SetTitle("Pairing window expired — click Pair with FlowTex again")
+		}
+		tray.mu.Unlock()
+	}()
+}
+
+// showPairNowDialog tells the user the window is open and where to
+// click. Same osascript / PowerShell plumbing as showPairCodeDialog.
+func showPairNowDialog(code string) {
+	switch runtime.GOOS {
+	case "darwin":
+		script := fmt.Sprintf(
+			`display dialog "Pairing window open for 60 seconds.\n\nSwitch to FlowTex and press Pair (Account Settings > Compile, or the Helper dot in the toolbar).\n\nFallback code if asked: %s" `+
+				`with title "FlowTex Helper" `+
+				`buttons {"OK"} default button "OK" `+
+				`with icon note`,
+			code,
+		)
+		if err := exec.Command("osascript", "-e", script).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show dialog: %v", err)
+		}
+	case "windows":
+		ps := fmt.Sprintf(
+			`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('Pairing window open for 60 seconds.`+"`n`n"+`Switch to FlowTex and press Pair.`+"`n`n"+`Fallback code if asked: %s', 'FlowTex Helper') | Out-Null`,
+			code,
+		)
+		if err := exec.Command("powershell", "-NoProfile", "-Command", ps).Run(); err != nil && tray.logger != nil {
+			tray.logger.Printf("show dialog: %v", err)
+		}
+	}
 }
 
 // showPairCodeDialog pops a native modal with the code. macOS uses
