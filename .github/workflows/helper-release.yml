@@ -25,6 +25,12 @@ on:
 permissions:
   contents: write  # required to create the release
 
+env:
+  # Oldest macOS the helper runs on. Used as the clang deployment
+  # target for the darwin builds and as LSMinimumSystemVersion in the
+  # .app bundle; keep the two in sync via this one value.
+  MACOS_MIN_VERSION: '13.0'
+
 jobs:
   build:
     name: build ${{ matrix.goos }}-${{ matrix.goarch }}
@@ -98,9 +104,34 @@ jobs:
           fi
           BUILD_SHA="$(git rev-parse --short HEAD)"
           BUILD_TIME="$(date -u +%FT%TZ)"
+          if [ "$GOOS" = darwin ]; then
+            # With CGO on, clang picks the deployment target, and its
+            # default is the RUNNER's own macOS version. macos-latest
+            # is macOS 26 now, so helper-v0.3.2 shipped with
+            # LC_BUILD_VERSION minos 26.0 and Sequoia/Sonoma refused
+            # to launch the .app. Pin the floor explicitly; 13.0 is
+            # the oldest macOS the Go 1.27 runtime itself supports.
+            export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+            export CGO_CFLAGS="-mmacosx-version-min=$MACOS_MIN_VERSION"
+            export CGO_LDFLAGS="-mmacosx-version-min=$MACOS_MIN_VERSION"
+          fi
           go build -trimpath \
             -ldflags "-s -w -X main.helperVersion=$VERSION -X main.helperBuildSHA=$BUILD_SHA -X main.helperBuildTime=$BUILD_TIME" \
             -o "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" .
+
+      # Guard against the macos-latest drift above ever coming back:
+      # fail the release if the Mach-O's minimum OS is not the pinned
+      # floor. Cheap, runs on the same runner, no extra tooling.
+      - name: Verify macOS deployment target
+        if: matrix.goos == 'darwin'
+        run: |
+          BIN="dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}"
+          MINOS="$(otool -l "$BIN" | awk '/LC_BUILD_VERSION/{f=1} f && /minos/{print $2; exit}')"
+          echo "LC_BUILD_VERSION minos = $MINOS (expected $MACOS_MIN_VERSION)"
+          if [ "$MINOS" != "$MACOS_MIN_VERSION" ]; then
+            echo "::error::macOS binary targets $MINOS, expected $MACOS_MIN_VERSION — deployment target pin is not taking effect"
+            exit 1
+          fi
 
       # Windows build runs on windows-latest. PowerShell quoting is
       # not bash, so we keep this in its own step rather than juggle
@@ -231,10 +262,16 @@ jobs:
         if: matrix.goos == 'darwin'
         working-directory: helper
         run: |
+          VERSION="${GITHUB_REF_NAME#helper-v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
           scripts/build-app.sh \
             "../dist/flowtex-helper-${{ matrix.goos }}-${{ matrix.goarch }}" \
             "../dist/FlowTex Helper-${{ matrix.goarch }}.app" \
-            "${{ matrix.goarch }}"
+            "${{ matrix.goarch }}" \
+            "$VERSION" \
+            "$MACOS_MIN_VERSION"
           hdiutil create \
             -volname "FlowTex Helper" \
             -srcfolder "../dist/FlowTex Helper-${{ matrix.goarch }}.app" \

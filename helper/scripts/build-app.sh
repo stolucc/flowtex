@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # build-app.sh — turn a Mach-O binary into a minimal macOS .app bundle.
 #
-# Usage: build-app.sh <binary> <output.app> <arch>
+# Usage: build-app.sh <binary> <output.app> <arch> [version] [min-macos]
+#
+# version   → CFBundleShortVersionString (a leading "helper-v" is stripped
+#             so `git describe` output works). Default 0.0.0-dev.
+# min-macos → LSMinimumSystemVersion. Must match the deployment target
+#             the binary was linked with (see helper-release.yml).
+#             Default 13.0.
 #
 # The bundle structure mirrors what Xcode produces for a plain Cocoa
 # app, minus the Resources/ assets (no icon, no nib). LSUIElement=true
@@ -17,6 +23,9 @@ set -euo pipefail
 BIN="${1:?usage: build-app.sh <binary> <output.app> <arch>}"
 APP="${2:?usage: build-app.sh <binary> <output.app> <arch>}"
 ARCH="${3:?usage: build-app.sh <binary> <output.app> <arch>}"
+VERSION="${4:-0.0.0-dev}"
+VERSION="${VERSION#helper-v}"
+MIN_MACOS="${5:-13.0}"
 
 if [ ! -f "$BIN" ]; then
   echo "binary not found: $BIN" >&2
@@ -42,7 +51,7 @@ cat >"$APP/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.0</string>
+  <string>${VERSION}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
@@ -50,7 +59,7 @@ cat >"$APP/Contents/Info.plist" <<EOF
   <key>CFBundleSignature</key>
   <string>????</string>
   <key>LSMinimumSystemVersion</key>
-  <string>11.0</string>
+  <string>${MIN_MACOS}</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSHighResolutionCapable</key>

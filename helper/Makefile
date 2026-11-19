@@ -14,6 +14,15 @@ LDFLAGS := -s -w -X main.helperVersion=$(VERSION) -X main.helperBuildSHA=$(BUILD
 # symbols, no DWARF.
 GOFLAGS := -trimpath -ldflags "$(LDFLAGS)"
 
+# Oldest macOS the helper supports. The darwin targets need CGO (tray
+# UI via Cocoa) and clang would otherwise default the deployment
+# target to the BUILD host's OS version. Keep in sync with
+# MACOS_MIN_VERSION in .github/workflows/helper-release.yml.
+MACOS_MIN_VERSION := 13.0
+MAC_ENV := CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=$(MACOS_MIN_VERSION) \
+  CGO_CFLAGS=-mmacosx-version-min=$(MACOS_MIN_VERSION) \
+  CGO_LDFLAGS=-mmacosx-version-min=$(MACOS_MIN_VERSION)
+
 .PHONY: all build run test clean dist
 .PHONY: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-linux-arm64
 .PHONY: app-mac-arm64 app-mac-amd64 dmg-mac-arm64 dmg-mac-amd64
@@ -37,11 +46,11 @@ dist: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-linux-arm64 dist-windo
 
 dist-mac-arm64:
 	@mkdir -p dist
-	GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -o dist/$(BINARY)-darwin-arm64 .
+	$(MAC_ENV) GOOS=darwin GOARCH=arm64 go build $(GOFLAGS) -o dist/$(BINARY)-darwin-arm64 .
 
 dist-mac-amd64:
 	@mkdir -p dist
-	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BINARY)-darwin-amd64 .
+	$(MAC_ENV) GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BINARY)-darwin-amd64 .
 
 dist-linux-amd64:
 	@mkdir -p dist
@@ -69,10 +78,10 @@ dist-windows-amd64:
 APP_NAME := FlowTex Helper
 
 app-mac-arm64: dist-mac-arm64
-	./scripts/build-app.sh dist/$(BINARY)-darwin-arm64 "dist/$(APP_NAME).app" arm64
+	./scripts/build-app.sh dist/$(BINARY)-darwin-arm64 "dist/$(APP_NAME).app" arm64 "$(VERSION)" "$(MACOS_MIN_VERSION)"
 
 app-mac-amd64: dist-mac-amd64
-	./scripts/build-app.sh dist/$(BINARY)-darwin-amd64 "dist/$(APP_NAME).app" amd64
+	./scripts/build-app.sh dist/$(BINARY)-darwin-amd64 "dist/$(APP_NAME).app" amd64 "$(VERSION)" "$(MACOS_MIN_VERSION)"
 
 dmg-mac-arm64: app-mac-arm64
 	hdiutil create -volname "$(APP_NAME)" -srcfolder "dist/$(APP_NAME).app" \
