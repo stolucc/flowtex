@@ -1,8 +1,9 @@
 name: helper-release
 
-# Builds the flowtex-helper binary for mac arm64, mac amd64, and linux
-# amd64 whenever a tag starting with "helper-v" is pushed (e.g.
-# helper-v0.1.0). Attaches the three binaries plus an install.sh
+# Builds the flowtex-helper binary for mac arm64, mac amd64, linux
+# amd64, linux arm64 and windows amd64 whenever a tag starting with
+# "helper-v" is pushed (e.g. helper-v0.1.0). Attaches the binaries
+# (+ macOS .dmg bundles) plus an install.sh
 # convenience script to a GitHub Release. Users then install with:
 #
 #   curl -sSL https://github.com/stolucc/flowtex/releases/download/helper-v0.1.0/install.sh | bash
@@ -44,6 +45,15 @@ jobs:
             runs-on: macos-latest
           - goos: linux
             goarch: amd64
+            runs-on: ubuntu-latest
+          # linux/arm64 (Raspberry Pi, Ampere / Graviton VMs, Asahi).
+          # Pure cross-compile from the amd64 runner: CGO is off on
+          # Linux and the tray code is excluded by build tags, so no
+          # arm64 toolchain or QEMU is needed. install.sh already maps
+          # `uname -m` = aarch64 to this asset name; without it the
+          # installer refused with "not listed in SHA256SUMS".
+          - goos: linux
+            goarch: arm64
             runs-on: ubuntu-latest
           # Windows build runs on a real windows-latest runner. The
           # systray dependency uses CGO + the Windows shell APIs;
@@ -287,6 +297,7 @@ jobs:
             dist/flowtex-helper-darwin-arm64 \
             dist/flowtex-helper-darwin-amd64 \
             dist/flowtex-helper-linux-amd64 \
+            dist/flowtex-helper-linux-arm64 \
             dist/flowtex-helper-windows-amd64.exe \
             dist/FlowTex-Helper-arm64.dmg \
             dist/FlowTex-Helper-amd64.dmg \

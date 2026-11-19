@@ -33,8 +33,9 @@ export function detectPlatform() {
     return { os: 'darwin', arch: 'arm64' };
   }
   if (/Linux/i.test(platform) || /Linux/i.test(ua)) {
-    // We only ship linux-amd64; ARM Linux users will need to build
-    // from source.
+    // Browsers expose no arch signal on Linux, so the direct-download
+    // link assumes amd64. The release also ships linux-arm64; ARM
+    // users get it via install.sh, which switches on `uname -m`.
     return { os: 'linux', arch: 'amd64' };
   }
   if (/Win/i.test(platform)) {

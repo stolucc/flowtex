@@ -1,8 +1,8 @@
 # flowtex-helper build targets.
 #
 # Default build is the host arch. Cross-compile targets cover mac arm64,
-# mac intel, and linux x86_64 — the three platforms Phase 1 ships for.
-# Windows deferred per the design doc.
+# mac intel, linux x86_64, linux arm64 and windows x86_64 — the same
+# set .github/workflows/helper-release.yml publishes.
 
 BINARY := flowtex-helper
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
@@ -15,7 +15,7 @@ LDFLAGS := -s -w -X main.helperVersion=$(VERSION) -X main.helperBuildSHA=$(BUILD
 GOFLAGS := -trimpath -ldflags "$(LDFLAGS)"
 
 .PHONY: all build run test clean dist
-.PHONY: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64
+.PHONY: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-linux-arm64
 .PHONY: app-mac-arm64 app-mac-amd64 dmg-mac-arm64 dmg-mac-amd64
 
 all: build
@@ -33,7 +33,7 @@ clean:
 	rm -f $(BINARY)
 	rm -rf dist
 
-dist: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-windows-amd64
+dist: dist-mac-arm64 dist-mac-amd64 dist-linux-amd64 dist-linux-arm64 dist-windows-amd64
 
 dist-mac-arm64:
 	@mkdir -p dist
@@ -46,6 +46,12 @@ dist-mac-amd64:
 dist-linux-amd64:
 	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BINARY)-linux-amd64 .
+
+# Linux is headless (tray excluded by build tags) and CGO-free, so the
+# arm64 build is a plain cross-compile from any host.
+dist-linux-arm64:
+	@mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GOFLAGS) -o dist/$(BINARY)-linux-arm64 .
 
 # Windows: -H=windowsgui suppresses the console window that would
 # otherwise pop up when the user double-clicks the .exe (tray apps

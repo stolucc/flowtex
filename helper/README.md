@@ -131,7 +131,7 @@ make build
 ```
 
 Produces `./flowtex-helper` for your host. Cross-compile for the
-three supported targets:
+supported targets:
 
 ```bash
 make dist
@@ -139,6 +139,8 @@ ls dist/
 # flowtex-helper-darwin-arm64
 # flowtex-helper-darwin-amd64
 # flowtex-helper-linux-amd64
+# flowtex-helper-linux-arm64
+# flowtex-helper-windows-amd64.exe
 ```
 
 To produce the macOS `.app` bundle + `.dmg` (host-arch only — needs

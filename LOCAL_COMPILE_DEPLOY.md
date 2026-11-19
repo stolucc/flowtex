@@ -106,7 +106,8 @@ git push origin helper-v0.1.0
 ```
 
 GitHub Actions (`.github/workflows/helper-release.yml`) builds
-mac-arm64, mac-amd64, and linux-amd64 binaries, runs the helper's
+mac-arm64, mac-amd64, linux-amd64, linux-arm64 and windows-amd64
+binaries (+ macOS .dmg bundles), runs the helper's
 Go unit tests, generates SHA256SUMS, and attaches everything to a
 GitHub Release with the matching tag. Takes ~3 min.
 
